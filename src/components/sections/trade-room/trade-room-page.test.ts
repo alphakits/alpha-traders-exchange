@@ -136,6 +136,39 @@ describe("Trade Room client stability helpers", () => {
     expect(getPrimaryAction(acceptedFaceToFace, "admin-not-in-trade", false, true)).toBeNull();
   });
 
+  it("keeps the complete cardless-withdrawal CTA sequence available in both languages", () => {
+    const cardless = {
+      ...room({ status: "accepted" }).request,
+      paymentMethod: "Cardless ATM Withdrawal",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      buyerEvidence: undefined,
+      sellerEvidence: undefined,
+    } as PurchaseRequest;
+
+    expect(getPrimaryAction(cardless, "buyer-1", false, false)).toMatchObject({
+      label: "Upload Payment Receipt",
+      mode: "upload",
+      uploadSide: "buyer",
+    });
+    expect(getPrimaryAction({ ...cardless, status: "payment_sent" }, "seller-1", true, false)).toMatchObject({
+      label: "تأكيد استلام الأموال",
+      nextStatus: "funds_received",
+    });
+    expect(getPrimaryAction({ ...cardless, status: "funds_received" }, "seller-1", false, false)).toMatchObject({
+      label: "Release USDT",
+      nextStatus: "usdt_release_pending",
+    });
+    expect(getPrimaryAction({ ...cardless, status: "usdt_release_pending" }, "seller-1", true, false)).toMatchObject({
+      label: "تأكيد إرسال USDT",
+      nextStatus: "usdt_sent",
+    });
+    expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "buyer-1", false, false)).toMatchObject({
+      label: "Confirm USDT Received",
+      nextStatus: "completed",
+    });
+  });
+
   it("requires confirmation and keeps the Face-to-Face action on both responsive website surfaces", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 

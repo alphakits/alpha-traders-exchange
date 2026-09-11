@@ -25,7 +25,8 @@ const nextConfig: NextConfig = {
     // Keep static export writes deterministic. With multiple export workers,
     // Next can recreate `.next/export/500.html` while the parent process removes
     // the temporary directory, intermittently failing an otherwise valid build
-    // with ENOTEMPTY after every page has been generated.
+    // with ENOTEMPTY after every page has been generated. The production-build
+    // wrapper also gives that exact generated-directory cleanup a bounded retry.
     cpus: 1,
   },
   async headers() {

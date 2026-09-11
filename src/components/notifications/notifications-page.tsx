@@ -15,7 +15,10 @@ import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
-import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
+import {
+  getExplicitNonTradeRoomNotificationDestination,
+  getSafeInternalNotificationDestination,
+} from "@/lib/notification-action-destination";
 import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -60,14 +63,7 @@ type NotificationGroup = {
 const PAGE_SIZE = 20;
 const MOBILE_FETCH_LIMIT = 40;
 const DESKTOP_FETCH_LIMIT = 120;
-const NOTIFICATIONS_CACHE_PREFIX = "alpha.notifications.page.v2.";
-const NOTIFICATIONS_CACHE_MAX_AGE_MS = 45_000;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-
-type NotificationsCachePayload = {
-  fetchedAt: number;
-  payload: NotificationsPayload;
-};
 
 function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trade") return Scale;
@@ -144,37 +140,6 @@ function matchesFilter(notification: AlphaExchangeNotification, filter: Notifica
   if (filter === "listings") return notification.category === "listing";
   if (filter === "reviews") return isReview(notification);
   return isAnnouncement(notification);
-}
-
-function notificationsCacheKey(userId: string) {
-  return `${NOTIFICATIONS_CACHE_PREFIX}${encodeURIComponent(userId)}`;
-}
-
-function readNotificationsCache(userId: string) {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(notificationsCacheKey(userId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as NotificationsCachePayload;
-    if (!parsed?.payload || typeof parsed.fetchedAt !== "number") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeNotificationsCache(userId: string, payload: NotificationsPayload) {
-  if (typeof window === "undefined") return;
-  try {
-    const serialized: NotificationsCachePayload = {
-      fetchedAt: Date.now(),
-      payload,
-    };
-    window.sessionStorage.setItem(notificationsCacheKey(userId), JSON.stringify(serialized));
-  } catch {
-    // A cache quota or privacy-mode restriction must not turn a successful
-    // server response into an inbox loading error.
-  }
 }
 
 function notificationGroupLabel(notificationDate: Date, locale: AppLocale) {
@@ -333,11 +298,9 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   const loadNotifications = useCallback(async ({
     offset = 0,
     append = false,
-    force = false,
   }: {
     offset?: number;
     append?: boolean;
-    force?: boolean;
   } = {}) => {
     if (!canLoadNotifications) return;
     if (append) {
@@ -347,17 +310,6 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     }
     setError(null);
     try {
-      if (filter === "all" && !append && !force && offset === 0) {
-        const cached = readNotificationsCache(userId);
-        if (cached && Date.now() - cached.fetchedAt <= NOTIFICATIONS_CACHE_MAX_AGE_MS) {
-          const incoming = sortNotificationsNewestFirst(cached.payload.notifications ?? []);
-          setNotifications(incoming);
-          setTotalCount(cached.payload.total ?? incoming.length);
-          setUnreadCount(cached.payload.unreadCount ?? 0);
-          return;
-        }
-      }
-
       const params = new URLSearchParams({
         limit: String(fetchLimit),
         offset: String(offset),
@@ -385,12 +337,6 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       });
       setTotalCount(payload.total ?? incoming.length);
       setUnreadCount(payload.unreadCount ?? 0);
-      if (filter === "all" && offset === 0) {
-        writeNotificationsCache(userId, {
-          ...payload,
-          notifications: incoming,
-        });
-      }
     } catch {
       setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
     } finally {
@@ -400,7 +346,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         setLoading(false);
       }
     }
-  }, [canLoadNotifications, canonicalSession, fetchLimit, filter, isAr, userId]);
+  }, [canLoadNotifications, canonicalSession, fetchLimit, filter, isAr]);
 
   useEffect(() => {
     if (isMobileViewport === null || !canLoadNotifications) return;
@@ -511,14 +457,15 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   }
 
   function extractSellerApplicationId(notification: AlphaExchangeNotification) {
-    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
-    if (!href) return null;
-    try {
-      const parsed = new URL(href, "https://www.alphatraders.co.il");
-      const byQuery = parsed.searchParams.get("sellerApplication");
-      if (byQuery?.trim()) return byQuery.trim();
-    } catch {
-      return null;
+    for (const href of [notification.actionHref, notification.relatedHref]) {
+      if (!href?.trim()) continue;
+      try {
+        const parsed = new URL(href, "https://www.alphatraders.co.il");
+        const byQuery = parsed.searchParams.get("sellerApplication");
+        if (byQuery?.trim()) return byQuery.trim();
+      } catch {
+        // Continue to a valid related fallback.
+      }
     }
     return null;
   }
@@ -581,7 +528,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       })
         ?? fallbackHref;
     }
-    return notification.actionHref ?? notification.relatedHref ?? null;
+    return getSafeInternalNotificationDestination(notification);
   }
 
   async function openNotificationDestination(notification: AlphaExchangeNotification) {
@@ -604,9 +551,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     if (requestId) {
       prefetchTradeRoom(router, requestId, userId);
     }
-    if (!notification.isRead) {
-      await handleMarkOneRead(notification.id);
-    }
+    if (!notification.isRead) void handleMarkOneRead(notification.id);
     router.push(destination);
   }
 
@@ -614,7 +559,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     const applicationId = extractSellerApplicationId(notification);
     if (!applicationId) return;
     const actionKey = `${decision}:${notification.id}`;
-    if (itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`]) return;
+    if (itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`]) return;
     setItemLoading((prev) => ({ ...prev, [actionKey]: true }));
     try {
       const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
@@ -653,16 +598,13 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         setError(isAr ? "تعذر تحديث الإشعار." : "Failed to update notification.");
         return;
       }
-      const nextNotifications = notifications.map((item) => (item.id === notificationId ? { ...item, isRead: true } : item));
+      const nextNotifications = notifications.map((item) => (
+        item.id === notificationId ? { ...item, isRead: true, state: "read" as const } : item
+      ));
       const sortedNextNotifications = sortNotificationsNewestFirst(nextNotifications);
       const nextUnreadCount = Math.max(0, unreadCount - 1);
       setNotifications(sortedNextNotifications);
       setUnreadCount(nextUnreadCount);
-      writeNotificationsCache(userId, {
-        notifications: sortedNextNotifications,
-        total: totalCount,
-        unreadCount: nextUnreadCount,
-      });
     } finally {
       setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
@@ -681,16 +623,34 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         setError(isAr ? "تعذر تحديث الإشعارات." : "Failed to update notifications.");
         return;
       }
-      const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true })));
+      const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true, state: "read" as const })));
       setNotifications(nextNotifications);
       setUnreadCount(0);
-      writeNotificationsCache(userId, {
-        notifications: nextNotifications,
-        total: totalCount,
-        unreadCount: 0,
-      });
     } finally {
       setIsMarkingAllRead(false);
+    }
+  }
+
+  async function handleDismissNotification(notification: AlphaExchangeNotification) {
+    const key = `dismiss:${notification.id}`;
+    if (itemLoading[key]) return;
+    setItemLoading((prev) => ({ ...prev, [key]: true }));
+    setError(null);
+    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
+    setTotalCount((prev) => Math.max(0, prev - 1));
+    if (!notification.isRead) setUnreadCount((prev) => Math.max(0, prev - 1));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss" }),
+      });
+      if (!response.ok) throw new Error("notification_dismiss_failed");
+    } catch {
+      setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
+      await loadNotifications({ offset: 0, append: false });
+    } finally {
+      setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
   }
 
@@ -914,7 +874,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                                   size="sm"
                                   variant="default"
                                   className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`])}
+                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
                                   loading={Boolean(itemLoading[`approve:${notification.id}`])}
                                   loadingLabel={isAr ? "جاري القبول..." : "Approving..."}
                                   onClick={() => void handleSellerApplicationDecision(notification, "approve")}
@@ -926,12 +886,24 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                                   size="sm"
                                   variant="destructive"
                                   className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`])}
+                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
                                   loading={Boolean(itemLoading[`reject:${notification.id}`])}
                                   loadingLabel={isAr ? "جاري الرفض..." : "Rejecting..."}
                                   onClick={() => void handleSellerApplicationDecision(notification, "reject")}
                                 >
                                   {isAr ? "رفض الطلب" : "Reject application"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
+                                  loading={Boolean(itemLoading[`dismiss:${notification.id}`])}
+                                  loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
+                                  onClick={() => void handleDismissNotification(notification)}
+                                >
+                                  {isAr ? "لاحقاً" : "Later"}
                                 </Button>
                                 {!notification.isRead ? (
                                   <Button

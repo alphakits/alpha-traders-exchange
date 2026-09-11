@@ -3,6 +3,7 @@ import type {
   MobileNotification,
   MobileNotificationDestination,
 } from "@alpha-traders/contracts";
+import { getSafeInternalNotificationDestination } from "@/lib/notification-action-destination";
 import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { localizeNotificationCopy } from "@/lib/notification-localization";
 import type { AlphaExchangeNotification, NotificationTradeSnapshot } from "@/types/alpha-exchange";
@@ -15,7 +16,7 @@ function safeResourceId(value: string | null | undefined) {
 }
 
 function notificationDestination(notification: AlphaExchangeNotification): MobileNotificationDestination | null {
-  const explicitHref = notification.actionHref?.trim() || notification.relatedHref?.trim() || "";
+  const explicitHref = getSafeInternalNotificationDestination(notification) ?? "";
   let explicitPath = "";
   if (explicitHref.startsWith("/") && !explicitHref.startsWith("//")) {
     try {
@@ -40,9 +41,19 @@ function notificationDestination(notification: AlphaExchangeNotification): Mobil
   if (/^\/(?:profile|dashboard)(?:\/|$)/i.test(explicitPath)) return { screen: "profile" };
   if (/^\/onboarding(?:\/|$)/i.test(explicitPath)) return { screen: "seller_application" };
 
-  const requestId = safeResourceId(
-    notification.relatedRequestId ?? notification.tradeSnapshot?.requestId,
-  );
+  let explicitTradeRoomRequestId: string | null = null;
+  const explicitTradeRoomMatch = explicitPath.match(/^\/trade-room\/([^/]+)(?:\/|$)/i);
+  if (explicitTradeRoomMatch?.[1]) {
+    try {
+      explicitTradeRoomRequestId = safeResourceId(decodeURIComponent(explicitTradeRoomMatch[1]));
+    } catch {
+      explicitTradeRoomRequestId = null;
+    }
+  }
+
+  const requestId = safeResourceId(notification.relatedRequestId)
+    ?? safeResourceId(notification.tradeSnapshot?.requestId)
+    ?? explicitTradeRoomRequestId;
   if (requestId && (
     notification.category === "trade"
     || notification.category === "review"

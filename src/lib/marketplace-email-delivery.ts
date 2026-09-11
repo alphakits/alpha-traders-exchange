@@ -16,6 +16,7 @@ export type MarketplaceEmailEvent =
   | "trade_cancelled"
   | "trade_room_message"
   | "trade_room_poke"
+  | "trade_action_reminder"
   | "listing_approved"
   | "listing_rejected"
   | "listing_submitted"

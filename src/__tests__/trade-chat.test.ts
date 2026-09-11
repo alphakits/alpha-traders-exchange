@@ -179,6 +179,32 @@ describe("Trade Room participant communication", () => {
     expect(snapshot().notifications.some((entry) => entry.userId === SELLER_ID)).toBe(false);
   });
 
+  it("does not treat chat as the required lifecycle action or clear the hourly reminder clock", async () => {
+    const request = snapshot().purchaseRequests[0]!;
+    request.inactivityWarningSentAt = "2026-09-10T10:00:00.000Z";
+    request.actionReminderState = {
+      stage: "accepted",
+      actionStartedAt: "2026-09-10T09:00:00.000Z",
+      buyer: {
+        userId: BUYER_ID,
+        lastSentAt: "2026-09-10T10:00:00.000Z",
+        reminderCount: 1,
+      },
+    };
+
+    await postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      message: "I am still reviewing the payment step.",
+    });
+
+    expect(snapshot().purchaseRequests[0]?.inactivityWarningSentAt).toBe("2026-09-10T10:00:00.000Z");
+    expect(snapshot().purchaseRequests[0]?.actionReminderState).toMatchObject({
+      stage: "accepted",
+      buyer: { reminderCount: 1 },
+    });
+  });
+
   it("durably marks counterparty messages Seen and publishes the receipt to the sender", async () => {
     const posted = await postTradeRoomMessage({
       purchaseRequestId: "trade-1",

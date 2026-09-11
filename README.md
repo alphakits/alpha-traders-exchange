@@ -230,6 +230,7 @@ Set these in Vercel for every environment that should build successfully:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_DB_URL` — **must be the Supabase connection pooler URL, not the direct host URL.**
+- `CRON_SECRET` — a unique random value of at least 32 characters used by Vercel's hourly Trade Room reminder job.
 
 > **CRITICAL — `SUPABASE_DB_URL` must use the connection pooler.**  
 > Vercel serverless functions cannot resolve `db.<ref>.supabase.co` (direct host).  
@@ -259,7 +260,6 @@ Optional environment variables:
 - `ADMIN_ACCESS_KEY`
 - `ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD`
 - `ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB`
-- `ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES`
 - `SUPABASE_ADMIN_MEDIA_BUCKET=admin-media`
 - `SUPABASE_DB_SSL=true` (default behavior; only set `false` for local trusted Postgres)
 - `BUYER_OTP_EXPIRY_MINUTES=10`

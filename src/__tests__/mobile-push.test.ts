@@ -64,6 +64,38 @@ describe("native lock-screen push payloads", () => {
       .toBe("اكتملت الصفقة");
   });
 
+  it("preserves the exact safe action target for admin, commission, and chat pushes", () => {
+    const subscription = {
+      expoPushToken: "ExponentPushToken[abcdefghijklmnop]",
+      locale: "en" as const,
+    };
+    expect(buildExpoPushMessage(notification({
+      actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-123",
+    }), subscription).data.url).toBe(
+      "https://www.alphatraders.co.il/en/admin/alpha-exchange?section=seller-applications&sellerApplication=application-123",
+    );
+    expect(buildExpoPushMessage(notification({
+      actionHref: "/usdt-exchange?commission=pay&commissionId=commission-123#commission-payment",
+    }), subscription).data.url).toBe(
+      "https://www.alphatraders.co.il/en/usdt-exchange?commission=pay&commissionId=commission-123#commission-payment",
+    );
+    expect(buildExpoPushMessage(notification({
+      actionHref: "/ar/trade-room/request-123?action=open-trade#chat",
+    }), subscription).data.url).toBe(
+      "https://www.alphatraders.co.il/en/trade-room/request-123?action=open-trade#chat",
+    );
+  });
+
+  it("rejects external action targets and falls back to the authorized native route", () => {
+    const message = buildExpoPushMessage(notification({
+      actionHref: "https://attacker.example/phishing",
+    }), {
+      expoPushToken: "ExponentPushToken[abcdefghijklmnop]",
+      locale: "en",
+    });
+    expect(message.data.url).toBe("https://www.alphatraders.co.il/en/trade-room/request-123");
+  });
+
   it("sets the lock-screen badge to the user's bounded unread total", () => {
     const subscription = {
       expoPushToken: "ExponentPushToken[abcdefghijklmnop]",

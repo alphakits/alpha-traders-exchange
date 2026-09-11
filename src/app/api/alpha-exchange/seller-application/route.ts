@@ -6,6 +6,7 @@ import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
 import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import { sellerApplicationReviewDestination, sellerApplicationStatusDestination } from "@/lib/action-destinations";
+import { sellerApplicationErrorCodeFromMessage } from "@/lib/seller-application-errors";
 const SELLER_APPLICATION_ERROR_STATUS: Record<string, number> = {
   "Account not found.": 404,
   "Owner accounts cannot submit seller applications.": 403,
@@ -18,6 +19,13 @@ const SELLER_APPLICATION_ERROR_STATUS: Record<string, number> = {
   "WhatsApp number is required.": 400,
   "At least one selling method is required.": 400,
 };
+
+function sellerApplicationErrorResponse(error: string, status: number) {
+  return NextResponse.json(
+    { error, code: sellerApplicationErrorCodeFromMessage(error) ?? "UNEXPECTED" },
+    { status },
+  );
+}
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
@@ -34,24 +42,24 @@ export async function POST(request: NextRequest) {
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   if (isAlphaExchangeOwnerEmail(user.email)) {
     logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Owner cannot apply as seller" });
-    return NextResponse.json({ error: "Owner accounts cannot submit seller applications." }, { status: 403 });
+    return sellerApplicationErrorResponse("Owner accounts cannot submit seller applications.", 403);
   }
   if (hasRole(user, "admin")) {
     logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Admin cannot apply as seller" });
-    return NextResponse.json({ error: "Administrator accounts cannot submit seller applications." }, { status: 403 });
+    return sellerApplicationErrorResponse("Administrator accounts cannot submit seller applications.", 403);
   }
   if (!hasRole(user, "buyer")) {
     logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Buyer verification required" });
-    return NextResponse.json({ error: "Buyer verification required before seller application." }, { status: 403 });
+    return sellerApplicationErrorResponse("Buyer verification required before seller application.", 403);
   }
   if (user.sellerStatus === "approved_seller") {
-    return NextResponse.json({ error: "You are already an approved seller." }, { status: 400 });
+    return sellerApplicationErrorResponse("You are already an approved seller.", 400);
   }
   if (user.sellerStatus === "pending_seller_approval") {
-    return NextResponse.json({ error: "Your seller application is already pending review." }, { status: 400 });
+    return sellerApplicationErrorResponse("Your seller application is already pending review.", 400);
   }
   if (user.sellerStatus === "suspended") {
-    return NextResponse.json({ error: "Your account is suspended." }, { status: 403 });
+    return sellerApplicationErrorResponse("Your account is suspended.", 403);
   }
 
   let payload: Record<string, unknown> = {};
@@ -69,7 +77,7 @@ export async function POST(request: NextRequest) {
       outcome: "denied",
       reason: "invalid_request_body",
     });
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return sellerApplicationErrorResponse("Invalid request body.", 400);
   }
 
   const preferredNetworksInput = payload.preferredNetworks;
@@ -82,13 +90,13 @@ export async function POST(request: NextRequest) {
   const whatsappNumber = String(payload.whatsappNumber ?? user.whatsappNumber).trim();
 
   if (!fullName) {
-    return NextResponse.json({ error: "Full name is required." }, { status: 400 });
+    return sellerApplicationErrorResponse("Full name is required.", 400);
   }
   if (!whatsappNumber) {
-    return NextResponse.json({ error: "WhatsApp number is required." }, { status: 400 });
+    return sellerApplicationErrorResponse("WhatsApp number is required.", 400);
   }
   if (preferredNetworks.length === 0) {
-    return NextResponse.json({ error: "At least one selling method is required." }, { status: 400 });
+    return sellerApplicationErrorResponse("At least one selling method is required.", 400);
   }
   const validationMs = Date.now() - validationStartedAt;
 
@@ -133,18 +141,12 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error) {
       if (Object.prototype.hasOwnProperty.call(SELLER_APPLICATION_ERROR_STATUS, error.message)) {
         const mappedStatus = SELLER_APPLICATION_ERROR_STATUS[error.message];
-        return NextResponse.json(
-          { error: error.message },
-          { status: mappedStatus },
-        );
+        return sellerApplicationErrorResponse(error.message, mappedStatus);
       }
       if (/\brequired\b/i.test(error.message)) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 400 },
-        );
+        return sellerApplicationErrorResponse(error.message, 400);
       }
     }
-    return NextResponse.json({ error: "An unexpected error occurred. Please try again." }, { status: 500 });
+    return sellerApplicationErrorResponse("An unexpected error occurred. Please try again.", 500);
   }
 }

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getTradeRoomData } from "@/lib/alpha-exchange-store";
+import { getTradeRoomData, type TradeRoomData } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -37,6 +37,36 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (emailVerificationRequired) return emailVerificationRequired;
   const { requestId } = await context.params;
 
+  // Resolve authorization before constructing a 200 SSE response. Previously,
+  // an outsider received 200 first and only then saw an error event from inside
+  // the stream, which leaked resource existence and started needless timers.
+  const initialSnapshotStartedAt = Date.now();
+  let initialSnapshot: TradeRoomData;
+  try {
+    initialSnapshot = await getTradeRoomData({
+      purchaseRequestId: requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      markMessagesRead: false,
+      strongConsistency: true,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load trade room.";
+    const status = message === "Trade not found."
+      ? 404
+      : message === "You are not allowed to access trade evidence."
+        ? 403
+        : 400;
+    return Response.json(
+      {
+        error: status === 403 ? "You are not allowed to access this Trade Room." : message,
+        code: status === 404 ? "TRADE_NOT_FOUND" : status === 403 ? "TRADE_FORBIDDEN" : "TRADE_ROOM_LOAD_FAILED",
+      },
+      { status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const initialSnapshotMs = Date.now() - initialSnapshotStartedAt;
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -45,6 +75,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       let snapshotQueued = false;
       let unsubscribe: (() => void) | null = null;
       let keepAlive: ReturnType<typeof setInterval> | null = null;
+      let pendingInitialSnapshot: TradeRoomData | null = initialSnapshot;
       const cleanup = () => {
         if (closed) return;
         closed = true;
@@ -79,17 +110,22 @@ export async function GET(request: NextRequest, context: RouteContext) {
         snapshotInFlight = true;
         const snapshotStartMs = Date.now();
         try {
-          const room = await getTradeRoomData({
-            purchaseRequestId: requestId,
-            actorUserId: user.id,
-            actorRole: user.role,
-            markMessagesRead: false,
-            // Local realtime events already update the writer's cache. The
-            // periodic SSE reconciliation must bypass that per-instance cache
-            // so another server instance observes the durable message/Poke.
-            strongConsistency: trigger !== "event",
-          });
-          const snapshotMs = Date.now() - snapshotStartMs;
+          const room = trigger === "init" && pendingInitialSnapshot
+            ? pendingInitialSnapshot
+            : await getTradeRoomData({
+                purchaseRequestId: requestId,
+                actorUserId: user.id,
+                actorRole: user.role,
+                markMessagesRead: false,
+                // Local realtime events already update the writer's cache. The
+                // periodic SSE reconciliation must bypass that per-instance cache
+                // so another server instance observes the durable message/Poke.
+                strongConsistency: trigger !== "event",
+              });
+          const snapshotMs = trigger === "init" && pendingInitialSnapshot
+            ? initialSnapshotMs
+            : Date.now() - snapshotStartMs;
+          pendingInitialSnapshot = null;
           const sentAtEpochMs = Date.now();
           const envelope = {
             ...room,

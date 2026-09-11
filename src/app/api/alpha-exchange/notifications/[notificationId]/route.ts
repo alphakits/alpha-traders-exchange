@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteNotification, markNotificationReadState } from "@/lib/alpha-exchange-store";
+import {
+  deleteNotification,
+  markNotificationReadState,
+  updateNotificationState,
+} from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 
 type RouteContext = {
@@ -14,19 +18,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { notificationId } = await context.params;
     const validationStartedAt = Date.now();
-    const body = await request.json();
-    const isRead = body.isRead === true;
+    const body = await request.json() as { action?: unknown; isRead?: unknown; state?: unknown };
     const validationMs = Date.now() - validationStartedAt;
     const logicStartedAt = Date.now();
-    const notification = await markNotificationReadState({
-      userId: user.id,
-      notificationId,
-      isRead,
-    });
+    const shouldArchive = body.action === "dismiss" || body.state === "archived";
+    if (!shouldArchive && typeof body.isRead !== "boolean") {
+      return NextResponse.json({ error: "Invalid notification action." }, { status: 400 });
+    }
+    const notification = shouldArchive
+      ? await updateNotificationState({ userId: user.id, notificationId, state: "archived" })
+      : await markNotificationReadState({
+          userId: user.id,
+          notificationId,
+          isRead: body.isRead as boolean,
+        });
     const logicMs = Date.now() - logicStartedAt;
     const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({ notification }, {
       headers: {
+        "Cache-Control": "private, no-store",
         "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Validation-Ms": String(validationMs),
         "X-Trade-Logic-Ms": String(logicMs),

@@ -1,6 +1,6 @@
 import { getWalletAddressValidationError } from "@/lib/wallet-address";
 
-export type CommissionNetworkId = "ERC20" | "POLYGON" | "SOL";
+export type CommissionNetworkId = "TRC20";
 
 export type CommissionWalletResolution =
   | {
@@ -19,146 +19,81 @@ export type CommissionWalletConfiguration = Record<CommissionNetworkId, {
   error: string | null;
 }>;
 
-type EnvironmentValues = Readonly<Record<string, string | undefined>>;
-
 export interface CommissionNetworkConfig {
   id: CommissionNetworkId;
   label: string;
   sublabel: string;
   token: string;
   recommended?: boolean;
-  /** Public env var for client-side access */
-  publicEnvVar: string;
-  /** Server-side env var (never exposed to browser) */
-  serverEnvVar: string;
 }
+
+/**
+ * Commission recipients are public by design. Keeping one code-level address
+ * makes the browser, API verifier, mobile app, and production build use the
+ * exact same destination without an environment-variable split-brain risk.
+ */
+export const CANONICAL_TRC20_COMMISSION_WALLET = "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8";
 
 export const COMMISSION_NETWORKS: CommissionNetworkConfig[] = [
   {
-    id: "ERC20",
-    label: "USDT (ERC20 / Ethereum)",
-    sublabel: "Ethereum Mainnet",
+    id: "TRC20",
+    label: "USDT (TRC20 / TRON)",
+    sublabel: "TRON Mainnet",
     token: "USDT",
     recommended: true,
-    publicEnvVar: "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20",
-    serverEnvVar: "ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20",
-  },
-  {
-    id: "POLYGON",
-    label: "USDT (Polygon)",
-    sublabel: "Polygon Mainnet",
-    token: "USDT",
-    publicEnvVar: "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON",
-    serverEnvVar: "ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON",
-  },
-  {
-    id: "SOL",
-    label: "USDT (Solana SPL)",
-    sublabel: "Solana Mainnet",
-    token: "USDT",
-    publicEnvVar: "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL",
-    serverEnvVar: "ALPHA_EXCHANGE_COMMISSION_WALLET_SOL",
   },
 ];
 
 function normalizeCommissionNetwork(network: string) {
   const normalized = network.trim().toUpperCase();
-  if (normalized === "ERC20" || normalized === "ERC-20" || normalized === "ETH" || normalized === "ETHEREUM") {
-    return "ERC20" as const;
+  if (normalized === "TRC20" || normalized === "TRC-20" || normalized === "TRON" || normalized === "TRX") {
+    return "TRC20" as const;
   }
-  if (normalized === "POLYGON" || normalized === "MATIC") return "POLYGON" as const;
-  if (normalized === "SOL" || normalized === "SOLANA") return "SOL" as const;
   return null;
 }
 
-function getConfiguredValue(env: EnvironmentValues, key: string) {
-  const value = env[key]?.trim();
-  return value || null;
-}
-
-function addressesMatch(network: CommissionNetworkId, left: string, right: string) {
-  return network === "SOL"
-    ? left === right
-    : left.toLowerCase() === right.toLowerCase();
-}
-
 function getAddressValidationError(network: CommissionNetworkId, address: string) {
-  // Polygon uses the same EVM address format as ERC20/Ethereum.
-  return getWalletAddressValidationError(network === "POLYGON" ? "ERC20" : network, address);
+  return getWalletAddressValidationError(network, address);
 }
 
 /**
- * Resolves the one canonical destination for a commission-payment rail.
- * When a server-side and public value are both configured, they must point to
- * the same address. That prevents the browser from displaying one recipient
- * while the verifier records another.
+ * Resolves the only destination accepted for new commission payments.
  */
 export function resolveCommissionWalletForNetwork(
   network: string,
-  env: EnvironmentValues = process.env,
 ): CommissionWalletResolution {
   const normalizedNetwork = normalizeCommissionNetwork(network);
   if (!normalizedNetwork) {
     return {
       available: false,
       network: null,
-      error: "Commission payments are supported only on ERC20, Polygon, or Solana.",
+      error: "All new Alpha Traders commission payments must use USDT on TRON (TRC20).",
     };
   }
 
   const config = COMMISSION_NETWORKS.find((item) => item.id === normalizedNetwork)!;
-  const publicAddress = getConfiguredValue(env, config.publicEnvVar);
-  const serverAddress = getConfiguredValue(env, config.serverEnvVar);
-
-  for (const address of [publicAddress, serverAddress]) {
-    if (!address) continue;
-    if (getAddressValidationError(normalizedNetwork, address)) {
-      return {
-        available: false,
-        network: normalizedNetwork,
-        error: `Commission wallet configuration for ${config.label} is invalid. Please contact Alpha Traders support.`,
-      };
-    }
-  }
-
-  // Commission recipients are intentionally public: a seller must see the
-  // exact destination before submitting a payment. A server-only value would
-  // let a direct API request be verified against an address the UI cannot
-  // display, so it is not a valid interactive payment configuration.
-  if (!publicAddress) {
+  if (getAddressValidationError(normalizedNetwork, CANONICAL_TRC20_COMMISSION_WALLET)) {
     return {
       available: false,
       network: normalizedNetwork,
-      error: `No public commission wallet is configured for ${config.label}. Please contact Alpha Traders support.`,
-    };
-  }
-
-  if (serverAddress && !addressesMatch(normalizedNetwork, publicAddress, serverAddress)) {
-    return {
-      available: false,
-      network: normalizedNetwork,
-      error: `Commission wallet configuration for ${config.label} is inconsistent. Please contact Alpha Traders support.`,
+      error: `Commission wallet configuration for ${config.label} is invalid. Please contact Alpha Traders support.`,
     };
   }
 
   return {
     available: true,
     network: normalizedNetwork,
-    // The public address is selected so the displayed recipient and server
-    // verification destination are byte-for-byte identical.
-    walletAddress: publicAddress,
+    walletAddress: CANONICAL_TRC20_COMMISSION_WALLET,
   };
 }
 
 /**
- * Server-safe availability data for the payment UI. It never exposes a
- * server-only address, only whether the canonical resolver can use the rail.
+ * Availability data for the payment UI.
  */
 export function getCommissionWalletConfiguration(
-  env: EnvironmentValues = process.env,
 ): CommissionWalletConfiguration {
   return Object.fromEntries(COMMISSION_NETWORKS.map((config) => {
-    const result = resolveCommissionWalletForNetwork(config.id, env);
+    const result = resolveCommissionWalletForNetwork(config.id);
     return [config.id, {
       available: result.available,
       error: result.available ? null : result.error,
@@ -172,42 +107,27 @@ export function getCommissionWalletConfiguration(
  */
 export function getCommissionWalletForNetwork(
   network: string,
-  env: EnvironmentValues = process.env,
 ): string | null {
-  const result = resolveCommissionWalletForNetwork(network, env);
+  const result = resolveCommissionWalletForNetwork(network);
   return result.available ? result.walletAddress : null;
 }
 
-/** Default network — ERC20 (Ethereum), recommended for broadest wallet support. */
+/** Default network — TRC20 (TRON), the canonical Alpha Traders commission rail. */
 export function getDefaultCommissionNetwork(): CommissionNetworkId {
-  return "ERC20";
+  return "TRC20";
 }
 
 /**
- * Client-side wallet address map populated from NEXT_PUBLIC_ env vars.
- * Keyed by network id. Values are empty strings when not configured.
+ * Client-side wallet address map keyed by the current commission network.
  */
 export function getClientCommissionWalletForNetwork(
   network: CommissionNetworkId,
-  env: EnvironmentValues = process.env,
 ) {
-  const config = COMMISSION_NETWORKS.find((item) => item.id === network)!;
-  const address = getConfiguredValue(env, config.publicEnvVar);
-  return address && !getAddressValidationError(network, address) ? address : "";
+  return network === "TRC20" && !getAddressValidationError(network, CANONICAL_TRC20_COMMISSION_WALLET)
+    ? CANONICAL_TRC20_COMMISSION_WALLET
+    : "";
 }
 
-// Keep these direct references so Next.js embeds the public configuration in
-// the browser bundle. Dynamic process.env indexing is server-safe but is not
-// substituted by Next's client compiler.
-const CLIENT_COMMISSION_ENV: EnvironmentValues = {
-  NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20: process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20,
-  NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON: process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON,
-  NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL: process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL,
-};
-
 export const CLIENT_COMMISSION_WALLETS: Record<CommissionNetworkId, string> = {
-  ERC20: getClientCommissionWalletForNetwork("ERC20", CLIENT_COMMISSION_ENV),
-  POLYGON: getClientCommissionWalletForNetwork("POLYGON", CLIENT_COMMISSION_ENV),
-  SOL: getClientCommissionWalletForNetwork("SOL", CLIENT_COMMISSION_ENV),
+  TRC20: getClientCommissionWalletForNetwork("TRC20"),
 };
-

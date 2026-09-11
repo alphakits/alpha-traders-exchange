@@ -43,4 +43,34 @@ describe("GuestOnboarding canonical session refresh", () => {
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/usdt-exchange"));
     expect(sequence).toEqual(["refresh", "navigate"]);
   });
+
+  it("requires and submits WhatsApp for an existing buyer seller application", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ destination: "/usdt-exchange#seller-application" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<GuestOnboarding locale="ar" isBuyer phoneVerificationEnabled={false} />);
+    const sellerCard = screen.getByRole("heading", { name: "التقدّم للحصول على صفة بائع" }).closest("article");
+    expect(sellerCard).not.toBeNull();
+    const sellerApplication = within(sellerCard!);
+    const submitButton = sellerApplication.getByRole("button", { name: "تقديم طلب البائع" });
+
+    expect(submitButton.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(sellerApplication.getByLabelText("رقم واتساب المطلوب"), { target: { value: "0501234567" } });
+    fireEvent.click(sellerApplication.getByRole("button", { name: "سحب من الصراف دون بطاقة" }));
+    expect(submitButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(submitButton);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alpha-exchange/seller-application",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      whatsappNumber: "0501234567",
+      preferredNetworks: ["Cardless Withdrawal"],
+    });
+  });
 });

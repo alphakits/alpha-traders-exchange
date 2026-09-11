@@ -31,7 +31,9 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
     redirect(`/${locale}/admin/alpha-exchange`);
   }
 
-  if (!hasRole(user, "approved_seller")) {
+  // Suspended sellers retain read/payment access so they can settle an
+  // outstanding commission. Listing mutations remain restricted separately.
+  if (!hasRole(user, "approved_seller") && user.sellerStatus !== "suspended") {
     redirect(`/${locale}/dashboard`);
   }
 

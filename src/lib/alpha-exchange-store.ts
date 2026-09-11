@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
@@ -58,6 +59,7 @@ import {
   resolveListingPaymentMethods,
 } from "@/lib/marketplace-payment-methods";
 import {
+  getIsraeliBankOptions,
   MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
   parseIsraeliBankSelection,
   serializeIsraeliBankSelection,
@@ -113,6 +115,7 @@ import type {
   TradeEvidenceSide,
   TradeChatMessage,
   TradeTimelineEntry,
+  TradeActionReminderState,
   TradeRoomPokeState,
   TradeTimelineEventType,
   AlphaExchangeTradeReminder,
@@ -135,7 +138,7 @@ import type {
   MarketplaceEnforcementStatus,
   OwnerSettings,
 } from "@/types/alpha-exchange";
-import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import { getWalletAddressValidationError, normalizeWalletAddress, tronAddressToHex } from "@/lib/wallet-address";
 import {
   adminCommissionDestination,
   adminMarketplaceEnforcementDestination,
@@ -288,7 +291,6 @@ const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
 const MAX_SELLER_BANK_ACCOUNTS = 2;
-const TRADE_INACTIVITY_WARNING_MINUTES = 15;
 export const TRADE_ROOM_POKE_COOLDOWN_MS = 5 * 60_000;
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
@@ -632,9 +634,12 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     notification.reason === COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON
     || /\bcommission\s+(?:due|overdue)\b/.test(commissionDueText)
   );
+  const explicitCommissionPaymentHref = notification.reason === COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON
+    ? sanitizeInternalNotificationHref(notification.actionHref) ?? sanitizeInternalNotificationHref(notification.relatedHref)
+    : undefined;
   const commissionPaymentHref = isCommissionPaymentDue && matchingSellerCommission
     ? commissionPaymentDestination(matchingSellerCommission.id)
-    : undefined;
+    : explicitCommissionPaymentHref;
   const sellerContext = resolveNotificationSellerContext(db, notification);
   const sellerProfileHref = notification.category === "trust" ? sellerContext?.profileHref : undefined;
   const relatedHref = commissionPaymentHref
@@ -700,7 +705,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedHref,
     actionHref,
     actionLabel: commissionPaymentHref
-      ? "Pay Commission"
+      ? notification.actionLabel?.trim() || "Pay Commission"
       : notification.actionLabel?.trim() || (sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)),
     reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason,
     tradeSnapshot: isTradeNotification && recipientIsTradeParticipant
@@ -777,10 +782,6 @@ function getListingExpirationIso(base: string, hours?: number | string) {
   const baseMs = new Date(base).getTime();
   const safeBaseMs = Number.isNaN(baseMs) || baseMs <= 0 ? Date.now() : baseMs;
   return new Date(safeBaseMs + getListingExpirationHours(hours) * 60 * 60 * 1000).toISOString();
-}
-
-function getStaleTradeTimeoutMinutes() {
-  return TRADE_INACTIVITY_WARNING_MINUTES;
 }
 
 function extensionForEvidenceMimeType(mimeType: string) {
@@ -902,6 +903,204 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
   }
   if (isQaCommissionModeEnabled()) return 1;
   return roundUsdt(record.commissionAmount);
+}
+
+const USDT_MICROS_PER_TOKEN = 1_000_000;
+const MAX_COMMISSION_PAYMENT_SUFFIX_MICROS = 999_999;
+const COMMISSION_PAYMENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const TRON_TX_NOT_FOUND_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+function usdtToMicros(value: number) {
+  return Math.round(value * USDT_MICROS_PER_TOKEN);
+}
+
+function microsToUsdt(value: number) {
+  return Number((value / USDT_MICROS_PER_TOKEN).toFixed(6));
+}
+
+/**
+ * TRC20 has no memo and every seller pays one shared Binance deposit address.
+ * Give each unpaid commission an exact six-decimal amount so an incoming
+ * transfer can be bound to one record instead of merely claimed by TxID.
+ * Existing valid assignments are reserved first; new/legacy records receive
+ * the lowest free micro-USDT suffix. Paid assignments remain permanently
+ * reserved so a different transfer with a previously used amount can never
+ * be claimed for a future commission during its payment window.
+ */
+function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
+  const assignments = new Map<string, number>();
+  const issuedUniqueExpectedMicros = new Map<number, string>();
+  const usedExpectedMicros = new Set<number>();
+  const payableRecords = db.commissionRecords.filter(
+    (record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+  );
+  let changed = false;
+  const assignmentUpdatedAt = nowIso();
+  const markAssignmentChanged = (record: CommissionRecord) => {
+    record.updatedAt = assignmentUpdatedAt;
+    changed = true;
+  };
+
+  // Every amount that has ever been issued is immutable and permanently
+  // reserved. Silently reallocating a stored value could strand a seller who
+  // already sent the amount that the UI showed them.
+  for (const record of db.commissionRecords) {
+    for (const reservedAmount of record.paymentReservedExpectedAmounts ?? []) {
+      if (!Number.isFinite(reservedAmount) || reservedAmount <= 0) {
+        throw new Error(`Commission ${record.id} has an invalid reserved payment amount. Contact Alpha Traders support.`);
+      }
+      usedExpectedMicros.add(usdtToMicros(reservedAmount));
+    }
+    if (typeof record.paymentExpectedAmount !== "number") continue;
+    const baseMicros = usdtToMicros(getCommissionAmountDueUsdt(db, record));
+    const storedAmount = record.paymentExpectedAmount;
+    const storedMicros = usdtToMicros(storedAmount);
+    const suffixMicros = storedMicros - baseMicros;
+    const inferredMode = record.paymentExpectedAmountMode
+      ?? (suffixMicros === 0 && record.paymentSignature && record.paymentSubmittedAt ? "legacy_base" : "unique_v1");
+    if (inferredMode === "legacy_base") {
+      if (suffixMicros !== 0 || !record.paymentSignature || !record.paymentSubmittedAt) {
+        throw new Error(`Commission ${record.id} has an invalid legacy payment assignment. Contact Alpha Traders support.`);
+      }
+      const paymentStatus = normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt);
+      const isCompatibleOriginalTrc20Submission = record.paymentNetwork === "TRC20"
+        && record.recipientWalletAddress === CANONICAL_TRC20_COMMISSION_WALLET
+        && (paymentStatus === "paid" || record.paymentVerificationStatus === "pending_verification");
+      if (!isCompatibleOriginalTrc20Submission) {
+        // A terminal or incompatible pre-upgrade submission cannot safely keep
+        // the shared base amount. Reissue it as a fresh exact intent below so
+        // the seller can self-service a new transfer and TxID.
+        record.paymentReservedExpectedAmounts = Array.from(new Set([
+          ...(record.paymentReservedExpectedAmounts ?? []),
+          storedAmount,
+        ]));
+        usedExpectedMicros.add(storedMicros);
+        record.paymentExpectedAmount = undefined;
+        record.paymentExpectedAmountMode = undefined;
+        record.paymentExpectedAmountAssignedAt = undefined;
+        if (record.paymentVerificationStatus === "pending_verification") {
+          record.paymentVerificationStatus = "failed";
+          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. No payment was credited. Send the newly shown exact amount as USDT on TRON (TRC20) to the Binance commission address, then submit the new TxID.";
+        }
+        markAssignmentChanged(record);
+        continue;
+      }
+      if (record.paymentExpectedAmountMode !== inferredMode) {
+        record.paymentExpectedAmountMode = inferredMode;
+        markAssignmentChanged(record);
+      }
+      if (!record.paymentExpectedAmountAssignedAt) {
+        const submittedAtMs = new Date(record.paymentSubmittedAt).getTime();
+        const createdAtMs = new Date(record.createdAt).getTime();
+        const legacyLowerBoundMs = Math.max(
+          Number.isFinite(createdAtMs) ? createdAtMs : 0,
+          Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
+        );
+        record.paymentExpectedAmountAssignedAt = new Date(legacyLowerBoundMs || Date.now()).toISOString();
+        markAssignmentChanged(record);
+      } else if (!Number.isFinite(new Date(record.paymentExpectedAmountAssignedAt).getTime())) {
+        throw new Error(`Commission ${record.id} has an invalid payment amount issue time. Contact Alpha Traders support.`);
+      }
+      assignments.set(record.id, storedMicros);
+      usedExpectedMicros.add(storedMicros);
+      continue;
+    }
+    if (
+      !Number.isFinite(storedAmount)
+      || suffixMicros < 1
+      || suffixMicros > MAX_COMMISSION_PAYMENT_SUFFIX_MICROS
+    ) {
+      throw new Error(`Commission ${record.id} has an invalid exact payment amount. Contact Alpha Traders support.`);
+    }
+    if (record.paymentExpectedAmountMode !== inferredMode) {
+      record.paymentExpectedAmountMode = inferredMode;
+      markAssignmentChanged(record);
+    }
+    const existingRecordId = issuedUniqueExpectedMicros.get(storedMicros);
+    if (existingRecordId && existingRecordId !== record.id) {
+      throw new Error(`Commission payment amount collision between ${existingRecordId} and ${record.id}. Contact Alpha Traders support.`);
+    }
+    issuedUniqueExpectedMicros.set(storedMicros, record.id);
+    usedExpectedMicros.add(storedMicros);
+    if (normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid") {
+      assignments.set(record.id, storedMicros);
+      if (!record.paymentExpectedAmountAssignedAt) {
+        record.paymentExpectedAmountAssignedAt = assignmentUpdatedAt;
+        markAssignmentChanged(record);
+      } else if (!Number.isFinite(new Date(record.paymentExpectedAmountAssignedAt).getTime())) {
+        throw new Error(`Commission ${record.id} has an invalid payment amount issue time. Contact Alpha Traders support.`);
+      }
+    }
+  }
+
+  for (const record of payableRecords) {
+    let expectedMicros = assignments.get(record.id);
+    if (expectedMicros === undefined) {
+      const baseMicros = usdtToMicros(getCommissionAmountDueUsdt(db, record));
+      const hasPriorUnassignedSubmission = Boolean(
+        record.paymentSignature
+        && record.paymentSubmittedAt
+        && (record.paymentVerificationStatus === "pending_verification" || record.paymentVerificationStatus === "failed")
+      );
+      const hasCompatibleTrc20Rail = record.paymentNetwork === "TRC20"
+        && record.recipientWalletAddress === CANONICAL_TRC20_COMMISSION_WALLET;
+      const hasLegacySubmission = hasPriorUnassignedSubmission
+        && hasCompatibleTrc20Rail
+        && record.paymentVerificationStatus === "pending_verification";
+      if (hasPriorUnassignedSubmission && !hasLegacySubmission) {
+        const baseAmount = microsToUsdt(baseMicros);
+        record.paymentReservedExpectedAmounts = Array.from(new Set([
+          ...(record.paymentReservedExpectedAmounts ?? []),
+          baseAmount,
+        ]));
+        usedExpectedMicros.add(baseMicros);
+        if (record.paymentVerificationStatus === "pending_verification") {
+          record.paymentVerificationStatus = "failed";
+          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. No payment was credited. Send the newly shown exact amount as USDT on TRON (TRC20) to the Binance commission address, then submit the new TxID.";
+        }
+        markAssignmentChanged(record);
+      }
+      if (hasLegacySubmission) {
+        const submittedAtMs = new Date(record.paymentSubmittedAt as string).getTime();
+        const createdAtMs = new Date(record.createdAt).getTime();
+        const legacyLowerBoundMs = Math.max(
+          Number.isFinite(createdAtMs) ? createdAtMs : 0,
+          Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
+        );
+        record.paymentExpectedAmount = microsToUsdt(baseMicros);
+        record.paymentExpectedAmountMode = "legacy_base";
+        record.paymentExpectedAmountAssignedAt = new Date(legacyLowerBoundMs || Date.now()).toISOString();
+        assignments.set(record.id, baseMicros);
+        usedExpectedMicros.add(baseMicros);
+        markAssignmentChanged(record);
+        continue;
+      }
+      expectedMicros = baseMicros + 1;
+      const upperBound = baseMicros + MAX_COMMISSION_PAYMENT_SUFFIX_MICROS;
+      while (expectedMicros <= upperBound && usedExpectedMicros.has(expectedMicros)) {
+        expectedMicros += 1;
+      }
+      if (expectedMicros > upperBound) {
+        throw new Error("Unable to assign a unique commission payment amount. Please contact Alpha Traders support.");
+      }
+      assignments.set(record.id, expectedMicros);
+      issuedUniqueExpectedMicros.set(expectedMicros, record.id);
+      usedExpectedMicros.add(expectedMicros);
+      record.paymentExpectedAmount = microsToUsdt(expectedMicros);
+      record.paymentExpectedAmountMode = "unique_v1";
+      record.paymentExpectedAmountAssignedAt = assignmentUpdatedAt;
+      markAssignmentChanged(record);
+    }
+  }
+  return changed;
+}
+
+function getCommissionPaymentAmountDueUsdt(record: CommissionRecord) {
+  const expected = Number(record.paymentExpectedAmount);
+  if (!Number.isFinite(expected) || expected <= 0) {
+    throw new Error("Commission payment amount is unavailable. Please refresh and try again.");
+  }
+  return microsToUsdt(usdtToMicros(expected));
 }
 
 function addDaysIso(value: string, days: number) {
@@ -2063,6 +2262,43 @@ function isValidPurchaseStatus(value: string): value is PurchaseRequestStatus {
   );
 }
 
+function isTradeActionReminderStage(value: unknown): value is TradeActionReminderState["stage"] {
+  return value === "pending"
+    || value === "accepted"
+    || value === "payment_sent"
+    || value === "funds_received"
+    || value === "usdt_release_pending"
+    || value === "usdt_sent";
+}
+
+function normalizeTradeActionReminderState(value: unknown): TradeActionReminderState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (!isTradeActionReminderStage(raw.stage) || typeof raw.actionStartedAt !== "string") return undefined;
+
+  const normalizeRecipient = (candidate: unknown) => {
+    if (!candidate || typeof candidate !== "object") return undefined;
+    const recipient = candidate as Record<string, unknown>;
+    if (typeof recipient.userId !== "string" || typeof recipient.lastSentAt !== "string") return undefined;
+    const reminderCount = Math.max(1, Math.floor(Number(recipient.reminderCount ?? 1)));
+    if (!Number.isFinite(reminderCount)) return undefined;
+    return {
+      userId: recipient.userId,
+      lastSentAt: recipient.lastSentAt,
+      reminderCount,
+    };
+  };
+
+  const buyer = normalizeRecipient(raw.buyer);
+  const seller = normalizeRecipient(raw.seller);
+  return {
+    stage: raw.stage,
+    actionStartedAt: raw.actionStartedAt,
+    ...(buyer ? { buyer } : {}),
+    ...(seller ? { seller } : {}),
+  };
+}
+
 const VALID_TRADE_TIMELINE_TYPES = {
   request_submitted: true,
   price_offer_submitted: true,
@@ -2230,6 +2466,48 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     .filter((application) => application.status === "pending")
     .map((application) => application.userId));
   const sellerApplicationUserIds = new Set((db.sellerApplications ?? []).map((application) => application.userId));
+  const approvedApplicationPaymentMethodsByUserId = new Map<string, ReturnType<typeof resolveListingPaymentMethods>>();
+  for (const application of db.sellerApplications ?? []) {
+    if (application.status !== "approved") continue;
+    const methods = resolveListingPaymentMethods(application.preferredNetworks);
+    if (!methods.length) continue;
+    approvedApplicationPaymentMethodsByUserId.set(
+      application.userId,
+      resolveListingPaymentMethods([
+        ...(approvedApplicationPaymentMethodsByUserId.get(application.userId) ?? []),
+        ...methods,
+      ]),
+    );
+  }
+  const configuredIsraeliBanks = new Set(
+    getIsraeliBankOptions()
+      .filter((bank) => bank.code !== "generic")
+      .map((bank) => bank.name),
+  );
+  const legacyCardlessListingIds = new Set(
+    (db.marketplaceListings ?? [])
+      .filter((listing) => {
+        const methods = resolveListingPaymentMethods(
+          (listing as { paymentMethods?: string[] }).paymentMethods,
+          (listing as { paymentMethod?: string }).paymentMethod,
+        );
+        const hasConfiguredBank = parseIsraeliBankSelection((listing as { bankName?: string }).bankName)
+          .some((bank) => configuredIsraeliBanks.has(bank));
+        // A legacy onboarding/submission failure could drop only the cardless
+        // choice from an otherwise complete fiat-method listing. Restrict the
+        // repair to that exact signature so bank-only listings stay bank-only.
+        return hasConfiguredBank
+          && methods.some(isBankTransferPaymentMethod)
+          && methods.some(isFaceToFacePaymentMethod)
+          && !methods.some(isCardlessAtmPaymentMethod);
+      })
+      .map((listing) => listing.id),
+  );
+  const legacyCardlessListingSellerIds = new Set(
+    (db.marketplaceListings ?? [])
+      .filter((listing) => legacyCardlessListingIds.has(listing.id))
+      .map((listing) => listing.sellerId),
+  );
   const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
@@ -2303,6 +2581,14 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const normalizedLanguages = Array.isArray((user as { languages?: string[] }).languages)
         ? (user as { languages: string[] }).languages.map((language) => String(language).trim()).filter(Boolean)
         : ["English"];
+      const storedPreferredPaymentMethods = Array.isArray((user as { preferredPaymentMethods?: string[] }).preferredPaymentMethods)
+        ? (user as { preferredPaymentMethods: string[] }).preferredPaymentMethods.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+      const preferredPaymentMethods = Array.from(new Set([
+        ...storedPreferredPaymentMethods,
+        ...(approvedApplicationPaymentMethodsByUserId.get(user.id) ?? []),
+        ...(legacyCardlessListingSellerIds.has(user.id) ? ["Cardless ATM Withdrawal"] : []),
+      ]));
       return {
         ...user,
         email,
@@ -2318,9 +2604,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         bio: typeof (user as { bio?: string }).bio === "string" ? (user as { bio: string }).bio : "",
         tradingExperience: typeof (user as { tradingExperience?: string }).tradingExperience === "string" ? (user as { tradingExperience: string }).tradingExperience.trim() : "",
         workingHours: typeof (user as { workingHours?: string }).workingHours === "string" ? (user as { workingHours: string }).workingHours.trim() : "",
-        preferredPaymentMethods: Array.isArray((user as { preferredPaymentMethods?: string[] }).preferredPaymentMethods)
-          ? (user as { preferredPaymentMethods: string[] }).preferredPaymentMethods.map((item) => String(item).trim()).filter(Boolean)
-          : [],
+        preferredPaymentMethods,
         country: typeof (user as { country?: string }).country === "string" ? (user as { country: string }).country.trim() : "",
         city: typeof (user as { city?: string }).city === "string" ? (user as { city: string }).city.trim() : "",
         coverBannerUrl: typeof (user as { coverBannerUrl?: string }).coverBannerUrl === "string" ? (user as { coverBannerUrl: string }).coverBannerUrl.trim() : "",
@@ -2537,6 +2821,9 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           ? { buyerToSellerAt, sellerToBuyerAt } satisfies TradeRoomPokeState
           : undefined;
       })(),
+      actionReminderState: normalizeTradeActionReminderState(
+        (request as { actionReminderState?: unknown }).actionReminderState,
+      ),
       lockedAt: typeof (request as { lockedAt?: string }).lockedAt === "string" ? (request as { lockedAt: string }).lockedAt : undefined,
       reviewUnlockedAt:
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
@@ -2856,6 +3143,16 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           (listing as { paymentMethods?: string[] }).paymentMethods,
           (listing as { paymentMethod?: string }).paymentMethod,
         );
+        const sellerApplicationMethods = approvedApplicationPaymentMethodsByUserId.get(listing.sellerId) ?? [];
+        const canRepairLegacyCardlessListing = methods.some(isBankTransferPaymentMethod)
+          && (
+            sellerApplicationMethods.some(isCardlessAtmPaymentMethod)
+            || legacyCardlessListingIds.has(listing.id)
+          )
+          && parseIsraeliBankSelection((listing as { bankName?: string }).bankName).length > 0;
+        if (canRepairLegacyCardlessListing && !methods.some(isCardlessAtmPaymentMethod)) {
+          methods.push("Cardless ATM Withdrawal");
+        }
         return methods.length ? methods : ["Bank Transfer"];
       })(),
       paymentMethod:
@@ -2993,6 +3290,412 @@ export async function runAlphaExchangeMaintenance() {
   return { changed: changed || numberingChanged };
 }
 
+export const TRADE_ACTION_REMINDER_INTERVAL_MS = 60 * 60_000;
+const TRADE_ACTION_REMINDER_REASON = "automatic_trade_action_reminder";
+
+type TradeActionReminderSide = "buyer" | "seller";
+
+type TradeActionReminderPlan = {
+  stage: TradeActionReminderState["stage"];
+  actionStartedAt: string;
+  recipients: Array<{ side: TradeActionReminderSide; userId: string }>;
+  title: MarketplaceEmailLocalizedText;
+  message: MarketplaceEmailLocalizedText;
+  priority: NotificationPriorityLevel;
+};
+
+type TradeActionReminderEmailDelivery = {
+  userId: string;
+  email: string;
+  recipientName: string;
+  recipientLocale: "ar" | "en";
+  requestId: string;
+  referenceLabel: string;
+  title: MarketplaceEmailLocalizedText;
+  message: MarketplaceEmailLocalizedText;
+  idempotencyKey: string;
+};
+
+type ClaimedTradeActionReminders = {
+  activeTradesChecked: number;
+  publications: DeferredNotificationPublication[];
+  emailDeliveries: TradeActionReminderEmailDelivery[];
+};
+
+function validReminderTimestamp(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (!value) continue;
+    const timestamp = new Date(value).getTime();
+    if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp).toISOString();
+  }
+  return null;
+}
+
+function latestTradeTimelineTimestamp(request: PurchaseRequest, eventTypes: TradeTimelineEventType[]) {
+  const wanted = new Set(eventTypes);
+  return [...(request.timeline ?? [])]
+    .filter((entry) => wanted.has(entry.type))
+    .map((entry) => validReminderTimestamp(entry.createdAt))
+    .filter((entry): entry is string => Boolean(entry))
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+}
+
+function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderPlan | null {
+  if (request.timedOutAt || request.closedAt || request.completedAt) return null;
+
+  const referenceLabel = request.tradeId ?? request.id;
+  const title = {
+    ar: "إجراء مطلوب في صفقتك",
+    en: "Action Required on Your Trade",
+  };
+  const stageTimestamp = (primary: string | undefined, timelineTypes: TradeTimelineEventType[]) =>
+    validReminderTimestamp(
+      primary,
+      latestTradeTimelineTimestamp(request, timelineTypes),
+      request.updatedAt,
+      request.createdAt,
+    );
+
+  if (request.status === "pending") {
+    const actionStartedAt = validReminderTimestamp(request.createdAt, request.updatedAt);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `طلب الصفقة ${referenceLabel} ما زال بانتظار قبولك أو رفضك. افتح غرفة الصفقة الآن لاتخاذ إجراء.`,
+        en: `Trade request ${referenceLabel} is still waiting for you to accept or decline it. Open the Trade Room and take action now.`,
+      },
+      priority: "high",
+    };
+  }
+
+  if (request.status === "accepted") {
+    const actionStartedAt = stageTimestamp(request.tradeCreatedAt, ["request_accepted", "price_offer_accepted"]);
+    if (!actionStartedAt) return null;
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: faceToFace
+        ? [
+            { side: "buyer", userId: request.buyerId },
+            { side: "seller", userId: request.sellerId },
+          ]
+        : [{ side: "buyer", userId: request.buyerId }],
+      title,
+      message: faceToFace
+        ? {
+            ar: `الصفقة ${referenceLabel} ما زالت بانتظار إكمال التبادل وتأكيد إنهائها. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is still waiting for the in-person exchange and completion confirmation. Open the Trade Room now.`,
+          }
+        : {
+            ar: `الصفقة ${referenceLabel} بانتظار رفع إثبات الدفع وتأكيد إرسال الدفعة منك. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is waiting for you to upload payment proof and mark payment sent. Open the Trade Room now.`,
+          },
+      priority: "high",
+    };
+  }
+
+  if (request.status === "payment_sent") {
+    const actionStartedAt = stageTimestamp(request.paymentSentAt, ["payment_sent"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار تحققك من وصول الأموال وتأكيد الاستلام. افتح غرفة الصفقة الآن.`,
+        en: `Trade ${referenceLabel} is waiting for you to verify the funds and confirm receipt. Open the Trade Room now.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  if (request.status === "funds_received") {
+    const actionStartedAt = stageTimestamp(request.fundsReceivedAt, ["seller_confirmed_funds"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار بدء إرسال USDT منك. افتح غرفة الصفقة الآن وأكمل الخطوة التالية.`,
+        en: `Trade ${referenceLabel} is waiting for you to start the USDT release. Open the Trade Room and complete the next step now.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  if (request.status === "usdt_release_pending") {
+    const actionStartedAt = stageTimestamp(request.usdtReleaseStartedAt, ["usdt_release_started"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار إتمام إرسال USDT ورفع إثبات الإرسال منك. افتح غرفة الصفقة الآن.`,
+        en: `Trade ${referenceLabel} is waiting for you to finish sending USDT and upload release evidence. Open the Trade Room now.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  if (request.status === "usdt_sent") {
+    const actionStartedAt = stageTimestamp(request.usdtSentAt, ["usdt_sent"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "buyer", userId: request.buyerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار تأكيد استلام USDT منك. افتح غرفة الصفقة الآن وتحقق قبل التأكيد.`,
+        en: `Trade ${referenceLabel} is waiting for you to confirm receipt of USDT. Open the Trade Room and verify before confirming.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  return null;
+}
+
+function claimDueTradeActionReminders(
+  db: AlphaExchangeDb,
+  now: Date,
+): ClaimedTradeActionReminders {
+  const nowMs = now.getTime();
+  const nowTimestamp = now.toISOString();
+  const publications: DeferredNotificationPublication[] = [];
+  const emailDeliveries: TradeActionReminderEmailDelivery[] = [];
+  let activeTradesChecked = 0;
+
+  for (const request of db.purchaseRequests) {
+    const plan = tradeActionReminderPlan(request);
+    if (!plan) continue;
+    activeTradesChecked += 1;
+    const publicationCountBeforeRequest = publications.length;
+
+    const actionStartedAtMs = new Date(plan.actionStartedAt).getTime();
+    if (!Number.isFinite(actionStartedAtMs) || actionStartedAtMs + TRADE_ACTION_REMINDER_INTERVAL_MS > nowMs) {
+      continue;
+    }
+
+    const stateMatchesAction = request.actionReminderState?.stage === plan.stage
+      && request.actionReminderState.actionStartedAt === plan.actionStartedAt;
+    const nextState: TradeActionReminderState = stateMatchesAction
+      ? { ...request.actionReminderState! }
+      : { stage: plan.stage, actionStartedAt: plan.actionStartedAt };
+
+    for (const recipient of plan.recipients) {
+      const priorRecipientState = stateMatchesAction
+        ? request.actionReminderState?.[recipient.side]
+        : undefined;
+      const priorSentAtMs = priorRecipientState?.userId === recipient.userId
+        ? new Date(priorRecipientState.lastSentAt).getTime()
+        : Number.NaN;
+      if (
+        Number.isFinite(priorSentAtMs)
+        && priorSentAtMs + TRADE_ACTION_REMINDER_INTERVAL_MS > nowMs
+      ) {
+        continue;
+      }
+
+      const user = db.users.find((candidate) => candidate.id === recipient.userId);
+      if (!user) continue;
+      const publication = pushNotification(db, {
+        userId: recipient.userId,
+        category: "trade",
+        title: plan.title.en,
+        titleEn: plan.title.en,
+        titleAr: plan.title.ar,
+        message: plan.message.en,
+        messageEn: plan.message.en,
+        messageAr: plan.message.ar,
+        relatedRequestId: request.id,
+        relatedTradeId: request.tradeId ?? request.id,
+        relatedListingId: request.listingId,
+        relatedHref: requestDetailsHref(request.id),
+        actionHref: requestDetailsHref(request.id),
+        actionLabel: "Open Trade Room",
+        reason: TRADE_ACTION_REMINDER_REASON,
+        priority: plan.priority,
+        forceInApp: true,
+        deferRealtime: true,
+      });
+      if (!publication) continue;
+
+      publications.push(publication);
+      const reminderCount = (priorRecipientState?.userId === recipient.userId
+        ? priorRecipientState.reminderCount
+        : 0) + 1;
+      nextState[recipient.side] = {
+        userId: recipient.userId,
+        lastSentAt: nowTimestamp,
+        reminderCount,
+      };
+      emailDeliveries.push({
+        userId: user.id,
+        email: user.email,
+        recipientName: user.fullName,
+        recipientLocale: normalizePreferredLocale(user.preferredLocale),
+        requestId: request.id,
+        referenceLabel: request.tradeId ?? request.id,
+        title: plan.title,
+        message: plan.message,
+        idempotencyKey: [
+          "trade-action-reminder",
+          request.id,
+          plan.stage,
+          String(actionStartedAtMs),
+          recipient.side,
+          String(reminderCount),
+        ].join(":"),
+      });
+    }
+
+    if (publications.length > publicationCountBeforeRequest) {
+      request.actionReminderState = nextState;
+      if (!stateMatchesAction) {
+        request.inactivityWarningSentAt = nowTimestamp;
+        appendTradeTimelineEntry(request, {
+          type: "trade_inactivity_warning_sent",
+          actorUserId: SYSTEM_ACTOR_USER_ID,
+          actorRole: "admin",
+          message: "Automatic hourly reminder started because the required trade action is still pending.",
+          createdAt: nowTimestamp,
+        });
+      }
+    }
+  }
+
+  return { activeTradesChecked, publications, emailDeliveries };
+}
+
+async function deliverClaimedTradeActionReminder(delivery: TradeActionReminderEmailDelivery) {
+  const result = await sendMarketplaceEmail({
+    event: "trade_action_reminder",
+    to: delivery.email,
+    recipientName: delivery.recipientName,
+    recipientLocale: delivery.recipientLocale,
+    title: delivery.title,
+    message: delivery.message,
+    actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+    actionPath: `/trade-room/${encodeURIComponent(delivery.requestId)}`,
+    referenceLabel: delivery.referenceLabel,
+    idempotencyKey: delivery.idempotencyKey,
+  });
+  if (!result.ok) {
+    logEvent("error", {
+      event: "trade_action_reminder_email",
+      targetUserId: delivery.userId,
+      resourceId: delivery.requestId,
+      outcome: "failed",
+      reason: result.reason,
+      metadata: {
+        providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+      },
+    });
+  }
+  return result.ok;
+}
+
+function archiveSatisfiedTradeActionReminders(
+  db: AlphaExchangeDb,
+  request: PurchaseRequest,
+  archivedAt: string,
+) {
+  const plan = tradeActionReminderPlan(request);
+  if (!plan) return [] as AlphaExchangeNotification[];
+  const recipientIds = new Set(plan.recipients.map((recipient) => recipient.userId));
+  const archived: AlphaExchangeNotification[] = [];
+  for (let index = 0; index < db.notifications.length; index += 1) {
+    const notification = db.notifications[index];
+    if (
+      notification.reason !== TRADE_ACTION_REMINDER_REASON
+      || notification.relatedRequestId !== request.id
+      || !recipientIds.has(notification.userId)
+      || notification.state === "archived"
+    ) {
+      continue;
+    }
+    const updated = enrichNotification(db, {
+      ...notification,
+      state: "archived",
+      isRead: true,
+      archivedAt,
+      updatedAt: archivedAt,
+    });
+    db.notifications[index] = updated;
+    archived.push(updated);
+  }
+  return archived;
+}
+
+function publishArchivedTradeActionReminders(notifications: AlphaExchangeNotification[]) {
+  for (const notification of notifications) {
+    // Reconcile open notification centers, but do not create a mobile alert for
+    // a state-only archive update after the user already completed the action.
+    publishRealtimeEvent({
+      type: "notification.updated",
+      payload: { notification },
+    });
+  }
+}
+
+/**
+ * Atomically claims due hourly reminders against the latest shared snapshot,
+ * commits the in-app notification first, and only then performs email/push
+ * delivery. A concurrent cron invocation therefore cannot double-send.
+ */
+export async function runTradeActionReminders(input?: { now?: Date }) {
+  const now = input?.now ?? new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("A valid reminder timestamp is required.");
+
+  const db = await readDb({ bypassCache: true });
+  let claimed = claimDueTradeActionReminders(db, now);
+  if (claimed.publications.length === 0) {
+    return {
+      activeTradesChecked: claimed.activeTradesChecked,
+      notificationsCreated: 0,
+      emailsSent: 0,
+      emailFailures: 0,
+    };
+  }
+
+  await writeDb(db, {
+    selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    rebaseOnLatest: (latestSnapshot) => {
+      claimed = claimDueTradeActionReminders(latestSnapshot, now);
+      return latestSnapshot;
+    },
+  });
+
+  for (const publication of claimed.publications) {
+    publishNotificationPublication(publication);
+  }
+
+  const emailResults = await Promise.allSettled(
+    claimed.emailDeliveries.map((delivery) => deliverClaimedTradeActionReminder(delivery)),
+  );
+  const emailsSent = emailResults.filter(
+    (result) => result.status === "fulfilled" && result.value,
+  ).length;
+
+  return {
+    activeTradesChecked: claimed.activeTradesChecked,
+    notificationsCreated: claimed.publications.length,
+    emailsSent,
+    emailFailures: claimed.emailDeliveries.length - emailsSent,
+  };
+}
+
 const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];
 const MARKETPLACE_ENFORCEMENT_TABLES = ["marketplace_enforcement_records", "marketplace_enforcement_audit_log"] as const satisfies readonly SnapshotTableName[];
 const TRUST_INIT_TABLES = [...USER_PROFILE_TABLES, "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
@@ -3094,6 +3797,154 @@ async function writeDb(
   } finally {
     dbReadInFlight = null;
   }
+}
+
+/**
+ * Legacy commission rows predate exact memo-less TRC20 payment intents. The
+ * first authenticated read allocates and commits those intents before any
+ * amount is returned to a seller. The repository rebase runs under its
+ * advisory lock, so concurrent readers cannot issue the same amount.
+ */
+async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
+  const inconsistentRecords = snapshot.commissionRecords.filter((record) => (
+    record.paymentVerificationStatus === "verified"
+    && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid"
+  ));
+  if (inconsistentRecords.length === 0) {
+    return {
+      changed: false,
+      requests: [] as PurchaseRequest[],
+      notificationPublications: [] as DeferredNotificationPublication[],
+    };
+  }
+
+  const now = nowIso();
+  const requests: PurchaseRequest[] = [];
+  const notificationPublications: DeferredNotificationPublication[] = [];
+  const reconciledRecords: CommissionRecord[] = [];
+  for (const staleRecord of inconsistentRecords) {
+    const index = snapshot.commissionRecords.findIndex((record) => record.id === staleRecord.id);
+    if (index === -1) continue;
+    const current = snapshot.commissionRecords[index];
+    const signatureKey = getCommissionPaymentSignatureKey(current.paymentSignature ?? "");
+    const hasStoredBlockchainProof = Boolean(
+      signatureKey
+      && current.paymentNetwork
+      && current.recipientWalletAddress,
+    );
+    const hasConflictingReservedSignature = Boolean(signatureKey) && snapshot.commissionRecords.some((candidate) => (
+      candidate.id !== current.id
+      && getCommissionPaymentSignatureKey(candidate.paymentSignature ?? "") === signatureKey
+      && (
+        normalizeCommissionPaymentStatus(candidate.paymentStatus, candidate.dueAt) === "paid"
+        || candidate.paymentVerificationStatus === "verified"
+      )
+    ));
+    if (!hasStoredBlockchainProof || hasConflictingReservedSignature) {
+      snapshot.commissionRecords[index] = {
+        ...current,
+        paymentVerificationStatus: "failed",
+        paymentVerificationNotes: hasConflictingReservedSignature
+          ? "This legacy verification conflicts with a TxID already reserved by another commission, so it was not credited. Contact Alpha Traders support."
+          : "This legacy verification has no complete blockchain payment proof, so it was not credited. Submit a valid public TRON (TRC20) TxID for the newly shown exact amount.",
+        updatedAt: now,
+      };
+      await appendAuditLog(snapshot, {
+        action: "admin_override",
+        actorUserId: SYSTEM_ACTOR_USER_ID,
+        targetUserId: current.sellerId,
+        listingId: current.listingId,
+        purchaseRequestId: current.purchaseRequestId,
+        details: `Rejected unsafe verified-but-unpaid legacy state for commission ${current.id}.`,
+        reason: hasConflictingReservedSignature ? "Duplicate legacy TxID." : "Incomplete legacy blockchain proof.",
+      });
+      continue;
+    }
+    const amountDue = typeof current.paymentExpectedAmount === "number"
+      ? current.paymentExpectedAmount
+      : getCommissionAmountDueUsdt(snapshot, current);
+    snapshot.commissionRecords[index] = {
+      ...current,
+      paymentStatus: "paid",
+      paidAt: current.paidAt ?? current.paymentSubmittedAt ?? now,
+      updatedAt: now,
+    };
+    reconciledRecords.push(snapshot.commissionRecords[index]);
+    const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+    if (request && !request.timeline.some((entry) => entry.type === "commission_paid")) {
+      appendTradeTimelineEntry(request, {
+        type: "commission_paid",
+        actorUserId: SYSTEM_ACTOR_USER_ID,
+        actorRole: "admin",
+        message: `Previously verified on-chain commission reconciled (${amountDue.toFixed(6)} USDT).`,
+        createdAt: now,
+      });
+      requests.push(request);
+    }
+    await appendAuditLog(snapshot, {
+      action: "commission_paid",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      targetUserId: current.sellerId,
+      listingId: current.listingId,
+      purchaseRequestId: current.purchaseRequestId,
+      details: `Reconciled previously verified commission ${current.id} as paid.`,
+      reason: "Automatic migration of a verified pre-upgrade payment.",
+    });
+  }
+
+  for (const current of reconciledRecords) {
+    const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, current.sellerId);
+    const fullyUnlocked = remainingCommissions.length === 0;
+    const nextCommission = remainingCommissions[0];
+    const sellerPublication = pushNotification(snapshot, {
+      userId: current.sellerId,
+      category: "trade",
+      title: "Commission payment verified",
+      message: fullyUnlocked
+        ? "Your previously verified commission payment has been reconciled. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
+        : `Your previously verified commission payment has been reconciled. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
+      relatedTradeId: current.purchaseRequestId,
+      relatedRequestId: current.purchaseRequestId,
+      relatedListingId: current.listingId,
+      relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+      actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+      actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
+      reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      deferRealtime: true,
+    });
+    if (sellerPublication) notificationPublications.push(sellerPublication);
+  }
+
+  return { changed: true, requests, notificationPublications };
+}
+
+async function readDbWithPersistedCommissionPaymentExpectedAmounts() {
+  const db = await readDb();
+  let committedReconciliation = await reconcileVerifiedUnpaidCommissions(db);
+  const allocationChanged = ensureCommissionPaymentExpectedAmounts(db);
+  if (!committedReconciliation.changed && !allocationChanged) return db;
+
+  await writeDb(db, {
+    selectedTables: COMMISSION_PAYMENT_TABLES,
+    rebaseOnLatest: async (canonicalSnapshot) => {
+      committedReconciliation = await reconcileVerifiedUnpaidCommissions(canonicalSnapshot);
+      ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
+      return canonicalSnapshot;
+    },
+    validateBeforeCommit: (canonicalSnapshot) => {
+      ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
+    },
+  });
+  for (const request of committedReconciliation.requests) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
+    });
+  }
+  for (const publication of committedReconciliation.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
+  return readDb({ bypassCache: true });
 }
 
 // Internal delta type for targeted listing-creation writes.
@@ -3815,6 +4666,7 @@ async function unlockListingAfterCancelledTrade(db: AlphaExchangeDb, listing: Ma
 
 async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionRecord, actorUserId: string) {
   const now = nowIso();
+  const verificationPending = record.paymentVerificationStatus === "pending_verification";
   record.paymentStatus = "overdue";
   record.overdueNotifiedAt = record.overdueNotifiedAt ?? now;
   record.updatedAt = now;
@@ -3831,14 +4683,16 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
   pushNotification(db, {
     userId: record.sellerId,
     category: "trade",
-    title: "Commission overdue",
-    message: `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
+    title: verificationPending ? "Commission verification pending" : "Commission overdue",
+    message: verificationPending
+      ? `Your commission TxID for trade ${record.purchaseRequestId} is saved and automatic verification is still running. Do not send another payment.`
+      : `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
     relatedRequestId: record.purchaseRequestId,
     relatedTradeId: record.purchaseRequestId,
     relatedListingId: record.listingId,
     relatedHref: commissionPaymentDestination(record.id),
     actionHref: commissionPaymentDestination(record.id),
-    actionLabel: "Pay Commission",
+    actionLabel: verificationPending ? "View Payment Status" : "Pay Commission",
     reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
   });
   const owner = getOwnerUser(db);
@@ -3846,8 +4700,10 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
     pushNotification(db, {
       userId: owner.id,
       category: "trade",
-      title: "Commission overdue",
-      message: `Commission for trade ${record.purchaseRequestId} is now overdue.`,
+      title: verificationPending ? "Commission verification pending" : "Commission overdue",
+      message: verificationPending
+        ? `Commission TxID for trade ${record.purchaseRequestId} is awaiting automatic verification after its due time.`
+        : `Commission for trade ${record.purchaseRequestId} is now overdue.`,
       relatedRequestId: record.purchaseRequestId,
       relatedTradeId: record.purchaseRequestId,
       relatedListingId: record.listingId,
@@ -3861,7 +4717,6 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
 async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
   let changed = false;
   const nowMs = Date.now();
-  const timeoutWindowMs = getStaleTradeTimeoutMinutes() * 60 * 1000;
 
   for (const record of db.commissionRecords) {
     if (record.paymentStatus === "paid" || !record.dueAt) continue;
@@ -3869,100 +4724,6 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     if (!dueMs || Number.isNaN(dueMs) || dueMs > nowMs || record.overdueNotifiedAt) continue;
     changed = true;
     await markCommissionOverdue(db, record, SYSTEM_ACTOR_USER_ID);
-  }
-
-  for (const request of db.purchaseRequests) {
-    if (request.status !== "accepted" || request.paymentSentAt || request.usdtSentAt || request.completedAt) continue;
-    const startedAtMs = new Date(request.updatedAt ?? request.tradeCreatedAt ?? request.createdAt).getTime();
-    if (!startedAtMs || Number.isNaN(startedAtMs) || startedAtMs + timeoutWindowMs > nowMs) continue;
-    if (request.inactivityWarningSentAt) {
-      const warningAtMs = new Date(request.inactivityWarningSentAt).getTime();
-      if (Number.isFinite(warningAtMs) && warningAtMs >= startedAtMs) {
-        continue;
-      }
-    }
-    changed = true;
-    const now = nowIso();
-    request.inactivityWarningSentAt = now;
-    request.updatedAt = now;
-    appendTradeTimelineEntry(request, {
-      type: "trade_inactivity_warning_sent",
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      actorRole: "admin",
-      message: `Inactivity warning sent after ${TRADE_INACTIVITY_WARNING_MINUTES} minutes without buyer progress.`,
-      createdAt: now,
-    });
-    await appendAuditLog(db, {
-      action: "trade_inactivity_warning_sent",
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      targetUserId: request.buyerId,
-      listingId: request.listingId,
-      purchaseRequestId: request.id,
-      details: `Trade ${request.tradeId ?? request.id} received inactivity warning after ${TRADE_INACTIVITY_WARNING_MINUTES} minutes.`,
-      oldValue: { status: "accepted" },
-      newValue: { status: "accepted", inactivityWarningSentAt: now },
-      reason: "Buyer inactivity warning.",
-    });
-    pushNotification(db, {
-      userId: request.buyerId,
-      category: "trade",
-      title: "Action required on your trade",
-      message: `Trade ${request.tradeId ?? request.id} is still active, but requires your next step. Please upload payment proof to continue.`,
-      relatedTradeId: request.tradeId ?? request.id,
-      relatedListingId: request.listingId,
-      relatedHref: requestDetailsHref(request.id),
-    });
-    pushNotification(db, {
-      userId: request.sellerId,
-      category: "trade",
-      title: "Buyer inactivity warning sent",
-      message: `Trade ${request.tradeId ?? request.id} is still active. We reminded the buyer to continue the flow.`,
-      relatedTradeId: request.tradeId ?? request.id,
-      relatedListingId: request.listingId,
-      relatedHref: requestDetailsHref(request.id),
-    });
-    const buyer = db.users.find((user) => user.id === request.buyerId);
-    if (buyer?.notificationPreferences?.email === true) {
-      await sendMarketplaceEmail({
-        event: "trade_cancelled",
-        to: buyer.email,
-        recipientName: buyer.fullName,
-        recipientLocale: normalizePreferredLocale(buyer.preferredLocale),
-        title: {
-          ar: "إجراء مطلوب: الصفقة ما زالت بانتظارك",
-          en: "Action Required: Trade Still Waiting",
-        },
-        message: {
-          ar: `الصفقة ${request.tradeId ?? request.id} ما زالت نشطة وبانتظار تأكيد الدفع منك.`,
-          en: `Trade ${request.tradeId ?? request.id} is still active and waiting for your payment confirmation.`,
-        },
-        actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
-        actionPath: `/trade-room/${encodeURIComponent(request.id)}`,
-        referenceLabel: request.tradeId ?? request.id,
-        idempotencyKey: `trade-${request.id}-inactivity-warning-buyer-${request.updatedAt}`,
-      });
-    }
-    const seller = db.users.find((user) => user.id === request.sellerId);
-    if (seller?.notificationPreferences?.email === true) {
-      await sendMarketplaceEmail({
-        event: "trade_cancelled",
-        to: seller.email,
-        recipientName: seller.fullName,
-        recipientLocale: normalizePreferredLocale(seller.preferredLocale),
-        title: {
-          ar: "تحديث الصفقة: تم تذكير المشتري",
-          en: "Trade Update: Buyer Reminder Sent",
-        },
-        message: {
-          ar: `الصفقة ${request.tradeId ?? request.id} ما زالت نشطة. تلقّى المشتري تذكيرًا بسبب عدم النشاط.`,
-          en: `Trade ${request.tradeId ?? request.id} remains active. The buyer received an inactivity reminder.`,
-        },
-        actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
-        actionPath: `/trade-room/${encodeURIComponent(request.id)}`,
-        referenceLabel: request.tradeId ?? request.id,
-        idempotencyKey: `trade-${request.id}-inactivity-warning-seller-${request.updatedAt}`,
-      });
-    }
   }
 
   for (const request of db.purchaseRequests) {
@@ -3975,9 +4736,12 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
 
     const now = nowIso();
     changed = true;
+    const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
     request.timedOutAt = now;
     request.timeoutReason = "USDT release SLA expired.";
+    request.actionReminderState = undefined;
     request.updatedAt = now;
+    publishArchivedTradeActionReminders(archivedActionReminders);
     appendTradeTimelineEntry(request, {
       type: "trade_timed_out",
       actorUserId: SYSTEM_ACTOR_USER_ID,
@@ -5756,11 +6520,16 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
   if (userIndex === -1) throw new Error("Application user not found.");
   const nextRoles = addRole(removeRole(db.users[userIndex].roles ?? [db.users[userIndex].role], "pending_seller_approval"), "approved_seller");
+  const applicationPaymentMethods = resolveListingPaymentMethods(application.preferredNetworks);
   db.users[userIndex] = {
     ...db.users[userIndex],
     roles: nextRoles,
     role: resolvePrimaryRole(nextRoles),
     sellerStatus: "approved_seller",
+    preferredPaymentMethods: Array.from(new Set([
+      ...(db.users[userIndex].preferredPaymentMethods ?? []),
+      ...applicationPaymentMethods,
+    ])),
     isFoundingSeller: db.users[userIndex].isFoundingMember === true ? true : db.users[userIndex].isFoundingSeller === true,
     updatedAt: nowIso(),
   };
@@ -8007,7 +8776,8 @@ export async function getSellerCommissionStatus(
   dbInput?: AlphaExchangeDb,
   options?: { commissionId?: string },
 ) {
-  const db = dbInput ?? await readDb();
+  const db = dbInput ?? await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  if (dbInput) ensureCommissionPaymentExpectedAmounts(db);
   const pendingRecords = getUnpaidSellerCommissionRecords(db, sellerId);
   const requestedCommissionId = options?.commissionId?.trim() || undefined;
   // A deep link may name only a payable commission owned by this seller. Do
@@ -8017,7 +8787,7 @@ export async function getSellerCommissionStatus(
     ? pendingRecords.find((record) => record.id === requestedCommissionId)
     : pendingRecords[0];
   const totalAmountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
-  const payableAmountDue = primaryRecord ? getCommissionAmountDueUsdt(db, primaryRecord) : 0;
+  const payableAmountDue = primaryRecord ? getCommissionPaymentAmountDueUsdt(primaryRecord) : 0;
   const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
   const primaryRequest = primaryRecord
     ? db.purchaseRequests.find((request) => request.id === primaryRecord.purchaseRequestId)
@@ -8031,6 +8801,12 @@ export async function getSellerCommissionStatus(
     return {
       commissionId: record.id,
       amountDue: getCommissionAmountDueUsdt(db, record),
+      paymentAmountDue: getCommissionPaymentAmountDueUsdt(record),
+      paymentVerificationStatus: record.paymentVerificationStatus,
+      paymentVerificationNotes: record.paymentVerificationNotes,
+      paymentSignature: record.paymentSignature,
+      paymentSubmittedAt: record.paymentSubmittedAt,
+      paymentExpectedAmountMode: record.paymentExpectedAmountMode,
       dueAt: record.dueAt,
       relatedRequestId: record.purchaseRequestId,
       relatedTradeId: request?.tradeId,
@@ -8069,7 +8845,9 @@ export async function getWorkspaceBootstrapData(input: {
   role: UserRole;
   includeSellerWorkspace: boolean;
 }) {
-  const db = await readDb();
+  const db = input.includeSellerWorkspace
+    ? await readDbWithPersistedCommissionPaymentExpectedAmounts()
+    : await readDb();
   const purchaseRequests = await getMyPurchaseRequests(input.userId, input.role, db);
   const sellerApplication = await getSellerApplicationByUserId(input.userId, db);
   if (!input.includeSellerWorkspace) {
@@ -8515,7 +9293,10 @@ export async function createPurchaseRequest(input: {
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  if (role === "admin" || role === "owner") return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
+  if (role === "admin" || role === "owner") {
+    return db.purchaseRequests.map((request) =>
+      sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
+  }
   return db.purchaseRequests
     .filter((request) => request.buyerId === userId || request.sellerId === userId)
     .map((request) => sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
@@ -8566,6 +9347,9 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   if (!canRevealTradeBankDetailsToActor(request, actorUserId, actorRole)) {
     delete redacted.sellerBankAccountId;
   }
+  // Scheduler claims are internal delivery metadata. They are not part of the
+  // Trade Room contract for participants or admins.
+  delete redacted.actionReminderState;
   return redacted;
 }
 
@@ -9188,6 +9972,7 @@ async function closePurchaseRequestManuallyAttempt(
 
   const now = nowIso();
   const actorRole = resolveActorRole(db, input.actorUserId);
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
     status: "cancelled",
@@ -9199,6 +9984,7 @@ async function closePurchaseRequestManuallyAttempt(
     timedOutAt: undefined,
     timeoutReason: undefined,
     inactivityWarningSentAt: undefined,
+    actionReminderState: undefined,
     timeline: [...(request.timeline ?? [])],
   };
   appendTradeTimelineEntry(next, {
@@ -9301,6 +10087,7 @@ async function closePurchaseRequestManuallyAttempt(
     throw error;
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -9398,9 +10185,6 @@ export async function postTradeRoomMessage(input: {
     };
     canonicalRequest.messages = [nextMessage, ...(canonicalRequest.messages ?? [])];
     canonicalRequest.updatedAt = createdAt;
-    if (canonicalRequest.status === "accepted") {
-      canonicalRequest.inactivityWarningSentAt = undefined;
-    }
     snapshot.purchaseRequests[canonicalRequestIndex] = canonicalRequest;
     snapshot.tradeMessages = [nextMessage, ...(snapshot.tradeMessages ?? [])];
     const notificationPublication = pushNotification(snapshot, {
@@ -10009,6 +10793,9 @@ async function uploadTradeEvidenceAttempt(
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const shouldAutoSubmitPayment = input.side === "buyer" && request.status === "accepted";
   const shouldAutoConfirmUsdtSent = input.side === "seller" && request.status === "usdt_release_pending";
+  const archivedActionReminders = shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent
+    ? archiveSatisfiedTradeActionReminders(db, request, updatedAt)
+    : [];
   const evidenceListing = shouldAutoSubmitPayment
     ? db.marketplaceListings.find((candidate) => candidate.id === request.listingId)
     : undefined;
@@ -10044,6 +10831,7 @@ async function uploadTradeEvidenceAttempt(
   });
   if (shouldAutoSubmitPayment) {
     nextRequest.status = "payment_sent";
+    nextRequest.actionReminderState = undefined;
     nextRequest.paymentSentAt = updatedAt;
     nextRequest.inactivityWarningSentAt = undefined;
     const listing = getListingByIdOrThrow(db, request.listingId);
@@ -10080,6 +10868,7 @@ async function uploadTradeEvidenceAttempt(
   }
   if (shouldAutoConfirmUsdtSent) {
     nextRequest.status = "usdt_sent";
+    nextRequest.actionReminderState = undefined;
     nextRequest.usdtSentAt = updatedAt;
     appendTradeTimelineEntry(nextRequest, {
       type: "usdt_sent",
@@ -10173,6 +10962,7 @@ async function uploadTradeEvidenceAttempt(
   }
   const dbWriteMs = Date.now() - dbWriteStartedAt;
   const storageMs = Date.now() - storageStartedAt;
+  publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -10658,6 +11448,7 @@ async function updatePurchaseRequestStatusAttempt(
   let timelineMs = 0;
   let chatMs = 0;
   let notificationMs = 0;
+  let newlyCreatedCommissionId: string | undefined;
   const additionallyDeclinedRequests: PurchaseRequest[] = [];
   let requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) {
@@ -10882,9 +11673,11 @@ async function updatePurchaseRequestStatusAttempt(
 
   const actorRole = resolveActorRole(db, input.actorUserId);
   const now = nowIsoAfter(request.updatedAt, listing?.updatedAt);
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
     timeline: [...(request.timeline ?? [])],
+    actionReminderState: undefined,
     updatedAt: now,
   };
 
@@ -11286,6 +12079,7 @@ async function updatePurchaseRequestStatusAttempt(
         updatedAt: now,
       };
       db.commissionRecords.push(commission);
+      newlyCreatedCommissionId = commission.id;
       appendTradeTimelineEntry(next, {
         type: "commission_recorded",
         actorUserId: input.actorUserId,
@@ -11434,9 +12228,7 @@ async function updatePurchaseRequestStatusAttempt(
   } else {
     next.status = input.nextStatus;
   }
-  if (next.status !== "accepted") {
-    next.inactivityWarningSentAt = undefined;
-  }
+  next.inactivityWarningSentAt = undefined;
   db.purchaseRequests[requestIndex] = next;
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation status-after", {
     requestId: input.requestId,
@@ -11521,6 +12313,27 @@ async function updatePurchaseRequestStatusAttempt(
           }
         }
       },
+      validateBeforeCommit: input.nextStatus === "completed"
+        ? (canonicalSnapshot) => {
+            try {
+              // Runs under the repository lock after stale snapshots are
+              // merged. This newly-created intent has not been exposed yet,
+              // so allocate it from canonical state while every older issued
+              // amount remains immutable.
+              const newCommission = newlyCreatedCommissionId
+                ? canonicalSnapshot.commissionRecords.find((record) => record.id === newlyCreatedCommissionId)
+                : undefined;
+              if (newCommission) {
+                newCommission.paymentExpectedAmount = undefined;
+                newCommission.paymentExpectedAmountMode = undefined;
+                newCommission.paymentExpectedAmountAssignedAt = undefined;
+              }
+              ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
+            } catch {
+              throw new ConcurrentTradeMutationError();
+            }
+          }
+        : undefined,
     });
   } catch (error) {
     if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
@@ -11550,6 +12363,7 @@ async function updatePurchaseRequestStatusAttempt(
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
   const sseStartedAt = Date.now();
+  publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -11626,6 +12440,7 @@ export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
 
 type CommissionWalletVerificationResult = {
   verified: boolean;
+  pending?: boolean;
   reference: string;
   notes: string;
 };
@@ -11675,6 +12490,11 @@ const EVM_RPC_FALLBACKS: Record<string, string> = {
 };
 const SOLANA_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const TRON_USDT_CONTRACT_HEX = tronAddressToHex(TRON_USDT_CONTRACT)?.slice(2) ?? "";
+const TRON_TRANSFER_TOPIC = ERC20_TRANSFER_TOPIC.slice(2);
+const TRONGRID_MAINNET_URL = "https://api.trongrid.io";
+const TRON_RPC_TIMEOUT_MS = 8_000;
 
 export { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 
@@ -11696,6 +12516,21 @@ interface SolanaTokenBalance {
   mint: string;
   owner?: string;
   uiTokenAmount?: { uiAmount?: number | null };
+}
+interface TronReceiptLog {
+  address?: string;
+  topics?: string[];
+  data?: string;
+}
+interface TronTransactionInfo {
+  id?: string;
+  blockNumber?: number;
+  blockTimeStamp?: number;
+  receipt?: { result?: string };
+  log?: TronReceiptLog[];
+}
+interface TronTransaction {
+  txID?: string;
 }
 
 /** Logs API key presence on first use (no secret values exposed). */
@@ -12061,6 +12896,170 @@ async function verifyEvmUsdtPayment(input: {
   }
 }
 
+async function verifyTronUsdtPayment(input: {
+  recipientWalletAddress: string;
+  txHash: string;
+  amountDueUsdt: number;
+  earliestPaymentTimestampMs?: number;
+  allowLegacyOverpayment?: boolean;
+}): Promise<CommissionWalletVerificationResult> {
+  const baseUrl = (process.env.ALPHA_EXCHANGE_TRON_RPC_URL ?? TRONGRID_MAINNET_URL).replace(/\/+$/, "");
+  const apiKey = process.env.ALPHA_EXCHANGE_TRONGRID_API_KEY?.trim();
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (apiKey) headers["TRON-PRO-API-KEY"] = apiKey;
+
+  const tronPost = async <T>(pathName: string): Promise<T> => {
+    const response = await fetch(`${baseUrl}${pathName}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ value: input.txHash }),
+      signal: AbortSignal.timeout(TRON_RPC_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`TRON RPC HTTP ${response.status}`);
+    const payload = await response.json() as T & { Error?: string; error?: string };
+    const rpcError = payload.Error ?? payload.error;
+    if (rpcError) throw new Error(`TRON RPC: ${rpcError}`);
+    return payload;
+  };
+
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] tron-lookup-start", {
+    txHash: input.txHash,
+    recipientWalletAddress: input.recipientWalletAddress,
+    amountDueUsdt: input.amountDueUsdt,
+    apiKeyPresent: Boolean(apiKey),
+    rpcUrlConfigured: Boolean(process.env.ALPHA_EXCHANGE_TRON_RPC_URL),
+  });
+
+  // SolidityNode exposes only solidified transactions, so an accepted payment
+  // cannot later disappear because of a short-lived fork.
+  const transactionInfo = await tronPost<TronTransactionInfo>("/walletsolidity/gettransactioninfobyid");
+  if (!transactionInfo.id) {
+    const pendingTransaction = await tronPost<TronTransaction>("/wallet/gettransactionbyid");
+    if (pendingTransaction.txID) {
+      return {
+        verified: false,
+        pending: true,
+        reference: input.txHash,
+        notes: "Transaction was found on TRON and is waiting for final confirmation. Alpha Traders will verify it automatically.",
+      };
+    }
+    return {
+      verified: false,
+      pending: true,
+      reference: input.txHash,
+      notes: "This transaction is not visible on TRON yet. Alpha Traders will keep checking it automatically; make sure you pasted the USDT TRC20 TxID from Binance withdrawal history.",
+    };
+  }
+
+  if (transactionInfo.id.toLowerCase() !== input.txHash.toLowerCase()) {
+    throw new Error("TRON RPC returned a different transaction ID");
+  }
+  if (transactionInfo.receipt?.result !== "SUCCESS") {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `TRON transaction failed on-chain (status: ${transactionInfo.receipt?.result ?? "unknown"}) and cannot be used as commission payment.`,
+    };
+  }
+  const blockTimestampMs = Number(transactionInfo.blockTimeStamp);
+  if (!Number.isFinite(blockTimestampMs) || blockTimestampMs <= 0) {
+    return {
+      verified: false,
+      pending: true,
+      reference: input.txHash,
+      notes: "TRON has not returned the transaction timestamp yet. Alpha Traders will retry this payment automatically.",
+    };
+  }
+  if (
+    typeof input.earliestPaymentTimestampMs === "number"
+    && Number.isFinite(input.earliestPaymentTimestampMs)
+    && blockTimestampMs < input.earliestPaymentTimestampMs
+  ) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: "This transaction predates this commission payment request and cannot be used. Submit the TxID for the new USDT TRC20 transfer.",
+    };
+  }
+
+  const recipientHex = tronAddressToHex(input.recipientWalletAddress);
+  if (!recipientHex) {
+    throw new Error("Configured TRON commission address is invalid");
+  }
+  const recipientTopic = recipientHex.slice(2).toLowerCase().padStart(64, "0");
+  const normalizedLogAddress = (value?: string) => {
+    const normalized = value?.toLowerCase().replace(/^0x/, "") ?? "";
+    return normalized.length === 42 && normalized.startsWith("41") ? normalized.slice(2) : normalized;
+  };
+  const normalizedTopic = (value?: string) => value?.toLowerCase().replace(/^0x/, "") ?? "";
+
+  let receivedMicros = BigInt(0);
+  let officialUsdtTransferSeen = false;
+  let anyTokenToRecipientSeen = false;
+  for (const log of transactionInfo.log ?? []) {
+    if (normalizedTopic(log.topics?.[0]) !== TRON_TRANSFER_TOPIC) continue;
+    const sentToRecipient = normalizedTopic(log.topics?.[2]) === recipientTopic;
+    if (sentToRecipient) anyTokenToRecipientSeen = true;
+    if (normalizedLogAddress(log.address) !== TRON_USDT_CONTRACT_HEX) continue;
+    officialUsdtTransferSeen = true;
+    if (!sentToRecipient || !log.data) continue;
+    const amountHex = normalizedTopic(log.data);
+    if (!/^[a-f0-9]+$/.test(amountHex)) throw new Error("TRON RPC returned malformed transfer data");
+    receivedMicros += BigInt(`0x${amountHex}`);
+  }
+
+  if (receivedMicros === BigInt(0)) {
+    let notes: string;
+    if (anyTokenToRecipientSeen) {
+      notes = `A token reached the correct TRON wallet, but it was not official USDT (${TRON_USDT_CONTRACT}). Send USDT on TRC20 only.`;
+    } else if (officialUsdtTransferSeen) {
+      notes = "This transaction contains a USDT TRC20 transfer, but not to the Alpha Traders commission wallet. Please verify the destination address.";
+    } else {
+      notes = "No official USDT TRC20 transfer to the Alpha Traders commission wallet was found in this transaction.";
+    }
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] tron-transfer-not-found", {
+      txHash: input.txHash,
+      logsCount: transactionInfo.log?.length ?? 0,
+      officialUsdtTransferSeen,
+      anyTokenToRecipientSeen,
+    });
+    return { verified: false, reference: input.txHash, notes };
+  }
+
+  if (!Number.isFinite(input.amountDueUsdt) || input.amountDueUsdt <= 0) {
+    throw new Error("Commission amount is invalid");
+  }
+  const amountDueMicros = BigInt(Math.round(input.amountDueUsdt * 1_000_000));
+  const amountReceived = Number(receivedMicros) / 1_000_000;
+  const amountMatches = input.allowLegacyOverpayment
+    ? receivedMicros >= amountDueMicros
+    : receivedMicros === amountDueMicros;
+  if (!amountMatches) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: input.allowLegacyOverpayment
+        ? `Insufficient legacy payment. The recipient received ${amountReceived.toFixed(6)} USDT on TRON; at least ${input.amountDueUsdt.toFixed(6)} USDT is required.`
+        : `Payment amount mismatch. The recipient received ${amountReceived.toFixed(6)} USDT on TRON; this commission requires exactly ${input.amountDueUsdt.toFixed(6)} USDT.`,
+    };
+  }
+
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] tron-usdt-received", {
+    txHash: input.txHash,
+    blockNumber: transactionInfo.blockNumber,
+    amountReceived,
+    recipientWalletAddress: input.recipientWalletAddress,
+  });
+  return {
+    verified: true,
+    reference: input.txHash,
+    notes: `Verified: ${amountReceived.toFixed(2)} USDT received on TRON (TRC20).`,
+  };
+}
+
 async function verifySolanaUsdtPayment(input: {
   recipientWalletAddress: string;
   txHash: string;
@@ -12165,13 +13164,14 @@ async function verifySolanaUsdtPayment(input: {
 }
 
 /**
- * A transaction's EVM checksum casing is display-only. Use a stable key for
- * duplicate settlement detection while preserving the submitted signature for
- * display and chain verification. Solana/base58 signatures remain case-sensitive.
+ * EVM and TRON transaction IDs are hexadecimal and case-insensitive. Use one
+ * prefix-independent key for duplicate settlement detection while keeping
+ * Solana/base58 signatures case-sensitive.
  */
 function getCommissionPaymentSignatureKey(raw: string) {
   const normalized = normalizeTransactionHash(raw);
-  return /^0x[a-fA-F0-9]{64}$/.test(normalized) ? normalized.toLowerCase() : normalized;
+  const hex = normalized.replace(/^0x/i, "");
+  return /^[a-fA-F0-9]{64}$/.test(hex) ? hex.toLowerCase() : normalized;
 }
 
 async function verifyCommissionWalletPayment(input: {
@@ -12181,8 +13181,13 @@ async function verifyCommissionWalletPayment(input: {
   recipientWalletAddress: string;
   paymentSignature: string;
   existingSignatures?: string[];
+  earliestPaymentTimestampMs?: number;
+  allowLegacyTronOverpayment?: boolean;
 }): Promise<CommissionWalletVerificationResult> {
-  const txHash = normalizeTransactionHash(input.paymentSignature);
+  const normalizedHash = normalizeTransactionHash(input.paymentSignature);
+  const txHash = input.network === "TRC20" && /^0x/i.test(normalizedHash)
+    ? normalizedHash.slice(2)
+    : normalizedHash;
   const transactionSignatureKey = getCommissionPaymentSignatureKey(txHash);
   const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
   logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-started", logCtx);
@@ -12195,6 +13200,10 @@ async function verifyCommissionWalletPayment(input: {
   if ((input.network === "ERC20" || input.network === "POLYGON") && !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
     logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-evm-hash-format", logCtx);
     return { verified: false, reference: txHash, notes: "Invalid transaction hash for the selected EVM network. Please paste the full 0x transaction hash." };
+  }
+  if (input.network === "TRC20" && !/^[a-fA-F0-9]{64}$/.test(txHash)) {
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-tron-hash-format", logCtx);
+    return { verified: false, reference: txHash, notes: "Invalid TRON transaction ID. Please paste the full 64-character TxID from Binance withdrawal history." };
   }
   if (input.network === "SOL" && !/^[1-9A-HJ-NP-Za-km-z]{43,88}$/.test(txHash)) {
     logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-solana-sig-format", logCtx);
@@ -12216,7 +13225,15 @@ async function verifyCommissionWalletPayment(input: {
   // 4. Network-specific on-chain verification
   let result: CommissionWalletVerificationResult;
   try {
-    if (input.network === "ERC20" || input.network === "POLYGON") {
+    if (input.network === "TRC20") {
+      result = await verifyTronUsdtPayment({
+        recipientWalletAddress: input.recipientWalletAddress,
+        txHash,
+        amountDueUsdt: input.amountDue,
+        earliestPaymentTimestampMs: input.earliestPaymentTimestampMs,
+        allowLegacyOverpayment: input.allowLegacyTronOverpayment,
+      });
+    } else if (input.network === "ERC20" || input.network === "POLYGON") {
       result = await verifyEvmUsdtPayment({
         network: input.network,
         recipientWalletAddress: input.recipientWalletAddress,
@@ -12231,12 +13248,17 @@ async function verifyCommissionWalletPayment(input: {
       });
     } else {
       logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:unsupported-network", logCtx);
-      result = { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
+      result = { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: TRC20, ERC20, POLYGON, SOL.` };
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logLocalMarketplaceDiagnostic("error", "[commission-verify] blockchain-service-error", { ...logCtx, error: msg });
-    return { verified: false, reference: txHash, notes: "Blockchain verification service temporarily unavailable. Please try again in a few minutes." };
+    return {
+      verified: false,
+      pending: true,
+      reference: txHash,
+      notes: "Blockchain verification is temporarily unavailable. Alpha Traders will retry this payment automatically.",
+    };
   }
   logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-complete", {
     ...logCtx,
@@ -12252,23 +13274,21 @@ export async function submitSellerCommissionWalletPayment(input: {
   payerWalletAddress: string;
   paymentSignature: string;
   network: string;
+  automaticReverification?: boolean;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb();
-  const dbReadMs = Date.now() - dbReadStartedAt;
+  let db = await readDb();
   const validationStartedAt = Date.now();
-  const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
+  let index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
-  const current = db.commissionRecords[index];
+  let current = db.commissionRecords[index];
   if (current.sellerId !== input.sellerUserId) {
     throw new Error("You can only settle your own commission.");
   }
   if (normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid") {
     throw new Error("This commission is already settled.");
   }
-  const validationMs = Date.now() - validationStartedAt;
-
   const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
   const commissionWallet = resolveCommissionWalletForNetwork(input.network);
   if (!commissionWallet.available) {
@@ -12277,27 +13297,93 @@ export async function submitSellerCommissionWalletPayment(input: {
     throw new Error(commissionWallet.error);
   }
 
+  // Only an authenticated owner using the supported rail may trigger the
+  // one-time legacy intent allocation write.
+  db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
+  if (index === -1) throw new Error("Commission record not found.");
+  current = db.commissionRecords[index];
+  if (current.sellerId !== input.sellerUserId) {
+    throw new Error("You can only settle your own commission.");
+  }
+  if (normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid") {
+    throw new Error("This commission is already settled.");
+  }
+  const dbReadMs = Date.now() - dbReadStartedAt;
+  const validationMs = Date.now() - validationStartedAt;
+
   const verificationStartedAt = Date.now();
   const chosenNetwork = commissionWallet.network;
   const recipientWalletAddress = commissionWallet.walletAddress;
 
-  // Collect all previously accepted tx hashes to prevent re-use
+  const normalizedPaymentSignature = getCommissionPaymentSignatureKey(input.paymentSignature);
+  if (
+    current.paymentExpectedAmountMode === "legacy_base"
+    && current.paymentSignature
+    && getCommissionPaymentSignatureKey(current.paymentSignature) !== normalizedPaymentSignature
+  ) {
+    throw new Error("This pre-upgrade payment can only be verified with its originally submitted TxID. Contact Alpha Traders support before making another transfer.");
+  }
+  const paymentSignatureAtRead = current.paymentSignature
+    ? getCommissionPaymentSignatureKey(current.paymentSignature)
+    : "";
+  const paymentVerificationStatusAtRead = current.paymentVerificationStatus;
+  const paymentSubmittedAtAtRead = current.paymentSubmittedAt;
+  const paymentUpdatedAtAtRead = current.updatedAt;
+  const replacesPriorSubmission = Boolean(
+    current.paymentSignature
+    && getCommissionPaymentSignatureKey(current.paymentSignature) !== normalizedPaymentSignature,
+  );
+  const paymentSubmittedAt = !current.paymentSubmittedAt || replacesPriorSubmission
+    ? nowIso()
+    : current.paymentSubmittedAt;
+  const assignmentTimestampMs = new Date(current.paymentExpectedAmountAssignedAt ?? "").getTime();
+  if (!Number.isFinite(assignmentTimestampMs) || assignmentTimestampMs <= 0) {
+    throw new Error("The commission payment intent is unavailable. Please refresh and try again.");
+  }
+  const earliestPaymentTimestampMs = assignmentTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS;
+
+  // Reserve TxIDs that are already verified or awaiting finality. Excluding
+  // this record lets the cron safely recheck its own submission.
   const existingSignatures = db.commissionRecords
-    .filter((r) => r.paymentVerificationStatus === "verified" && r.paymentSignature)
+    .filter((r) => (
+      r.id !== current.id
+      && (
+        normalizeCommissionPaymentStatus(r.paymentStatus, r.dueAt) === "paid"
+        || r.paymentVerificationStatus === "verified"
+        || r.paymentVerificationStatus === "pending_verification"
+      )
+      && r.paymentSignature
+    ))
     .map((r) => getCommissionPaymentSignatureKey(r.paymentSignature as string));
 
-  const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-  const verification = await verifyCommissionWalletPayment({
+  const amountDueUsdt = getCommissionPaymentAmountDueUsdt(current);
+  let verification = await verifyCommissionWalletPayment({
     amountDue: amountDueUsdt,
     network: chosenNetwork,
     payerWalletAddress: input.payerWalletAddress.trim(),
     recipientWalletAddress,
     paymentSignature: input.paymentSignature.trim(),
     existingSignatures,
+    earliestPaymentTimestampMs,
+    allowLegacyTronOverpayment: current.paymentExpectedAmountMode === "legacy_base",
   });
+  const submittedPaymentAgeMs = Date.now() - new Date(paymentSubmittedAt).getTime();
+  if (
+    input.automaticReverification
+    && verification.pending
+    && /not visible on TRON yet/i.test(verification.notes)
+    && Number.isFinite(submittedPaymentAgeMs)
+    && submittedPaymentAgeMs >= TRON_TX_NOT_FOUND_RETRY_WINDOW_MS
+  ) {
+    verification = {
+      verified: false,
+      reference: verification.reference,
+      notes: "The submitted TxID was not found on TRON after repeated checks. No payment was credited. Confirm the Binance withdrawal used USDT on TRON (TRC20), then submit the correct TxID.",
+    };
+  }
   const verificationMs = Date.now() - verificationStartedAt;
   const businessStartedAt = Date.now();
-  const normalizedPaymentSignature = getCommissionPaymentSignatureKey(input.paymentSignature);
   const applyCommissionPaymentToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
     const canonicalIndex = snapshot.commissionRecords.findIndex((record) => record.id === input.commissionId);
     if (canonicalIndex === -1) throw new Error("Commission record not found.");
@@ -12308,20 +13394,62 @@ export async function submitSellerCommissionWalletPayment(input: {
     if (normalizeCommissionPaymentStatus(canonicalRecord.paymentStatus, canonicalRecord.dueAt) === "paid") {
       throw new Error("This commission is already settled.");
     }
+    const canonicalPaymentSignature = canonicalRecord.paymentSignature
+      ? getCommissionPaymentSignatureKey(canonicalRecord.paymentSignature)
+      : "";
+    const paymentStateChangedSinceRead = (
+      canonicalPaymentSignature !== paymentSignatureAtRead
+      || canonicalRecord.paymentVerificationStatus !== paymentVerificationStatusAtRead
+      || canonicalRecord.paymentSubmittedAt !== paymentSubmittedAtAtRead
+      || canonicalRecord.updatedAt !== paymentUpdatedAtAtRead
+    );
+    if (input.automaticReverification && (
+      paymentStateChangedSinceRead
+      || canonicalRecord.paymentVerificationStatus !== "pending_verification"
+      || canonicalPaymentSignature !== normalizedPaymentSignature
+    )) {
+      throw new Error("This commission payment changed while automatic verification was running. The newer submission was preserved.");
+    }
+    if (paymentStateChangedSinceRead) {
+      throw new Error("This commission payment changed while verification was running. The newer submission was preserved.");
+    }
 
-    const canonicalAmountDueUsdt = getCommissionAmountDueUsdt(snapshot, canonicalRecord);
-    if (Math.abs(canonicalAmountDueUsdt - amountDueUsdt) > 0.000001) {
+    const canonicalAmountDueUsdt = getCommissionPaymentAmountDueUsdt(canonicalRecord);
+    if (usdtToMicros(canonicalAmountDueUsdt) !== usdtToMicros(amountDueUsdt)) {
       throw new Error("The commission amount changed. Please refresh and try again.");
     }
-    if (verification.verified && snapshot.commissionRecords.some((record) => (
+    if (
+      canonicalRecord.paymentExpectedAmountMode !== current.paymentExpectedAmountMode
+      || canonicalRecord.paymentExpectedAmountAssignedAt !== current.paymentExpectedAmountAssignedAt
+    ) {
+      throw new Error("The commission payment intent changed. Please refresh and try again.");
+    }
+    if ((verification.verified || verification.pending) && snapshot.commissionRecords.some((record) => (
       record.id !== canonicalRecord.id
-      && record.paymentVerificationStatus === "verified"
+      && (
+        normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) === "paid"
+        || record.paymentVerificationStatus === "verified"
+        || record.paymentVerificationStatus === "pending_verification"
+      )
       && getCommissionPaymentSignatureKey(record.paymentSignature ?? "") === normalizedPaymentSignature
     ))) {
       throw new Error("This transaction hash has already been used for a previous commission payment.");
     }
 
-    const now = nowIso();
+    const wallClockMs = Date.now();
+    const latestCommissionUpdateMs = Math.max(
+      0,
+      ...snapshot.commissionRecords.map((record) => {
+        const timestamp = new Date(record.updatedAt).getTime();
+        return Number.isFinite(timestamp) ? timestamp : 0;
+      }),
+    );
+    // A pending automatic retry moves behind every other candidate even when
+    // allocation and verification happen within the same millisecond.
+    const mutationTimestampMs = input.automaticReverification && verification.pending
+      ? Math.max(wallClockMs, latestCommissionUpdateMs + 1)
+      : wallClockMs;
+    const now = new Date(mutationTimestampMs).toISOString();
     const nextRecord: CommissionRecord = {
       ...canonicalRecord,
       paymentProvider: "crypto_wallet",
@@ -12329,8 +13457,13 @@ export async function submitSellerCommissionWalletPayment(input: {
       payerWalletAddress: input.payerWalletAddress.trim() || undefined,
       recipientWalletAddress,
       paymentSignature: input.paymentSignature.trim(),
-      paymentSubmittedAt: now,
-      paymentVerificationStatus: verification.verified ? "verified" : "failed",
+      paymentExpectedAmount: canonicalAmountDueUsdt,
+      paymentSubmittedAt,
+      paymentVerificationStatus: verification.verified
+        ? "verified"
+        : verification.pending
+          ? "pending_verification"
+          : "failed",
       paymentVerificationNotes: verification.notes,
       paymentStatus: verification.verified ? "paid" : canonicalRecord.paymentStatus,
       paidAt: verification.verified ? now : canonicalRecord.paidAt,
@@ -12338,16 +13471,18 @@ export async function submitSellerCommissionWalletPayment(input: {
     };
     snapshot.commissionRecords[canonicalIndex] = nextRecord;
 
-    await appendAuditLog(snapshot, {
-      action: verification.verified ? "commission_paid" : "commission_recorded",
-      actorUserId: input.sellerUserId,
-      targetUserId: canonicalRecord.sellerId,
-      listingId: canonicalRecord.listingId,
-      purchaseRequestId: canonicalRecord.purchaseRequestId,
-      details: verification.verified
-        ? `Commission ${canonicalRecord.id} verified via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}.`
-        : `Commission ${canonicalRecord.id} payment rejected via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
-    });
+    if (!input.automaticReverification || verification.verified || !verification.pending) {
+      await appendAuditLog(snapshot, {
+        action: verification.verified ? "commission_paid" : "commission_recorded",
+        actorUserId: input.sellerUserId,
+        targetUserId: canonicalRecord.sellerId,
+        listingId: canonicalRecord.listingId,
+        purchaseRequestId: canonicalRecord.purchaseRequestId,
+        details: verification.verified
+          ? `Commission ${canonicalRecord.id} verified via ${chosenNetwork}. Exact payment: ${canonicalAmountDueUsdt.toFixed(6)} USDT. Tx: ${input.paymentSignature.trim()}.`
+          : `Commission ${canonicalRecord.id} payment ${verification.pending ? "queued for automatic reverification" : "rejected"} via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
+      });
+    }
 
     const notificationPublications: DeferredNotificationPublication[] = [];
     const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
@@ -12356,19 +13491,28 @@ export async function submitSellerCommissionWalletPayment(input: {
         type: "commission_paid",
         actorUserId: input.sellerUserId,
         actorRole: resolveActorRole(snapshot, input.sellerUserId),
-        message: `Commission paid on-chain (${canonicalAmountDueUsdt.toFixed(2)} USDT).`,
+        message: `Commission paid on-chain (${canonicalAmountDueUsdt.toFixed(6)} USDT).`,
         createdAt: now,
       });
     }
     if (verification.verified) {
+      const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
+      const fullyUnlocked = remainingCommissions.length === 0;
+      const nextCommission = remainingCommissions[0];
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
         category: "trade",
         title: "Commission payment verified",
-        message: `Your commission payment for trade ${canonicalRecord.purchaseRequestId} was verified. Your account is now fully unlocked.`,
+        message: fullyUnlocked
+          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
+          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
         relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
-        relatedHref: "/usdt-exchange",
+        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
+        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -12379,7 +13523,7 @@ export async function submitSellerCommissionWalletPayment(input: {
           userId: ownerUser.id,
           category: "system",
           title: "Commission payment received",
-          message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}`,
+          message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Exact payment: ${canonicalAmountDueUsdt.toFixed(6)} USDT. Tx: ${input.paymentSignature.trim()}`,
           relatedTradeId: canonicalRecord.purchaseRequestId,
           relatedListingId: canonicalRecord.listingId,
           relatedHref: adminCommissionDestination(canonicalRecord.id),
@@ -12389,6 +13533,23 @@ export async function submitSellerCommissionWalletPayment(input: {
         });
         if (ownerPublication) notificationPublications.push(ownerPublication);
       }
+    } else if (input.automaticReverification && !verification.pending) {
+      const sellerPublication = pushNotification(snapshot, {
+        userId: canonicalRecord.sellerId,
+        category: "trade",
+        title: "Commission payment needs attention",
+        message: `The submitted TRON transaction was not credited: ${verification.notes} Open the commission payment and submit the correct TxID.`,
+        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedRequestId: canonicalRecord.purchaseRequestId,
+        relatedListingId: canonicalRecord.listingId,
+        relatedHref: commissionPaymentDestination(canonicalRecord.id),
+        actionHref: commissionPaymentDestination(canonicalRecord.id),
+        actionLabel: "Replace TxID",
+        reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        priority: "high",
+        deferRealtime: true,
+      });
+      if (sellerPublication) notificationPublications.push(sellerPublication);
     }
 
     return { commission: nextRecord, request, notificationPublications };
@@ -12429,59 +13590,128 @@ export async function submitSellerCommissionWalletPayment(input: {
   };
 }
 
+/**
+ * Rechecks seller-submitted payments that reached TRON but had not yet
+ * solidified, or whose public RPC lookup was temporarily unavailable.
+ */
+export async function reverifyPendingCommissionPayments(input?: { limit?: number }) {
+  const requestedLimit = Math.trunc(input?.limit ?? 2);
+  const limit = Math.min(4, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 2));
+  const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
+  const commissionWallet = resolveCommissionWalletForNetwork("TRC20");
+  if (!commissionWallet.available) {
+    throw new Error(commissionWallet.error);
+  }
+  const db = await readDb({ bypassCache: true });
+  const candidates = db.commissionRecords
+    .filter((record) => (
+      record.paymentVerificationStatus === "pending_verification"
+      && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid"
+      && record.paymentNetwork === "TRC20"
+      && Boolean(record.paymentSignature)
+      && record.recipientWalletAddress === commissionWallet.walletAddress
+    ))
+    // Every retry updates updatedAt, moving a still-pending record to the back
+    // so slow/stuck transactions cannot starve newer seller payments.
+    .sort((left, right) => String(left.updatedAt).localeCompare(String(right.updatedAt)))
+    .slice(0, limit);
+
+  let verified = 0;
+  let stillPending = 0;
+  let failed = 0;
+  let errors = 0;
+  for (const record of candidates) {
+    try {
+      const result = await submitSellerCommissionWalletPayment({
+        sellerUserId: record.sellerId,
+        commissionId: record.id,
+        network: "TRC20",
+        payerWalletAddress: record.payerWalletAddress ?? "",
+        paymentSignature: record.paymentSignature as string,
+        automaticReverification: true,
+      });
+      if (result.verification.verified) verified += 1;
+      else if (result.verification.pending) stillPending += 1;
+      else failed += 1;
+    } catch (error) {
+      errors += 1;
+      logLocalMarketplaceDiagnostic("error", "[commission-verify] automatic-reverification-failed", {
+        commissionId: record.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    checked: candidates.length,
+    verified,
+    stillPending,
+    failed,
+    errors,
+  };
+}
+
 export async function clearSellerQaCommissionDues(input: {
   sellerUserId: string;
 }) {
   if (!isQaCommissionModeEnabled()) {
     throw new Error("QA commission mode is not enabled.");
   }
-
   const db = await readDb();
-  const now = nowIso();
-  const sellerPendingCommissions = db.commissionRecords.filter(
-    (record) =>
-      record.sellerId === input.sellerUserId &&
-      normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
-  );
-
-  for (const current of sellerPendingCommissions) {
-    const index = db.commissionRecords.findIndex((record) => record.id === current.id);
-    if (index === -1) continue;
-    const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-    db.commissionRecords[index] = {
-      ...current,
-      paymentProvider: "qa_reset",
-      paymentNetwork: "QA",
-      paymentStatus: "paid",
-      paymentVerificationStatus: "verified",
-      paymentVerificationNotes: "Cleared automatically by QA commission mode.",
-      paymentSubmittedAt: now,
-      paidAt: now,
-      updatedAt: now,
-    };
-    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-    if (request) {
-      appendTradeTimelineEntry(request, {
-        type: "commission_paid",
+  let clearedCount = 0;
+  const applyQaClear = async (snapshot: AlphaExchangeDb) => {
+    const now = nowIso();
+    const pending = snapshot.commissionRecords.filter(
+      (record) => record.sellerId === input.sellerUserId
+        && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+    );
+    clearedCount = pending.length;
+    for (const current of pending) {
+      const index = snapshot.commissionRecords.findIndex((record) => record.id === current.id);
+      if (index === -1) continue;
+      const amountDueUsdt = getCommissionAmountDueUsdt(snapshot, current);
+      snapshot.commissionRecords[index] = {
+        ...current,
+        paymentProvider: "qa_reset",
+        paymentNetwork: "QA",
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paymentVerificationNotes: "Cleared automatically by QA commission mode.",
+        paymentSubmittedAt: now,
+        paidAt: now,
+        updatedAt: now,
+      };
+      const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.sellerUserId,
+          actorRole: resolveActorRole(snapshot, input.sellerUserId),
+          message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
+          createdAt: now,
+        });
+      }
+      await appendAuditLog(snapshot, {
+        action: "commission_paid",
         actorUserId: input.sellerUserId,
-        actorRole: resolveActorRole(db, input.sellerUserId),
-        message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
-        createdAt: now,
+        targetUserId: current.sellerId,
+        listingId: current.listingId,
+        purchaseRequestId: current.purchaseRequestId,
+        details: `QA commission cleanup cleared ${current.id}.`,
       });
     }
-    await appendAuditLog(db, {
-      action: "commission_paid",
-      actorUserId: input.sellerUserId,
-      targetUserId: current.sellerId,
-      listingId: current.listingId,
-      purchaseRequestId: current.purchaseRequestId,
-      details: `QA commission cleanup cleared ${current.id}.`,
+    return snapshot;
+  };
+
+  await applyQaClear(db);
+  if (clearedCount > 0) {
+    await writeDb(db, {
+      selectedTables: COMMISSION_RESET_TABLES,
+      rebaseOnLatest: applyQaClear,
     });
   }
-
-  await writeDb(db, { selectedTables: COMMISSION_RESET_TABLES });
   return {
-    clearedCount: sellerPendingCommissions.length,
+    clearedCount,
   };
 }
 
@@ -12490,56 +13720,70 @@ export async function clearSellerCommissionDuesByAdmin(input: {
   adminUserId: string;
 }) {
   const db = await readDb();
-  const now = nowIso();
   const sellerUserIdSet = new Set(input.sellerUserIds.filter(Boolean));
-  const sellerPendingCommissions = db.commissionRecords.filter(
-    (record) =>
-      sellerUserIdSet.has(record.sellerId) &&
-      normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
-  );
-
-  for (const current of sellerPendingCommissions) {
-    const index = db.commissionRecords.findIndex((record) => record.id === current.id);
-    if (index === -1) continue;
-    const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-    db.commissionRecords[index] = {
-      ...current,
-      paymentProvider: "qa_reset",
-      paymentNetwork: "QA",
-      paymentStatus: "paid",
-      paymentVerificationStatus: "verified",
-      paymentVerificationNotes: "Cleared by admin reset-by-email action.",
-      paymentSubmittedAt: now,
-      paidAt: now,
-      updatedAt: now,
-    };
-    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-    if (request) {
-      appendTradeTimelineEntry(request, {
-        type: "commission_paid",
+  let clearedCount = 0;
+  let committedRequests: PurchaseRequest[] = [];
+  const applyAdminClear = async (snapshot: AlphaExchangeDb) => {
+    const now = nowIso();
+    const pending = snapshot.commissionRecords.filter(
+      (record) => sellerUserIdSet.has(record.sellerId)
+        && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+    );
+    clearedCount = pending.length;
+    committedRequests = [];
+    for (const current of pending) {
+      const index = snapshot.commissionRecords.findIndex((record) => record.id === current.id);
+      if (index === -1) continue;
+      const amountDueUsdt = getCommissionAmountDueUsdt(snapshot, current);
+      snapshot.commissionRecords[index] = {
+        ...current,
+        paymentProvider: "qa_reset",
+        paymentNetwork: "QA",
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paymentVerificationNotes: "Cleared by admin reset-by-email action.",
+        paymentSubmittedAt: now,
+        paidAt: now,
+        updatedAt: now,
+      };
+      const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.adminUserId,
+          actorRole: resolveActorRole(snapshot, input.adminUserId),
+          message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
+          createdAt: now,
+        });
+        committedRequests.push(request);
+      }
+      await appendAuditLog(snapshot, {
+        action: "commission_paid",
         actorUserId: input.adminUserId,
-        actorRole: resolveActorRole(db, input.adminUserId),
-        message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
-        createdAt: now,
-      });
-      publishRealtimeEvent({
-        type: "trade.status_changed",
-        payload: { request: enrichRequestWithEvidence(db, request) },
+        targetUserId: current.sellerId,
+        listingId: current.listingId,
+        purchaseRequestId: current.purchaseRequestId,
+        details: `Admin reset-by-email cleared commission ${current.id}.`,
       });
     }
-    await appendAuditLog(db, {
-      action: "commission_paid",
-      actorUserId: input.adminUserId,
-      targetUserId: current.sellerId,
-      listingId: current.listingId,
-      purchaseRequestId: current.purchaseRequestId,
-      details: `Admin reset-by-email cleared commission ${current.id}.`,
+    return snapshot;
+  };
+
+  await applyAdminClear(db);
+  if (clearedCount > 0) {
+    await writeDb(db, {
+      selectedTables: COMMISSION_RESET_TABLES,
+      rebaseOnLatest: applyAdminClear,
     });
   }
-
-  await writeDb(db, { selectedTables: COMMISSION_RESET_TABLES });
+  for (const request of committedRequests) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
+    });
+  }
   return {
-    clearedCount: sellerPendingCommissions.length,
+    clearedCount,
   };
 }
 
@@ -14079,7 +15323,15 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
   const now = nowIso();
-  db.purchaseRequests[index] = { ...request, status: "completed", completedAt: now, updatedAt: now };
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
+  db.purchaseRequests[index] = {
+    ...request,
+    status: "completed",
+    completedAt: now,
+    updatedAt: now,
+    inactivityWarningSentAt: undefined,
+    actionReminderState: undefined,
+  };
   appendTradeTimelineEntry(db.purchaseRequests[index], {
     type: "trade_completed",
     actorUserId: input.actorUserId,
@@ -14094,6 +15346,7 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
     reason: input.reason,
   });
   await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+  publishArchivedTradeActionReminders(archivedActionReminders);
 }
 
 export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: string; actorUserId: string }) {
@@ -14154,7 +15407,14 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
   const now = nowIso();
-  db.purchaseRequests[index] = { ...request, status: "cancelled", updatedAt: now };
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
+  db.purchaseRequests[index] = {
+    ...request,
+    status: "cancelled",
+    updatedAt: now,
+    inactivityWarningSentAt: undefined,
+    actionReminderState: undefined,
+  };
   appendTradeTimelineEntry(db.purchaseRequests[index], {
     type: "request_cancelled",
     actorUserId: input.actorUserId,
@@ -14169,6 +15429,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     reason: input.reason,
   });
   await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+  publishArchivedTradeActionReminders(archivedActionReminders);
 }
 
 export async function unlockTradeReviewByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
@@ -14296,39 +15557,205 @@ export async function broadcastNotificationByAdmin(input: {
 }
 
 export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string; reason?: string }) {
-  const db = await readDb();
+  const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
   const index = db.commissionRecords.findIndex((r) => r.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
   const record = db.commissionRecords[index];
-  if (!record.paymentSignature || !record.payerWalletAddress || !record.recipientWalletAddress || !record.paymentNetwork) {
+  if (!record.paymentSignature || !record.recipientWalletAddress || !record.paymentNetwork) {
     throw new Error("Commission has no payment details to reverify.");
   }
   const existingSignatures = db.commissionRecords
-    .filter((r) => r.id !== input.commissionId && r.paymentVerificationStatus === "verified")
+    .filter((r) => (
+      r.id !== input.commissionId
+      && (
+        normalizeCommissionPaymentStatus(r.paymentStatus, r.dueAt) === "paid"
+        || r.paymentVerificationStatus === "verified"
+        || r.paymentVerificationStatus === "pending_verification"
+      )
+    ))
     .map((r) => r.paymentSignature ? getCommissionPaymentSignatureKey(r.paymentSignature) : undefined)
     .filter((s): s is string => Boolean(s));
+  const amountDue = record.paymentNetwork === "TRC20"
+    ? (typeof record.paymentExpectedAmount === "number"
+        ? getCommissionPaymentAmountDueUsdt(record)
+        : getCommissionAmountDueUsdt(db, record))
+    : getCommissionAmountDueUsdt(db, record);
+  const assignmentTimestampMs = new Date(record.paymentExpectedAmountAssignedAt ?? "").getTime();
+  const submittedAtMs = new Date(record.paymentSubmittedAt ?? "").getTime();
+  const createdAtMs = new Date(record.createdAt).getTime();
+  const legacyTimestampMs = Math.max(
+    Number.isFinite(createdAtMs) ? createdAtMs : 0,
+    Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
+  );
+  const earliestPaymentTimestampMs = record.paymentNetwork === "TRC20"
+    ? (Number.isFinite(assignmentTimestampMs) && assignmentTimestampMs > 0
+        ? assignmentTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS
+        : legacyTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS)
+    : undefined;
+  const signatureAtRead = getCommissionPaymentSignatureKey(record.paymentSignature);
+  const networkAtRead = record.paymentNetwork;
+  const recipientAtRead = record.recipientWalletAddress;
+  const verificationStatusAtRead = record.paymentVerificationStatus;
+  const submittedAtAtRead = record.paymentSubmittedAt;
+  const updatedAtAtRead = record.updatedAt;
+  const paymentStatusAtRead = record.paymentStatus;
+  const paidAtAtRead = record.paidAt;
   const result = await verifyCommissionWalletPayment({
-    amountDue: record.commissionAmount,
+    amountDue,
     network: record.paymentNetwork,
-    payerWalletAddress: record.payerWalletAddress,
+    payerWalletAddress: record.payerWalletAddress ?? "",
     recipientWalletAddress: record.recipientWalletAddress,
     paymentSignature: record.paymentSignature,
     existingSignatures,
+    earliestPaymentTimestampMs,
+    allowLegacyTronOverpayment: record.paymentNetwork === "TRC20"
+      && (record.paymentExpectedAmountMode === "legacy_base" || typeof record.paymentExpectedAmount !== "number"),
   });
-  db.commissionRecords[index] = {
-    ...record,
-    paymentVerificationStatus: result.verified ? "verified" : "failed",
-    paymentVerificationNotes: result.notes,
-    updatedAt: nowIso(),
+
+  type AdminReverificationCommit = {
+    request?: PurchaseRequest;
+    notificationPublications: DeferredNotificationPublication[];
+    newlySettled: boolean;
   };
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    purchaseRequestId: record.purchaseRequestId,
-    details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : "failed"} — ${result.notes}`,
-    reason: input.reason?.trim() || undefined,
+  let committed: AdminReverificationCommit = {
+    notificationPublications: [],
+    newlySettled: false,
+  };
+
+  const applyAdminReverification = async (snapshot: AlphaExchangeDb) => {
+    const canonicalIndex = snapshot.commissionRecords.findIndex((candidate) => candidate.id === input.commissionId);
+    if (canonicalIndex === -1) throw new Error("Commission record not found.");
+    const canonicalRecord = snapshot.commissionRecords[canonicalIndex];
+    if (
+      getCommissionPaymentSignatureKey(canonicalRecord.paymentSignature ?? "") !== signatureAtRead
+      || canonicalRecord.paymentNetwork !== networkAtRead
+      || canonicalRecord.recipientWalletAddress !== recipientAtRead
+      || canonicalRecord.paymentVerificationStatus !== verificationStatusAtRead
+      || canonicalRecord.paymentSubmittedAt !== submittedAtAtRead
+      || canonicalRecord.updatedAt !== updatedAtAtRead
+      || canonicalRecord.paymentStatus !== paymentStatusAtRead
+      || canonicalRecord.paidAt !== paidAtAtRead
+    ) {
+      throw new Error("Commission payment details changed while admin verification was running. The newer state was preserved.");
+    }
+    const canonicalAmountDue = canonicalRecord.paymentNetwork === "TRC20"
+      ? (typeof canonicalRecord.paymentExpectedAmount === "number"
+          ? getCommissionPaymentAmountDueUsdt(canonicalRecord)
+          : getCommissionAmountDueUsdt(snapshot, canonicalRecord))
+      : getCommissionAmountDueUsdt(snapshot, canonicalRecord);
+    if (usdtToMicros(canonicalAmountDue) !== usdtToMicros(amountDue)) {
+      throw new Error("Commission payment amount changed while admin verification was running.");
+    }
+    if ((result.verified || result.pending) && snapshot.commissionRecords.some((candidate) => (
+      candidate.id !== canonicalRecord.id
+      && (
+        normalizeCommissionPaymentStatus(candidate.paymentStatus, candidate.dueAt) === "paid"
+        || candidate.paymentVerificationStatus === "verified"
+        || candidate.paymentVerificationStatus === "pending_verification"
+      )
+      && getCommissionPaymentSignatureKey(candidate.paymentSignature ?? "") === signatureAtRead
+    ))) {
+      throw new Error("This transaction hash has already been used for a previous commission payment.");
+    }
+    const now = nowIso();
+    const wasPaid = normalizeCommissionPaymentStatus(canonicalRecord.paymentStatus, canonicalRecord.dueAt) === "paid";
+    const newlySettled = result.verified && !wasPaid;
+    const preservePaidVerification = wasPaid && !result.verified;
+    const nextRecord: CommissionRecord = {
+      ...canonicalRecord,
+      paymentVerificationStatus: preservePaidVerification
+        ? canonicalRecord.paymentVerificationStatus ?? "verified"
+        : result.verified
+          ? "verified"
+          : result.pending
+            ? "pending_verification"
+            : "failed",
+      paymentVerificationNotes: preservePaidVerification
+        ? canonicalRecord.paymentVerificationNotes
+        : result.notes,
+      paymentStatus: result.verified ? "paid" : canonicalRecord.paymentStatus,
+      paidAt: result.verified ? canonicalRecord.paidAt ?? now : canonicalRecord.paidAt,
+      updatedAt: now,
+    };
+    snapshot.commissionRecords[canonicalIndex] = nextRecord;
+
+    const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
+    const notificationPublications: DeferredNotificationPublication[] = [];
+    if (newlySettled) {
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.actorUserId,
+          actorRole: resolveActorRole(snapshot, input.actorUserId),
+          message: `Commission verified on-chain by admin (${canonicalAmountDue.toFixed(6)} USDT).`,
+          createdAt: now,
+        });
+      }
+      const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
+      const fullyUnlocked = remainingCommissions.length === 0;
+      const nextCommission = remainingCommissions[0];
+      const sellerPublication = pushNotification(snapshot, {
+        userId: canonicalRecord.sellerId,
+        category: "trade",
+        title: "Commission payment verified",
+        message: fullyUnlocked
+          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
+          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
+        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedRequestId: canonicalRecord.purchaseRequestId,
+        relatedListingId: canonicalRecord.listingId,
+        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
+        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        deferRealtime: true,
+      });
+      if (sellerPublication) notificationPublications.push(sellerPublication);
+
+      const ownerUser = snapshot.users.find((user) => isAlphaExchangeOwnerEmail(user.email));
+      if (ownerUser) {
+        const ownerPublication = pushNotification(snapshot, {
+          userId: ownerUser.id,
+          category: "system",
+          title: "Commission payment received",
+          message: `Commission ${canonicalRecord.id} verified via ${canonicalRecord.paymentNetwork}. Exact payment: ${canonicalAmountDue.toFixed(6)} USDT. Tx: ${canonicalRecord.paymentSignature}`,
+          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedListingId: canonicalRecord.listingId,
+          relatedHref: adminCommissionDestination(canonicalRecord.id),
+          actionHref: adminCommissionDestination(canonicalRecord.id),
+          actionLabel: "Review Commission",
+          deferRealtime: true,
+        });
+        if (ownerPublication) notificationPublications.push(ownerPublication);
+      }
+    }
+    await appendAuditLog(snapshot, {
+      action: newlySettled ? "commission_paid" : "admin_override",
+      actorUserId: input.actorUserId,
+      targetUserId: canonicalRecord.sellerId,
+      listingId: canonicalRecord.listingId,
+      purchaseRequestId: canonicalRecord.purchaseRequestId,
+      details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : result.pending ? "pending" : "failed"} — ${result.notes}`,
+      reason: input.reason?.trim() || undefined,
+    });
+    committed = { request, notificationPublications, newlySettled };
+    return snapshot;
+  };
+
+  await applyAdminReverification(db);
+  await writeDb(db, {
+    selectedTables: COMMISSION_STATUS_TABLES,
+    rebaseOnLatest: applyAdminReverification,
   });
-  await writeDb(db, { selectedTables: COMMISSION_STATUS_TABLES });
+  if (committed.newlySettled && committed.request) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, committed.request) },
+    });
+  }
+  for (const publication of committed.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
   return result;
 }
 

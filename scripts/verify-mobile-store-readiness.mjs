@@ -4,11 +4,28 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const submissionMode = process.argv.includes("--submission");
-const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--submission");
+const argumentsList = process.argv.slice(2);
+const submissionMode = argumentsList.includes("--submission");
+const platformArguments = argumentsList.filter((argument) => argument.startsWith("--platform="));
+const unknownArguments = argumentsList.filter((argument) => (
+  argument !== "--submission" && !argument.startsWith("--platform=")
+));
 
 if (unknownArguments.length > 0) {
   console.error(`Unknown store-readiness argument: ${unknownArguments.join(", ")}`);
+  process.exit(2);
+}
+if (platformArguments.length > 1) {
+  console.error("Provide --platform only once.");
+  process.exit(2);
+}
+const submissionPlatform = platformArguments[0]?.slice("--platform=".length) || "all";
+if (!new Set(["ios", "android", "all"]).has(submissionPlatform)) {
+  console.error("--platform must be ios, android, or all.");
+  process.exit(2);
+}
+if (!submissionMode && platformArguments.length > 0) {
+  console.error("--platform is available only together with --submission.");
   process.exit(2);
 }
 
@@ -81,6 +98,7 @@ const pushNavigationRecovery = readText("apps/mobile/src/web/push-navigation-rec
 const installedIphoneWorkflow = readText("apps/mobile/.eas/workflows/iphone-installed-preview.yml");
 const githubWorkflow = readText(".github/workflows/mobile-preview.yml");
 const submissionPack = readText("docs/mobile/app-store-connect-submission-pack.md");
+const googlePlaySubmissionPack = readText("docs/mobile/google-play-submission-pack.md");
 const fullExchangeEvidence = readText("docs/mobile/full-exchange-app-review-evidence.md");
 const responsePlaybook = readText("docs/mobile/app-review-response-playbook.md");
 const privateRecordTemplate = readText("docs/mobile/app-review-private-record-template.md");
@@ -100,6 +118,9 @@ const tradeRoomActions = readText("src/lib/trade-room-actions.ts");
 
 check(appConfig.name === "Alpha Traders", "The iOS display name must remain Alpha Traders.");
 check(rootPackage.scripts?.["mobile:store-readiness"] === "node scripts/verify-mobile-store-readiness.mjs", "The source-readiness command is not wired into the root package.");
+check(rootPackage.scripts?.["mobile:store-readiness:submission"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=all", "The combined iOS/Android submission gate is not wired into the root package.");
+check(rootPackage.scripts?.["mobile:store-readiness:submission:ios"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=ios", "The iOS submission gate is not wired into the root package.");
+check(rootPackage.scripts?.["mobile:store-readiness:submission:android"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=android", "The Android submission gate is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:review-rehearsal"] === "node ./node_modules/vitest/vitest.mjs run src/__tests__/app-review-rehearsal.test.ts", "The isolated full-Exchange reviewer rehearsal is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:scale-rehearsal"] === "node ./node_modules/vitest/vitest.mjs run src/__tests__/marketplace-concurrency-scale.test.ts", "The ten-trade Exchange scale rehearsal is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:review-surface"] === "node scripts/verify-mobile-review-surface.mjs", "The public App Review preflight is not wired into the root package.");
@@ -120,6 +141,8 @@ check(appConfig.extra?.eas?.projectId === "e5dbc3ba-25fb-4373-8ded-c8c80cadc147"
 check(appConfig.ios?.infoPlist?.ITSAppUsesNonExemptEncryption === false, "Export-compliance encryption declaration is missing.");
 check(appConfig.ios?.infoPlist?.NSAppTransportSecurity?.NSAllowsArbitraryLoads === false, "iOS arbitrary network loads must be disabled.");
 check(appConfig.android?.allowBackup === false, "Android application backup must remain disabled.");
+check(appConfig.android?.blockedPermissions?.includes("android.permission.SYSTEM_ALERT_WINDOW"), "The unused Android system-overlay permission must be blocked.");
+check(appConfig.android?.blockedPermissions?.includes("android.permission.RECORD_AUDIO"), "The unused Android microphone permission must be blocked explicitly.");
 check(hasPlugin(appConfig.plugins, "expo-notifications"), "Native notification configuration is missing.");
 check(hasPlugin(appConfig.plugins, "expo-image-picker"), "Trade-evidence image picker configuration is missing.");
 const imagePicker = pluginOptions(appConfig.plugins, "expo-image-picker");
@@ -180,6 +203,25 @@ for (const locale of ["en-US", "ar-SA"]) {
   check(metadata.whatsNew.includes("USDT"), `${locale} What's New text must disclose the full USDT experience.`);
 }
 
+const googlePlayMetadata = storeMetadata.googlePlay;
+check(googlePlayMetadata?.category === "FINANCE", "The Google Play category must reflect the app's financial marketplace.");
+check(googlePlayMetadata?.supportEmail === "support@alphatraders.co.il", "The Google Play support email is missing or unexpected.");
+for (const field of ["websiteUrl", "privacyPolicyUrl", "accountDeletionUrl"]) {
+  check(googlePlayMetadata?.[field]?.startsWith("https://www.alphatraders.co.il/"), `Google Play ${field} must use the production HTTPS origin.`);
+}
+for (const locale of ["en-US", "ar"]) {
+  const metadata = googlePlayMetadata?.localizations?.[locale];
+  check(Boolean(metadata), `Google Play metadata is missing for ${locale}.`);
+  if (!metadata) continue;
+  check([...metadata.title].length <= 30, `Google Play ${locale} title exceeds 30 characters.`);
+  check([...metadata.shortDescription].length <= 80, `Google Play ${locale} short description exceeds 80 characters.`);
+  check([...metadata.fullDescription].length <= 4_000, `Google Play ${locale} full description exceeds 4,000 characters.`);
+  check([...metadata.releaseNotes].length <= 500, `Google Play ${locale} release notes exceed 500 characters.`);
+  check(metadata.fullDescription.includes("USDT"), `Google Play ${locale} full description must disclose the USDT marketplace.`);
+  check(metadata.releaseNotes.includes("USDT"), `Google Play ${locale} release notes must disclose the full USDT experience.`);
+  check(!metadata.fullDescription.includes("iPhone"), `Google Play ${locale} copy must not describe the Android build as an iPhone app.`);
+}
+
 check(userSafetyActions.includes("Block user"), "The user-facing block control is missing.");
 check(userSafetyActions.includes("Report user"), "The user-facing report control is missing.");
 check(userBlockRoute.includes("setUserBlockStatus"), "The authenticated user-block route is missing.");
@@ -232,6 +274,21 @@ check(submissionPack.includes("## Reviewed feature consistency"), "The full-Exch
 check(submissionPack.includes("## App Privacy declaration worksheet"), "The App Privacy worksheet is missing from the submission pack.");
 check(submissionPack.includes("## Licensing and territory gate"), "The licensing and territory gate is missing from the submission pack.");
 check(submissionPack.includes("## Screenshot capture plan"), "The screenshot plan is missing from the submission pack.");
+check(googlePlaySubmissionPack.includes("## Reviewed feature consistency"), "The Google Play full-Exchange consistency rule is missing.");
+check(googlePlaySubmissionPack.includes("## Play review access"), "The Google Play review-access plan is missing.");
+check(googlePlaySubmissionPack.includes("## Data safety declaration worksheet"), "The Google Play Data safety worksheet is missing.");
+check(googlePlaySubmissionPack.includes("## Financial features and territory gate"), "The Google Play financial-features gate is missing.");
+check(googlePlaySubmissionPack.includes("## Store listing and graphics"), "The Google Play listing and graphics plan is missing.");
+check(googlePlaySubmissionPack.includes("## Final submission sequence"), "The Google Play submission sequence is missing.");
+for (const officialSource of [
+  "https://support.google.com/googleplay/android-developer/answer/13393723",
+  "https://support.google.com/googleplay/android-developer/answer/10787469",
+  "https://support.google.com/googleplay/android-developer/answer/13849271",
+  "https://support.google.com/googleplay/android-developer/answer/16329703",
+  "https://support.google.com/googleplay/android-developer/answer/15748846",
+]) {
+  check(googlePlaySubmissionPack.includes(officialSource), `The Google Play submission pack is missing official source ${officialSource}.`);
+}
 check(fullExchangeEvidence.includes("## Non-negotiable release invariant"), "The full-Exchange release invariant is missing.");
 check(fullExchangeEvidence.includes("Guideline 3.1.5(iii)"), "The cryptocurrency-exchange evidence gate is missing.");
 check(fullExchangeEvidence.includes("Guideline 4.2"), "The native minimum-functionality evidence is missing.");
@@ -255,6 +312,7 @@ check(economicCalendarPlan.includes("Do not scrape Forex Factory"), "The economi
 check(economicCalendarPlan.includes("not part of the first release"), "The economic-calendar release boundary is missing.");
 check(economicCalendarPlan.toLowerCase().includes("market-event notifications are optional"), "The economic-calendar notification consent rule is missing.");
 check(runbook.toLowerCase().includes("real-device acceptance matrix"), "The signed-device acceptance matrix is missing.");
+check(runbook.includes("docs/mobile/google-play-submission-pack.md"), "The private-beta runbook does not route Android public releases through the Google Play submission pack.");
 check(reviewDryRun.includes("## Exact reviewer journey"), "The exact signed-device App Review journey is missing.");
 check(reviewDryRun.includes("## Pass-or-block decision"), "The App Review dry-run stop rule is missing.");
 check(reviewDryRun.includes("must not reopen either notification"), "The signed-device dry run is missing stale push-navigation recovery.");
@@ -270,7 +328,7 @@ if (failures.length > 0) {
 
 console.log(`\nMobile store source readiness passed (${passed} checks).`);
 
-const submissionConfirmations = [
+const appleSubmissionConfirmations = [
   ["ALPHA_APPLE_MEMBERSHIP_ACTIVE", "Apple Developer Program enrollment is active"],
   ["ALPHA_APPLE_FULL_EXCHANGE_SCOPE_APPROVED", "the exact reviewed build, metadata, screenshots, and notes disclose the complete Exchange"],
   ["ALPHA_APPLE_LEGAL_ENTITY_APPROVED", "the submitting Apple team and legal entity are eligible for the regulated service"],
@@ -283,17 +341,36 @@ const submissionConfirmations = [
   ["ALPHA_APPLE_STORE_METADATA_ENTERED", "metadata, privacy answers, screenshots, and review notes were entered"],
   ["ALPHA_APPLE_RESPONSE_PLAYBOOK_READY", "the response owner, evidence owners, private case record, and escalation contacts are ready"],
 ];
+const googlePlaySubmissionConfirmations = [
+  ["ALPHA_GOOGLE_PLAY_ACCOUNT_READY", "the verified Play Console developer account, agreements, and app record are active"],
+  ["ALPHA_GOOGLE_PLAY_FULL_EXCHANGE_SCOPE_APPROVED", "the exact Android build, listing, graphics, and review instructions disclose the complete Exchange"],
+  ["ALPHA_GOOGLE_PLAY_LEGAL_ENTITY_APPROVED", "the Play Console developer identity and legal entity are eligible for the offered financial service"],
+  ["ALPHA_GOOGLE_PLAY_LEGAL_EVIDENCE_APPROVED", "counsel-approved licensing and country/storefront evidence is ready for the exact marketplace model"],
+  ["ALPHA_GOOGLE_PLAY_PUBLIC_PREFLIGHT_APPROVED", "the deployed production health, native version contract, and bilingual public review routes passed"],
+  ["ALPHA_GOOGLE_PLAY_REVIEW_ACCOUNT_READY", "reusable fictional buyer and seller review accounts and English access instructions are live"],
+  ["ALPHA_GOOGLE_PLAY_SIGNED_BUILD_READY", "the exact release commit has a signed Android App Bundle on the intended Play testing track"],
+  ["ALPHA_GOOGLE_PLAY_DEVICE_MATRIX_APPROVED", "the bilingual Android real-device matrix and Play pre-launch report passed"],
+  ["ALPHA_GOOGLE_PLAY_STORE_METADATA_ENTERED", "localized listing copy, release notes, screenshots, graphics, support, privacy, and deletion URLs were entered"],
+  ["ALPHA_GOOGLE_PLAY_DATA_SAFETY_APPROVED", "the Data safety form was reconciled with app behavior, SDKs, providers, privacy policy, and deletion flow"],
+  ["ALPHA_GOOGLE_PLAY_FINANCIAL_DECLARATION_APPROVED", "the Financial features declaration and cryptocurrency-policy evidence were completed accurately"],
+  ["ALPHA_GOOGLE_PLAY_ROLLOUT_READY", "testers, release countries, managed publishing, monitoring owner, and staged-rollout stop conditions are approved"],
+];
+const submissionConfirmations = submissionPlatform === "ios"
+  ? appleSubmissionConfirmations
+  : submissionPlatform === "android"
+    ? googlePlaySubmissionConfirmations
+    : [...appleSubmissionConfirmations, ...googlePlaySubmissionConfirmations];
 const missingConfirmations = submissionConfirmations.filter(([name]) => process.env[name] !== "1");
 
 if (!submissionMode) {
-  console.log("Manual submission gates remain separate. Run npm run mobile:store-readiness:submission only after the release owner confirms them.\n");
+  console.log("Manual submission gates remain separate. Run the combined, iOS, or Android submission command only after the release owner confirms its external gates.\n");
   process.exit(0);
 }
 
 if (missingConfirmations.length > 0) {
-  console.error("\nPublic App Store submission is blocked until these confirmations are set to 1 for the release session:\n");
+  console.error(`\nPublic ${submissionPlatform === "ios" ? "iOS" : submissionPlatform === "android" ? "Android" : "iOS/Android"} submission is blocked until these confirmations are set to 1 for the release session:\n`);
   for (const [name, description] of missingConfirmations) console.error(`- ${name}: ${description}`);
   process.exit(1);
 }
 
-console.log("All release-owner submission confirmations are present. Continue only with the exact signed and tested commit.\n");
+console.log(`All ${submissionPlatform} release-owner submission confirmations are present. Continue only with the exact signed and tested commit.\n`);

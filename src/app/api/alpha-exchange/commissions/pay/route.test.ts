@@ -30,6 +30,8 @@ function request(payload: Record<string, unknown>) {
 }
 
 describe("commission payment route network handling", () => {
+  const tronTxId = "a".repeat(64);
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireSeller.mockResolvedValue({ user: { id: "seller-1" }, unauthorized: null });
@@ -41,27 +43,59 @@ describe("commission payment route network handling", () => {
   });
 
   it("rejects an omitted network instead of silently defaulting to TRC20", async () => {
-    const response = await POST(request({ commissionId: "commission-1", paymentSignature: "signature" }));
+    const response = await POST(request({ commissionId: "commission-1", paymentSignature: tronTxId }));
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Commission payment network is required." });
     expect(mocks.submit).not.toHaveBeenCalled();
   });
 
-  it("passes an explicit selected network to the canonical server verifier", async () => {
+  it("passes only a valid TRC20 TxID to the canonical server verifier", async () => {
     const response = await POST(request({
       commissionId: "commission-1",
-      paymentSignature: "signature",
-      network: "SOL",
+      paymentSignature: tronTxId,
+      network: "TRC20",
     }));
 
     expect(response.status).toBe(200);
     expect(mocks.submit).toHaveBeenCalledWith({
       sellerUserId: "seller-1",
       commissionId: "commission-1",
-      network: "SOL",
-      paymentSignature: "signature",
+      network: "TRC20",
+      paymentSignature: tronTxId,
       payerWalletAddress: "",
     });
+  });
+
+  it("rejects legacy networks before calling the verifier", async () => {
+    const response = await POST(request({
+      commissionId: "commission-1",
+      paymentSignature: tronTxId,
+      network: "SOL",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.submit).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      error: "Commission payments must use USDT on TRON (TRC20).",
+    });
+  });
+
+  it("rejects malformed or oversized payment data before persistence", async () => {
+    const invalidHash = await POST(request({
+      commissionId: "commission-1",
+      paymentSignature: "not-a-tron-txid",
+      network: "TRC20",
+    }));
+    expect(invalidHash.status).toBe(400);
+
+    const oversizedPayer = await POST(request({
+      commissionId: "commission-1",
+      paymentSignature: tronTxId,
+      network: "TRC20",
+      payerWalletAddress: "T".repeat(129),
+    }));
+    expect(oversizedPayer.status).toBe(400);
+    expect(mocks.submit).not.toHaveBeenCalled();
   });
 });

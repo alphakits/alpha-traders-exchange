@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getNotificationsForUser: vi.fn(),
   markAllNotificationsRead: vi.fn(),
   markNotificationReadState: vi.fn(),
+  updateNotificationState: vi.fn(),
   requireMobileApiUser: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   logEvent: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   getNotificationsForUser: mocks.getNotificationsForUser,
   markAllNotificationsRead: mocks.markAllNotificationsRead,
   markNotificationReadState: mocks.markNotificationReadState,
+  updateNotificationState: mocks.updateNotificationState,
 }));
 
 vi.mock("@/lib/mobile-api-auth", () => ({
@@ -124,6 +126,12 @@ beforeEach(() => {
     ...tradeNotification,
     isRead: true,
     state: "read",
+  });
+  mocks.updateNotificationState.mockResolvedValue({
+    ...tradeNotification,
+    isRead: true,
+    state: "archived",
+    archivedAt: "2026-09-06T10:02:00.000Z",
   });
   mocks.markAllNotificationsRead.mockResolvedValue(undefined);
 });
@@ -249,6 +257,28 @@ describe("mobile notification routes", () => {
       isRead: true,
     });
     expect(JSON.stringify(payload)).not.toContain(user.id);
+  });
+
+  it("durably dismisses one owned notification so it cannot return after re-login", async () => {
+    const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/notifications/notification-1", {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ action: "dismiss", userId: "forged-user" }),
+    });
+
+    const response = await updateNotification(request, {
+      params: Promise.resolve({ notificationId: "notification-1" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      notification: { id: "notification-1", isRead: true },
+    });
+    expect(mocks.updateNotificationState).toHaveBeenCalledWith({
+      userId: user.id,
+      notificationId: "notification-1",
+      state: "archived",
+    });
+    expect(mocks.markNotificationReadState).not.toHaveBeenCalled();
   });
 
   it("conceals notification ownership failures behind a stable not-found response", async () => {

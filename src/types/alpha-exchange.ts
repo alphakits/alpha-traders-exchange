@@ -552,6 +552,32 @@ export interface TradeRoomPokeState {
   sellerToBuyerAt?: string;
 }
 
+export type TradeActionReminderStage =
+  | "pending"
+  | "accepted"
+  | "payment_sent"
+  | "funds_received"
+  | "usdt_release_pending"
+  | "usdt_sent";
+
+export interface TradeActionReminderRecipientState {
+  userId: string;
+  lastSentAt: string;
+  reminderCount: number;
+}
+
+/**
+ * Durable, server-owned delivery markers for automatic Trade Room reminders.
+ * The stage timestamp deliberately ignores chat, reconnect, and manual Poke
+ * activity: only a real lifecycle action starts a new one-hour clock.
+ */
+export interface TradeActionReminderState {
+  stage: TradeActionReminderStage;
+  actionStartedAt: string;
+  buyer?: TradeActionReminderRecipientState;
+  seller?: TradeActionReminderRecipientState;
+}
+
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
 
 export interface AlphaExchangeNotification {
@@ -812,6 +838,7 @@ export interface PurchaseRequest {
   closeExplanation?: string;
   messages?: TradeChatMessage[];
   pokeState?: TradeRoomPokeState;
+  actionReminderState?: TradeActionReminderState;
   status: PurchaseRequestStatus;
   createdAt: string;
   updatedAt: string;
@@ -838,6 +865,18 @@ export interface CommissionRecord {
   paymentSignature?: string;
   paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
   paymentVerificationNotes?: string;
+  /**
+   * Exact six-decimal TRC20 amount assigned to this unpaid commission.
+   * The tiny unique suffix binds an incoming transfer to one commission when
+   * every seller pays the same memo-less Binance deposit address.
+  */
+  paymentExpectedAmount?: number;
+  /** Unique for new intents; legacy_base only grandfathers pre-cutover submitted TxIDs. */
+  paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
+  /** When the exact amount was first issued to the seller; never changes. */
+  paymentExpectedAmountAssignedAt?: string;
+  /** Superseded issued amounts that remain reserved and can never be assigned again. */
+  paymentReservedExpectedAmounts?: number[];
   paymentSubmittedAt?: string;
   dueAt?: string;
   paidAt?: string;

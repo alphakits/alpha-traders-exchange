@@ -1,5 +1,5 @@
 export const MOBILE_API_VERSION = "v1" as const;
-export const MOBILE_CURRENT_APP_VERSION = "1.1.0" as const;
+export const MOBILE_CURRENT_APP_VERSION = "1.2.0" as const;
 export const MOBILE_MINIMUM_SUPPORTED_APP_VERSION = "1.0.0" as const;
 export const MOBILE_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const MOBILE_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -711,11 +711,20 @@ export type MobileAdminReviewRequest =
       reason: string;
     };
 
-export type MobileCommissionNetwork = "ERC20" | "POLYGON" | "SOL";
+export type MobileCommissionNetwork = "TRC20";
 
 export interface MobileSellerCommissionRecord {
   commissionId: string;
+  /** Exact USDT amount to transfer; includes the six-decimal verification suffix. */
   amountDue: number;
+  /** Explicit alias for newer clients. Older clients use `amountDue`. */
+  paymentAmountDue?: number;
+  paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+  paymentVerificationNotes?: string;
+  paymentSignature?: string;
+  paymentSubmittedAt?: string;
+  /** Whether the submitted TxID may be replaced while automatic verification is pending. */
+  paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
   dueAt?: string;
   relatedRequestId: string;
   relatedTradeId?: string;
@@ -734,6 +743,12 @@ export interface MobileSellerCommissionsResponse {
     walletAddress?: string;
     error?: string;
   }>;
+  verification?: {
+    verified: boolean;
+    pending?: boolean;
+    reference: string;
+    notes: string;
+  };
   requestId: string;
 }
 

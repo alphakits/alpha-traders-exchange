@@ -32,6 +32,9 @@ export function buildLocalizedSiteMetadata(locale: AppLocale): Metadata {
     },
     description: copy.description,
     manifest: "/manifest.json",
+    verification: {
+      google: "5DbgAMdVsOgs8Ve482JLaniHtftt-qpkp6-P7T-S4uQ",
+    },
     icons: {
       icon: [
         { url: "/favicon.ico", sizes: "any" },

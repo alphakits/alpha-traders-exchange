@@ -7,7 +7,10 @@ import type {
 } from "@alpha-traders/contracts";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
-import { isFaceToFaceCompletionAvailable } from "@/lib/marketplace-payment-methods";
+import {
+  isBankTransferPaymentMethod,
+  isFaceToFaceCompletionAvailable,
+} from "@/lib/marketplace-payment-methods";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
 
@@ -100,6 +103,7 @@ export function toMobileTradeDetail(
         && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence)),
       canViewBankDetails: isBuyer
         && Boolean(request.sellerBankAccountId)
+        && isBankTransferPaymentMethod(request.paymentMethod)
         && !["pending", "declined", "cancelled"].includes(request.status),
       canUploadPaymentEvidence: isBuyer && request.status === "accepted",
       canConfirmFunds: isSeller && request.status === "payment_sent",

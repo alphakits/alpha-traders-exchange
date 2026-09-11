@@ -32,6 +32,7 @@ import {
   createMarketplaceListing,
   createPurchaseRequest,
   createSellerApplication,
+  findUserById,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
@@ -203,7 +204,7 @@ describe("marketplace listing publication broadcasts", () => {
       fullName: "Eligible Buyer",
       email: BUYER_EMAIL,
       whatsappNumber: TEST_PHONE,
-      preferredNetworks: ["USDT (TRC20 / Tron)"],
+      preferredNetworks: ["USDT (TRC20 / Tron)", "Cardless Withdrawal"],
       expectedMonthlyTradingVolume: "2500",
       additionalNotes: "Ready to sell",
     });
@@ -226,6 +227,7 @@ describe("marketplace listing publication broadcasts", () => {
     }));
 
     await approveSellerApplicationByAdmin(application.id, OWNER_ID, "Verified from owner notification");
+    expect((await findUserById(BUYER_ID))?.preferredPaymentMethods).toContain("Cardless ATM Withdrawal");
 
     const activeNotifications = await getNotificationsForUser({ userId: OWNER_ID });
     expect(activeNotifications.notifications.some((notification) => notification.actionHref === sellerApplicationReviewDestination(application.id))).toBe(false);
