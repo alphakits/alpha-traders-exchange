@@ -30,6 +30,15 @@ describe("localized site metadata", () => {
     });
   });
 
+  it("publishes persistent Google Search Console ownership verification", () => {
+    const expectedVerification = {
+      google: "5DbgAMdVsOgs8Ve482JLaniHtftt-qpkp6-P7T-S4uQ",
+    };
+
+    expect(buildLocalizedSiteMetadata("en").verification).toMatchObject(expectedVerification);
+    expect(buildLocalizedSiteMetadata("ar").verification).toMatchObject(expectedVerification);
+  });
+
   it("uses matching Arabic and English Open Graph locale alternates for pages", () => {
     const arabicPage = buildPageMetadata({
       locale: "ar",
