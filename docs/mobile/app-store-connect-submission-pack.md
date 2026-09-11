@@ -30,7 +30,7 @@ first stable release candidate.
 | Field | Value |
 | --- | --- |
 | App name | Alpha Traders |
-| Version | 1.1.0 |
+| Version | `1.2.0` |
 | iOS bundle ID | `com.alphakits.alphatraders` |
 | EAS project ID | `e5dbc3ba-25fb-4373-8ded-c8c80cadc147` |
 | URL scheme | `alphatraders` |
