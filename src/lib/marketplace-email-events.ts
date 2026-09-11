@@ -10,7 +10,7 @@ import {
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import { logEvent } from "@/lib/structured-logging";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
-import { isFaceToFacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isCardlessAtmPaymentMethod, isFaceToFacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 type EmailRecipient = {
   id: string;
@@ -131,6 +131,18 @@ function tradeEmailContent(
         },
       };
     }
+    if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
+      return {
+        ...common,
+        title: request.priceMode === "buyer_offer"
+          ? { ar: "تم قبول عرض السعر", en: "Price Offer Accepted" }
+          : { ar: "تم قبول صفقة السحب دون بطاقة", en: "Cardless ATM Trade Accepted" },
+        message: {
+          ar: "وافق البائع على الصفقة. أرسل إثبات الدفع أو السحب في غرفة الصفقة. بعد إرسال الإثبات لا يمكن إلغاء الصفقة، وبعد تسجيل إرسال USDT يمكن لأي من الطرفين إكمالها.",
+          en: "The seller accepted the trade. Submit the payment or withdrawal proof in the Trade Room. Cancellation is blocked after proof is submitted, and either participant can complete after USDT is marked sent.",
+        },
+      };
+    }
     if (request.priceMode === "buyer_offer") {
       return {
         ...common,
@@ -201,13 +213,19 @@ function tradeEmailContent(
     };
   }
   if (event === "seller_usdt_released") {
+    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
       ...common,
       title: { ar: "أرسل البائع USDT", en: "Seller Released USDT" },
-      message: {
-        ar: "أكّد البائع إرسال USDT. أكّد الاستلام في غرفة الصفقة.",
-        en: "The seller marked USDT as sent. Confirm receipt in the Trade Room.",
-      },
+      message: cardlessAtm
+        ? {
+            ar: "أكّد البائع إرسال USDT. بعد التأكد من استلام النقد وUSDT، يمكن للمشتري أو البائع إكمال الصفقة. عند الإكمال تنتقل للمراجعة وتُسجّل عمولة البائع.",
+            en: "The seller marked USDT as sent. After confirming both cash and USDT were received, either the buyer or seller can complete the trade. Completion moves it to review and records the seller commission.",
+          }
+        : {
+            ar: "أكّد البائع إرسال USDT. أكّد الاستلام في غرفة الصفقة.",
+            en: "The seller marked USDT as sent. Confirm receipt in the Trade Room.",
+          },
     };
   }
   if (event === "trade_completed") {
@@ -215,8 +233,8 @@ function tradeEmailContent(
       ...common,
       title: { ar: "اكتملت الصفقة", en: "Trade Completed" },
       message: {
-        ar: `اكتملت الصفقة ${referenceLabel} وأصبحت متاحة في سجلّك.`,
-        en: `Trade ${referenceLabel} is complete and available in your history.`,
+        ar: `اكتملت الصفقة ${referenceLabel} وانتقلت إلى السجل والمراجعة. تم تسجيل العمولة المستحقة على البائع.`,
+        en: `Trade ${referenceLabel} is complete and has moved to history and review. The seller commission has been recorded.`,
       },
     };
   }
@@ -240,7 +258,9 @@ export async function prepareTradeEventEmails(input: {
     findUserById(input.request.buyerId),
     findUserById(input.request.sellerId),
   ]);
-  const recipientIds = input.event === "trade_completed" || input.event === "trade_cancelled"
+  const recipientIds = input.event === "trade_completed"
+    || input.event === "trade_cancelled"
+    || (input.event === "seller_usdt_released" && isCardlessAtmPaymentMethod(input.request.paymentMethod))
     ? [input.request.buyerId, input.request.sellerId]
     : input.event === "new_buy_request" || input.event === "buyer_payment_sent"
       ? [input.request.sellerId]

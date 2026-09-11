@@ -25,9 +25,9 @@ describe("trade workflow helpers", () => {
     expect(options).not.toContain("cancelled");
   });
 
-  // Buyers can also cancel an accepted trade before uploading proof
-  it("does not let buyers cancel once seller acceptance reveals bank details", () => {
+  // Buyers can also cancel an accepted trade while still waiting, before proof.
+  it("lets buyers cancel an accepted trade before payment proof is submitted", () => {
     const options = getPurchaseRequestStatusTransitionOptions("accepted", "buyer");
-    expect(options).not.toContain("cancelled");
+    expect(options).toContain("cancelled");
   });
 });

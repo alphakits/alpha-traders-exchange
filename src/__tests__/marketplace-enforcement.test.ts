@@ -3,6 +3,7 @@ import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 import {
   createMarketplaceListing,
+  downloadMarketplaceComplianceEvidenceById,
   getSellerMarketplaceEnforcementStatus,
   invalidateAlphaExchangeStoreCache,
   issueMarketplaceEnforcementFeeByAdmin,
@@ -130,6 +131,43 @@ describe("marketplace enforcement workflow", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("lets an admin issue a seller recovery charge and reopen its durable evidence", async () => {
+    const result = await issueMarketplaceEnforcementFeeByAdmin({
+      sellerId: SELLER_ID,
+      actorUserId: ADMIN_ID,
+      feeAmount: 6.25,
+      reason: "Completed trade was declined to avoid commission",
+      adminNotes: "Confirmed from the trade record.",
+      evidenceFiles: [{
+        fileName: "trade-record.png",
+        mimeType: "image/png",
+        fileData: TEST_EVIDENCE_DATA_URL,
+      }],
+    });
+
+    expect(result).toMatchObject({
+      restricted: true,
+      activeRecord: {
+        sellerId: SELLER_ID,
+        feeAmount: 6.25,
+        feeCurrency: "USDT",
+        recoveryPaymentStatus: "pending_payment",
+      },
+    });
+    const auditEntry = result.recentAuditEntries.find((entry) => entry.action === "fee_issued");
+    const evidenceId = auditEntry?.evidenceReferences?.[0]?.id;
+    expect(evidenceId).toBeTruthy();
+
+    const downloaded = await downloadMarketplaceComplianceEvidenceById({
+      sellerId: SELLER_ID,
+      evidenceId: evidenceId!,
+      actorUserId: ADMIN_ID,
+      actorRole: "admin",
+    });
+    expect(downloaded.buffer).toEqual(Buffer.from(TEST_EVIDENCE_DATA_URL.split(",")[1], "base64"));
+    expect(downloaded.evidence.fileName).toBe("trade-record.png");
   });
 
   it("blocks seller listing edits and renew while enforcement restriction is active", async () => {

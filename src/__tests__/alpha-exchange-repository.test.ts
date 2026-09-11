@@ -100,7 +100,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       "select to_regclass($1) is not null as ready",
-      ["alpha_exchange.idx_alpha_exchange_notifications_trust_reconciliation"],
+      ["alpha_exchange.idx_alpha_exchange_evidence_blobs_updated"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
   });
@@ -125,6 +125,31 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_mobile_push_receipts"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("seller_entered_flagged_state"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_notifications_trust_reconciliation"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("create table if not exists alpha_exchange.evidence_blobs"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_evidence_blobs_updated"))).toBe(true);
+  });
+
+  it("stores db:// compliance evidence in PostgreSQL instead of the deployment filesystem", async () => {
+    const content = Buffer.from("compliance-evidence");
+    const storageKey = "db://alpha-exchange-evidence/compliance/seller-1/evidence-1.png";
+    const query = vi.fn((queryText: string, _values?: unknown[]) => {
+      void _values;
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      if (queryText.includes("select content from alpha_exchange.evidence_blobs")) {
+        return Promise.resolve({ rows: [{ content }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.writeEvidenceContent(storageKey, content)).resolves.toBeUndefined();
+    await expect(repository.readEvidenceContent(storageKey)).resolves.toEqual(content);
+
+    const blobWrite = query.mock.calls.find(([sql]) => String(sql).includes("insert into alpha_exchange.evidence_blobs"));
+    expect(blobWrite?.[1]).toEqual([storageKey, content]);
+    expect(existsSync(path.join(process.cwd(), "data", "alpha-exchange-evidence", "compliance", "seller-1", "evidence-1.png"))).toBe(false);
   });
 
   it("falls back to the in-memory snapshot when the database connection times out", async () => {

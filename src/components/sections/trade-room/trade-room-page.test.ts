@@ -120,13 +120,13 @@ describe("Trade Room client stability helpers", () => {
     expect(buyerAction).toMatchObject({
       label: "Complete Face-to-Face Trade",
       nextStatus: "completed",
-      command: "complete_face_to_face",
+      command: "complete_cash_trade",
     });
     expect(buyerAction).not.toHaveProperty("requiresEvidenceSide");
     expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toMatchObject({
       label: "إكمال صفقة اللقاء الشخصي",
       nextStatus: "completed",
-      command: "complete_face_to_face",
+      command: "complete_cash_trade",
     });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "pending" }, "buyer-1", false, true)).toBeNull();
     expect(getPrimaryAction({ ...acceptedFaceToFace, paymentMethod: "Bank Transfer" }, "buyer-1", false, true)).toMatchObject({
@@ -164,8 +164,14 @@ describe("Trade Room client stability helpers", () => {
       nextStatus: "usdt_sent",
     });
     expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "buyer-1", false, false)).toMatchObject({
-      label: "Confirm USDT Received",
+      label: "Mark Cardless ATM Trade Completed",
       nextStatus: "completed",
+      command: "complete_cash_trade",
+    });
+    expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "seller-1", true, false)).toMatchObject({
+      label: "تسجيل صفقة السحب دون بطاقة كمكتملة",
+      nextStatus: "completed",
+      command: "complete_cash_trade",
     });
   });
 

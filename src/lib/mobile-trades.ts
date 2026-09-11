@@ -9,7 +9,7 @@ import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
-  isFaceToFaceCompletionAvailable,
+  isCashTradeCompletionAvailable,
 } from "@/lib/marketplace-payment-methods";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
@@ -100,18 +100,28 @@ export function toMobileTradeDetail(
       canAccept: isSeller && request.status === "pending",
       canDecline: isSeller && request.status === "pending",
       canCancel: isBuyer
-        && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence)),
+        && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt)),
       canViewBankDetails: isBuyer
         && Boolean(request.sellerBankAccountId)
         && isBankTransferPaymentMethod(request.paymentMethod)
         && !["pending", "declined", "cancelled"].includes(request.status),
-      canUploadPaymentEvidence: isBuyer && request.status === "accepted",
-      canConfirmFunds: isSeller && request.status === "payment_sent",
-      canBeginRelease: isSeller && request.status === "funds_received",
-      canUploadReleaseEvidence: isSeller && request.status === "usdt_release_pending",
-      canConfirmReceived: isBuyer && request.status === "usdt_sent",
+      canUploadPaymentEvidence: isBuyer
+        && request.status === "accepted"
+        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+      canConfirmFunds: isSeller
+        && request.status === "payment_sent"
+        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+      canBeginRelease: isSeller
+        && request.status === "funds_received"
+        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+      canUploadReleaseEvidence: isSeller
+        && request.status === "usdt_release_pending"
+        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+      canConfirmReceived: isBuyer
+        && request.status === "usdt_sent"
+        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
       canCompleteFaceToFace: (isBuyer || isSeller)
-        && isFaceToFaceCompletionAvailable(request.paymentMethod, request.status),
+        && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
       canOpenDispute: isBuyer && room.canOpenDispute && !room.hasOpenDispute,
       canSubmitReview: isBuyer
         && ["review_open", "completed", "locked"].includes(request.status)

@@ -63,11 +63,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
-    if (action && action !== "complete_face_to_face") {
+    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face") {
       return NextResponse.json({ error: "Invalid trade action.", stage: "action-invalid", code: "invalid-action", diagId }, { status: 400 });
     }
-    const isFaceToFaceCompletion = action === "complete_face_to_face";
-    const status = isFaceToFaceCompletion ? "completed" : String(rawBody.status ?? "").trim();
+    const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
+    const status = isCashTradeCompletion ? "completed" : String(rawBody.status ?? "").trim();
     const safetyAcknowledged = rawBody.safetyAcknowledged === true;
     if (routeDebug) {
       console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, action, parsedStatus: status, safetyAcknowledged });
@@ -115,7 +115,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
       nextStatus: status,
-      completionMode: isFaceToFaceCompletion ? "face_to_face" : undefined,
+      completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
       safetyAcknowledged,
       traceId: isUsdtSent ? traceId : undefined,
     });

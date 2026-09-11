@@ -41,8 +41,7 @@ type Queryable = Pool | PoolClient;
 // This index is the final object created by SCHEMA_SQL. Its presence proves
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
-const CURRENT_SCHEMA_SENTINEL =
-  "alpha_exchange.idx_alpha_exchange_notifications_trust_reconciliation";
+const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_evidence_blobs_updated";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -56,9 +55,7 @@ const FALLBACK_SNAPSHOT_DIR = path.join(
   process.env.NODE_ENV === "test" ? `.next-runtime-test${TEST_FALLBACK_DIR_SUFFIX}` : "snapshot",
 );
 const FALLBACK_SNAPSHOT_PATH = path.join(FALLBACK_SNAPSHOT_DIR, "alpha-exchange-fallback.json");
-const EVIDENCE_BLOB_ROOT = path.join(process.cwd(), "data");
-
-function resolveDbEvidenceBlobPath(evidenceId: string) {
+function resolveDurableEvidenceStorageKey(evidenceId: string) {
   if (!evidenceId.startsWith("db://")) return null;
   const withoutScheme = evidenceId.slice(5).replace(/\\/g, "/").replace(/^\/+/, "");
   if (!withoutScheme) return null;
@@ -66,7 +63,7 @@ function resolveDbEvidenceBlobPath(evidenceId: string) {
   if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new Error("Invalid evidence storage path.");
   }
-  return path.join(EVIDENCE_BLOB_ROOT, ...segments);
+  return `db://${segments.join("/")}`;
 }
 
 const SCHEMA_SQL = [
@@ -196,6 +193,12 @@ const SCHEMA_SQL = [
     sort_index integer not null,
     payload jsonb not null,
     content bytea
+  )`,
+  `create table if not exists alpha_exchange.evidence_blobs (
+    storage_key text primary key,
+    content bytea not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
   )`,
   `create table if not exists alpha_exchange.sessions (
     token_hash text primary key,
@@ -473,6 +476,7 @@ const SCHEMA_SQL = [
   where singleton = true
     and exists (select 1 from repaired)`,
   "create index if not exists idx_alpha_exchange_notifications_trust_reconciliation on alpha_exchange.notifications (user_id, category, created_at desc)",
+  "create index if not exists idx_alpha_exchange_evidence_blobs_updated on alpha_exchange.evidence_blobs (updated_at desc)",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -2193,6 +2197,9 @@ export class AlphaExchangeRepository {
         const next = attachVersion(mergedSnapshot, previousVersion + 1);
         const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
         const nextEvidence = new Map<string, Buffer | null>();
+        for (const [storageKey, content] of previousEvidence) {
+          if (storageKey.startsWith("db://")) nextEvidence.set(storageKey, content);
+        }
         for (const evidence of mergedSnapshot.tradeEvidenceFiles) {
           nextEvidence.set(
             evidence.id,
@@ -2216,6 +2223,9 @@ export class AlphaExchangeRepository {
       const next = attachVersion(nextSnapshot, previousVersion + 1);
       const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
       const nextEvidence = new Map<string, Buffer | null>();
+      for (const [storageKey, content] of previousEvidence) {
+        if (storageKey.startsWith("db://")) nextEvidence.set(storageKey, content);
+      }
       for (const evidence of db.tradeEvidenceFiles) {
         nextEvidence.set(
           evidence.id,
@@ -2661,16 +2671,19 @@ export class AlphaExchangeRepository {
   }
 
   async readEvidenceContent(evidenceId: string) {
-    const blobPath = resolveDbEvidenceBlobPath(evidenceId);
-    if (blobPath) {
-      if (!existsSync(blobPath)) return null;
-      return readFileSync(blobPath);
-    }
+    const storageKey = resolveDurableEvidenceStorageKey(evidenceId);
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
       return globalThis.__alphaExchangeMemoryEvidenceContent?.get(evidenceId) ?? null;
+    }
+    if (storageKey) {
+      const result = await pool.query<{ content: Buffer | null }>(
+        "select content from alpha_exchange.evidence_blobs where storage_key = $1",
+        [storageKey],
+      );
+      return result.rows[0]?.content ?? null;
     }
     const result = await pool.query<{ content: Buffer | null }>(
       "select content from alpha_exchange.evidence where id = $1",
@@ -2680,18 +2693,21 @@ export class AlphaExchangeRepository {
   }
 
   async writeEvidenceContent(evidenceId: string, content: Buffer) {
-    const blobPath = resolveDbEvidenceBlobPath(evidenceId);
-    if (blobPath) {
-      mkdirSync(path.dirname(blobPath), { recursive: true });
-      writeFileSync(blobPath, content);
-      return;
-    }
-
+    const storageKey = resolveDurableEvidenceStorageKey(evidenceId);
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
       globalThis.__alphaExchangeMemoryEvidenceContent?.set(evidenceId, content);
+      return;
+    }
+    if (storageKey) {
+      await pool.query(
+        `insert into alpha_exchange.evidence_blobs (storage_key, content, created_at, updated_at)
+         values ($1, $2, now(), now())
+         on conflict (storage_key) do update set content = excluded.content, updated_at = now()`,
+        [storageKey, content],
+      );
       return;
     }
 

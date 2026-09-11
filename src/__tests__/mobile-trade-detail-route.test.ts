@@ -173,6 +173,28 @@ describe("mobile trade detail route", () => {
         actions: {
           canViewBankDetails: false,
           canUploadPaymentEvidence: true,
+          canCompleteFaceToFace: false,
+        },
+      },
+    });
+  });
+
+  it("offers final Cardless ATM completion to either participant only after USDT is sent", async () => {
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({
+      paymentMethod: "Cardless ATM Withdrawal",
+      status: "usdt_sent",
+      buyerEvidence: { id: "buyer-evidence" },
+    }));
+
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: {
+        actions: {
+          canCompleteFaceToFace: true,
+          canConfirmReceived: false,
+          canCancel: false,
         },
       },
     });
@@ -244,7 +266,7 @@ describe("mobile trade detail route", () => {
       requestId: "purchase-1",
       actorUserId: "buyer-1",
       nextStatus: "completed",
-      completionMode: "face_to_face",
+      completionMode: "cash_trade",
     }));
   });
 

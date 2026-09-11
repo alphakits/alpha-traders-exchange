@@ -133,7 +133,7 @@ describe("Trade Room status route post-commit reliability", () => {
       requestId: "purchase-1",
       actorUserId: "seller-1",
       nextStatus: "completed",
-      completionMode: "face_to_face",
+      completionMode: "cash_trade",
     }));
   });
 
