@@ -45,4 +45,25 @@ describe("current Alpha Traders brand assets", () => {
     expect(createHash("sha256").update(appIcon).digest("hex")).toBe(APP_ICON_SHA256);
     expect(createHash("sha256").update(maskableIcon).digest("hex")).toBe(MASKABLE_APP_ICON_SHA256);
   });
+
+  it("uses the approved logo for the native icon, adaptive icon, and enlarged splash", () => {
+    const config = JSON.parse(readFileSync(join(process.cwd(), "apps", "mobile", "app.json"), "utf8")) as {
+      expo: {
+        icon: string;
+        android: { adaptiveIcon: { foregroundImage: string } };
+        plugins: Array<string | [string, Record<string, unknown>]>;
+      };
+    };
+    const splash = config.expo.plugins.find((plugin): plugin is [string, Record<string, unknown>] => (
+      Array.isArray(plugin) && plugin[0] === "expo-splash-screen"
+    ));
+
+    expect(config.expo.icon).toBe("../../public/images/brand/alpha-traders-app-icon-1024.png");
+    expect(config.expo.android.adaptiveIcon.foregroundImage)
+      .toBe("../../public/images/brand/alpha-traders-app-icon-maskable-1024.png");
+    expect(splash?.[1]).toEqual(expect.objectContaining({
+      image: "../../public/images/brand/alpha-traders-app-icon-1024.png",
+      imageWidth: 220,
+    }));
+  });
 });

@@ -1,5 +1,11 @@
 import { getSiteUrl } from "@/lib/site-url";
-import { BRAND_NAME, BRAND_NAME_HTML, getBrandedEmailFrom } from "@/lib/brand";
+import {
+  BRAND_EMAIL_LOGO_URL,
+  BRAND_NAME,
+  BRAND_NAME_HTML,
+  buildBrandedEmailHeaders,
+  getBrandedEmailFrom,
+} from "@/lib/brand";
 
 export type AdminAnnouncementEmailContent = {
   subject: string;
@@ -224,7 +230,7 @@ function localizedAnnouncementCtaUrl(value: string, locale: "ar" | "en") {
 export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent) {
   const normalized = validateAdminAnnouncementContent(input);
   const siteUrl = getSiteUrl();
-  const logoUrl = escapeHtml(new URL("/images/brand/alpha-traders-logo.png", siteUrl).toString());
+  const logoUrl = escapeHtml(BRAND_EMAIL_LOGO_URL);
   const subject = splitLocalizedInline(normalized.subject, "Subject");
   const title = splitLocalizedInline(normalized.title, "Title");
   const content = splitLocalizedContent(normalized.content);
@@ -272,7 +278,7 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#101010;border:1px solid #332b12;border-radius:20px;overflow:hidden;">
             <tr>
               <td align="center" style="padding:28px 24px;background:#171308;border-bottom:1px solid #453914;">
-                <img src="${logoUrl}" width="96" height="96" alt="${BRAND_NAME_HTML}" style="display:block;width:96px;height:96px;margin:0 auto;border-radius:20px;object-fit:cover;" />
+                <img src="${logoUrl}" width="128" height="128" alt="${BRAND_NAME_HTML}" style="display:block;width:128px;height:128px;max-width:128px;margin:0 auto;border:1px solid #5f4916;border-radius:26px;background:#050505;object-fit:cover;" />
                 <div style="margin-top:12px;font-size:12px;letter-spacing:2.4px;color:#d6b84c;text-transform:uppercase;">${BRAND_NAME_HTML}</div>
                 <h1 lang="ar" dir="rtl" style="margin:12px auto 0;max-width:520px;color:#ffffff;font-size:28px;line-height:1.4;">${safeTitle.ar}</h1>
                 <p lang="en" dir="ltr" style="margin:8px auto 0;max-width:520px;color:#d1d5db;font-size:15px;line-height:1.5;">${safeTitle.en}</p>
@@ -351,6 +357,7 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
           subject: email.subject,
           html: email.html,
           text: email.text,
+          headers: buildBrandedEmailHeaders(),
           tags: [
             { name: "campaign", value: input.idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 256) },
           ],

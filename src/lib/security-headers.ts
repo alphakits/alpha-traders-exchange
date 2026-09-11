@@ -3,6 +3,19 @@ export type SecurityHeader = {
   value: string;
 };
 
+/**
+ * Brand artwork is intentionally reusable by email image proxies, app-store
+ * crawlers, social previews, and marketplace integrations. Keep the default
+ * same-site resource policy everywhere else while explicitly allowing these
+ * public, non-sensitive assets to render cross-origin.
+ */
+export function buildPublicBrandAssetHeaders(): SecurityHeader[] {
+  return [
+    { key: "Access-Control-Allow-Origin", value: "*" },
+    { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+  ];
+}
+
 export function buildSecurityHeaders(input: { isProduction: boolean }): SecurityHeader[] {
   const contentSecurityPolicy = [
     "default-src 'self'",

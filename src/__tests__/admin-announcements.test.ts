@@ -91,7 +91,8 @@ describe("admin announcement email", () => {
     });
 
     expect(email.subject).toBe(content.subject);
-    expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
+    expect(email.html).toContain("https://www.alphatraders.co.il/images/brand/alpha-traders-logo-192.png?v=c73f7405");
+    expect(email.html).toContain('width="128" height="128"');
     expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
     expect(email.text).toContain("Alpha Traders Academy & Exchange: https://www.alphatraders.co.il/ar");
     expect(email.text).toContain("Alpha Traders Academy & Exchange: https://www.alphatraders.co.il/en");
@@ -171,6 +172,7 @@ describe("admin announcement email", () => {
         from: "Alpha Traders Academy & Exchange <news@example.com>",
         to: ["verified@example.com"],
         subject: content.subject,
+        headers: { "BIMI-Selector": "v=BIMI1; s=default;" },
       }),
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
