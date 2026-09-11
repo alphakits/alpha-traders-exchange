@@ -35,6 +35,7 @@ import {
   findUserById,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
+  markAllNotificationsRead,
   reviewMarketplaceListingByOwner,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
@@ -295,6 +296,142 @@ describe("marketplace listing publication broadcasts", () => {
       isRead: true,
       relatedListingId: listing.id,
     }));
+  });
+
+  it("does not resurrect acknowledged trust alerts when a later listing is approved", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-10T20:59:00.000Z"));
+      const firstListing = await createMarketplaceListing({
+        sellerId: LISTING_CREATOR_ID,
+        sellerDisplayName: "Listing Creator",
+        availableAmount: "700",
+        price: "3.20",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: ["Bank Transfer"],
+        bankName: "Bank Hapoalim",
+        minimumTrade: "50",
+        maximumTrade: "700",
+        responseTime: "5 min",
+        acceptedCommissionPolicy: true,
+        actorUserId: LISTING_CREATOR_ID,
+      });
+      await reviewMarketplaceListingByOwner({
+        listingId: firstListing.id,
+        ownerUserId: OWNER_ID,
+        decision: "approve",
+      });
+
+      await markAllNotificationsRead(OWNER_ID);
+      expect((await getNotificationsForUser({ userId: OWNER_ID, includeActivity: false })).unreadCount).toBe(0);
+
+      vi.setSystemTime(new Date("2026-09-10T21:01:00.000Z"));
+      const secondListing = await createMarketplaceListing({
+        sellerId: LISTING_CREATOR_ID,
+        sellerDisplayName: "Listing Creator",
+        availableAmount: "500",
+        price: "3.21",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: ["Bank Transfer"],
+        bankName: "Bank Hapoalim",
+        minimumTrade: "50",
+        maximumTrade: "500",
+        responseTime: "5 min",
+        acceptedCommissionPolicy: true,
+        actorUserId: LISTING_CREATOR_ID,
+      });
+      await reviewMarketplaceListingByOwner({
+        listingId: secondListing.id,
+        ownerUserId: OWNER_ID,
+        decision: "approve",
+      });
+
+      const ownerNotifications = await getNotificationsForUser({
+        userId: OWNER_ID,
+        includeActivity: false,
+      });
+      const unreadNotifications = ownerNotifications.notifications.filter((notification) => notification.state === "unread");
+      expect(unreadNotifications.map((notification) => notification.title)).toEqual([]);
+      expect(ownerNotifications.unreadCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still alerts the owner when a seller genuinely enters the flagged state", async () => {
+    const firstListing = await createMarketplaceListing({
+      sellerId: LISTING_CREATOR_ID,
+      sellerDisplayName: "Listing Creator",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: LISTING_CREATOR_ID,
+    });
+    await reviewMarketplaceListingByOwner({
+      listingId: firstListing.id,
+      ownerUserId: OWNER_ID,
+      decision: "approve",
+    });
+    await markAllNotificationsRead(OWNER_ID);
+
+    const secondListing = await createMarketplaceListing({
+      sellerId: LISTING_CREATOR_ID,
+      sellerDisplayName: "Listing Creator",
+      availableAmount: "500",
+      price: "3.21",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: LISTING_CREATOR_ID,
+    });
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const previousTrust = persisted.trustSnapshots.find((entry) => entry.sellerId === LISTING_CREATOR_ID);
+    expect(previousTrust).toBeDefined();
+    previousTrust!.snapshot = {
+      ...previousTrust!.snapshot,
+      trustScore: 90,
+      marketplaceViolations: 0,
+      disputesLost: 0,
+      cancellationRate: 0,
+    };
+    invalidateAlphaExchangeStoreCache();
+
+    await reviewMarketplaceListingByOwner({
+      listingId: secondListing.id,
+      ownerUserId: OWNER_ID,
+      decision: "approve",
+    });
+
+    const ownerNotifications = await getNotificationsForUser({
+      userId: OWNER_ID,
+      includeActivity: false,
+      unreadOnly: true,
+    });
+    const transitionAlerts = ownerNotifications.notifications.filter(
+      (notification) => notification.reason === "seller_entered_flagged_state",
+    );
+    expect(transitionAlerts).toEqual([
+      expect.objectContaining({
+        category: "trust",
+        title: `Flagged seller: ${LISTING_CREATOR_ID}`,
+        state: "unread",
+      }),
+    ]);
   });
 
   it("shows owner mobile notifications when a trade request is submitted and accepted", async () => {
