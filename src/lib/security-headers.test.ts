@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSecurityHeaders } from "@/lib/security-headers";
+import { buildPublicBrandAssetHeaders, buildSecurityHeaders } from "@/lib/security-headers";
 
 function asHeaderMap(isProduction: boolean) {
   return new Map(buildSecurityHeaders({ isProduction }).map((header) => [header.key, header.value]));
@@ -14,6 +14,13 @@ function cspDirectives(isProduction: boolean) {
 }
 
 describe("browser security headers", () => {
+  it("allows only public brand artwork to render through email and app-store proxies", () => {
+    const headers = new Map(buildPublicBrandAssetHeaders().map((header) => [header.key, header.value]));
+
+    expect(headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(headers.get("Cross-Origin-Resource-Policy")).toBe("cross-origin");
+  });
+
   it("blocks framing, MIME sniffing, cross-site resource reuse, and legacy XSS filtering", () => {
     const headers = asHeaderMap(true);
 

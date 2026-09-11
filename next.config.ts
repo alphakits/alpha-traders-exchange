@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import { isProductionSecurityRuntime } from "./src/lib/runtime-safety";
-import { buildSecurityHeaders } from "./src/lib/security-headers";
+import { buildPublicBrandAssetHeaders, buildSecurityHeaders } from "./src/lib/security-headers";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const isDev = process.env.NODE_ENV !== "production";
@@ -41,6 +41,10 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
+      },
+      {
+        source: "/images/brand/:path*",
+        headers: buildPublicBrandAssetHeaders(),
       },
       {
         source: "/uploads/:path*",

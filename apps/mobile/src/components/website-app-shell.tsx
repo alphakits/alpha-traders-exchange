@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   AppState,
   BackHandler,
+  Image,
   Linking,
   Platform,
   Pressable,
@@ -27,6 +28,7 @@ import type {
   WebViewMessageEvent,
   WebViewOpenWindowEvent,
 } from "react-native-webview/lib/WebViewTypes";
+import brandLogo from "../../../../public/images/brand/alpha-traders-app-icon-1024.png";
 import {
   MOBILE_CURRENT_APP_VERSION,
   parseWebToNativeBridgeMessage,
@@ -590,9 +592,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.safeArea}>
         <StatusBar style="light" />
         <View accessibilityRole="alert" style={styles.updateOverlay}>
-          <View style={styles.updateIcon}>
-            <Text style={styles.updateIconText}>↑</Text>
-          </View>
+          <Image accessibilityLabel="Alpha Traders Academy & Exchange" alt="Alpha Traders Academy & Exchange" source={brandLogo} style={styles.updateLogo} />
           <Text style={[styles.updateTitle, locale === "ar" && styles.rtlText]}>{labels.updateTitle}</Text>
           <Text style={[styles.updateBody, locale === "ar" && styles.rtlText]}>{labels.updateBody}</Text>
           <View style={styles.updateVersions}>
@@ -707,12 +707,14 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
 
       {isLoading && !loadFailed ? (
         <View accessibilityLabel={locale === "ar" ? "جارٍ تحميل Alpha Traders" : "Loading Alpha Traders"} accessibilityRole="progressbar" style={styles.loadingOverlay}>
+          <Image accessible={false} alt="" source={brandLogo} style={styles.loadingLogo} />
           <ActivityIndicator color="#D4AF37" size="large" />
         </View>
       ) : null}
 
       {loadFailed ? (
         <View accessibilityRole="alert" style={styles.errorOverlay}>
+          <Image accessibilityLabel="Alpha Traders Academy & Exchange" alt="Alpha Traders Academy & Exchange" source={brandLogo} style={styles.errorLogo} />
           <Text style={styles.errorTitle}>{labels.errorTitle}</Text>
           <Text style={styles.errorBody}>{labels.errorBody}</Text>
           <Pressable accessibilityRole="button" onPress={retry} style={styles.primaryButton}>
@@ -731,9 +733,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           importantForAccessibility="yes"
           style={styles.privacyMask}
         >
-          <View style={styles.privacyMark}>
-            <Text style={styles.privacyMarkText}>A</Text>
-          </View>
+          <Image accessibilityLabel="Alpha Traders Academy & Exchange" alt="Alpha Traders Academy & Exchange" source={brandLogo} style={styles.privacyLogo} />
           <Text style={[styles.privacyTitle, locale === "ar" && styles.rtlText]}>
             {labels.privacyTitle}
           </Text>
@@ -846,6 +846,14 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
+  loadingLogo: {
+    borderColor: "rgba(212, 175, 55, 0.62)",
+    borderRadius: 30,
+    borderWidth: 1,
+    height: 132,
+    marginBottom: 22,
+    width: 132,
+  },
   privacyMask: {
     alignItems: "center",
     backgroundColor: "#050505",
@@ -859,18 +867,12 @@ const styles = StyleSheet.create({
     top: 0,
     zIndex: 30,
   },
-  privacyMark: {
-    alignItems: "center",
-    backgroundColor: "#D4AF37",
-    borderRadius: 22,
-    height: 72,
-    justifyContent: "center",
-    width: 72,
-  },
-  privacyMarkText: {
-    color: "#050505",
-    fontSize: 38,
-    fontWeight: "900",
+  privacyLogo: {
+    borderColor: "rgba(212, 175, 55, 0.62)",
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 88,
+    width: 88,
   },
   privacyTitle: {
     color: "#FFFFFF",
@@ -899,21 +901,13 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     padding: 24,
   },
-  updateIcon: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(212, 175, 55, 0.12)",
+  updateLogo: {
+    alignSelf: "center",
     borderColor: "rgba(212, 175, 55, 0.58)",
-    borderRadius: 26,
+    borderRadius: 24,
     borderWidth: 1,
-    height: 52,
-    justifyContent: "center",
-    width: 52,
-  },
-  updateIconText: {
-    color: "#F4D978",
-    fontSize: 28,
-    fontWeight: "900",
+    height: 96,
+    width: 96,
   },
   updateTitle: {
     color: "#FFFFFF",
@@ -957,6 +951,15 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
+  },
+  errorLogo: {
+    alignSelf: "center",
+    borderColor: "rgba(212, 175, 55, 0.58)",
+    borderRadius: 26,
+    borderWidth: 1,
+    height: 108,
+    marginBottom: 24,
+    width: 108,
   },
   errorTitle: {
     color: "#FFFFFF",
