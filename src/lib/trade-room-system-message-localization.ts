@@ -91,6 +91,10 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
     ar: "أكّد البائع إرسال USDT. يجب على المشتري الآن تأكيد الاستلام.",
     en: "Seller marked USDT as sent. Buyer should now confirm receipt.",
   },
+  "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission.": {
+    ar: "أكّد البائع إرسال USDT. بعد استلام المشتري للعملة، يمكن للمشتري أو البائع تسجيل صفقة السحب دون بطاقة كمكتملة. عند الإكمال تُفتح المراجعة وتُسجّل عمولة البائع بنسبة 1%.",
+    en: "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission.",
+  },
   "Seller marked USDT sent": {
     ar: "أكّد البائع إرسال USDT.",
     en: "Seller marked USDT sent.",
@@ -106,6 +110,18 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
   "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.": {
     ar: "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات.",
     en: "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.",
+  },
+  "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات. عند الإكمال تنتقل الصفقة للمراجعة وتُسجّل عمولة البائع.",
+    en: "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.",
+  },
+  "Seller accepted the Cardless ATM trade. After the seller collects the cash and sends the agreed USDT, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. بعد استلام البائع للنقد وإرسال USDT المتفق عليها، يمكن لأي من الطرفين إكمال الصفقة دون رفع إثبات إضافي. عند الإكمال تنتقل الصفقة للمراجعة وتُسجّل عمولة البائع.",
+    en: "Seller accepted the Cardless ATM trade. After the seller collects the cash and sends the agreed USDT, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.",
+  },
+  "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. اتبعوا خطوات السحب النقدي وإرسال USDT المحمية. بعد استلام الطرفين لما يستحقانه، يمكن لأي منهما تسجيل الصفقة كمكتملة دون رفع إثبات إضافي. عند الإكمال تنتقل الصفقة للمراجعة وتُسجّل عمولة البائع بنسبة 1%.",
+    en: "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission.",
   },
   "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.": {
     ar: "أنهى المشتري صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
@@ -220,6 +236,24 @@ type DynamicTemplate = {
 };
 
 const DYNAMIC_SYSTEM_MESSAGES: DynamicTemplate[] = [
+  {
+    pattern: /^(Buyer|Seller) marked the (Face-to-Face|Cardless ATM) trade complete\.$/,
+    render: (locale, [actor, method]) => {
+      if (locale === "en") return [plain(`${actor} marked the ${method} trade complete.`)];
+      const actorLabel = actor === "Seller" ? "البائع" : "المشتري";
+      const methodLabel = method === "Cardless ATM" ? "السحب دون بطاقة" : "اللقاء الشخصي";
+      return [plain(`سجّل ${actorLabel} صفقة ${methodLabel} كمكتملة.`)];
+    },
+  },
+  {
+    pattern: /^(Buyer|Seller) marked the (Face-to-Face|Cardless ATM) trade complete\. The trade has moved to history and review, and the seller commission is due\.$/,
+    render: (locale, [actor, method]) => {
+      if (locale === "en") return [plain(`${actor} marked the ${method} trade complete. The trade has moved to history and review, and the seller commission is due.`)];
+      const actorLabel = actor === "Seller" ? "البائع" : "المشتري";
+      const methodLabel = method === "Cardless ATM" ? "السحب دون بطاقة" : "اللقاء الشخصي";
+      return [plain(`سجّل ${actorLabel} صفقة ${methodLabel} كمكتملة. انتقلت الصفقة إلى السجل والمراجعة وأصبحت عمولة البائع مستحقة.`)];
+    },
+  },
   {
     pattern: /^Seller accepted the price offer of ₪(.+?) per USDT\. Buyer can now upload the payment receipt\.$/,
     render: (locale, [price]) => locale === "ar"

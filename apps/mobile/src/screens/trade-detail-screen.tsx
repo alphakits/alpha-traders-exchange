@@ -21,7 +21,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileTradeDetail, MobileTradeStatus } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
-  completeMobileFaceToFaceTrade,
+  completeMobileCashTrade,
   getMobileTrade,
   getMobileTradeBankDetails,
   MobileApiError,
@@ -55,9 +55,10 @@ type BankDetails = {
 function stageInstruction(
   status: MobileTradeStatus,
   t: ReturnType<typeof useLocale>["t"],
-  canCompleteFaceToFace = false,
+  completionKind: "face_to_face" | "cardless_atm" | null = null,
 ) {
-  if (canCompleteFaceToFace) return t("faceToFaceReady");
+  if (completionKind === "cardless_atm") return t("cardlessAtmReady");
+  if (completionKind === "face_to_face") return t("faceToFaceReady");
   if (status === "pending") return t("waitingForSeller");
   if (status === "accepted") return t("waitingForBuyerPayment");
   if (status === "payment_sent") return t("waitingForFunds");
@@ -221,17 +222,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }
 
-  async function completeFaceToFaceTrade() {
+  async function completeCashTrade() {
     if (busyAction) return;
     const operationScope = activeTradeScopeRef.current;
     setError(null);
     setNotice(null);
-    setBusyAction("complete-face-to-face");
+    setBusyAction("complete-cash-trade");
     try {
       await requestWithSession((tokens, requestLocale) =>
-        completeMobileFaceToFaceTrade(tokens, requestLocale, requestId));
+        completeMobileCashTrade(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
-      setNotice(t("faceToFaceCompleted"));
+      setNotice(query.data?.trade.paymentMethod === "Cardless ATM Withdrawal" ? t("cardlessAtmCompleted") : t("faceToFaceCompleted"));
       await Promise.all([
         refreshTrade(),
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
@@ -245,11 +246,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     }
   }
 
-  function confirmFaceToFaceCompletion() {
+  function confirmCashTradeCompletion() {
     if (busyAction) return;
-    Alert.alert(t("faceToFaceCompletionTitle"), t("faceToFaceCompletionConfirmation"), [
+    const isCardlessAtm = query.data?.trade.paymentMethod === "Cardless ATM Withdrawal";
+    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), isCardlessAtm ? t("cardlessAtmCompletionConfirmation") : t("faceToFaceCompletionConfirmation"), [
       { text: t("cancel"), style: "cancel" },
-      { text: t("confirm"), onPress: () => void completeFaceToFaceTrade() },
+      { text: t("confirm"), onPress: () => void completeCashTrade() },
     ]);
   }
 
@@ -493,6 +495,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const actions = trade.actions;
   const actionsDisabled = busyAction !== null;
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
+  const isCardlessAtm = trade.paymentMethod === "Cardless ATM Withdrawal";
+  const completionKind = actions.canCompleteFaceToFace
+    ? (isCardlessAtm ? "cardless_atm" : "face_to_face")
+    : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -522,7 +528,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={styles.statusText}>{mobileTradeStatusLabel(trade.status, locale)}</Text>
             </View>
           </View>
-          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, actions.canCompleteFaceToFace)}</Text>
+          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, completionKind)}</Text>
         </View>
 
         {!actions.canCompleteFaceToFace && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
@@ -584,9 +590,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         {actions.canCompleteFaceToFace ? (
           <View style={styles.faceToFaceCard}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-              {t("faceToFaceCompletionTitle")}
+              {isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("faceToFaceNoEvidence")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{isCardlessAtm ? t("cardlessAtmNoAdditionalEvidence") : t("faceToFaceNoEvidence")}</Text>
           </View>
         ) : null}
 
@@ -601,22 +607,25 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
             </GoldButton>
           ) : null}
           {actions.canDecline ? (
-            <GoldButton disabled={actionsDisabled} loading={busyAction === "declined"} onPress={() => confirmStatus("declined", t("declineConfirmation"), false, true)} variant="outline">
-              {t("declineTrade")}
-            </GoldButton>
+            <View style={styles.policyWarningCard}>
+              <Text style={[styles.policyWarningText, isRTL && styles.rtlText]}>{t("declineCommissionWarning")}</Text>
+              <GoldButton disabled={actionsDisabled} loading={busyAction === "declined"} onPress={() => confirmStatus("declined", t("declineCommissionWarning"), false, true)} variant="outline">
+                {t("declineTrade")}
+              </GoldButton>
+            </View>
           ) : null}
           {actions.canCancel ? (
-            <GoldButton disabled={actionsDisabled} loading={busyAction === "cancelled"} onPress={() => confirmStatus("cancelled", t("cancelConfirmation"), false, true)} variant="outline">
+            <GoldButton disabled={actionsDisabled} loading={busyAction === "cancelled"} onPress={() => confirmStatus("cancelled", trade.status === "accepted" ? t("cancelBeforePaymentConfirmation") : t("cancelConfirmation"), false, true)} variant="outline">
               {t("cancelTrade")}
             </GoldButton>
           ) : null}
           {actions.canCompleteFaceToFace ? (
             <GoldButton
               disabled={actionsDisabled}
-              loading={busyAction === "complete-face-to-face"}
-              onPress={confirmFaceToFaceCompletion}
+              loading={busyAction === "complete-cash-trade"}
+              onPress={confirmCashTradeCompletion}
             >
-              {t("completeFaceToFaceTrade")}
+              {isCardlessAtm ? t("completeCardlessAtmTrade") : t("completeFaceToFaceTrade")}
             </GoldButton>
           ) : null}
           {!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence ? (
@@ -883,6 +892,8 @@ const styles = StyleSheet.create({
   safetyNote: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   faceToFaceCard: { backgroundColor: "rgba(67, 205, 138, 0.08)", borderColor: "rgba(67, 205, 138, 0.38)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   actions: { gap: spacing.md },
+  policyWarningCard: { backgroundColor: "rgba(240, 106, 106, 0.08)", borderColor: "rgba(240, 106, 106, 0.35)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
+  policyWarningText: { color: colors.danger, fontSize: typography.caption, lineHeight: 19 },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   notice: { color: colors.success, fontSize: typography.small, fontWeight: "800", lineHeight: 21 },
   sectionBody: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24 },

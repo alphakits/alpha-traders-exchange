@@ -36,6 +36,7 @@ import {
   submitBuyerTradeReview,
   submitSellerReviewResponse,
   TradeBlockedError,
+  updateCommissionPaymentStatus,
   updatePurchaseRequestStatus,
   uploadTradeEvidence,
 } from "@/lib/alpha-exchange-store";
@@ -412,6 +413,7 @@ describe("full Exchange App Review rehearsal", () => {
       actorUserId: BUYER_ID,
       actorRole: "buyer",
       nextStatus: "completed",
+      completionMode: "cash_trade",
     });
     expect(completion.request.status).toBe("review_open");
     if (completion.deferredTrustWrite) await completion.deferredTrustWrite();
@@ -421,6 +423,21 @@ describe("full Exchange App Review rehearsal", () => {
       buyerUserId: BUYER_ID,
       rating: 5,
       comment: "The fictional cardless withdrawal completed successfully.",
+    });
+    await submitSellerReviewResponse({
+      requestId: created.request.id,
+      sellerUserId: SELLER_ID,
+      message: "Thank you for completing the Cardless ATM trade.",
+    });
+
+    const commission = (await getCommissionRecordsForAdmin())
+      .find((entry) => entry.purchaseRequestId === created.request.id);
+    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 1 });
+    await updateCommissionPaymentStatus({
+      commissionId: commission!.id,
+      actorUserId: OWNER_ID,
+      paymentStatus: "paid",
+      reason: "Cardless ATM request-to-settlement rehearsal.",
     });
 
     const saved = snapshot();
@@ -446,9 +463,14 @@ describe("full Exchange App Review rehearsal", () => {
         "trade_locked",
         "review_unlocked",
         "commission_recorded",
+        "commission_paid",
       ]));
     expect((await getCommissionRecordsForAdmin()).filter((entry) => entry.purchaseRequestId === created.request.id))
-      .toHaveLength(1);
+      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 1 })]);
+    expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)).toMatchObject({
+      buyerReview: { rating: 5 },
+      sellerResponse: { message: "Thank you for completing the Cardless ATM trade." },
+    });
   });
 
   it("enforces block, privacy, participant, report, and dispute protections", async () => {

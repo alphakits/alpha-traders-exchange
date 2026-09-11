@@ -99,11 +99,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = await readMobileJsonBody(request);
     const action = String(body?.action ?? "").trim();
-    if (action && action !== "complete_face_to_face") {
+    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
-    const isFaceToFaceCompletion = action === "complete_face_to_face";
-    const nextStatus = (isFaceToFaceCompletion ? "completed" : String(body?.status ?? "")) as PurchaseRequestStatus;
+    const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
+    const nextStatus = (isCashTradeCompletion ? "completed" : String(body?.status ?? "")) as PurchaseRequestStatus;
     if (!MOBILE_MUTABLE_STATUSES.has(nextStatus)) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -126,7 +126,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: auth.user.id,
       actorRole: auth.user.role,
       nextStatus,
-      completionMode: isFaceToFaceCompletion ? "face_to_face" : undefined,
+      completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
       safetyAcknowledged: body?.safetyAcknowledged === true,
     });
 

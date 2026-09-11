@@ -58,16 +58,17 @@ describe("mobile accessibility completion", () => {
     expect(tradeRoom).toContain("setBankDetails(null)");
   });
 
-  it("keeps Face-to-Face completion explicit, confirmed, and evidence-free in the native Trade Room", () => {
+  it("keeps participant cash completion explicit and confirmed in the native Trade Room", () => {
     const tradeRoom = source("apps/mobile/src/screens/trade-detail-screen.tsx");
     const mobileApi = source("apps/mobile/src/api/mobile-api.ts");
 
     expect(tradeRoom).toContain("actions.canCompleteFaceToFace");
-    expect(tradeRoom).toContain('Alert.alert(t("faceToFaceCompletionTitle"), t("faceToFaceCompletionConfirmation")');
-    expect(tradeRoom).toContain('loading={busyAction === "complete-face-to-face"}');
+    expect(tradeRoom).toContain('t("cardlessAtmCompletionConfirmation")');
+    expect(tradeRoom).toContain('t("faceToFaceCompletionConfirmation")');
+    expect(tradeRoom).toContain('loading={busyAction === "complete-cash-trade"}');
     expect(tradeRoom).toContain("!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence");
     expect(tradeRoom).toContain("!actions.canCompleteFaceToFace && actions.canUploadReleaseEvidence");
-    expect(mobileApi).toContain('body: { action: "complete_face_to_face" }');
+    expect(mobileApi).toContain('body: { action: "complete_cash_trade" }');
   });
 
   it("keeps recovery surfaces scrollable and text-link targets at least 44 points", () => {

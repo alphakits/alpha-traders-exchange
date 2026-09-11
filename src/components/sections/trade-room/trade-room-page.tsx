@@ -21,7 +21,7 @@ import {
   releaseTradeRoomMutation,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
-import { isBankTransferPaymentMethod, isFaceToFaceCompletionAvailable, isFaceToFacePaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradeCompletionAvailable, isCashTradePaymentMethod, isFaceToFacePaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
@@ -99,7 +99,7 @@ type StatusPrimaryAction = {
   successLabel: string;
   mode: "status";
   nextStatus: PrimaryStatus;
-  command?: "complete_face_to_face";
+  command?: "complete_cash_trade";
   confirmationMessage?: string;
   requiresEvidenceSide?: "buyer" | "seller";
 };
@@ -136,9 +136,9 @@ const STEP_ORDER: TradeStep[] = [
   { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
 ];
 
-const FACE_TO_FACE_STEP_ORDER: TradeStep[] = [
+const CASH_TRADE_STEP_ORDER: TradeStep[] = [
   { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
-  { id: "accepted", icon: "🤝", label: { en: "Meeting Agreed", ar: "تم الاتفاق على اللقاء" } },
+  { id: "accepted", icon: "🤝", label: { en: "Exchange Started", ar: "بدأت عملية التبادل" } },
   { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
 ];
 
@@ -245,9 +245,9 @@ function bankSelectionDisplayLabel(rawValue: string, locale: Locale) {
   return banks.map((bank) => getIsraeliBankDisplayName(bank, locale)).join(locale === "ar" ? "، " : ", ");
 }
 
-function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOverdue = false, isFaceToFace = false) {
-  if (isFaceToFace && isFaceToFaceCompletionAvailable("Face-to-Face (Meet in Person)", status)) {
-    return isAr ? "صفقة اللقاء الشخصي جارية" : "In-person exchange in progress";
+function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOverdue = false, isCashTrade = false) {
+  if (isCashTrade && (FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status)) {
+    return isAr ? "صفقة نقدية جارية" : "Cash exchange in progress";
   }
   if (status === "pending") return isAr ? "في انتظار القبول" : "Waiting for acceptance";
   if (status === "accepted") return isAr ? "في انتظار دفع المشتري" : "Waiting for buyer payment";
@@ -271,9 +271,9 @@ function getStepId(status: PurchaseRequest["status"]): StepId {
   return "request";
 }
 
-function getStepIndex(status: PurchaseRequest["status"], isFaceToFace = false) {
-  if (isFaceToFace) {
-    if (COMPLETED_TRADE_STATUSES.has(status)) return FACE_TO_FACE_STEP_ORDER.length - 1;
+function getStepIndex(status: PurchaseRequest["status"], isCashTrade = false) {
+  if (isCashTrade) {
+    if (COMPLETED_TRADE_STATUSES.has(status)) return CASH_TRADE_STEP_ORDER.length - 1;
     return status === "pending" ? 0 : 1;
   }
   const id = getStepId(status);
@@ -294,16 +294,25 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
-  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+  if (isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
+    const isAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
-      label: isAr ? "إكمال صفقة اللقاء الشخصي" : "Complete Face-to-Face Trade",
-      successLabel: isAr ? "اكتملت صفقة اللقاء الشخصي" : "Face-to-Face Trade Completed",
+      label: isAtm
+        ? (isAr ? "تسجيل صفقة السحب دون بطاقة كمكتملة" : "Mark Cardless ATM Trade Completed")
+        : (isAr ? "إكمال صفقة اللقاء الشخصي" : "Complete Face-to-Face Trade"),
+      successLabel: isAtm
+        ? (isAr ? "اكتملت صفقة السحب دون بطاقة" : "Cardless ATM Trade Completed")
+        : (isAr ? "اكتملت صفقة اللقاء الشخصي" : "Face-to-Face Trade Completed"),
       mode: "status",
       nextStatus: "completed",
-      command: "complete_face_to_face",
-      confirmationMessage: isAr
-        ? "أكد فقط بعد اكتمال اللقاء واستلام الطرفين لكل ما تم الاتفاق عليه. يمكن للمشتري أو البائع إنهاء الصفقة، ولا يمكن التراجع عن هذا الإجراء."
-        : "Confirm only after the in-person exchange is fully finished and both parties received everything agreed. Either participant can complete the trade, and this action cannot be undone.",
+      command: "complete_cash_trade",
+      confirmationMessage: isAtm
+        ? (isAr
+            ? "أكد فقط بعد أن يستلم البائع النقد من الصراف ويرسل USDT المتفق عليها للمشتري. يمكن لأي من الطرفين الإكمال. ستنتقل الصفقة إلى المراجعة، وتُسجّل عمولة 1% على البائع، ولا يمكن التراجع عن هذا الإجراء."
+            : "Confirm only after the seller collected the ATM cash and the buyer received the agreed USDT. Either participant can complete it. The trade will move to review, a 1% seller commission will be created, and this action cannot be undone.")
+        : (isAr
+            ? "أكد فقط بعد اكتمال اللقاء واستلام الطرفين لكل ما تم الاتفاق عليه. يمكن لأي من الطرفين الإكمال. ستنتقل الصفقة إلى المراجعة، وتُسجّل عمولة 1% على البائع، ولا يمكن التراجع عن هذا الإجراء."
+            : "Confirm only after the in-person exchange is fully finished and both parties received everything agreed. Either participant can complete it. The trade will move to review, a 1% seller commission will be created, and this action cannot be undone."),
     };
   }
 
@@ -369,8 +378,10 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
 }
 
 function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: boolean, isOverdue: boolean) {
-  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
-    return isAr ? "حتى يكتمل اللقاء والتبادل بين الطرفين" : "Until the in-person exchange is finished";
+  if (isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
+    return isCardlessAtmPaymentMethod(request.paymentMethod)
+      ? (isAr ? "حتى يستلم البائع النقد ويستلم المشتري USDT" : "Until the seller collects cash and the buyer receives USDT")
+      : (isAr ? "حتى يكتمل اللقاء والتبادل بين الطرفين" : "Until the in-person exchange is finished");
   }
   if (request.status === "pending") return isAr ? "حتى يراجع البائع الطلب" : "Until the seller reviews the request";
   if (request.status === "accepted") return isSeller
@@ -412,17 +423,22 @@ function getDeliveryConfirmation(request: PurchaseRequest, isAr: boolean) {
 }
 
 function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isAr: boolean, primaryAction: PrimaryAction | null, isOverdue: boolean) {
-  const isFaceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
-  const currentStatus = tradeStatusLabel(request.status, isAr, isOverdue, isFaceToFace);
-  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+  const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  const isAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
+  const currentStatus = tradeStatusLabel(request.status, isAr, isOverdue, isCashTrade);
+  if (isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
     return {
-      icon: "🤝",
-      title: isAr ? "صفقة لقاء شخصي" : "Face-to-Face Trade",
-      headline: isAr ? "أكمل الصفقة بعد انتهاء اللقاء" : "Complete the Trade After Your Meeting",
-      detail: isAr
-        ? "لا يلزم رفع إثبات. بعد اكتمال التبادل واستلام الطرفين لما تم الاتفاق عليه، يمكن للمشتري أو البائع إنهاء الصفقة."
-        : "No evidence upload is required. After the exchange is finished and both parties received what was agreed, either the buyer or seller can complete the trade.",
-      yourAction: primaryAction?.label ?? (isAr ? "إكمال صفقة اللقاء الشخصي" : "Complete Face-to-Face Trade"),
+      icon: isAtm ? "🏧" : "🤝",
+      title: isAtm ? (isAr ? "صفقة سحب دون بطاقة" : "Cardless ATM Trade") : (isAr ? "صفقة لقاء شخصي" : "Face-to-Face Trade"),
+      headline: isAtm ? (isAr ? "أكمل الصفقة بعد تبادل النقد وUSDT" : "Complete After Cash and USDT Are Exchanged") : (isAr ? "أكمل الصفقة بعد انتهاء اللقاء" : "Complete the Trade After Your Meeting"),
+      detail: isAtm
+        ? (isAr
+            ? "لا يلزم رفع إثبات إضافي. بعد استلام البائع للنقد وإرسال USDT للمشتري، يمكن لأي من الطرفين إكمال الصفقة. عند الإكمال تنتقل للمراجعة وتُسجّل عمولة 1% على البائع."
+            : "No additional evidence is required. After the seller collects the cash and sends USDT to the buyer, either participant can complete the trade. Completion moves it to review and creates the 1% seller commission.")
+        : (isAr
+            ? "لا يلزم رفع إثبات. بعد اكتمال التبادل واستلام الطرفين لما تم الاتفاق عليه، يمكن لأي من الطرفين إكمال الصفقة. عند الإكمال تنتقل للمراجعة وتُسجّل عمولة 1% على البائع."
+            : "No evidence upload is required. After the exchange is finished and both parties received what was agreed, either participant can complete the trade. Completion moves it to review and creates the 1% seller commission."),
+      yourAction: primaryAction?.label ?? (isAr ? "إكمال الصفقة" : "Complete Trade"),
       counterpartyAction: isAr ? "يمكن لأي من الطرفين إنهاء الصفقة" : "Either participant can complete the trade",
       tradeStatus: currentStatus,
     };
@@ -601,13 +617,14 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
     };
   }
 
-  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+  if (isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
+    const isAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
       isYourTurn: true,
       title: isAr ? "يمكنك إنهاء الصفقة" : "READY WHEN FINISHED",
-      detail: isAr
-        ? "بعد اكتمال اللقاء والتبادل، اضغط زر الإكمال. لا يلزم رفع إثبات."
-        : "After the in-person exchange is fully finished, use the completion button. No evidence upload is required.",
+      detail: isAtm
+        ? (isAr ? "بعد أن يستلم البائع النقد ويستلم المشتري USDT، اضغط زر الإكمال. لا يلزم رفع إثبات." : "After the seller collects cash and the buyer receives USDT, use the completion button. No evidence upload is required.")
+        : (isAr ? "بعد اكتمال اللقاء والتبادل، اضغط زر الإكمال. لا يلزم رفع إثبات." : "After the in-person exchange is fully finished, use the completion button. No evidence upload is required."),
     };
   }
 
@@ -876,8 +893,8 @@ function buildOptimisticRoom(
     usdt_sent: { type: "usdt_sent", message: "Seller marked USDT sent" },
     completed: { type: "buyer_confirmed_receipt", message: "Buyer confirmed USDT receipt" },
   };
-  const timelineEvent = command === "complete_face_to_face"
-    ? { type: "trade_completed" as const, message: `${room.request.sellerId === actor.id ? "Seller" : "Buyer"} marked the Face-to-Face trade complete.` }
+  const timelineEvent = command === "complete_cash_trade"
+    ? { type: "trade_completed" as const, message: `${room.request.sellerId === actor.id ? "Seller" : "Buyer"} marked the ${isCardlessAtmPaymentMethod(room.request.paymentMethod) ? "Cardless ATM" : "Face-to-Face"} trade complete.` }
     : timelineByStatus[nextStatus];
   nextRequest.timeline.push({
     id: `optimistic-${nextStatus}-${now.getTime()}`,
@@ -1598,7 +1615,11 @@ function TradeRoomPageSession({
   const counterpartName = request
     ? (isSeller ? room?.counterpart.buyerName : room?.counterpart.sellerName)
     : "";
-  const tradeSteps = isFaceToFaceTrade ? FACE_TO_FACE_STEP_ORDER : STEP_ORDER;
+  const isCardlessAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
+  const participantCompletionAvailable = request
+    ? isCashTradeCompletionAvailable(requestPaymentMethod, request.status)
+    : false;
+  const tradeSteps = isFaceToFaceTrade ? CASH_TRADE_STEP_ORDER : STEP_ORDER;
   const currentStepIndex = request ? getStepIndex(request.status, isFaceToFaceTrade) : 0;
   const progressPercent = Math.round((currentStepIndex / Math.max(1, tradeSteps.length - 1)) * 100);
   const turn = request ? getTurnPanel(request, isSeller, isAr) : null;
@@ -2242,6 +2263,12 @@ function TradeRoomPageSession({
 
   const handleCancelTrade = useCallback(async () => {
     if (!request || !canBuyerCancelTrade(request, actor.id) || cancelBusy) return;
+    const confirmation = request.status === "accepted"
+      ? (isAr
+          ? "ألغِ الصفقة فقط إذا لم ترسل أي دفعة أو نقد أو معلومات دفع ولم تستلم USDT. إذا بدأ التبادل، أكمل الصفقة أو افتح نزاعًا. هل تريد المتابعة؟"
+          : "Cancel only if you have not sent any payment, cash, or payment proof and have not received USDT. If the exchange started, complete the trade or open a dispute. Continue?")
+      : (isAr ? "هل تريد إلغاء هذا الطلب قبل قبوله؟" : "Cancel this request before it is accepted?");
+    if (!window.confirm(confirmation)) return;
     const mutationKey = `${request.id}:cancel`;
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setCancelBusy(true);
@@ -2268,6 +2295,10 @@ function TradeRoomPageSession({
 
   const handleDeclineTrade = useCallback(async () => {
     if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy) return;
+    const confirmed = window.confirm(isAr
+      ? "ارفض الطلب فقط إذا لم يتم تبادل أي أموال أو نقد أو USDT. رفض صفقة تمت فعليًا بهدف تجنب العمولة مخالفة خطيرة وقد يؤدي إلى تقييد حساب البائع أو إيقافه نهائيًا. هل تريد المتابعة؟"
+      : "Decline only if no money, cash, or USDT has been exchanged. Declining a completed trade to avoid commission is a serious violation and may result in seller restrictions or permanent suspension. Continue?");
+    if (!confirmed) return;
     await handleStatusUpdate({
       label: isAr ? "رفض الطلب" : "Decline Request",
       successLabel: isAr ? "تم رفض الطلب" : "Request Declined",
@@ -2771,10 +2802,12 @@ function TradeRoomPageSession({
               <CardTitle className="text-2xl">{isAr ? "🎉 اكتملت الصفقة بنجاح" : "🎉 Trade Completed Successfully"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
-              {isFaceToFaceTrade ? (
+              {isFaceToFaceTrade || isCardlessAtmTrade ? (
                 <>
-                  <p>{isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete."}</p>
-                  <p>{isAr ? "لم تكن هناك حاجة لرفع إثبات، وانتقلت الصفقة الآن إلى السجل والتقييم." : "No evidence upload was required, and the trade is now in history and review."}</p>
+                  <p>{isCardlessAtmTrade
+                    ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
+                    : (isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete.")}</p>
+                  <p>{isAr ? "انتقلت الصفقة الآن إلى السجل والمراجعة، وتم تسجيل العمولة المستحقة على البائع." : "The trade is now in history and review, and the seller commission has been recorded."}</p>
                   <p>{isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
                 </>
               ) : (
@@ -3047,16 +3080,23 @@ function TradeRoomPageSession({
                 ) : null}
 
                 {canSellerDeclineTrade(request, actor.id) ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="w-full"
-                    disabled={actionBusy}
-                    onClick={() => void handleDeclineTrade()}
-                  >
-                    {request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض الطلب" : "Decline Request")}
-                  </Button>
+                  <div className="space-y-2 rounded-xl border border-red-500/35 bg-red-500/10 p-3">
+                    <p className="text-xs font-medium text-red-100">
+                      {isAr
+                        ? "ارفض فقط إذا لم يتم تبادل أموال أو نقد أو USDT. رفض صفقة تمت فعليًا لتجنب العمولة قد يؤدي إلى تقييد البائع أو إيقافه نهائيًا."
+                        : "Decline only if no money, cash, or USDT was exchanged. Declining a completed trade to avoid commission may lead to seller restriction or permanent suspension."}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="w-full"
+                      disabled={actionBusy}
+                      onClick={() => void handleDeclineTrade()}
+                    >
+                      {request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض الطلب" : "Decline Request")}
+                    </Button>
+                  </div>
                 ) : null}
 
                 {canBuyerCancelTrade(request, actor.id) ? (
@@ -3158,23 +3198,29 @@ function TradeRoomPageSession({
               <Card className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader>
                   <CardTitle className="text-lg">
-                    {isFaceToFaceTrade
-                      ? (isAr ? "إكمال صفقة اللقاء الشخصي" : "Face-to-Face Completion")
+                    {participantCompletionAvailable
+                      ? (isCardlessAtmTrade
+                          ? (isAr ? "إكمال صفقة السحب دون بطاقة" : "Cardless ATM Completion")
+                          : (isAr ? "إكمال صفقة اللقاء الشخصي" : "Face-to-Face Completion"))
                       : (isAr ? "مهلة إصدار USDT" : "USDT Release Deadline")}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-[#D1D5DB]">
-                  {isFaceToFaceTrade ? (
+                  {participantCompletionAvailable ? (
                     <>
                       <p className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-100">
-                        {isAr
-                          ? "لا يلزم رفع إيصال أو إثبات. أكمل التبادل وجهًا لوجه أولًا، ثم يمكن لأي من الطرفين إنهاء الصفقة."
-                          : "No receipt or evidence upload is required. Finish the in-person exchange first, then either participant can complete the trade."}
+                        {isCardlessAtmTrade
+                          ? (isAr
+                              ? "بعد استلام البائع للنقد وإرسال USDT للمشتري، يمكن لأي من الطرفين إكمال الصفقة. لا يلزم إثبات إضافي."
+                              : "After the seller collects the cash and the buyer receives USDT, either participant can complete the trade. No additional evidence is required.")
+                          : (isAr
+                              ? "لا يلزم رفع إيصال أو إثبات. أكمل التبادل وجهًا لوجه أولًا، ثم يمكن لأي من الطرفين إنهاء الصفقة."
+                              : "No receipt or evidence upload is required. Finish the in-person exchange first, then either participant can complete the trade.")}
                       </p>
                       <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-amber-100">
                         {isAr
-                          ? "لا تضغط زر الإكمال إلا بعد استلام الطرفين لكل ما تم الاتفاق عليه."
-                          : "Do not complete the trade until both parties have received everything agreed."}
+                          ? "لا تضغط الإكمال إلا بعد استلام الطرفين لكل ما تم الاتفاق عليه. سينتقل التداول للمراجعة وتُسجّل عمولة 1% على البائع."
+                          : "Complete only after both parties received everything agreed. The trade moves to review and a 1% seller commission is recorded."}
                       </p>
                     </>
                   ) : room.releaseDeadlineActive && timeRemainingSeconds !== null ? (
@@ -3192,9 +3238,11 @@ function TradeRoomPageSession({
                   ) : (
                     <p>{isAr ? "سيبدأ عداد 45 دقيقة بعد تأكيد استلام الدفع وبدء مرحلة إصدار USDT." : "The 45-minute timer starts when seller confirms funds and enters USDT release stage."}</p>
                   )}
-                  <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
-                    {isAr ? "تذكير الإرسال: يرسل البائع USDT فقط بعد تأكيد الدفع داخل Alpha Exchange." : "Release reminder: The seller sends USDT only after confirming payment inside Alpha Exchange."}
-                  </p>
+                  {!participantCompletionAvailable ? (
+                    <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
+                      {isAr ? "تذكير الإرسال: يرسل البائع USDT فقط بعد تأكيد الدفع داخل Alpha Exchange." : "Release reminder: The seller sends USDT only after confirming payment inside Alpha Exchange."}
+                    </p>
+                  ) : null}
                   {!isFaceToFaceTrade && room.releaseDeadlineActive ? (
                     <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
                       {isSeller
@@ -3215,8 +3263,8 @@ function TradeRoomPageSession({
                 </CardHeader>
                 <CardContent className="grid gap-2 text-sm md:grid-cols-2 2xl:grid-cols-2">
                   {(isFaceToFaceTrade ? [
-                    { label: isAr ? "تم الاتفاق على اللقاء" : "Meeting Agreed", active: isFaceToFaceCompletionAvailable(request.paymentMethod, request.status) },
-                    { label: isAr ? "لا يلزم إثبات" : "No Evidence Required", active: isFaceToFaceCompletionAvailable(request.paymentMethod, request.status) },
+                    { label: isAr ? "تم الاتفاق على اللقاء" : "Meeting Agreed", active: isCashTradeCompletionAvailable(request.paymentMethod, request.status) },
+                    { label: isAr ? "لا يلزم إثبات" : "No Evidence Required", active: isCashTradeCompletionAvailable(request.paymentMethod, request.status) },
                     { label: isAr ? "مكتمل" : "Completed", active: COMPLETED_TRADE_STATUSES.has(request.status) },
                   ] : [
                     { label: isAr ? "بانتظار إرسال USDT" : "Awaiting USDT Release", active: request.status !== "review_open" && request.status !== "completed" && request.status !== "locked" },
@@ -3627,6 +3675,11 @@ function TradeRoomPageSession({
                   <>
                     <p>{isAr ? "التقِ في مكان عام وآمن، وتحقق من كل شيء قبل إنهاء الصفقة." : "Meet in a safe public place and verify everything before completing the trade."}</p>
                     <p>{isAr ? "لا تسجل الصفقة كمكتملة إلا بعد استلام الطرفين لكل ما تم الاتفاق عليه." : "Mark the trade complete only after both parties received everything agreed."}</p>
+                  </>
+                ) : isCardlessAtmTrade ? (
+                  <>
+                    <p>{isAr ? "لا تشارك رمز السحب إلا داخل مسار الصفقة، وتحقق من استلام النقد وUSDT قبل الإكمال." : "Keep withdrawal details inside the trade flow and verify both cash and USDT before completion."}</p>
+                    <p>{isAr ? "بعد إرسال إثبات الدفع لا يمكن إلغاء الصفقة. استخدم النزاع إذا ظهرت مشكلة." : "After payment proof is submitted, the trade cannot be cancelled. Open a dispute if anything goes wrong."}</p>
                   </>
                 ) : (
                   <>

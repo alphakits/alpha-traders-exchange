@@ -6,10 +6,14 @@ vi.mock("@/lib/postgres-runtime", () => ({
 }));
 
 import {
+  adminOverrideMarketplaceListing,
+  closePurchaseRequestManually,
+  forceCancelTradeByAdmin,
+  forceCompleteTradeByAdmin,
   invalidateAlphaExchangeStoreCache,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
-import { isFaceToFaceCompletionAvailable } from "@/lib/marketplace-payment-methods";
+import { isCashTradeCompletionAvailable, isFaceToFaceCompletionAvailable } from "@/lib/marketplace-payment-methods";
 
 const SELLER_ID = "face-seller-1";
 const BUYER_ID = "face-buyer-1";
@@ -230,18 +234,167 @@ describe("Face-to-Face participant completion", () => {
     },
   );
 
-  it.each(["Bank Transfer", "Cardless ATM Withdrawal"])(
-    "does not weaken the existing evidence lifecycle for %s",
-    async (paymentMethod) => {
-      seedTrade({ paymentMethod });
+  it("does not weaken the Bank Transfer evidence lifecycle", async () => {
+    seedTrade({ paymentMethod: "Bank Transfer" });
 
-      await expect(completeFaceToFace("buyer")).rejects.toMatchObject({
-        code: "face-to-face-completion-payment-method-required",
+    await expect(completeFaceToFace("buyer")).rejects.toMatchObject({
+      code: "cash-trade-completion-payment-method-required",
+    });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    expect(currentSnapshot().marketplaceListings[0]).toMatchObject({ availableAmount: "1000" });
+  });
+
+  it.each(["buyer", "seller"] as const)(
+    "lets the %s complete Cardless ATM only after USDT is marked sent",
+    async (actor) => {
+      const requestId = `cardless-request-${actor}`;
+      const { listingId } = seedTrade({
+        requestId,
+        paymentMethod: "Cardless ATM Withdrawal",
+        status: "usdt_sent",
       });
-      expect(currentSnapshot().commissionRecords).toHaveLength(0);
-      expect(currentSnapshot().marketplaceListings[0]).toMatchObject({ availableAmount: "1000" });
+
+      const result = await updatePurchaseRequestStatus({
+        requestId,
+        actorUserId: actor === "seller" ? SELLER_ID : BUYER_ID,
+        actorRole: actor === "seller" ? "approved_seller" : "buyer",
+        nextStatus: "completed",
+        completionMode: "cash_trade",
+      });
+
+      expect(result.request.status).toBe("review_open");
+      expect(currentSnapshot().commissionRecords.filter((record) => record.purchaseRequestId === requestId)).toHaveLength(1);
+      expect(currentSnapshot().marketplaceListings.find((listing) => listing.id === listingId)).toMatchObject({
+        availableAmount: "750",
+        activeTradeRequestId: undefined,
+      });
+      expect(result.request.timeline).toContainEqual(expect.objectContaining({
+        type: "trade_completed",
+        actorUserId: actor === "seller" ? SELLER_ID : BUYER_ID,
+        message: `${actor === "seller" ? "Seller" : "Buyer"} marked the Cardless ATM trade complete.`,
+      }));
     },
   );
+
+  it("keeps Cardless ATM cancellable before proof but blocks early completion", async () => {
+    const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+
+    await expect(updatePurchaseRequestStatus({
+      requestId: "face-request-1",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "completed",
+      completionMode: "cash_trade",
+    })).rejects.toMatchObject({ code: "cash-trade-completion-status-not-eligible" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+
+    const cancelled = await updatePurchaseRequestStatus({
+      requestId: "face-request-1",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    });
+    expect(cancelled.request.status).toBe("cancelled");
+    expect(currentSnapshot().marketplaceListings.find((listing) => listing.id === listingId)).toMatchObject({
+      status: "active",
+      activeTradeRequestId: undefined,
+    });
+  });
+
+  it("blocks participant and admin cancellation once payment or transfer progress exists", async () => {
+    const { requestId, listingId } = seedTrade({
+      paymentMethod: "Cardless ATM Withdrawal",
+      status: "payment_sent",
+    });
+
+    await expect(updatePurchaseRequestStatus({
+      requestId,
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    })).rejects.toMatchObject({ code: "invalid-status-transition" });
+    await expect(forceCancelTradeByAdmin({
+      requestId,
+      actorUserId: OWNER_ID,
+      reason: "Attempted force cancellation after payment started.",
+    })).rejects.toThrow("cannot be force-closed");
+    await expect(closePurchaseRequestManually({
+      requestId,
+      actorUserId: OWNER_ID,
+      actorRole: "owner",
+      reason: "Attempted manual cancellation",
+    })).rejects.toThrow("cannot be force-closed");
+    await expect(adminOverrideMarketplaceListing({
+      listingId,
+      adminUserId: OWNER_ID,
+      action: "force_close",
+      reason: "Attempted listing force-close after payment started.",
+    })).rejects.toThrow("cannot be force-closed");
+
+    expect(currentSnapshot().purchaseRequests.find((request) => request.id === requestId)?.status).toBe("payment_sent");
+    expect(currentSnapshot().marketplaceListings.find((listing) => listing.id === listingId)).toMatchObject({
+      status: "in_trade",
+      activeTradeRequestId: requestId,
+    });
+  });
+
+  it("lets an admin cancel an accepted trade only before payment starts and reopens the listing", async () => {
+    const { requestId, listingId } = seedTrade({
+      requestId: "admin-cancel-before-payment",
+      paymentMethod: "Cardless ATM Withdrawal",
+      status: "accepted",
+    });
+
+    const cancelled = await forceCancelTradeByAdmin({
+      requestId,
+      actorUserId: OWNER_ID,
+      reason: "No participant action occurred after acceptance.",
+    });
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(currentSnapshot().marketplaceListings.find((listing) => listing.id === listingId)).toMatchObject({
+      status: "active",
+      activeTradeRequestId: undefined,
+    });
+    expect(currentSnapshot().notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: BUYER_ID, title: "Trade cancelled by admin" }),
+      expect.objectContaining({ userId: SELLER_ID, title: "Trade cancelled by admin" }),
+    ]));
+  });
+
+  it("uses the canonical completion lifecycle when an admin confirms a completed trade", async () => {
+    const { requestId, listingId } = seedTrade({
+      requestId: "admin-completed-cardless",
+      paymentMethod: "Cardless ATM Withdrawal",
+      status: "funds_received",
+      amount: "250",
+    });
+
+    const completed = await forceCompleteTradeByAdmin({
+      requestId,
+      actorUserId: OWNER_ID,
+      reason: "Both participants confirmed the off-platform exchange was completed.",
+    });
+
+    expect(completed.status).toBe("review_open");
+    expect(currentSnapshot().commissionRecords.filter((record) => record.purchaseRequestId === requestId))
+      .toEqual([expect.objectContaining({ sellerId: SELLER_ID, commissionAmount: 2.5, paymentStatus: "pending" })]);
+    expect(currentSnapshot().marketplaceListings.find((listing) => listing.id === listingId)).toMatchObject({
+      availableAmount: "750",
+      status: "active",
+      activeTradeRequestId: undefined,
+    });
+    expect(completed.timeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "trade_completed", actorUserId: OWNER_ID, message: "Admin force-completed this trade." }),
+      expect.objectContaining({ type: "commission_recorded", actorUserId: OWNER_ID }),
+    ]));
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({
+      action: "purchase_completed",
+      actorUserId: OWNER_ID,
+      reason: "Both participants confirmed the off-platform exchange was completed.",
+      details: expect.stringContaining("seller commission recorded"),
+    }));
+  });
 
   it("requires the explicit Face-to-Face command instead of weakening ordinary completion", async () => {
     seedTrade({});
@@ -263,7 +416,7 @@ describe("Face-to-Face participant completion", () => {
       seedTrade({ status });
 
       await expect(completeFaceToFace("buyer")).rejects.toMatchObject({
-        code: "face-to-face-completion-status-not-eligible",
+        code: "cash-trade-completion-status-not-eligible",
       });
     },
   );
@@ -285,7 +438,7 @@ describe("Face-to-Face participant completion", () => {
       actorRole: "owner",
       nextStatus: "completed",
       completionMode: "face_to_face",
-    })).rejects.toMatchObject({ code: "face-to-face-completion-participant-required" });
+    })).rejects.toMatchObject({ code: "cash-trade-completion-participant-required" });
   });
 
   it("serializes simultaneous buyer and seller completion into one trade, one listing deduction, and one commission", async () => {
@@ -316,5 +469,8 @@ describe("Face-to-Face participant completion", () => {
     expect(isFaceToFaceCompletionAvailable(FACE_TO_FACE, "usdt_sent")).toBe(true);
     expect(isFaceToFaceCompletionAvailable(FACE_TO_FACE, "pending")).toBe(false);
     expect(isFaceToFaceCompletionAvailable("Bank Transfer", "accepted")).toBe(false);
+    expect(isCashTradeCompletionAvailable("Cardless ATM Withdrawal", "accepted")).toBe(false);
+    expect(isCashTradeCompletionAvailable("Cardless ATM Withdrawal", "usdt_sent")).toBe(true);
+    expect(isCashTradeCompletionAvailable("Bank Transfer", "usdt_sent")).toBe(false);
   });
 });

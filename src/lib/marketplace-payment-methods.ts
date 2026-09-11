@@ -73,6 +73,26 @@ export function isCardlessAtmPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Cardless ATM Withdrawal";
 }
 
+/**
+ * Cash-based trades allow either participant to perform the final completion.
+ * Face-to-Face can complete immediately after acceptance; Cardless ATM keeps
+ * its guided proof and release stages before participant completion unlocks.
+ */
+export function isCashTradePaymentMethod(method: unknown) {
+  return isFaceToFacePaymentMethod(method) || isCardlessAtmPaymentMethod(method);
+}
+
+export function isCashTradeCompletionAvailable(method: unknown, status: unknown) {
+  if (typeof status !== "string") return false;
+  if (isFaceToFacePaymentMethod(method)) {
+    return (FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
+  }
+  // Cardless ATM keeps the guided proof/release flow so cancellation remains
+  // available only before any payment proof is submitted. Once the seller has
+  // marked USDT sent, either participant can perform the final confirmation.
+  return isCardlessAtmPaymentMethod(method) && status === "usdt_sent";
+}
+
 export function isBankTransferPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Bank Transfer";
 }

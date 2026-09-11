@@ -816,7 +816,7 @@ export function updateMobileTrade(
   });
 }
 
-export function completeMobileFaceToFaceTrade(
+export function completeMobileCashTrade(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
   requestId: string,
@@ -825,7 +825,7 @@ export function completeMobileFaceToFaceTrade(
     locale,
     method: "PATCH",
     accessToken: tokens.accessToken,
-    body: { action: "complete_face_to_face" },
+    body: { action: "complete_cash_trade" },
   });
 }
 
