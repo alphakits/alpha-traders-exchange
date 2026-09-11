@@ -19,7 +19,7 @@ jobs:
     params:
       platform: ios
       profile: preview
-      message: Alpha Traders 1.1 signed iPhone preview
+      message: Alpha Traders signed iPhone preview
       refresh_ad_hoc_provisioning_profile: true
 
   install_instructions:

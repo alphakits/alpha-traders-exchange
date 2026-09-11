@@ -96,6 +96,7 @@ const websiteShell = readText("apps/mobile/src/components/website-app-shell.tsx"
 const navigation = readText("apps/mobile/src/web/website-navigation.ts");
 const pushNavigationRecovery = readText("apps/mobile/src/web/push-navigation-recovery.ts");
 const installedIphoneWorkflow = readText("apps/mobile/.eas/workflows/iphone-installed-preview.yml");
+const iosTestflightWorkflow = readText("apps/mobile/.eas/workflows/ios-testflight.yml");
 const githubWorkflow = readText(".github/workflows/mobile-preview.yml");
 const submissionPack = readText("docs/mobile/app-store-connect-submission-pack.md");
 const googlePlaySubmissionPack = readText("docs/mobile/google-play-submission-pack.md");
@@ -183,6 +184,13 @@ check(easConfig.build?.production?.autoIncrement === true, "Production build-num
 check(Boolean(easConfig.submit?.production), "The EAS production submission profile is missing.");
 check(installedIphoneWorkflow.includes("type: apple-device-registration-request"), "The registered-iPhone workflow is missing device registration.");
 check(installedIphoneWorkflow.includes("refresh_ad_hoc_provisioning_profile: true"), "The registered-iPhone workflow does not refresh provisioning.");
+check(iosTestflightWorkflow.includes("branches: [release/ios-testflight]"), "The TestFlight workflow is not isolated to its controlled release branch.");
+check(iosTestflightWorkflow.includes("profile: production"), "The TestFlight workflow is not using the production profile.");
+check(iosTestflightWorkflow.includes("type: testflight"), "The TestFlight upload job is missing.");
+check(iosTestflightWorkflow.includes("needs: [build_ios]"), "The TestFlight upload is not gated on a successful iOS build.");
+check(iosTestflightWorkflow.includes("build_id: ${{ needs.build_ios.outputs.build_id }}"), "The TestFlight upload is not pinned to the build produced by the workflow.");
+check(iosTestflightWorkflow.includes("submit_beta_review: false"), "The private TestFlight workflow must not request external Beta App Review.");
+check(!iosTestflightWorkflow.includes("external_groups:"), "The private TestFlight workflow must not distribute to external groups.");
 check(githubWorkflow.includes("eas build --platform ios --profile preview"), "The GitHub iOS preview workflow is missing.");
 
 check(storeMetadata.primaryCategory === "FINANCE", "The primary store category must reflect the app's financial marketplace.");
