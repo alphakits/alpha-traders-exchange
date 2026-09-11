@@ -6,8 +6,10 @@ vi.mock("@/lib/postgres-runtime", () => ({
 }));
 
 import {
+  getAdminPrepDashboardData,
   getNotificationsForUser,
   getSellerCommissionStatus,
+  getSellerListingWorkspaceData,
   invalidateAlphaExchangeStoreCache,
   reverifyPendingCommissionPayments,
   reverifyCommissionByAdmin,
@@ -208,6 +210,94 @@ describe("commission wallet payment routing", () => {
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+  });
+
+  it("sees a newly assigned commission even when this instance cached the seller as clear", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const newlyAssigned = structuredClone(db.commissionRecords[0]!);
+    db.commissionRecords = [];
+
+    // Prime the normal process-local snapshot cache before another instance
+    // (represented by the canonical memory repository) assigns the debt.
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    const status = await getSellerCommissionStatus(SELLER_ID);
+    expect(status).toMatchObject({
+      status: "pending",
+      pendingCount: 1,
+      commissionId: COMMISSION_ID,
+      payableAmountDue: 5.000001,
+    });
+  });
+
+  it("returns a coherent locked seller workspace from one strong snapshot", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const newlyAssigned = structuredClone(db.commissionRecords[0]!);
+    db.commissionRecords = [];
+
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    const workspace = await getSellerListingWorkspaceData({
+      sellerId: SELLER_ID,
+      status: "all",
+      commissionId: COMMISSION_ID,
+    });
+    expect(workspace.commissionStatus).toMatchObject({
+      status: "pending",
+      pendingCount: 1,
+      commissionId: COMMISSION_ID,
+    });
+    expect(workspace.summary).toMatchObject({
+      pendingCommissionCount: 1,
+      canCreateListing: false,
+    });
+  });
+
+  it("shows a newly committed commission in a fresh admin dashboard read", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const newlyAssigned = structuredClone(db.commissionRecords[0]!);
+    db.commissionRecords = [];
+
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    const dashboard = await getAdminPrepDashboardData();
+    expect(dashboard.commissionRecords).toContainEqual(expect.objectContaining({
+      id: COMMISSION_ID,
+      sellerId: SELLER_ID,
+      paymentStatus: "pending",
+    }));
+  });
+
+  it("settles a newly assigned commission even when this instance cached the seller as clear", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const assignedAt = new Date(Date.now() - 60_000).toISOString();
+    const newlyAssigned = {
+      ...structuredClone(db.commissionRecords[0]!),
+      paymentExpectedAmount: 5.000001,
+      paymentExpectedAmountMode: "unique_v1" as const,
+      paymentExpectedAmountAssignedAt: assignedAt,
+    };
+    db.commissionRecords = [];
+
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronReceipt())));
+
+    await expect(submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network: "TRC20",
+      payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    })).resolves.toMatchObject({ verification: { verified: true } });
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+    });
   });
 
   it("records only the canonical TRC20 rail and Binance recipient", async () => {

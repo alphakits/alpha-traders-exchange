@@ -848,12 +848,20 @@ export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 
 export interface CommissionRecord {
   id: string;
-  purchaseRequestId: string;
+  /**
+   * Trade-backed commissions keep these linkage fields. Manual commissions
+   * deliberately omit them instead of inventing marketplace entity IDs.
+   */
+  purchaseRequestId?: string;
   tradeId?: string;
   displayNumber?: number;
-  listingId: string;
+  listingId?: string;
   sellerId: string;
-  buyerId: string;
+  buyerId?: string;
+  source?: "trade" | "admin_manual";
+  issuedByUserId?: string;
+  /** Seller-visible explanation supplied by the admin who issued it. */
+  issueReason?: string;
   rate: number;
   grossAmount: number;
   commissionAmount: number;

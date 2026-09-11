@@ -100,7 +100,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       "select to_regclass($1) is not null as ready",
-      ["alpha_exchange.idx_alpha_exchange_evidence_blobs_updated"],
+      ["alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
   });
@@ -127,6 +127,24 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_notifications_trust_reconciliation"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create table if not exists alpha_exchange.evidence_blobs"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_evidence_blobs_updated"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_commissions_unpaid_seller"))).toBe(true);
+  });
+
+  it("loads unpaid commission seller IDs with one targeted canonical query", async () => {
+    const query = vi.fn((queryText: string, _values?: unknown[]) => {
+      void _values;
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("select distinct seller_id from alpha_exchange.commissions")) {
+        return Promise.resolve({ rows: [{ seller_id: "seller-1" }, { seller_id: "seller-2" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.loadUnpaidCommissionSellerIds()).resolves.toEqual(["seller-1", "seller-2"]);
+    expect(query.mock.calls.filter(([sql]) => String(sql).includes("select distinct seller_id"))).toHaveLength(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("from alpha_exchange.listings order by"))).toBe(false);
   });
 
   it("stores db:// compliance evidence in PostgreSQL instead of the deployment filesystem", async () => {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCommissionQaModeStatus, getCommissionQaResetStatus, getMyMarketplaceListings, getSellerCommissionStatus, getSellerListingWorkspaceSummary } from "@/lib/alpha-exchange-store";
+import { getCommissionQaModeStatus, getCommissionQaResetStatus, getSellerListingWorkspaceData } from "@/lib/alpha-exchange-store";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 import { getCommissionWalletConfiguration } from "@/lib/commission-config";
 
@@ -10,11 +10,11 @@ export async function GET(request: NextRequest) {
   const statusParam = request.nextUrl.searchParams.get("status") ?? "all";
   const status = VALID_STATUSES.has(statusParam) ? statusParam : "all";
   const commissionId = request.nextUrl.searchParams.get("commissionId")?.trim() || undefined;
-  const [listings, summary, commissionStatus] = await Promise.all([
-    getMyMarketplaceListings(user.id, status),
-    getSellerListingWorkspaceSummary(user.id),
-    getSellerCommissionStatus(user.id, undefined, { commissionId }),
-  ]);
+  const { listings, summary, commissionStatus } = await getSellerListingWorkspaceData({
+    sellerId: user.id,
+    status,
+    commissionId,
+  });
   return NextResponse.json({
     listings,
     summary,

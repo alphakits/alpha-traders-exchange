@@ -352,6 +352,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     || (commissionWorkspaceAction.kind === "pay-one" ? commissionWorkspaceAction.commissionId.trim() : "");
   const selectedCommissionPayment = (sellerCommissionStatus?.payableRecords as PayableCommissionWithVerification[] | undefined)
     ?.find((record) => record.commissionId.trim() === selectedCommissionId);
+  const selectedCommissionIsAdminIssued = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "admin_manual";
+  const selectedCommissionIssueReason = selectedCommissionPayment?.issueReason?.trim()
+    || sellerCommissionStatus?.issueReason?.trim()
+    || "";
   const selectedCommissionSubmittedAt = selectedCommissionPayment?.paymentSubmittedAt
     ? new Date(selectedCommissionPayment.paymentSubmittedAt)
     : null;
@@ -463,7 +467,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription>
-                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid."}
+                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -473,6 +477,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
                     <div className="flex-1 space-y-2">
                       <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
+                      {selectedCommissionIsAdminIssued ? (
+                        <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                          <p className="font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                          {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{selectedCommissionIssueReason}</p> : null}
+                        </div>
+                      ) : null}
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
                           <span className="text-red-300">{isAr ? "المبلغ المستحق" : "Amount outstanding"}</span>
@@ -494,11 +504,18 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : sellerCommissionStatus?.status === "clear" ? (
                 <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                     <span className="font-medium">{isAr ? "لا توجد عمولة مستحقة — حسابك سليم." : "No commission due — you’re all clear."}</span>
+                  </div>
+                </div>
+              ) : (
+                <div role="status" className="rounded-2xl border border-white/15 bg-white/[0.03] p-4 text-sm text-[#D1D5DB]">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#C9A227]" />
+                    <span className="font-medium">{isAr ? "جارٍ التحقق من حالة العمولة..." : "Checking commission status..."}</span>
                   </div>
                 </div>
               )}
@@ -528,7 +545,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         onClick={() => openCommissionPayment(record.commissionId)}
                       >
                         <span>
-                          {record.relatedTradeDisplayNumber ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}` : (isAr ? "سجل العمولة" : "Commission record")}
+                          {record.relatedTradeDisplayNumber
+                            ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}`
+                            : record.source === "admin_manual"
+                              ? (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")
+                              : (isAr ? "سجل العمولة" : "Commission record")}
                         </span>
                         <span className="text-[#FDE68A]">{formatExactCommissionUsdt(record.paymentAmountDue ?? record.amountDue)}</span>
                       </Button>
@@ -555,6 +576,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
+                {selectedCommissionIsAdminIssued ? (
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+                    <p className="font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                    {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{selectedCommissionIssueReason}</p> : null}
+                  </div>
+                ) : null}
                 {!isLegacyPendingCommissionPayment ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
@@ -582,7 +609,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 ) : null}
                 {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
                   <p className="text-xs text-[#D1D5DB]">
-                    {isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد الصفقة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected trade above.`}
+                    {isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد العمولة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected commission above.`}
                   </p>
                 ) : null}
                 <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">

@@ -896,7 +896,9 @@ function isQaResetModeEnabled() {
 }
 
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
-  const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
+  const request = record.purchaseRequestId
+    ? db.purchaseRequests.find((item) => item.id === record.purchaseRequestId)
+    : undefined;
   if (request) {
     if (isQaCommissionModeEnabled()) return 1;
     const requestedUsdt = toNumber(request.usdtAmount);
@@ -904,6 +906,10 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
   }
   if (isQaCommissionModeEnabled()) return 1;
   return roundUsdt(record.commissionAmount);
+}
+
+function getCommissionSubject(record: CommissionRecord) {
+  return record.purchaseRequestId ? `trade ${record.purchaseRequestId}` : "this admin-issued commission";
 }
 
 const USDT_MICROS_PER_TOKEN = 1_000_000;
@@ -1998,7 +2004,9 @@ export async function getSellerProfileRouteData(input: {
     dbInput: db,
   });
 
-  const listings = await getMarketplaceListings("active", db, input.viewerUserId);
+  const listings = await getMarketplaceListings("active", db, input.viewerUserId, {
+    requireCanonicalCommissionLocks: true,
+  });
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const similarSellers = listings
@@ -3733,6 +3741,7 @@ const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies re
 const TRADE_BANK_DETAILS_AUDIT_TABLES = ["purchase_requests", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const COMMISSION_ASSIGNMENT_TABLES = ["commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_ROOM_INTERACTION_TABLES = ["purchase_requests", "notifications"] as const satisfies readonly SnapshotTableName[];
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
@@ -3915,7 +3924,7 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
       message: fullyUnlocked
         ? "Your previously verified commission payment has been reconciled. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
         : `Your previously verified commission payment has been reconciled. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
-      relatedTradeId: current.purchaseRequestId,
+      relatedTradeId: current.tradeId ?? current.purchaseRequestId,
       relatedRequestId: current.purchaseRequestId,
       relatedListingId: current.listingId,
       relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
@@ -3931,14 +3940,22 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
 }
 
 async function readDbWithPersistedCommissionPaymentExpectedAmounts() {
-  const db = await readDb();
+  // Commission debt is a financial lock and must not be served from the
+  // process-local 15-second snapshot cache. In a multi-instance deployment an
+  // admin can create a commission on one instance while the seller's next
+  // request lands on another; a cached read there would incorrectly report no
+  // debt (or reject its payment as "Commission record not found"). Always
+  // begin allocation/reconciliation from the canonical persisted snapshot.
+  const db = await readDb({ bypassCache: true });
+  const overdueChanged = await applyCommissionOverdueRules(db);
   let committedReconciliation = await reconcileVerifiedUnpaidCommissions(db);
   const allocationChanged = ensureCommissionPaymentExpectedAmounts(db);
-  if (!committedReconciliation.changed && !allocationChanged) return db;
+  if (!overdueChanged && !committedReconciliation.changed && !allocationChanged) return db;
 
   await writeDb(db, {
     selectedTables: COMMISSION_PAYMENT_TABLES,
     rebaseOnLatest: async (canonicalSnapshot) => {
+      await applyCommissionOverdueRules(canonicalSnapshot);
       committedReconciliation = await reconcileVerifiedUnpaidCommissions(canonicalSnapshot);
       ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
       return canonicalSnapshot;
@@ -4391,6 +4408,8 @@ function pushNotification(
     state?: NotificationState;
     /** Transactional trade communication may not be silently hidden by a stale UI preference. */
     forceInApp?: boolean;
+    /** Distinguishes same-title notifications that represent different records. */
+    dedupeKey?: string;
     /** Persist first, then emit the notification event from the caller. */
     deferRealtime?: boolean;
   },
@@ -4426,6 +4445,7 @@ function pushNotification(
     if (item.category !== input.category) return false;
     if (item.title !== input.title) return false;
     if ((item.relatedRequestId ?? "") !== (relatedRequestId ?? "")) return false;
+    if (input.dedupeKey && sanitizeInternalNotificationHref(item.actionHref) !== input.dedupeKey) return false;
     const ageMs = Date.now() - new Date(item.createdAt).getTime();
     return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 45_000;
   });
@@ -4697,10 +4717,10 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
     category: "trade",
     title: verificationPending ? "Commission verification pending" : "Commission overdue",
     message: verificationPending
-      ? `Your commission TxID for trade ${record.purchaseRequestId} is saved and automatic verification is still running. Do not send another payment.`
-      : `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
+      ? `Your commission TxID for ${getCommissionSubject(record)} is saved and automatic verification is still running. Do not send another payment.`
+      : `Commission for ${getCommissionSubject(record)} is overdue and requires payment.`,
     relatedRequestId: record.purchaseRequestId,
-    relatedTradeId: record.purchaseRequestId,
+    relatedTradeId: record.tradeId ?? record.purchaseRequestId,
     relatedListingId: record.listingId,
     relatedHref: commissionPaymentDestination(record.id),
     actionHref: commissionPaymentDestination(record.id),
@@ -4714,10 +4734,10 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
       category: "trade",
       title: verificationPending ? "Commission verification pending" : "Commission overdue",
       message: verificationPending
-        ? `Commission TxID for trade ${record.purchaseRequestId} is awaiting automatic verification after its due time.`
-        : `Commission for trade ${record.purchaseRequestId} is now overdue.`,
+        ? `Commission TxID for ${getCommissionSubject(record)} is awaiting automatic verification after its due time.`
+        : `Commission for ${getCommissionSubject(record)} is now overdue.`,
       relatedRequestId: record.purchaseRequestId,
-      relatedTradeId: record.purchaseRequestId,
+      relatedTradeId: record.tradeId ?? record.purchaseRequestId,
       relatedListingId: record.listingId,
       relatedHref: adminCommissionDestination(record.id),
       actionHref: adminCommissionDestination(record.id),
@@ -4726,7 +4746,7 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
   }
 }
 
-async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+async function applyCommissionOverdueRules(db: AlphaExchangeDb) {
   let changed = false;
   const nowMs = Date.now();
 
@@ -4737,6 +4757,13 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     changed = true;
     await markCommissionOverdue(db, record, SYSTEM_ACTOR_USER_ID);
   }
+
+  return changed;
+}
+
+async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+  let changed = await applyCommissionOverdueRules(db);
+  const nowMs = Date.now();
 
   for (const request of db.purchaseRequests) {
     if (request.status !== "usdt_release_pending") continue;
@@ -7452,15 +7479,30 @@ export async function overrideSellerPrestigeByAdmin(input: {
   return db.users[sellerIndex];
 }
 
-export async function getMarketplaceListings(status?: string, dbInput?: AlphaExchangeDb, viewerUserId?: string) {
+export async function getMarketplaceListings(
+  status?: string,
+  dbInput?: AlphaExchangeDb,
+  viewerUserId?: string,
+  options?: { requireCanonicalCommissionLocks?: boolean },
+) {
+  const isPublicFeed = !status || status === "all" || status === "active";
   const db = dbInput ?? await readDb();
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
+  const cachedCommissionBlockedSellerIds = db.commissionRecords
+    .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
+    .map((record) => record.sellerId);
+  // Public listing visibility is a financial authorization decision. Read
+  // only the authoritative unpaid-seller IDs on every public request so a
+  // commission issued on another instance hides listings immediately, while
+  // avoiding a full multi-table snapshot load on this high-traffic route.
+  const requiresCanonicalCommissionLocks = isPublicFeed
+    && (!dbInput || options?.requireCanonicalCommissionLocks === true);
   const sellersBlockedByCommission = new Set(
-    db.commissionRecords
-      .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
-      .map((record) => record.sellerId),
+    requiresCanonicalCommissionLocks
+      ? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
+      : cachedCommissionBlockedSellerIds,
   );
   const sellersBlockedByEnforcement = new Set(
     getMarketplaceEnforcementRecords(db)
@@ -7481,7 +7523,6 @@ export async function getMarketplaceListings(status?: string, dbInput?: AlphaExc
       }
     }
   }
-  const isPublicFeed = !status || status === "all" || status === "active";
   const rawListings =
     isPublicFeed
       ? db.marketplaceListings.filter((listing) => {
@@ -8862,6 +8903,8 @@ export async function getSellerCommissionStatus(
     const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
     return {
       commissionId: record.id,
+      source: record.source ?? "trade",
+      issueReason: record.issueReason,
       amountDue: getCommissionAmountDueUsdt(db, record),
       paymentAmountDue: getCommissionPaymentAmountDueUsdt(record),
       paymentVerificationStatus: record.paymentVerificationStatus,
@@ -8871,7 +8914,7 @@ export async function getSellerCommissionStatus(
       paymentExpectedAmountMode: record.paymentExpectedAmountMode,
       dueAt: record.dueAt,
       relatedRequestId: record.purchaseRequestId,
-      relatedTradeId: request?.tradeId,
+      relatedTradeId: request?.tradeId ?? record.tradeId,
       relatedTradeDisplayNumber: request?.displayNumber,
     };
   });
@@ -8886,12 +8929,34 @@ export async function getSellerCommissionStatus(
     payableAmountDue,
     dueAt: primaryRecord?.dueAt,
     commissionId: primaryRecord?.id,
+    source: primaryRecord ? primaryRecord.source ?? "trade" as const : undefined,
+    issueReason: primaryRecord?.issueReason,
     selectionError: requestedCommissionId && !primaryRecord ? "The requested commission is not available for payment." : undefined,
     relatedRequestId: primaryRecord?.purchaseRequestId,
-    relatedTradeId: primaryRequest?.tradeId,
+    relatedTradeId: primaryRequest?.tradeId ?? primaryRecord?.tradeId,
     relatedTradeDisplayNumber: primaryRequest?.displayNumber,
     payableRecords,
   };
+}
+
+/**
+ * Returns the seller's listings, lock summary, and payable commissions from a
+ * single canonical snapshot. Keeping these values together prevents a
+ * cross-instance cache race from showing a pending commission beside an
+ * incorrectly enabled marketplace workspace.
+ */
+export async function getSellerListingWorkspaceData(input: {
+  sellerId: string;
+  status?: string;
+  commissionId?: string;
+}) {
+  const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  const [listings, summary, commissionStatus] = await Promise.all([
+    getMyMarketplaceListings(input.sellerId, input.status, db),
+    getSellerListingWorkspaceSummary(input.sellerId, db),
+    getSellerCommissionStatus(input.sellerId, db, { commissionId: input.commissionId }),
+  ]);
+  return { listings, summary, commissionStatus };
 }
 
 export function getCommissionQaModeStatus() {
@@ -12179,6 +12244,7 @@ async function updatePurchaseRequestStatusAttempt(
         : roundUsdt(normalizedUsdt * COMMISSION_RATE);
       commission = {
         id: `commission-${randomUUID()}`,
+        source: "trade",
         purchaseRequestId: request.id,
         tradeId: next.tradeId,
         listingId: request.listingId,
@@ -12557,6 +12623,144 @@ export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   return db.commissionRecords;
+}
+
+/**
+ * Issues a standalone seller commission from the admin workspace. It enters
+ * the same exact-amount TRC20 lifecycle as a trade-backed 1% commission, but
+ * intentionally has no fake trade, listing, or buyer linkage.
+ */
+export async function issueSellerCommissionByAdmin(input: {
+  sellerId: string;
+  actorUserId: string;
+  commissionAmount: number;
+  reason: string;
+  dueAt?: string;
+}) {
+  const sellerId = input.sellerId.trim();
+  const reason = input.reason.trim();
+  const amountInput = Number(input.commissionAmount);
+  const commissionAmount = Number.isFinite(amountInput) ? roundUsdt(amountInput) : 0;
+  if (!sellerId) throw new Error("Seller is required.");
+  if (!reason) throw new Error("Commission reason is required.");
+  if (reason.length > 500) throw new Error("Commission reason must be 500 characters or fewer.");
+  if (!Number.isFinite(amountInput) || commissionAmount < 0.01) {
+    throw new Error("Commission amount must be at least 0.01 USDT.");
+  }
+  if (commissionAmount > 1_000_000) {
+    throw new Error("Commission amount cannot exceed 1,000,000 USDT.");
+  }
+
+  const createdAt = nowIso();
+  let dueAt = addDaysIso(createdAt, COMMISSION_GRACE_PERIOD_DAYS);
+  if (input.dueAt?.trim()) {
+    const parsedDueAt = new Date(input.dueAt);
+    if (!Number.isFinite(parsedDueAt.getTime())) throw new Error("Commission due date is invalid.");
+    if (parsedDueAt.getTime() <= new Date(createdAt).getTime()) {
+      throw new Error("Commission due date must be in the future.");
+    }
+    dueAt = parsedDueAt.toISOString();
+  }
+
+  const commissionId = `commission-${randomUUID()}`;
+  type AssignmentResult = {
+    commission: CommissionRecord;
+    notificationPublications: DeferredNotificationPublication[];
+  };
+  let committed: AssignmentResult | null = null;
+
+  const applyAssignmentToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const actor = snapshot.users.find((user) => user.id === input.actorUserId);
+    if (!actor || (!hasRole(actor, "admin") && !hasRole(actor, "owner"))) {
+      throw new Error("Only an admin can issue a seller commission.");
+    }
+    const seller = snapshot.users.find((user) => user.id === sellerId);
+    if (!seller) throw new Error("Seller not found.");
+    if (hasRole(seller, "owner")) throw new Error("Owner account cannot receive a seller commission.");
+    if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
+      throw new Error("Commissions can be issued only to active or suspended seller accounts.");
+    }
+
+    const existing = snapshot.commissionRecords.find((record) => record.id === commissionId);
+    if (existing) {
+      // A repository retry may replay this closure after the record and its
+      // notification were already built. Keep the deferred publication so a
+      // successful commit still wakes the seller's open workspace.
+      const notificationPublications = committed?.commission.id === existing.id
+        ? committed.notificationPublications
+        : [];
+      committed = { commission: existing, notificationPublications };
+      return snapshot;
+    }
+
+    const commission: CommissionRecord = {
+      id: commissionId,
+      source: "admin_manual",
+      sellerId,
+      issuedByUserId: input.actorUserId,
+      issueReason: reason,
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount,
+      paymentStatus: "pending",
+      dueAt,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    snapshot.commissionRecords.push(commission);
+    // Allocate the immutable six-decimal amount before the seller is notified,
+    // while the repository's canonical rebase lock is held when necessary.
+    ensureCommissionPaymentExpectedAmounts(snapshot);
+    const exactAmount = getCommissionPaymentAmountDueUsdt(commission);
+
+    await appendAuditLog(snapshot, {
+      action: "commission_recorded",
+      actorUserId: input.actorUserId,
+      targetUserId: sellerId,
+      details: `Manual seller commission ${commission.id} issued for ${commissionAmount.toFixed(2)} USDT.`,
+      reason,
+      newValue: {
+        commissionId: commission.id,
+        source: commission.source,
+        commissionAmount,
+        paymentExpectedAmount: exactAmount,
+        dueAt,
+      },
+    });
+
+    const notificationPublications: DeferredNotificationPublication[] = [];
+    const publication = pushNotification(snapshot, {
+      userId: sellerId,
+      category: "trade",
+      priority: "high",
+      title: "Commission payment required",
+      message: `An admin issued a ${commissionAmount.toFixed(2)} USDT commission. Pay exactly ${exactAmount.toFixed(6)} USDT on TRON (TRC20). Reason: ${reason}`,
+      relatedHref: commissionPaymentDestination(commission.id),
+      actionHref: commissionPaymentDestination(commission.id),
+      actionLabel: "Pay Commission",
+      reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      forceInApp: true,
+      dedupeKey: commissionPaymentDestination(commission.id),
+      deferRealtime: true,
+    });
+    if (publication) notificationPublications.push(publication);
+    committed = { commission, notificationPublications };
+    return snapshot;
+  };
+
+  const db = await readDb({ bypassCache: true });
+  await applyAssignmentToCanonicalSnapshot(db);
+  await writeDb(db, {
+    selectedTables: COMMISSION_ASSIGNMENT_TABLES,
+    rebaseOnLatest: applyAssignmentToCanonicalSnapshot,
+  });
+
+  const result = committed as AssignmentResult | null;
+  if (!result) throw new Error("Failed to issue seller commission.");
+  for (const publication of result.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
+  return result.commission;
 }
 
 // ── Blockchain Commission Verification ──────────────────────────────────────
@@ -13401,7 +13605,10 @@ export async function submitSellerCommissionWalletPayment(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  let db = await readDb();
+  // A payment for a newly assigned commission can arrive on a different
+  // serverless instance than the admin assignment. Do not let that instance's
+  // short-lived snapshot cache turn a real commission into a false 404.
+  let db = await readDb({ bypassCache: true });
   const validationStartedAt = Date.now();
   let index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
@@ -13629,7 +13836,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         message: fullyUnlocked
           ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
           : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
-        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
         relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
@@ -13647,7 +13854,7 @@ export async function submitSellerCommissionWalletPayment(input: {
           category: "system",
           title: "Commission payment received",
           message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Exact payment: ${canonicalAmountDueUsdt.toFixed(6)} USDT. Tx: ${input.paymentSignature.trim()}`,
-          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
           relatedListingId: canonicalRecord.listingId,
           relatedHref: adminCommissionDestination(canonicalRecord.id),
           actionHref: adminCommissionDestination(canonicalRecord.id),
@@ -13662,7 +13869,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         category: "trade",
         title: "Commission payment needs attention",
         message: `The submitted TRON transaction was not credited: ${verification.notes} Open the commission payment and submit the correct TxID.`,
-        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
         relatedHref: commissionPaymentDestination(canonicalRecord.id),
@@ -13998,8 +14205,8 @@ export async function updateCommissionPaymentStatus(input: {
         userId: current.sellerId,
         category: "trade",
         title: "Commission marked paid",
-        message: `Commission for trade ${current.purchaseRequestId} has been marked paid.`,
-        relatedTradeId: current.purchaseRequestId,
+        message: `Commission for ${getCommissionSubject(current)} has been marked paid.`,
+        relatedTradeId: current.tradeId ?? current.purchaseRequestId,
         relatedListingId: current.listingId,
         relatedHref: "/usdt-exchange",
         deferRealtime: true,
@@ -15846,7 +16053,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
         message: fullyUnlocked
           ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
           : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
-        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
         relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
@@ -15864,7 +16071,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
           category: "system",
           title: "Commission payment received",
           message: `Commission ${canonicalRecord.id} verified via ${canonicalRecord.paymentNetwork}. Exact payment: ${canonicalAmountDue.toFixed(6)} USDT. Tx: ${canonicalRecord.paymentSignature}`,
-          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
           relatedListingId: canonicalRecord.listingId,
           relatedHref: adminCommissionDestination(canonicalRecord.id),
           actionHref: adminCommissionDestination(canonicalRecord.id),
@@ -15922,7 +16129,11 @@ export async function recalculateAllTrustByAdmin(input: { actorUserId: string; r
 }
 
 export async function getAdminPrepDashboardData() {
-  const db = await readDb();
+  // Financial records shown immediately after an admin mutation must come
+  // from canonical persistence. A cached snapshot from another warm instance
+  // can otherwise make a successfully issued commission disappear for the
+  // cache window and invite an accidental duplicate charge.
+  const db = await readDb({ bypassCache: true });
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });

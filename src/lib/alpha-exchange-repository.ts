@@ -41,7 +41,7 @@ type Queryable = Pool | PoolClient;
 // This index is the final object created by SCHEMA_SQL. Its presence proves
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
-const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_evidence_blobs_updated";
+const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -159,10 +159,10 @@ const SCHEMA_SQL = [
   )`,
   `create table if not exists alpha_exchange.commissions (
     id text primary key,
-    purchase_request_id text not null,
-    listing_id text not null,
+    purchase_request_id text,
+    listing_id text,
     seller_id text not null,
-    buyer_id text not null,
+    buyer_id text,
     payment_status text not null,
     due_at timestamptz,
     created_at timestamptz not null,
@@ -402,6 +402,9 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_mobile_push_user_active on alpha_exchange.mobile_push_subscriptions (user_id, active, updated_at desc)",
   "create index if not exists idx_alpha_exchange_mobile_push_session on alpha_exchange.mobile_push_subscriptions (session_token_hash)",
   "create index if not exists idx_alpha_exchange_mobile_push_receipts on alpha_exchange.mobile_push_deliveries (status, updated_at) where status = 'sent' and ticket_id is not null",
+  "alter table alpha_exchange.commissions alter column purchase_request_id drop not null",
+  "alter table alpha_exchange.commissions alter column listing_id drop not null",
+  "alter table alpha_exchange.commissions alter column buyer_id drop not null",
   `with flagged_alerts as (
     select
       notification.id,
@@ -477,6 +480,8 @@ const SCHEMA_SQL = [
     and exists (select 1 from repaired)`,
   "create index if not exists idx_alpha_exchange_notifications_trust_reconciliation on alpha_exchange.notifications (user_id, category, created_at desc)",
   "create index if not exists idx_alpha_exchange_evidence_blobs_updated on alpha_exchange.evidence_blobs (updated_at desc)",
+  "create index if not exists idx_alpha_exchange_commissions_seller_status on alpha_exchange.commissions (seller_id, payment_status, due_at)",
+  "create index if not exists idx_alpha_exchange_commissions_unpaid_seller on alpha_exchange.commissions (seller_id) where payment_status <> 'paid'",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -819,10 +824,10 @@ SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status,
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
   AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)`, [
         rows.map(r => r.id),
-        rows.map(r => r.purchaseRequestId),
-        rows.map(r => r.listingId),
+        rows.map(r => r.purchaseRequestId ?? null),
+        rows.map(r => r.listingId ?? null),
         rows.map(r => r.sellerId),
-        rows.map(r => r.buyerId),
+        rows.map(r => r.buyerId ?? null),
         rows.map(r => r.paymentStatus),
         rows.map(r => toTimestamp(r.dueAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
@@ -2139,6 +2144,28 @@ export class AlphaExchangeRepository {
 
   }
 
+  /**
+   * Lightweight authoritative lookup for the public marketplace visibility
+   * gate. Loading the full exchange snapshot here would fan out across every
+   * table on the highest-traffic unauthenticated route.
+   */
+  async loadUnpaidCommissionSellerIds(): Promise<string[]> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      return Array.from(new Set(
+        snapshot.commissionRecords
+          .filter((record) => record.paymentStatus !== "paid")
+          .map((record) => record.sellerId),
+      ));
+    }
+    const result = await pool.query<{ seller_id: string }>(
+      "select distinct seller_id from alpha_exchange.commissions where payment_status <> 'paid'",
+    );
+    return result.rows.map((row) => row.seller_id);
+  }
+
   async saveSnapshot(
     db: AlphaExchangeDb,
     options?: {
@@ -2823,6 +2850,12 @@ export class AlphaExchangeRepository {
       // Apply delta directly to the in-memory snapshot
       ensureMemorySeed();
       const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      if (current.commissionRecords.some((record) => (
+        record.sellerId === delta.newListing.sellerId
+        && record.paymentStatus !== "paid"
+      ))) {
+        throw new Error("Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.");
+      }
       current.marketplaceListings.push(delta.newListing);
       if (delta.newAuditLogs.length) current.auditLogs.unshift(...delta.newAuditLogs);
       if (delta.newNotifications.length) current.notifications.unshift(...delta.newNotifications);
@@ -2853,6 +2886,30 @@ export class AlphaExchangeRepository {
       perf?.step("connect");
       await client.query("begin");
       perf?.step("begin");
+
+      // Serialize this final authorization check with commission assignment and
+      // settlement. The earlier store read may come from another instance's
+      // cache, so it is not sufficient for a financial lock. A commission that
+      // commits first must prevent the listing insert; a paid commission that
+      // commits first allows it.
+      try {
+        await client.query("select pg_advisory_xact_lock(61422917)");
+      } catch {
+        // pg-mem does not implement advisory locks; local tests are
+        // single-process and use the memory branch above.
+      }
+      const blockingCommission = await client.query<{ id: string }>(
+        `select id
+           from alpha_exchange.commissions
+          where seller_id = $1
+            and payment_status <> 'paid'
+          limit 1`,
+        [delta.newListing.sellerId],
+      );
+      if (blockingCommission.rows.length > 0) {
+        throw new Error("Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.");
+      }
+      perf?.step("commission_lock_check");
 
       await client.query(
         `insert into alpha_exchange.listings

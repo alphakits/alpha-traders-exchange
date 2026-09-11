@@ -6,6 +6,7 @@ import {
   isValidTronTransactionId,
   normalizeTronTransactionIdInput,
   reconcileLocallyPendingCommissionId,
+  resolveCommissionRecordContext,
   resolveCommissionPaymentVerificationUi,
   summarizeTronTransactionId,
   TRON_TRANSACTION_ID_LENGTH,
@@ -42,6 +43,29 @@ describe("native TRC20 commission payment safeguards", () => {
   it("always renders the unique payment amount with all six USDT decimals", () => {
     expect(formatExactTrc20CommissionAmount(7)).toBe("7.000000 USDT");
     expect(formatExactTrc20CommissionAmount(7.000001)).toBe("7.000001 USDT");
+  });
+
+  it("keeps an admin-issued commission independent from trade navigation", () => {
+    expect(resolveCommissionRecordContext({
+      source: "admin_manual",
+      issueReason: " Documented seller adjustment ",
+    })).toEqual({
+      isAdminIssued: true,
+      issueReason: "Documented seller adjustment",
+      requestId: undefined,
+      tradeReference: undefined,
+    });
+
+    expect(resolveCommissionRecordContext({
+      source: "trade",
+      relatedRequestId: "request-123456",
+      relatedTradeDisplayNumber: 42,
+    })).toEqual({
+      isAdminIssued: false,
+      issueReason: undefined,
+      requestId: "request-123456",
+      tradeReference: 42,
+    });
   });
 
   it("restores pending verification from durable server state after an app reload", () => {

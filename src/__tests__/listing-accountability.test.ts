@@ -14,6 +14,7 @@ import {
   getMarketplaceListings,
   getNotificationsForUser,
   getPremiumSellerProfile,
+  getSellerProfileRouteData,
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
   setUserBlockStatus,
@@ -127,6 +128,99 @@ describe("listing accountability: reason + audit + reliability", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("blocks listing creation when a commission was assigned after this instance cached a clear seller", async () => {
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    const now = new Date().toISOString();
+    canonical.commissionRecords.push({
+      id: "commission-newly-assigned",
+      purchaseRequestId: "request-manual",
+      listingId: "listing-manual",
+      sellerId: SELLER_ID,
+      buyerId: OWNER_ID,
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 7,
+      paymentStatus: "pending",
+      dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: SELLER_ID,
+      availableAmount: "1000",
+      price: "3.60",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "100",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    })).rejects.toThrow(/locked until every pending commission is paid/i);
+    expect(canonical.marketplaceListings).toHaveLength(0);
+  });
+
+  it("immediately hides a seller's public listing after a cross-instance commission assignment", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+
+    // Keep this instance's ordinary cache in the pre-commission state, then
+    // emulate another instance committing the financial lock.
+    await getNotificationsForUser({ userId: BUYER_ID, includeActivity: false });
+    const now = new Date().toISOString();
+    canonical.commissionRecords.push({
+      id: "commission-public-visibility-lock",
+      source: "admin_manual",
+      sellerId: SELLER_ID,
+      issuedByUserId: OWNER_ID,
+      issueReason: "Public visibility cache regression.",
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 7,
+      paymentStatus: "pending",
+      dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect((await getMarketplaceListings("active")).some((item) => item.id === listing.id)).toBe(false);
+  });
+
+  it("immediately hides charged listings on the public seller profile too", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+
+    await getNotificationsForUser({ userId: BUYER_ID, includeActivity: false });
+    const now = new Date().toISOString();
+    canonical.commissionRecords.push({
+      id: "commission-profile-visibility-lock",
+      source: "admin_manual",
+      sellerId: SELLER_ID,
+      issuedByUserId: OWNER_ID,
+      issueReason: "Seller profile visibility cache regression.",
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 8,
+      paymentStatus: "pending",
+      dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const routeData = await getSellerProfileRouteData({
+      username: SELLER_ID,
+      viewerUserId: BUYER_ID,
+      viewerRole: "buyer",
+    });
+    expect(routeData).not.toBeNull();
+    expect(routeData?.sellerListings.some((item) => item.id === listing.id)).toBe(false);
   });
 
   it("records reason + before/after when a listing price is edited", async () => {

@@ -4,9 +4,20 @@ import { getSellerApplicationEligibility } from "@/lib/seller-application-eligib
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const loadSnapshot = vi.fn();
-vi.mock("@/lib/alpha-exchange-repository", () => ({ getAlphaExchangeRepository: vi.fn(async () => ({ loadSnapshot, saveSnapshot: vi.fn() })) }));
+const loadUnpaidCommissionSellerIds = vi.fn(async () => [] as string[]);
+vi.mock("@/lib/alpha-exchange-repository", () => ({
+  getAlphaExchangeRepository: vi.fn(async () => ({
+    loadSnapshot,
+    loadUnpaidCommissionSellerIds,
+    saveSnapshot: vi.fn(),
+  })),
+}));
 import { consumeEmailVerificationToken, createEmailVerificationTokenForUser, createSellerApplication, findUserById, getMarketplaceListings, getSellerApplicationByUserId, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
-beforeEach(() => { invalidateAlphaExchangeStoreCache(); loadSnapshot.mockReset(); });
+beforeEach(() => {
+  invalidateAlphaExchangeStoreCache();
+  loadSnapshot.mockReset();
+  loadUnpaidCommissionSellerIds.mockClear();
+});
 const base = (user: Record<string, unknown>, applications: unknown[] = []) => ({ users: [user], sellerApplications: applications, marketplaceListings: [], purchaseRequests: [], commissionRecords: [], auditLogs: [], authSessions: [], passwordResetTokens: [], notifications: [], activityLog: [], disputes: [], sellerReports: [], trustSnapshots: [], trustScoreHistory: [], tradeEvidenceFiles: [], privateBetaInvites: [], privateBetaInviteUses: [], betaFeedback: [], betaAnnouncements: [], adminAnnouncementRuns: [], sellerReviews: [] } as unknown as AlphaExchangeDb);
 const pending = (userId: string, status = "pending") => ({ id: `app-${userId}`, userId, status, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
 const legacy = (id = "edge") => ({ id, email: `${id}@example.test`, fullName: id, role: "pending_seller_approval", roles: ["pending_seller_approval"], sellerStatus: "pending_seller_approval", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });

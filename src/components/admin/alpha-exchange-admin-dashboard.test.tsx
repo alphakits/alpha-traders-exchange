@@ -23,13 +23,17 @@ const listing = {
   createdAt: "2026-08-22T00:00:00.000Z",
 };
 
-function adminPayload(listings = [listing]) {
+function adminPayload(
+  listings = [listing],
+  approvedSellers: Array<Record<string, unknown>> = [],
+  commissionRecords: Array<Record<string, unknown>> = [],
+) {
   return {
     applications: [],
-    approvedSellers: [],
+    approvedSellers,
     listings,
     purchaseRequests: [],
-    commissionRecords: [],
+    commissionRecords,
     auditLogs: [],
     notifications: [],
     privateBeta: {
@@ -200,6 +204,72 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(search.className).toContain("ps-9");
     expect(icon?.getAttribute("class")).toContain("start-3");
     expect(icon?.getAttribute("class")).not.toContain("left-3");
+  });
+
+  it("issues a real manual seller commission from the Commissions section", async () => {
+    navigationState.search = "section=commissions";
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const seller = {
+      id: "seller-manual-1",
+      fullName: "Manual Commission Seller",
+      email: "manual-seller@example.test",
+      whatsappNumber: "+972500000000",
+      role: "approved_seller",
+      roles: ["buyer", "approved_seller"],
+      sellerStatus: "approved_seller",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    };
+    const issuedCommission = {
+      id: "commission-admin-manual-1",
+      source: "admin_manual",
+      sellerId: seller.id,
+      issuedByUserId: "admin-1",
+      issueReason: "Documented settlement adjustment",
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 12.5,
+      paymentStatus: "pending",
+      dueAt: "2026-09-20T20:59:59.999Z",
+      createdAt: "2026-09-12T00:00:00.000Z",
+      updatedAt: "2026-09-12T00:00:00.000Z",
+    };
+    let issued = false;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (url.endsWith("/api/alpha-exchange/admin/commissions") && init?.method === "POST") {
+        issued = true;
+        return Response.json({ commission: issuedCommission }, { status: 201 });
+      }
+      return Response.json(adminPayload([listing], [seller], issued ? [issuedCommission] : []));
+    });
+
+    render(<AlphaExchangeAdminDashboard />);
+
+    expect(await screen.findByRole("heading", { name: "Commissions" })).toBeTruthy();
+    expect(screen.getByText("Issue Seller Commission")).toBeTruthy();
+    expect(screen.getByText(/separate from Recovery Fees/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Seller"), { target: { value: seller.id } });
+    fireEvent.change(screen.getByLabelText("Commission amount (USDT)"), { target: { value: "12.50" } });
+    fireEvent.change(screen.getByLabelText("Seller-visible reason"), { target: { value: "Documented settlement adjustment" } });
+    const issueButton = screen.getByRole("button", { name: "Issue Commission & Notify Seller" }) as HTMLButtonElement;
+    expect(issueButton.disabled).toBe(false);
+    fireEvent.click(issueButton);
+
+    await waitFor(() => {
+      const request = vi.mocked(fetch).mock.calls.find(([input, init]) => String(input).endsWith("/api/alpha-exchange/admin/commissions") && init?.method === "POST");
+      expect(request).toBeTruthy();
+      expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+        sellerId: seller.id,
+        commissionAmount: 12.5,
+        reason: "Documented settlement adjustment",
+      });
+    });
+    expect(await screen.findByText("Admin-issued")).toBeTruthy();
+    expect(screen.getByText("Documented settlement adjustment")).toBeTruthy();
+    expect(screen.queryByText("Trade #commission-admin-manual-1")).toBeNull();
   });
 
   it("requires and submits both language editions for an emergency broadcast", async () => {

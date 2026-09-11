@@ -715,6 +715,8 @@ export type MobileCommissionNetwork = "TRC20";
 
 export interface MobileSellerCommissionRecord {
   commissionId: string;
+  source?: "trade" | "admin_manual";
+  issueReason?: string;
   /** Exact USDT amount to transfer; includes the six-decimal verification suffix. */
   amountDue: number;
   /** Explicit alias for newer clients. Older clients use `amountDue`. */
@@ -726,7 +728,7 @@ export interface MobileSellerCommissionRecord {
   /** Whether the submitted TxID may be replaced while automatic verification is pending. */
   paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
   dueAt?: string;
-  relatedRequestId: string;
+  relatedRequestId?: string;
   relatedTradeId?: string;
   relatedTradeDisplayNumber?: number;
 }

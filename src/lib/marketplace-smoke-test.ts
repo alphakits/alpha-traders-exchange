@@ -84,7 +84,10 @@ export function buildMarketplaceSmokeTestPurgePlan(db: AlphaExchangeDb, listingI
 
   const requestIds = new Set(requests.map((request) => request.id));
   const tradeIds = new Set(requests.flatMap((request) => request.tradeId ? [request.tradeId] : []));
-  if (db.commissionRecords.some((record) => record.listingId === listing.id || requestIds.has(record.purchaseRequestId))) {
+  if (db.commissionRecords.some((record) => (
+    record.listingId === listing.id
+    || (record.purchaseRequestId ? requestIds.has(record.purchaseRequestId) : false)
+  ))) {
     throw new Error("Smoke-test purge stopped because commission records exist.");
   }
   if (db.tradeEvidenceFiles.some((evidence) => requestIds.has(evidence.purchaseRequestId))) {
@@ -134,7 +137,8 @@ export function purgeMarketplaceSmokeTestSnapshot(db: AlphaExchangeDb, listingId
   next.marketplaceListings = next.marketplaceListings.filter((listing) => listing.id !== plan.listing.id);
   next.purchaseRequests = next.purchaseRequests.filter((request) => !plan.requestIds.has(request.id));
   next.commissionRecords = next.commissionRecords.filter((record) =>
-    record.listingId !== plan.listing.id && !plan.requestIds.has(record.purchaseRequestId),
+    record.listingId !== plan.listing.id
+      && (!record.purchaseRequestId || !plan.requestIds.has(record.purchaseRequestId)),
   );
   next.tradeEvidenceFiles = next.tradeEvidenceFiles.filter((evidence) => !plan.requestIds.has(evidence.purchaseRequestId));
   next.tradeMessages = (next.tradeMessages ?? []).filter((message) => !plan.requestIds.has(message.purchaseRequestId));

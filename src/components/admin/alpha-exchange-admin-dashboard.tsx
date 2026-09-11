@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
@@ -8,6 +8,7 @@ import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/m
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
@@ -506,6 +507,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [commissionsQuery, setCommissionsQuery] = useState("");
   const [commissionsSort, setCommissionsSort] = useState<"newest" | "oldest" | "highest">("newest");
   const [commissionsPage, setCommissionsPage] = useState(1);
+  const [manualCommissionSellerId, setManualCommissionSellerId] = useState("");
+  const [manualCommissionAmount, setManualCommissionAmount] = useState("");
+  const [manualCommissionReason, setManualCommissionReason] = useState("");
+  const [manualCommissionDueDate, setManualCommissionDueDate] = useState("");
+  const [manualCommissionSubmitting, setManualCommissionSubmitting] = useState(false);
 
   const [auditQuery, setAuditQuery] = useState("");
   const [auditAction, setAuditAction] = useState<"all" | AuditLogEntry["action"]>("all");
@@ -845,12 +851,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   const commissionsRows = useMemo(() => {
     const items = (data?.commissionRecords ?? []).filter((record) => {
-      const request = requestsById.get(record.purchaseRequestId);
+      const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
       const seller = sellersById.get(record.sellerId);
       const query = commissionsQuery.trim().toLowerCase();
       if (!query) return true;
-      const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId;
-      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${request ? displayTradeId(request, record.purchaseRequestId) : displayTradeId(null, tradeId)} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
+      const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId ?? "";
+      const tradeLabel = request || tradeId ? displayTradeId(request, tradeId) : "";
+      const sourceLabel = record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
+      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${seller?.fullName ?? record.sellerId} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -1294,6 +1302,62 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (r.ok) await fetchData();
   }
 
+  async function handleIssueManualCommission(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const seller = sellersById.get(manualCommissionSellerId);
+    const amount = Number(manualCommissionAmount);
+    const reason = manualCommissionReason.trim();
+    if (!seller || !Number.isFinite(amount) || amount < 0.01 || !reason) {
+      pushToast(t("Select a seller, enter at least 0.01 USDT, and provide a reason.", "اختر بائعًا وأدخل 0.01 USDT على الأقل وأضف السبب."));
+      return;
+    }
+    if (!window.confirm(t(
+      `Issue a ${amount.toFixed(2)} USDT commission to ${seller.fullName}? The seller will be marketplace-locked until it is paid.`,
+      `هل تريد إصدار عمولة بقيمة ${amount.toFixed(2)} USDT للبائع ${seller.fullName}؟ سيُقفل نشاطه في السوق حتى الدفع.`,
+    ))) return;
+
+    let dueAt: string | undefined;
+    if (manualCommissionDueDate) {
+      const localEndOfDay = new Date(`${manualCommissionDueDate}T23:59:59.999`);
+      if (!Number.isFinite(localEndOfDay.getTime())) {
+        pushToast(t("Choose a valid future due date.", "اختر تاريخ استحقاق مستقبليًا صالحًا."));
+        return;
+      }
+      dueAt = localEndOfDay.toISOString();
+    }
+
+    setManualCommissionSubmitting(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/admin/commissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerId: seller.id,
+          commissionAmount: amount,
+          reason,
+          ...(dueAt ? { dueAt } : {}),
+        }),
+      });
+      const payload = await response.json() as { commission?: CommissionRecord; error?: string };
+      if (!response.ok || !payload.commission) {
+        pushToast(isArabic ? safeAdminError("action", locale) : payload.error ?? safeAdminError("action", locale));
+        return;
+      }
+      setManualCommissionSellerId("");
+      setManualCommissionAmount("");
+      setManualCommissionReason("");
+      setManualCommissionDueDate("");
+      setCommissionsQuery(payload.commission.id);
+      setCommissionsPage(1);
+      pushToast(t("Seller commission issued and payment notification sent.", "تم إصدار عمولة البائع وإرسال إشعار الدفع."));
+      await fetchData();
+    } catch {
+      pushToast(safeAdminError("action", locale));
+    } finally {
+      setManualCommissionSubmitting(false);
+    }
+  }
+
   async function handleChangeUserRole(userId: string, currentRole: string) {
     const newRole = window.prompt(t(`Change role for user (current: ${currentRole})\nOptions: buyer, approved_seller, admin, owner`, `تغيير دور المستخدم (الحالي: ${currentRole})\nالخيارات: buyer, approved_seller, admin, owner`));
     if (!newRole) return;
@@ -1358,14 +1422,19 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   function exportCommissionsCsv() {
     const rows = commissionsRows.rows;
     const csvRows = [
-      ["Trade ID", "Buyer", "Seller", "Trade Value", "1% Commission", "Date"].join(","),
+      ["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"].join(","),
       ...rows.map((record) => {
-        const request = requestsById.get(record.purchaseRequestId);
+        const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
         const seller = sellersById.get(record.sellerId);
-        const buyerName = request?.buyerName ?? record.buyerId;
+        const buyerName = request?.buyerName ?? record.buyerId ?? "";
         const sellerName = seller?.fullName ?? record.sellerId;
-        const tradeId = displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
-        return [tradeId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
+        const tradeId = request || record.tradeId || record.purchaseRequestId
+          ? displayTradeId(request, record.tradeId ?? record.purchaseRequestId)
+          : "";
+        const source = record.source === "admin_manual" ? "Admin-issued" : "Trade 1%";
+        const tradeValue = record.source === "admin_manual" ? "" : record.grossAmount.toFixed(2);
+        const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
+        return [source, tradeId, buyerName, sellerName, tradeValue, record.commissionAmount.toFixed(2), record.paymentStatus, reason, record.createdAt].join(",");
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -2722,18 +2791,95 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <CardTitle>{t("Commissions", "العمولات")}</CardTitle>
-                            <CardDescription>{t("Track all 1% service-fee records.", "تابع جميع سجلات عمولة الخدمة بنسبة 1%.")}</CardDescription>
+                            <CardDescription>{t("Track trade commissions and admin-issued seller commissions.", "تابع عمولات الصفقات والعمولات الصادرة عن الإدارة للبائعين.")}</CardDescription>
                           </div>
                           <Button type="button" variant="secondary" onClick={exportCommissionsCsv}>
                             {t("Export CSV", "تصدير CSV")}
                           </Button>
                         </div>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="space-y-5">
+                        <form onSubmit={handleIssueManualCommission} className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/[0.06] p-4">
+                          <div className="mb-4">
+                            <p className="font-semibold text-white">{t("Issue Seller Commission", "إصدار عمولة للبائع")}</p>
+                            <p className="mt-1 text-xs leading-5 text-[#D1D5DB]">
+                              {t(
+                                "Creates a real payable commission in the seller’s standard USDT-TRC20 Pay Now flow. This is separate from Recovery Fees and does not use the compliance recovery wallet.",
+                                "ينشئ عمولة فعلية قابلة للدفع في مسار ادفع الآن القياسي للبائع عبر USDT-TRC20. هذا النظام منفصل عن رسوم الاسترداد ولا يستخدم محفظة استرداد الامتثال.",
+                              )}
+                            </p>
+                          </div>
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div>
+                              <label htmlFor="manual-commission-seller" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{t("Seller", "البائع")}</label>
+                              <select
+                                id="manual-commission-seller"
+                                value={manualCommissionSellerId}
+                                onChange={(event) => setManualCommissionSellerId(event.target.value)}
+                                className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
+                                required
+                              >
+                                <option value="">{t("Select approved or suspended seller", "اختر بائعًا معتمدًا أو موقوفًا")}</option>
+                                {[...(data?.approvedSellers ?? [])]
+                                  .sort((left, right) => left.fullName.localeCompare(right.fullName))
+                                  .map((seller) => (
+                                    <option key={seller.id} value={seller.id}>{seller.fullName} — {seller.email} ({statusLabel(seller.sellerStatus)})</option>
+                                  ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label htmlFor="manual-commission-amount" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{t("Commission amount (USDT)", "قيمة العمولة (USDT)")}</label>
+                              <Input
+                                id="manual-commission-amount"
+                                type="number"
+                                inputMode="decimal"
+                                min="0.01"
+                                max="1000000"
+                                step="0.01"
+                                value={manualCommissionAmount}
+                                onChange={(event) => setManualCommissionAmount(event.target.value)}
+                                placeholder="0.00"
+                                required
+                              />
+                            </div>
+                            <div className="lg:col-span-2">
+                              <label htmlFor="manual-commission-reason" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{t("Seller-visible reason", "السبب الظاهر للبائع")}</label>
+                              <Textarea
+                                id="manual-commission-reason"
+                                value={manualCommissionReason}
+                                onChange={(event) => setManualCommissionReason(event.target.value)}
+                                maxLength={500}
+                                rows={3}
+                                placeholder={t("Explain exactly why this commission is being issued.", "اشرح بدقة سبب إصدار هذه العمولة.")}
+                                required
+                              />
+                              <p className="mt-1 text-end text-[11px] text-[#9CA3AF]">{manualCommissionReason.length}/500</p>
+                            </div>
+                            <div>
+                              <label htmlFor="manual-commission-due-date" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{t("Due date (optional, end of day)", "تاريخ الاستحقاق (اختياري، نهاية اليوم)")}</label>
+                              <Input
+                                id="manual-commission-due-date"
+                                type="date"
+                                value={manualCommissionDueDate}
+                                onChange={(event) => setManualCommissionDueDate(event.target.value)}
+                              />
+                            </div>
+                            <div className="flex items-end">
+                              <Button
+                                type="submit"
+                                className="h-11 w-full bg-[#C9A227] text-black hover:bg-[#E3C65A]"
+                                disabled={manualCommissionSubmitting || !manualCommissionSellerId || Number(manualCommissionAmount) < 0.01 || !manualCommissionReason.trim()}
+                              >
+                                {manualCommissionSubmitting ? t("Issuing commission...", "جارٍ إصدار العمولة...") : t("Issue Commission & Notify Seller", "إصدار العمولة وإشعار البائع")}
+                              </Button>
+                            </div>
+                          </div>
+                        </form>
+
                         <div className="grid gap-3 md:grid-cols-4">
                           <div className="relative md:col-span-3">
                             <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
-                            <Input className="ps-9" placeholder={t("Search trade, buyer, seller...", "ابحث بالصفقة أو المشتري أو البائع...")} value={commissionsQuery} onChange={(event) => setCommissionsQuery(event.target.value)} />
+                            <Input className="ps-9" placeholder={t("Search commission, trade, seller, reason...", "ابحث بالعمولة أو الصفقة أو البائع أو السبب...")} value={commissionsQuery} onChange={(event) => setCommissionsQuery(event.target.value)} />
                           </div>
                           <select value={commissionsSort} onChange={(event) => setCommissionsSort(event.target.value as typeof commissionsSort)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="newest">{t("Sort: Newest", "الترتيب: الأحدث")}</option>
@@ -2752,11 +2898,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
-                                <th className="w-[11rem] px-4 py-3 text-center">{t("Trade ID", "رقم الصفقة")}</th>
-                                <th className="px-4 py-3">{t("Buyer", "المشتري")}</th>
+                                <th className="w-[13rem] px-4 py-3 text-center">{t("Source / Trade", "المصدر / الصفقة")}</th>
+                                <th className="px-4 py-3">{t("Buyer / Reason", "المشتري / السبب")}</th>
                                 <th className="px-4 py-3">{t("Seller", "البائع")}</th>
                                 <th className="px-4 py-3">{t("Trade Value", "قيمة الصفقة")}</th>
-                                <th className="px-4 py-3">{t("1% Commission", "عمولة 1%")}</th>
+                                <th className="px-4 py-3">{t("Commission", "العمولة")}</th>
                                 <th className="px-4 py-3">{t("Payment Status", "حالة الدفع")}</th>
                                 <th className="px-4 py-3">{t("Date", "التاريخ")}</th>
                                 <th className="px-4 py-3">{t("Actions", "الإجراءات")}</th>
@@ -2764,8 +2910,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </thead>
                             <tbody>
                               {commissionsRows.rows.map((record) => {
-                                const request = (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId);
+                                const request = record.purchaseRequestId
+                                  ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
+                                  : undefined;
                                 const seller = sellersById.get(record.sellerId);
+                                const isAdminIssued = record.source === "admin_manual";
                                 return (
                                   <tr
                                     key={record.id}
@@ -2774,10 +2923,23 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     tabIndex={-1}
                                     className={`border-t border-white/10 ${adminDestination.commissionId === record.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
                                   >
-                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request, record.tradeId ?? record.purchaseRequestId)}</td>
-                                    <td className="px-4 py-3 text-white">{request?.buyerName ?? record.buyerId}</td>
+                                    <td className="w-[13rem] px-4 py-3 text-center text-[#D1D5DB]">
+                                      {isAdminIssued ? (
+                                        <div className="flex flex-col items-center gap-1">
+                                          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">{t("Admin-issued", "صادرة عن الإدارة")}</span>
+                                          <span className="font-mono text-[11px]">{displayCommissionId(record)}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="font-mono font-medium whitespace-nowrap">{displayTradeId(request, record.tradeId ?? record.purchaseRequestId)}</span>
+                                      )}
+                                    </td>
+                                    <td className="max-w-[20rem] px-4 py-3 text-white">
+                                      {isAdminIssued
+                                        ? <span className="whitespace-pre-wrap break-words text-xs text-[#D1D5DB]">{record.issueReason || t("Admin-issued seller obligation", "التزام بائع صادر عن الإدارة")}</span>
+                                        : request?.buyerName ?? record.buyerId ?? "—"}
+                                    </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatCurrency(record.grossAmount)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{isAdminIssued ? "—" : formatCurrency(record.grossAmount)}</td>
                                     <td className="px-4 py-3 text-[#C9A227]">{formatUsdt(record.commissionAmount)}</td>
                                     <td className="px-4 py-3">
                                       <span className={`rounded-full px-2.5 py-1 text-xs ${record.paymentStatus === "paid" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
@@ -2834,9 +2996,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             {t("Reset Pending", "إعادة للانتظار")}
                                           </Button>
                                         ) : null}
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => void handleReverifyCommission(record.id)}>
-                                          {t("Reverify", "إعادة التحقق")}
-                                        </Button>
+                                        {record.paymentSignature ? (
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => void handleReverifyCommission(record.id)}>
+                                            {t("Reverify", "إعادة التحقق")}
+                                          </Button>
+                                        ) : null}
                                       </div>
                                     </td>
                                   </tr>

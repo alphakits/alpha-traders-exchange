@@ -171,6 +171,8 @@ export type SellerCommissionStatus = {
   relatedRequestId?: string;
   relatedTradeId?: string;
   relatedTradeDisplayNumber?: number;
+  source?: string;
+  issueReason?: string;
   payableRecords?: Array<{
     commissionId: string;
     amountDue: number;
@@ -184,6 +186,8 @@ export type SellerCommissionStatus = {
     relatedRequestId?: string;
     relatedTradeId?: string;
     relatedTradeDisplayNumber?: number;
+    source?: string;
+    issueReason?: string;
   }>;
 };
 
@@ -1643,6 +1647,8 @@ export function UsdtExchangePage({
   const deepLinkAppliedRef = useRef(false);
   const commissionPayDeepLinkHandledRef = useRef(false);
   const commissionPayIntentHandledRef = useRef<string | null>(null);
+  const commissionNotificationSignatureRef = useRef<string | null>(null);
+  const sellerWorkspaceResumeRefreshInFlightRef = useRef(false);
   const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
@@ -1756,6 +1762,7 @@ export function UsdtExchangePage({
         tracedFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
       ]);
       let refreshedCommissionStatus: SellerCommissionStatus | null = null;
+      let sellerWorkspaceLoadFailed = false;
       if (myListingsRes.ok) {
         const myListingsJson = (await myListingsRes.json()) as {
           listings: MarketplaceListing[];
@@ -1783,6 +1790,9 @@ export function UsdtExchangePage({
         setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
+      } else {
+        sellerWorkspaceLoadFailed = true;
+        setWorkspaceError(await readApiErrorMessage(myListingsRes, safeErrorMessage("workspace", isAr)));
       }
       if (discordSharingRes.ok) {
         setDiscordSharing(await discordSharingRes.json() as DiscordListingSharingStatus);
@@ -1796,7 +1806,7 @@ export function UsdtExchangePage({
           listings: [],
         });
       }
-      setWorkspaceError(null);
+      if (!sellerWorkspaceLoadFailed) setWorkspaceError(null);
       return refreshedCommissionStatus;
     } catch {
       setWorkspaceError(safeErrorMessage("workspace", isAr));
@@ -1828,6 +1838,29 @@ export function UsdtExchangePage({
     (record) => record.paymentVerificationStatus === "pending_verification",
   ) === true;
   const selectedCommissionIdForRefresh = sellerCommissionStatus?.commissionId?.trim() || undefined;
+
+  // A seller can keep this dashboard open while an administrator issues a
+  // commission. Reconcile when the page regains focus even when there was no
+  // existing debt to activate the payment-verification poller below.
+  useEffect(() => {
+    // Pending verification has its own interval and resume listeners below.
+    // Let that effect preserve the selected record without issuing a second
+    // focus/visibility refresh at the same time.
+    if (!hasSellerWorkspaceAccess || isSessionResolving || hasPendingCommissionVerification) return;
+    const refreshAfterResume = () => {
+      if (document.visibilityState !== "visible" || commissionPayOpen || sellerWorkspaceResumeRefreshInFlightRef.current) return;
+      sellerWorkspaceResumeRefreshInFlightRef.current = true;
+      void refreshSellerWorkspace().finally(() => {
+        sellerWorkspaceResumeRefreshInFlightRef.current = false;
+      });
+    };
+    window.addEventListener("focus", refreshAfterResume);
+    document.addEventListener("visibilitychange", refreshAfterResume);
+    return () => {
+      window.removeEventListener("focus", refreshAfterResume);
+      document.removeEventListener("visibilitychange", refreshAfterResume);
+    };
+  }, [commissionPayOpen, hasPendingCommissionVerification, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || !hasPendingCommissionVerification) return;
@@ -2369,10 +2402,32 @@ export function UsdtExchangePage({
       if (typeof payload.unreadCount === "number" && Number.isFinite(payload.unreadCount)) {
         setNotificationUnreadCount(Math.max(0, payload.unreadCount));
       }
+
+      // A commission notification is also the cross-instance signal that the
+      // server persisted a new payable record. Previously the bell updated but
+      // an already-open seller workspace remained incorrectly "all clear".
+      const commissionSignature = payload.notifications
+        .filter((notification) => Boolean(getCommissionPaymentNotificationDestination(notification)))
+        .map((notification) => `${notification.id}:${notification.updatedAt ?? notification.createdAt}`)
+        .sort()
+        .join("|");
+      const previousCommissionSignature = commissionNotificationSignatureRef.current;
+      commissionNotificationSignatureRef.current = commissionSignature;
+      if (
+        hasSellerWorkspaceAccess
+        && commissionSignature
+        && commissionSignature !== previousCommissionSignature
+      ) {
+        void refreshSellerWorkspace(
+          commissionPayOpen && selectedCommissionIdForRefresh
+            ? { commissionId: selectedCommissionIdForRefresh }
+            : undefined,
+        );
+      }
     } catch {
       // Keep stream updates best-effort and preserve current UI state on malformed payloads.
     }
-  }, []);
+  }, [commissionPayOpen, hasSellerWorkspaceAccess, refreshSellerWorkspace, selectedCommissionIdForRefresh]);
   useAuthenticatedNotificationStream({ enabled: Boolean(sessionUser && notificationsInitialized), onNotifications: handleNotificationStream });
 
   useEffect(() => {
