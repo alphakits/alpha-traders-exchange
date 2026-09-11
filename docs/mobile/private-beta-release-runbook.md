@@ -110,23 +110,40 @@ matrix, and staged-rollout plan in
 `npm run mobile:store-readiness:submission:android` only after the release owner
 has confirmed those external steps.
 
-## 3. iOS internal build
+## 3. iOS internal distribution
 
 After Apple Developer Program enrollment and signing access are complete:
 
-1. Confirm `release/iphone-installed-preview` points to the exact approved and
-   fully gated `main` commit; an older release branch must not be built.
-2. Push that exact release commit to trigger **Alpha Traders iPhone Installed
-   Preview**, then complete its one-time device-registration request.
-3. Confirm that EAS uses the expected bundle identifier
-   `com.alphakits.alphatraders` and the `preview` profile.
-4. Record the EAS build URL, commit SHA, signing team, registered devices, and
-   completion status without recording private keys or credentials.
+Use TestFlight for the owner's iPhone and broader iOS beta testing:
 
-Use TestFlight for broader iOS beta distribution. The signed preview includes
-remote push, while SSE and foreground refresh remain authoritative. Verify that
-lock-screen copy contains no trade amounts, chat text, bank details, wallet
-addresses, contact details, or evidence data.
+1. Confirm the Apple Developer Program membership is **Active**, the Apple Team
+   is visible to EAS, production iOS signing credentials are configured, and an
+   App Store Connect API key is connected for non-interactive upload.
+2. Confirm `release/ios-testflight` points to the exact approved and fully gated
+   `main` commit; an older release branch must not be built.
+3. Push that exact release commit to trigger **Alpha Traders iOS TestFlight**.
+   The workflow creates a production/store build, auto-increments its remote
+   iOS build number, and uploads only that build to TestFlight.
+4. After Apple finishes processing, add the owner's Apple ID to an internal
+   TestFlight group in App Store Connect and open the invitation on the iPhone.
+   TestFlight does not require registering the device UDID.
+5. Confirm bundle identifier `com.alphakits.alphatraders`, version/build number,
+   commit SHA, signing team, EAS build URL, and App Store Connect upload status.
+   Do not record private keys, API keys, passwords, or verification codes.
+
+The TestFlight workflow sets `submit_beta_review: false`, does not name any
+external testing group, and does not submit the app for public App Store review.
+Public submission remains a separate release-owner and legal approval.
+
+For a named device-specific fallback, point `release/iphone-installed-preview`
+to the same approved commit and trigger **Alpha Traders iPhone Installed
+Preview**, then complete its one-time device-registration request. Confirm EAS
+uses the `preview` profile and records only the registered device identifiers
+needed for ad hoc signing.
+
+Both signed routes include remote push, while SSE and foreground refresh remain
+authoritative. Verify that lock-screen copy contains no trade amounts, chat
+text, bank details, wallet addresses, contact details, or evidence data.
 
 ## 4. Real-device acceptance matrix
 
