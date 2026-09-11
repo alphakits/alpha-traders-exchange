@@ -34,7 +34,8 @@ describe("marketplace email delivery", () => {
     expect(email.text).toContain("Open Trade Room");
     expect(email.text).toContain("https://www.alphatraders.co.il/en/trade-room/request-1");
     expect(email.html).toContain("Alpha Exchange");
-    expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
+    expect(email.html).toContain('src="cid:alpha-traders-logo"');
+    expect(email.html).toContain('width="120" height="120"');
     expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
     expect(email.html).toContain("max-width:560px");
     expect(email.html).toContain("Mark &lt;Trader&gt;");
@@ -117,6 +118,12 @@ describe("marketplace email delivery", () => {
       from: "Alpha Traders Academy & Exchange <notifications@example.com>",
       to: ["mark@example.com"],
       subject: "Trade Accepted | Alpha Traders Academy & Exchange",
+      headers: { "BIMI-Selector": "v=BIMI1; s=default;" },
+      attachments: [{
+        path: "https://www.alphatraders.co.il/images/brand/alpha-traders-logo-192.png?v=c73f7405",
+        filename: "alpha-traders-logo.png",
+        content_id: "alpha-traders-logo",
+      }],
     }));
   });
 

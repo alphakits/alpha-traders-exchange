@@ -4942,6 +4942,20 @@ function getTradeEvidenceFile(db: AlphaExchangeDb, purchaseRequestId: string, si
   return db.tradeEvidenceFiles.find((item) => item.purchaseRequestId === purchaseRequestId && item.side === side);
 }
 
+function isSellerTrustFlagged(snapshot: SellerReputationSnapshot | undefined) {
+  if (!snapshot) return false;
+  return snapshot.trustScore < 55
+    || snapshot.marketplaceViolations > 0
+    || snapshot.disputesLost >= 3
+    || snapshot.cancellationRate >= 20;
+}
+
+function hasConcreteSellerRiskSignal(snapshot: SellerReputationSnapshot) {
+  return snapshot.marketplaceViolations > 0
+    || snapshot.disputesLost >= 3
+    || snapshot.cancellationRate >= 20;
+}
+
 async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: string; triggeredBy: string; suppressSideEffects?: boolean }) {
   const previous = new Map(db.trustSnapshots.map((entry) => [entry.sellerId, entry.snapshot]));
   const owner = getOwnerUser(db);
@@ -5030,7 +5044,19 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     const levelChanged = previousSnapshot && previousSnapshot.level !== snapshot.level;
     const sharpDrop = previousSnapshot && oldScore - newScore >= 8;
     const trustIncreased = previousSnapshot && newScore - oldScore >= 1;
-    const flagged = snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.disputesLost >= 3 || snapshot.cancellationRate >= 20;
+    const flagged = isSellerTrustFlagged(snapshot);
+    const wasFlagged = isSellerTrustFlagged(previousSnapshot);
+    // A low baseline score for a newly calculated seller is not a new risk
+    // event. Notify the owner only when an established seller crosses into the
+    // flagged state, or when the first snapshot already contains a concrete
+    // violation/dispute/cancellation signal. Persistent risk is surfaced by
+    // the seller profile and must not refill the inbox on every unrelated
+    // listing approval or on a new calendar day.
+    const enteredFlaggedState = flagged && (
+      previousSnapshot
+        ? !wasFlagged
+        : hasConcreteSellerRiskSignal(snapshot)
+    );
 
     if (scoreChanged && !input.suppressSideEffects) {
       publishRealtimeEvent({
@@ -5143,15 +5169,16 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       });
     }
 
-    if (owner && flagged && sellerNotificationContext && !input.suppressSideEffects) {
-      const alreadyNotifiedRecently = db.notifications.some(
+    if (owner && enteredFlaggedState && sellerNotificationContext && !input.suppressSideEffects) {
+      const alreadyNotifiedForTransition = db.notifications.some(
         (notification) =>
           notification.userId === owner.id &&
           notification.category === "trust" &&
           (notification.relatedSellerUsername === sellerNotificationContext.username || notification.message.includes(snapshot.sellerId)) &&
-          formatIsraelCalendarDateKey(now) === formatIsraelCalendarDateKey(notification.createdAt),
+          notification.state === "unread" &&
+          notification.title.toLowerCase().includes("flagged seller"),
       );
-      if (!alreadyNotifiedRecently) {
+      if (!alreadyNotifiedForTransition) {
         pushNotification(db, {
           userId: owner.id,
           category: "trust",
@@ -5163,6 +5190,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
           relatedHref: sellerNotificationContext.profileHref,
           actionHref: sellerNotificationContext.profileHref,
           actionLabel: "Review Seller",
+          reason: "seller_entered_flagged_state",
           forceInApp: true,
         });
       }

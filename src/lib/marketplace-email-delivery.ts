@@ -2,7 +2,14 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path";
 import { redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSiteUrl } from "@/lib/site-url";
-import { BRAND_NAME, BRAND_NAME_HTML, getBrandedEmailFrom } from "@/lib/brand";
+import {
+  BRAND_EMAIL_LOGO_SRC,
+  BRAND_NAME,
+  BRAND_NAME_HTML,
+  buildBrandedEmailHeaders,
+  buildBrandedEmailLogoAttachment,
+  getBrandedEmailFrom,
+} from "@/lib/brand";
 
 export type MarketplaceEmailEvent =
   | "new_buy_request"
@@ -146,7 +153,6 @@ function localizedActionUrl(locale: MarketplaceEmailLocale, actionPath: string) 
 }
 
 export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
-  const logoUrl = escapeHtml(new URL("/images/brand/alpha-traders-logo.png", getSiteUrl()).toString());
   const safeRecipientName = redactPrivateContactDetails(input.recipientName.trim());
   const recipientName = {
     ar: escapeHtml(safeRecipientName || "المتداول"),
@@ -245,7 +251,7 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#111111;border:1px solid #2b2b2b;border-radius:18px;overflow:hidden;">
             <tr>
               <td align="center" style="padding:24px;background:linear-gradient(135deg,#1c1708,#111111);border-bottom:1px solid #3f3513;">
-                <img src="${logoUrl}" width="88" height="88" alt="${BRAND_NAME_HTML}" style="display:block;width:88px;height:88px;margin:0 auto;border-radius:18px;object-fit:cover;" />
+                <img src="${BRAND_EMAIL_LOGO_SRC}" width="120" height="120" alt="${BRAND_NAME_HTML}" style="display:block;width:120px;height:120px;max-width:120px;margin:0 auto;border:1px solid #5f4916;border-radius:24px;background:#050505;object-fit:cover;" />
                 <div style="margin-top:12px;font-size:12px;letter-spacing:2px;color:#d6b84c;text-transform:uppercase;">${BRAND_NAME_HTML}</div>
                 <h1 lang="${primaryLocale}" dir="${primaryLocale === "ar" ? "rtl" : "ltr"}" style="margin:10px 0 0;font-size:24px;line-height:1.4;color:#ffffff;">${title[primaryLocale]}</h1>
                 ${secondaryLocale ? `<p lang="${secondaryLocale}" dir="${secondaryLocale === "ar" ? "rtl" : "ltr"}" style="margin:7px 0 0;color:#d1d5db;font-size:14px;line-height:1.5;">${title[secondaryLocale]}</p>` : ""}
@@ -313,6 +319,8 @@ export async function sendMarketplaceEmail(
           subject: email.subject,
           html: email.html,
           text: email.text,
+          headers: buildBrandedEmailHeaders(),
+          attachments: [buildBrandedEmailLogoAttachment()],
         }),
         signal: controller.signal,
       });
