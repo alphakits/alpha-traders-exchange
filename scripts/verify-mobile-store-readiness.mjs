@@ -274,12 +274,14 @@ check(submissionPack.includes("## Reviewed feature consistency"), "The full-Exch
 check(submissionPack.includes("## App Privacy declaration worksheet"), "The App Privacy worksheet is missing from the submission pack.");
 check(submissionPack.includes("## Licensing and territory gate"), "The licensing and territory gate is missing from the submission pack.");
 check(submissionPack.includes("## Screenshot capture plan"), "The screenshot plan is missing from the submission pack.");
+check(submissionPack.includes(`| Version | \`${appConfig.version}\` |`), "The App Store Connect submission-pack version does not match the Expo version.");
 check(googlePlaySubmissionPack.includes("## Reviewed feature consistency"), "The Google Play full-Exchange consistency rule is missing.");
 check(googlePlaySubmissionPack.includes("## Play review access"), "The Google Play review-access plan is missing.");
 check(googlePlaySubmissionPack.includes("## Data safety declaration worksheet"), "The Google Play Data safety worksheet is missing.");
 check(googlePlaySubmissionPack.includes("## Financial features and territory gate"), "The Google Play financial-features gate is missing.");
 check(googlePlaySubmissionPack.includes("## Store listing and graphics"), "The Google Play listing and graphics plan is missing.");
 check(googlePlaySubmissionPack.includes("## Final submission sequence"), "The Google Play submission sequence is missing.");
+check(googlePlaySubmissionPack.includes(`| Version | \`${appConfig.version}\` |`), "The Google Play submission-pack version does not match the Expo version.");
 for (const officialSource of [
   "https://support.google.com/googleplay/android-developer/answer/13393723",
   "https://support.google.com/googleplay/android-developer/answer/10787469",
