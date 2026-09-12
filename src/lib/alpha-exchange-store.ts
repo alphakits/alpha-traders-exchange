@@ -38,6 +38,7 @@ import {
   type AdminAnnouncementEmailContent,
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
+import { formatCommissionId } from "@/lib/format-id";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
@@ -4365,6 +4366,101 @@ async function sendSellerEnforcementEmail(
     });
   }
   return result.ok;
+}
+
+type CommissionPaymentConfirmationContext = {
+  commission: Pick<CommissionRecord, "id" | "displayNumber">;
+  amountDueUsdt: number;
+  remainingCommissions: Array<Pick<CommissionRecord, "id" | "displayNumber">>;
+};
+
+function buildCommissionPaymentConfirmation(input: CommissionPaymentConfirmationContext) {
+  const commissionLabel = formatCommissionId(input.commission.displayNumber, input.commission.id);
+  const amountLabel = input.amountDueUsdt.toFixed(2);
+  const remainingCommissionCount = input.remainingCommissions.length;
+  const fullyUnlocked = remainingCommissionCount === 0;
+  const nextCommission = input.remainingCommissions[0];
+  const actionPath = fullyUnlocked
+    ? "/dashboard/seller#my-listings-section"
+    : commissionPaymentDestination(nextCommission!.id);
+
+  return {
+    commissionLabel,
+    fullyUnlocked,
+    actionPath,
+    actionLabel: fullyUnlocked
+      ? { ar: "متابعة إدارة الإعلانات", en: "Continue Managing Listings" }
+      : { ar: "دفع العمولة", en: "Pay Commission" },
+    title: { ar: "تم تأكيد دفع العمولة", en: "Commission Payment Confirmed" },
+    message: fullyUnlocked
+      ? {
+          ar: `تم تأكيد دفعتك البالغة ${amountLabel} USDT للعمولة ${commissionLabel}. تم سداد جميع العمولات المستحقة وإزالة قيود الإدراج المتعلقة بالعمولة. يمكنك الآن إنشاء الإعلانات وإدارتها ونشرها مجددًا. وتظل أي قيود أخرى على الحساب سارية.`,
+          en: `Your ${amountLabel} USDT payment for commission ${commissionLabel} has been confirmed. All commission dues are paid, so commission-related restrictions have been cleared. You can create, manage, and publish listings again. Any other account restrictions still apply.`,
+        }
+      : {
+          ar: `تم تأكيد دفعتك البالغة ${amountLabel} USDT للعمولة ${commissionLabel}. لا تزال ${remainingCommissionCount} من دفعات العمولات مستحقة، لذلك يبقى الوصول إلى الإدراج مقيدًا حتى سداد جميع العمولات.`,
+          en: `Your ${amountLabel} USDT payment for commission ${commissionLabel} has been confirmed. ${remainingCommissionCount} other commission payment${remainingCommissionCount === 1 ? " remains" : "s remain"} due, so listing access stays restricted until all commission dues are paid.`,
+        },
+  };
+}
+
+async function dispatchCommissionPaymentConfirmationEmail(
+  db: AlphaExchangeDb,
+  sellerId: string,
+  input: CommissionPaymentConfirmationContext,
+) {
+  const seller = db.users.find((user) => user.id === sellerId);
+  if (!seller) return;
+  const confirmation = buildCommissionPaymentConfirmation(input);
+  const delivery = async () => {
+    try {
+      const result = await sendMarketplaceEmail({
+        event: "commission_paid",
+        to: seller.email,
+        recipientName: seller.fullName,
+        recipientLocale: normalizePreferredLocale(seller.preferredLocale),
+        title: confirmation.title,
+        message: confirmation.message,
+        actionLabel: confirmation.actionLabel,
+        actionPath: confirmation.actionPath,
+        referenceLabel: confirmation.commissionLabel,
+        idempotencyKey: `commission-paid:${input.commission.id}:${seller.id}`,
+      });
+      if (!result.ok) {
+        logEvent("error", {
+          event: "marketplace_email_delivery",
+          targetUserId: seller.id,
+          resourceId: input.commission.id,
+          outcome: "failed",
+          reason: "commission_paid",
+          metadata: {
+            providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+            deliveryReason: result.reason,
+          },
+        });
+      }
+    } catch (error) {
+      logEvent("error", {
+        event: "marketplace_email_delivery",
+        targetUserId: seller.id,
+        resourceId: input.commission.id,
+        outcome: "failed",
+        reason: "commission_paid",
+        metadata: { errorType: error instanceof Error ? error.name : typeof error },
+      });
+    }
+  };
+
+  // Commission settlement is a transactional account-access event, so it is
+  // delivered independently of optional marketplace-marketing preferences.
+  // Schedule it only after the canonical payment write has committed.
+  try {
+    after(delivery);
+  } catch {
+    // Store tests and non-request maintenance jobs run without a Next.js
+    // request context; keep the same behavior there without losing coverage.
+    await delivery();
+  }
 }
 
 type DeferredNotificationPublication = {
@@ -13815,6 +13911,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     }
 
     const notificationPublications: DeferredNotificationPublication[] = [];
+    let paymentConfirmation: CommissionPaymentConfirmationContext | undefined;
     const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
     if (verification.verified && request) {
       appendTradeTimelineEntry(request, {
@@ -13827,22 +13924,24 @@ export async function submitSellerCommissionWalletPayment(input: {
     }
     if (verification.verified) {
       const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
-      const fullyUnlocked = remainingCommissions.length === 0;
-      const nextCommission = remainingCommissions[0];
+      paymentConfirmation = {
+        commission: nextRecord,
+        amountDueUsdt: canonicalAmountDueUsdt,
+        remainingCommissions,
+      };
+      const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
         category: "trade",
         title: "Commission payment verified",
-        message: fullyUnlocked
-          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
-          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
+        message: confirmation.message.en,
         relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
-        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
-        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        relatedHref: confirmation.actionPath,
+        actionHref: confirmation.actionPath,
+        actionLabel: confirmation.actionLabel.en,
+        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -13882,7 +13981,7 @@ export async function submitSellerCommissionWalletPayment(input: {
       if (sellerPublication) notificationPublications.push(sellerPublication);
     }
 
-    return { commission: nextRecord, request, notificationPublications };
+    return { commission: nextRecord, request, notificationPublications, paymentConfirmation };
   };
 
   let committed = await applyCommissionPaymentToCanonicalSnapshot(db);
@@ -13905,6 +14004,9 @@ export async function submitSellerCommissionWalletPayment(input: {
   }
   for (const publication of committed.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  if (committed.paymentConfirmation) {
+    await dispatchCommissionPaymentConfirmationEmail(db, committed.commission.sellerId, committed.paymentConfirmation);
   }
   return {
     commission: committed.commission,
@@ -14132,6 +14234,7 @@ export async function updateCommissionPaymentStatus(input: {
     commission: CommissionRecord;
     request?: PurchaseRequest;
     notificationPublications: DeferredNotificationPublication[];
+    paymentConfirmation?: CommissionPaymentConfirmationContext;
     changed: boolean;
   };
   let committed: CommittedCommissionStatus | null = null;
@@ -14145,7 +14248,9 @@ export async function updateCommissionPaymentStatus(input: {
       ?? (input.paymentStatus === "paid" ? "verified" : current.paymentVerificationStatus);
     const paymentVerificationNotes = input.paymentVerificationNotes !== undefined
       ? input.paymentVerificationNotes.trim() || undefined
-      : current.paymentVerificationNotes;
+      : input.paymentStatus === "paid" && paymentVerificationStatus === "verified"
+        ? input.reason?.trim() || "Payment verified manually by an admin."
+        : current.paymentVerificationNotes;
 
     if (
       current.paymentStatus === input.paymentStatus
@@ -14191,6 +14296,7 @@ export async function updateCommissionPaymentStatus(input: {
     });
 
     const notificationPublications: DeferredNotificationPublication[] = [];
+    let paymentConfirmation: CommissionPaymentConfirmationContext | undefined;
     if (input.paymentStatus === "paid" && !wasPaid) {
       if (request) {
         appendTradeTimelineEntry(request, {
@@ -14201,19 +14307,30 @@ export async function updateCommissionPaymentStatus(input: {
           createdAt: now,
         });
       }
+      const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, current.sellerId);
+      paymentConfirmation = {
+        commission: nextRecord,
+        amountDueUsdt,
+        remainingCommissions,
+      };
+      const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const publication = pushNotification(snapshot, {
         userId: current.sellerId,
         category: "trade",
         title: "Commission marked paid",
-        message: `Commission for ${getCommissionSubject(current)} has been marked paid.`,
+        message: confirmation.message.en,
         relatedTradeId: current.tradeId ?? current.purchaseRequestId,
+        relatedRequestId: current.purchaseRequestId,
         relatedListingId: current.listingId,
-        relatedHref: "/usdt-exchange",
+        relatedHref: confirmation.actionPath,
+        actionHref: confirmation.actionPath,
+        actionLabel: confirmation.actionLabel.en,
+        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         deferRealtime: true,
       });
       if (publication) notificationPublications.push(publication);
     }
-    committed = { commission: nextRecord, request, notificationPublications, changed: true };
+    committed = { commission: nextRecord, request, notificationPublications, paymentConfirmation, changed: true };
     return snapshot;
   };
 
@@ -14239,6 +14356,9 @@ export async function updateCommissionPaymentStatus(input: {
   }
   for (const publication of result.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  if (result.paymentConfirmation) {
+    await dispatchCommissionPaymentConfirmationEmail(db, result.commission.sellerId, result.paymentConfirmation);
   }
   return result.commission;
 }
@@ -15965,8 +16085,10 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   });
 
   type AdminReverificationCommit = {
+    commission?: CommissionRecord;
     request?: PurchaseRequest;
     notificationPublications: DeferredNotificationPublication[];
+    paymentConfirmation?: CommissionPaymentConfirmationContext;
     newlySettled: boolean;
   };
   let committed: AdminReverificationCommit = {
@@ -16033,6 +16155,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
 
     const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
     const notificationPublications: DeferredNotificationPublication[] = [];
+    let paymentConfirmation: CommissionPaymentConfirmationContext | undefined;
     if (newlySettled) {
       if (request) {
         appendTradeTimelineEntry(request, {
@@ -16044,22 +16167,24 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
         });
       }
       const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
-      const fullyUnlocked = remainingCommissions.length === 0;
-      const nextCommission = remainingCommissions[0];
+      paymentConfirmation = {
+        commission: nextRecord,
+        amountDueUsdt: canonicalAmountDue,
+        remainingCommissions,
+      };
+      const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
         category: "trade",
         title: "Commission payment verified",
-        message: fullyUnlocked
-          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
-          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
+        message: confirmation.message.en,
         relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
-        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
-        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        relatedHref: confirmation.actionPath,
+        actionHref: confirmation.actionPath,
+        actionLabel: confirmation.actionLabel.en,
+        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -16090,7 +16215,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
       details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : result.pending ? "pending" : "failed"} — ${result.notes}`,
       reason: input.reason?.trim() || undefined,
     });
-    committed = { request, notificationPublications, newlySettled };
+    committed = { commission: nextRecord, request, notificationPublications, paymentConfirmation, newlySettled };
     return snapshot;
   };
 
@@ -16107,6 +16232,9 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   }
   for (const publication of committed.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  if (committed.paymentConfirmation && committed.commission) {
+    await dispatchCommissionPaymentConfirmationEmail(db, committed.commission.sellerId, committed.paymentConfirmation);
   }
   return result;
 }

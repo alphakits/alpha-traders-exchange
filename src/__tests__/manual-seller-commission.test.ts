@@ -309,7 +309,8 @@ describe("manual seller commission assignment", () => {
     expect(currentSnapshot().notifications).toContainEqual(expect.objectContaining({
       userId: SELLER_ID,
       title: "Commission payment verified",
-      actionLabel: "Open Marketplace",
+      actionLabel: "Continue Managing Listings",
+      actionHref: "/dashboard/seller#my-listings-section",
     }));
   });
 
