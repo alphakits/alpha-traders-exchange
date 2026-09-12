@@ -93,7 +93,7 @@ describe("automatic commission payment verification cron", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      autoReconciliation: { scannedTransfers: 0, matched: 0, verified: 0, pending: 0, errors: 0 },
+      autoReconciliation: { scannedTransfers: 0, matched: 0, verified: 0, pending: 0, errors: 0, legacyMatched: 0 },
       checked: 2,
       verified: 1,
       stillPending: 1,
@@ -112,6 +112,7 @@ describe("automatic commission payment verification cron", () => {
         sellerId: "seller-625",
         paymentStatus: "pending",
         paymentExpectedAmount: 6.25,
+        paymentExpectedAmountMode: "unique_v1",
         paymentExpectedAmountAssignedAt: new Date(assignedAt).toISOString(),
       }],
     });
@@ -128,10 +129,41 @@ describe("automatic commission payment verification cron", () => {
     });
     expect(mocks.reverifyPendingCommissionPayments).toHaveBeenCalledWith({ limit: 1 });
     const body = await response.json();
-    expect(body.autoReconciliation).toMatchObject({ matched: 1, verified: 1, errors: 0 });
+    expect(body.autoReconciliation).toMatchObject({ matched: 1, verified: 1, legacyMatched: 0, errors: 0 });
   });
 
-  it("does not credit a transfer sent before the exact payment intent was assigned", async () => {
+  it("backfills a legacy base-amount payment made after commission creation but before the later assignment timestamp", async () => {
+    const createdAt = Date.now() - 60 * 60_000;
+    const assignedAt = Date.now() - 60_000;
+    const transferAt = createdAt + 10 * 60_000;
+    mocks.getAdminPrepDashboardData.mockResolvedValue({
+      commissionRecords: [{
+        id: "legacy-commission-625",
+        sellerId: "legacy-seller-625",
+        commissionAmount: 6.25,
+        createdAt: new Date(createdAt).toISOString(),
+        paymentStatus: "pending",
+        paymentExpectedAmount: 6.25,
+        paymentExpectedAmountMode: "legacy_base",
+        paymentExpectedAmountAssignedAt: new Date(assignedAt).toISOString(),
+      }],
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronGridTransfer("6250000", transferAt))));
+
+    const response = await GET(request(`Bearer ${SECRET}`));
+    expect(response.status).toBe(200);
+    expect(mocks.submitSellerCommissionWalletPayment).toHaveBeenCalledWith({
+      sellerUserId: "legacy-seller-625",
+      commissionId: "legacy-commission-625",
+      network: "TRC20",
+      payerWalletAddress: "TPayerWalletAddress111111111111111111",
+      paymentSignature: TX_ID,
+    });
+    const body = await response.json();
+    expect(body.autoReconciliation).toMatchObject({ matched: 1, verified: 1, legacyMatched: 1, errors: 0 });
+  });
+
+  it("does not credit a unique-v1 transfer sent before the exact payment intent was assigned", async () => {
     const assignedAt = Date.now() - 60_000;
     mocks.getAdminPrepDashboardData.mockResolvedValue({
       commissionRecords: [{
@@ -139,6 +171,7 @@ describe("automatic commission payment verification cron", () => {
         sellerId: "seller-625",
         paymentStatus: "pending",
         paymentExpectedAmount: 6.25,
+        paymentExpectedAmountMode: "unique_v1",
         paymentExpectedAmountAssignedAt: new Date(assignedAt).toISOString(),
       }],
     });
@@ -148,18 +181,41 @@ describe("automatic commission payment verification cron", () => {
     expect(mocks.submitSellerCommissionWalletPayment).not.toHaveBeenCalled();
   });
 
-  it("does not guess when two unpaid records share the same legacy amount", async () => {
-    const assignedAt = Date.now() - 60_000;
+  it("does not credit a legacy transfer made before its commission existed", async () => {
+    const createdAt = Date.now() - 60_000;
+    mocks.getAdminPrepDashboardData.mockResolvedValue({
+      commissionRecords: [{
+        id: "legacy-commission-625",
+        sellerId: "legacy-seller-625",
+        commissionAmount: 6.25,
+        createdAt: new Date(createdAt).toISOString(),
+        paymentStatus: "pending",
+        paymentExpectedAmount: 6.25,
+        paymentExpectedAmountMode: "legacy_base",
+        paymentExpectedAmountAssignedAt: new Date().toISOString(),
+      }],
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronGridTransfer("6250000", createdAt - 10 * 60_000))));
+
+    await GET(request(`Bearer ${SECRET}`));
+    expect(mocks.submitSellerCommissionWalletPayment).not.toHaveBeenCalled();
+  });
+
+  it("does not guess when two unpaid legacy records share the same base amount", async () => {
+    const createdAt = Date.now() - 60_000;
     mocks.getAdminPrepDashboardData.mockResolvedValue({
       commissionRecords: ["one", "two"].map((id) => ({
         id,
         sellerId: `seller-${id}`,
+        commissionAmount: 6.25,
+        createdAt: new Date(createdAt).toISOString(),
         paymentStatus: "pending",
         paymentExpectedAmount: 6.25,
-        paymentExpectedAmountAssignedAt: new Date(assignedAt).toISOString(),
+        paymentExpectedAmountMode: "legacy_base",
+        paymentExpectedAmountAssignedAt: new Date().toISOString(),
       })),
     });
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronGridTransfer("6250000", assignedAt + 30_000))));
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronGridTransfer("6250000", createdAt + 30_000))));
 
     await GET(request(`Bearer ${SECRET}`));
     expect(mocks.submitSellerCommissionWalletPayment).not.toHaveBeenCalled();
@@ -172,6 +228,7 @@ describe("automatic commission payment verification cron", () => {
         sellerId: "seller-625",
         paymentStatus: "pending",
         paymentExpectedAmount: 6.25,
+        paymentExpectedAmountMode: "unique_v1",
         paymentExpectedAmountAssignedAt: new Date(Date.now() - 60_000).toISOString(),
       }],
     });
