@@ -22,10 +22,13 @@ const PAYMENT_FUTURE_CLOCK_SKEW_MS = 5 * 60_000;
 interface CommissionCandidate {
   id: string;
   sellerId: string;
+  commissionAmount?: number;
+  createdAt?: string;
   paymentStatus?: string;
   paymentVerificationStatus?: string;
   paymentSignature?: string;
   paymentExpectedAmount?: number;
+  paymentExpectedAmountMode?: "legacy_base" | "unique_v1";
   paymentExpectedAmountAssignedAt?: string;
 }
 
@@ -71,14 +74,33 @@ function parseTransferAmountMicros(transfer: TronGridTrc20Transfer) {
   }
 }
 
+function isLegacyBaseCandidate(record: CommissionCandidate) {
+  return record.paymentExpectedAmountMode === "legacy_base";
+}
+
+function candidateLowerBoundMs(record: CommissionCandidate) {
+  const primary = isLegacyBaseCandidate(record)
+    ? new Date(record.createdAt ?? "").getTime()
+    : new Date(record.paymentExpectedAmountAssignedAt ?? "").getTime();
+  if (Number.isFinite(primary) && primary > 0) return primary;
+  const fallback = new Date(record.paymentExpectedAmountAssignedAt ?? record.createdAt ?? "").getTime();
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : Number.NaN;
+}
+
+function candidateExpectedAmountMicros(record: CommissionCandidate) {
+  const amount = isLegacyBaseCandidate(record)
+    ? Number(record.commissionAmount ?? record.paymentExpectedAmount)
+    : Number(record.paymentExpectedAmount);
+  return Number.isFinite(amount) && amount > 0 ? usdtToMicros(amount) : null;
+}
+
 function isEligibleCommissionCandidate(record: CommissionCandidate) {
   if (!record.id || !record.sellerId) return false;
   if (record.paymentStatus === "paid") return false;
   if (record.paymentVerificationStatus === "verified") return false;
   if (record.paymentSignature) return false;
-  if (!Number.isFinite(record.paymentExpectedAmount) || Number(record.paymentExpectedAmount) <= 0) return false;
-  const assignedAt = new Date(record.paymentExpectedAmountAssignedAt ?? "").getTime();
-  return Number.isFinite(assignedAt) && assignedAt > 0;
+  if (candidateExpectedAmountMicros(record) === null) return false;
+  return Number.isFinite(candidateLowerBoundMs(record));
 }
 
 async function fetchRecentIncomingUsdtTransfers(minTimestampMs: number) {
@@ -101,9 +123,7 @@ async function fetchRecentIncomingUsdtTransfers(minTimestampMs: number) {
     cache: "no-store",
     signal: AbortSignal.timeout(TRONGRID_SCAN_TIMEOUT_MS),
   });
-  if (!response.ok) {
-    throw new Error(`TRON deposit scan failed with status ${response.status}.`);
-  }
+  if (!response.ok) throw new Error(`TRON deposit scan failed with status ${response.status}.`);
   const payload = await response.json() as TronGridTrc20Response;
   if (payload.success === false || !Array.isArray(payload.data)) {
     throw new Error("TRON deposit scan returned an invalid response.");
@@ -116,18 +136,17 @@ async function reconcileUnsubmittedCommissionPayments() {
   const records = (dashboard.commissionRecords ?? []) as CommissionCandidate[];
   const candidates = records.filter(isEligibleCommissionCandidate);
   if (candidates.length === 0) {
-    return { scannedTransfers: 0, matched: 0, verified: 0, pending: 0, errors: 0 };
+    return { scannedTransfers: 0, matched: 0, verified: 0, pending: 0, errors: 0, legacyMatched: 0 };
   }
 
-  const earliestAssignedAt = Math.min(...candidates.map((record) => (
-    new Date(record.paymentExpectedAmountAssignedAt as string).getTime()
-  )));
-  const transfers = await fetchRecentIncomingUsdtTransfers(earliestAssignedAt - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS);
+  const earliestLowerBound = Math.min(...candidates.map(candidateLowerBoundMs));
+  const transfers = await fetchRecentIncomingUsdtTransfers(earliestLowerBound - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS);
   const now = Date.now();
 
   const candidatesByAmount = new Map<number, CommissionCandidate[]>();
   for (const record of candidates) {
-    const amountMicros = usdtToMicros(Number(record.paymentExpectedAmount));
+    const amountMicros = candidateExpectedAmountMicros(record);
+    if (amountMicros === null) continue;
     const bucket = candidatesByAmount.get(amountMicros);
     if (bucket) bucket.push(record);
     else candidatesByAmount.set(amountMicros, [record]);
@@ -137,6 +156,7 @@ async function reconcileUnsubmittedCommissionPayments() {
   let verified = 0;
   let pending = 0;
   let errors = 0;
+  let legacyMatched = 0;
   const usedCommissionIds = new Set<string>();
 
   for (const transfer of transfers) {
@@ -153,14 +173,17 @@ async function reconcileUnsubmittedCommissionPayments() {
 
     const amountCandidates = (candidatesByAmount.get(amountMicros) ?? []).filter((record) => {
       if (usedCommissionIds.has(record.id)) return false;
-      const assignedAt = new Date(record.paymentExpectedAmountAssignedAt as string).getTime();
-      return blockTimestamp >= assignedAt - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS;
+      return blockTimestamp >= candidateLowerBoundMs(record) - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS;
     });
 
+    // Never guess. A historical base-amount payment is credited only when it maps
+    // to one unpaid commission. Unique-v1 payments remain matched by their exact
+    // immutable amount as before.
     if (amountCandidates.length !== 1) continue;
     const commission = amountCandidates[0];
     usedCommissionIds.add(commission.id);
     matched += 1;
+    if (isLegacyBaseCandidate(commission)) legacyMatched += 1;
 
     try {
       const result = await submitSellerCommissionWalletPayment({
@@ -180,36 +203,27 @@ async function reconcileUnsubmittedCommissionPayments() {
         reason: "matched_transfer_submission_failed",
         metadata: {
           commissionId: commission.id,
+          legacy: isLegacyBaseCandidate(commission),
           errorType: error instanceof Error ? error.name : typeof error,
         },
       });
     }
   }
 
-  return { scannedTransfers: transfers.length, matched, verified, pending, errors };
+  return { scannedTransfers: transfers.length, matched, verified, pending, errors, legacyMatched };
 }
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim() ?? "";
   if (secret.length < 32) {
-    logEvent("error", {
-      event: "commission_payment_verification_cron",
-      outcome: "failed",
-      reason: "cron_secret_not_configured",
-    });
-    return NextResponse.json(
-      { error: "Commission verification scheduler is not configured." },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
-    );
+    logEvent("error", { event: "commission_payment_verification_cron", outcome: "failed", reason: "cron_secret_not_configured" });
+    return NextResponse.json({ error: "Commission verification scheduler is not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
   if (!authorizedCronRequest(request, secret)) {
-    return NextResponse.json(
-      { error: "Unauthorized." },
-      { status: 401, headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
 
-  let autoReconciliation = { scannedTransfers: 0, matched: 0, verified: 0, pending: 0, errors: 0 };
+  let autoReconciliation = { scannedTransfers: 0, matched: 0, verified: 0, pending: 0, errors: 0, legacyMatched: 0 };
   try {
     autoReconciliation = await reconcileUnsubmittedCommissionPayments();
   } catch (error) {
@@ -230,10 +244,7 @@ export async function GET(request: NextRequest) {
       outcome: "success",
       metadata: { ...result, autoReconciliation },
     });
-    return NextResponse.json(
-      { ok: true, autoReconciliation, ...result },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ ok: true, autoReconciliation, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     logEvent("error", {
       event: "commission_payment_verification_cron",
@@ -241,9 +252,6 @@ export async function GET(request: NextRequest) {
       reason: "verification_sweep_failed",
       metadata: { errorType: error instanceof Error ? error.name : typeof error, autoReconciliation },
     });
-    return NextResponse.json(
-      { error: "Commission verification sweep failed.", autoReconciliation },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ error: "Commission verification sweep failed.", autoReconciliation }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }
