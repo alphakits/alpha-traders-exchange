@@ -580,6 +580,17 @@ export interface TradeActionReminderState {
 
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
 
+/** Explicit, privacy-safe external event. Never infer this from notification copy. */
+export type WhatsAppNotificationEvent =
+  | "new_request"
+  | "request_accepted"
+  | "request_declined"
+  | "trade_update"
+  | "trade_room_message"
+  | "trade_room_reminder"
+  | "trade_completed"
+  | "trade_cancelled";
+
 export interface AlphaExchangeNotification {
   id: string;
   userId: string;
@@ -610,6 +621,14 @@ export interface AlphaExchangeNotification {
   actionHref?: string;
   actionLabel?: string;
   reason?: string;
+  /** Server-owned event allowlist used by the WhatsApp outbox. */
+  whatsappEvent?: WhatsAppNotificationEvent;
+  /** Stable occurrence time; presentation-state updates must not change it. */
+  whatsappEventAt?: string;
+  /** Opaque server-owned key used to reconcile the durable delivery row. */
+  whatsappEventKey?: string;
+  /** Persisted only to support opted-in external delivery when in-app is off. */
+  whatsappChannelOnly?: boolean;
   centerCategory?: NotificationCenterCategory;
   state?: NotificationState;
   priority?: NotificationPriorityLevel;

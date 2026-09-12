@@ -107,7 +107,7 @@ export function AccountVerificationGate({
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
-      setStatus(isAr ? "تم إرسال رمز التحقق." : (payload.message ?? "Verification code sent."));
+      setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setError(isAr
@@ -248,7 +248,9 @@ export function AccountVerificationGate({
               ) : (
                 <div className="mt-3 grid gap-3">
                   <p className="text-xs text-[#9CA3AF]">
-                    {isAr ? "التحقق من الهاتف اختياري ويمكنك إكماله من هنا إذا رغبت." : "Phone verification is optional; you may complete it here if you choose."}
+                    {isAr
+                      ? "التحقق من الهاتف اختياري. سيصل الرمز عبر قناة التحقق الآمنة المفعّلة حاليًا."
+                      : "Phone verification is optional. The code arrives through the currently enabled secure verification channel."}
                   </p>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input

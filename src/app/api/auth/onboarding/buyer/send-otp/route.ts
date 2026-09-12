@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { beginBuyerVerification, beginProfilePhoneVerification } from "@/lib/alpha-exchange-store";
+import { sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
-import { sendTwilioMessageWithRetry } from "@/lib/notification-platform";
 
 export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
   const lastName = String(body?.lastName ?? "").trim();
   const displayName = String(body?.displayName ?? "").trim();
   const phone = String(body?.phone ?? "").trim();
+  const locale = body?.locale === "ar" || request.headers.get("x-locale") === "ar" ? "ar" : "en";
 
   if (!firstName || !lastName || !phone) {
     return NextResponse.json({ error: "First name, last name, and phone are required." }, { status: 400 });
@@ -73,16 +74,35 @@ export async function POST(request: NextRequest) {
     });
 
     const otp = await beginProfilePhoneVerification({ userId: user.id, phone: started.phone });
-    const sent = await sendTwilioMessageWithRetry({ to: otp.phone, body: `Alpha Traders verification code: ${otp.code}. Expires in 10 minutes.` });
-    if (!sent.ok) throw new Error(sent.error);
+    const sent = await sendPhoneVerificationCode({ phone: otp.phone, code: otp.code, locale });
+    if (!sent.ok) {
+      logEvent("warn", {
+        event: "buyer_verification_otp_send",
+        actorUserId: user.id,
+        actorRole: user.role,
+        outcome: "failed",
+        reason: sent.supportCode,
+        metadata: { requestId, provider: sent.provider ?? "unconfigured" },
+      });
+      return NextResponse.json(
+        { error: sent.error, supportCode: sent.supportCode, requestId },
+        { status: sent.supportCode === "OTP_PHONE_INVALID" ? 400 : 503 },
+      );
+    }
     logEvent("info", {
       event: "buyer_verification_otp_send",
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "success",
-      metadata: { requestId, phoneSuffix: started.phone.slice(-4) },
+      metadata: { requestId, phoneSuffix: started.phone.slice(-4), provider: sent.provider },
     });
-    return NextResponse.json({ ok: true, message: "Verification code sent." });
+    return NextResponse.json({
+      ok: true,
+      channel: sent.channel,
+      message: locale === "ar"
+        ? `تم إرسال رمز التحقق عبر ${sent.channel === "whatsapp" ? "WhatsApp" : "رسالة نصية"}.`
+        : `Verification code sent via ${sent.channel === "whatsapp" ? "WhatsApp" : "SMS"}.`,
+    });
   } catch (error) {
     logEvent("error", {
       event: "buyer_verification_otp_send",

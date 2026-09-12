@@ -35,6 +35,45 @@ type PrivacyKey = (typeof PRIVACY_KEYS)[number];
 type NotificationPrefs = Record<NotificationKey, boolean>;
 type PrivacyPrefs = Record<PrivacyKey, boolean>;
 
+type WhatsAppChannelState = {
+  tradeUpdates: boolean;
+  chatMessages: boolean;
+  consented: boolean;
+  consentVersion: string;
+  consentText?: string;
+  available: boolean;
+  sendingEnabled: boolean;
+  status: "ready" | "awaiting_meta_approval" | "not_configured" | "feature_disabled" | "storage_unavailable";
+};
+
+const DEFAULT_WHATSAPP_CHANNEL: WhatsAppChannelState = {
+  tradeUpdates: false,
+  chatMessages: false,
+  consented: false,
+  consentVersion: "2026-09-12.v1",
+  available: false,
+  sendingEnabled: false,
+  status: "feature_disabled",
+};
+
+function whatsAppAvailabilityMessage(status: WhatsAppChannelState["status"], isAr: boolean) {
+  if (status === "awaiting_meta_approval") {
+    return isAr ? "بانتظار موافقة Meta قبل التفعيل." : "Waiting for Meta approval before activation.";
+  }
+  if (status === "not_configured") {
+    return isAr ? "اتصال WhatsApp غير مكتمل الإعداد بعد." : "The WhatsApp connection is not configured yet.";
+  }
+  if (status === "storage_unavailable") {
+    return isAr ? "إعدادات WhatsApp غير متاحة مؤقتًا." : "WhatsApp settings are temporarily unavailable.";
+  }
+  if (status === "feature_disabled") {
+    return isAr ? "إشعارات WhatsApp غير متاحة بعد." : "WhatsApp notifications are not available yet.";
+  }
+  return isAr
+    ? "تنبيهات خاصة وآمنة تفتح التفاصيل داخل Alpha Traders."
+    : "Private, professional alerts that open details inside Alpha Traders.";
+}
+
 type DiscordConnection = {
   discordUserId: string;
   username: string;
@@ -78,14 +117,16 @@ function defaultPrivacy(): PrivacyPrefs {
   };
 }
 
-function PillToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function PillToggle({ checked, disabled = false, onChange }: { checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#C9A227] focus:ring-offset-2 focus:ring-offset-[#0B0B0B] ${checked ? "bg-[#C9A227]" : "bg-white/10"}`}
+      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#C9A227] focus:ring-offset-2 focus:ring-offset-[#0B0B0B] ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"} ${checked ? "bg-[#C9A227]" : "bg-white/10"}`}
     >
       <span
         className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg transition-transform duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`}
@@ -112,6 +153,9 @@ export function AccountSettingsPanel({
   const [userRole, setUserRole] = useState<string>("buyer");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
+  const [whatsappChannel, setWhatsappChannel] = useState<WhatsAppChannelState>(DEFAULT_WHATSAPP_CHANNEL);
+  const [whatsappBusy, setWhatsappBusy] = useState(false);
+  const [whatsappMessage, setWhatsappMessage] = useState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
@@ -193,12 +237,17 @@ export function AccountSettingsPanel({
       }
       const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (channelRes.ok) {
-        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean }; phone?: { verified?: boolean; masked?: string | null } };
+        const channelData = (await channelRes.json()) as {
+          preferences?: { inApp?: boolean; email?: boolean; sms?: boolean };
+          whatsapp?: Partial<WhatsAppChannelState>;
+          phone?: { verified?: boolean; masked?: string | null };
+        };
         setNotifChannels({
           inApp: channelData.preferences?.inApp !== false,
           email: channelData.preferences?.email === true,
           sms: channelData.preferences?.sms === true,
         });
+        setWhatsappChannel({ ...DEFAULT_WHATSAPP_CHANNEL, ...channelData.whatsapp });
         setNotifChannelsLoaded(true);
         setPhoneVerified(channelData.phone?.verified === true);
         if (channelData.phone?.masked) setPhone(channelData.phone.masked);
@@ -348,12 +397,19 @@ export function AccountSettingsPanel({
     void (async () => {
       const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (!mounted || !channelRes.ok) return;
-      const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean } };
+      const channelData = (await channelRes.json()) as {
+        preferences?: { inApp?: boolean; email?: boolean; sms?: boolean };
+        whatsapp?: Partial<WhatsAppChannelState>;
+        phone?: { verified?: boolean; masked?: string | null };
+      };
       setNotifChannels({
         inApp: channelData.preferences?.inApp !== false,
         email: channelData.preferences?.email === true,
         sms: channelData.preferences?.sms === true,
       });
+      setWhatsappChannel({ ...DEFAULT_WHATSAPP_CHANNEL, ...channelData.whatsapp });
+      setPhoneVerified(channelData.phone?.verified === true);
+      if (channelData.phone?.masked) setPhone(channelData.phone.masked);
       setNotifChannelsLoaded(true);
     })();
 
@@ -436,10 +492,60 @@ export function AccountSettingsPanel({
     }, 300);
   }
 
+  async function saveWhatsAppChannel(next: Pick<WhatsAppChannelState, "tradeUpdates" | "chatMessages">) {
+    const attemptsNewOptIn = (next.tradeUpdates && !whatsappChannel.tradeUpdates)
+      || (next.chatMessages && !whatsappChannel.chatMessages);
+    if (!whatsappChannel.available && attemptsNewOptIn) {
+      setWhatsappMessage(whatsAppAvailabilityMessage(whatsappChannel.status, isAr));
+      return;
+    }
+    if ((next.tradeUpdates || next.chatMessages) && !phoneVerified) {
+      setWhatsappMessage(isAr ? "وثّق رقم هاتفك قبل تفعيل إشعارات WhatsApp." : "Verify your phone before enabling WhatsApp notifications.");
+      return;
+    }
+
+    const previous = whatsappChannel;
+    const keepsWhatsAppEnabled = next.tradeUpdates || next.chatMessages;
+    setWhatsappBusy(true);
+    setWhatsappMessage(null);
+    setWhatsappChannel((current) => ({ ...current, ...next }));
+    try {
+      const response = await fetch("/api/alpha-exchange/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          whatsappTradeUpdates: next.tradeUpdates,
+          whatsappChatMessages: next.chatMessages,
+          ...(keepsWhatsAppEnabled ? {
+            whatsappConsentAccepted: true,
+            whatsappConsentVersion: previous.consentVersion,
+          } : {}),
+        }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string; whatsapp?: Partial<WhatsAppChannelState> };
+      if (!response.ok) throw new Error(data.error || "Failed to save WhatsApp notification preferences.");
+      setWhatsappChannel({ ...DEFAULT_WHATSAPP_CHANNEL, ...data.whatsapp });
+      setWhatsappMessage(isAr ? "تم حفظ تفضيلات WhatsApp." : "WhatsApp notification preferences saved.");
+    } catch (error) {
+      setWhatsappChannel(previous);
+      setWhatsappMessage(isAr
+        ? "تعذر حفظ تفضيلات WhatsApp."
+        : (error instanceof Error ? error.message : "Failed to save WhatsApp notification preferences."));
+    } finally {
+      setWhatsappBusy(false);
+    }
+  }
+
   async function sendPhoneCode() {
-    const response = await fetch("/api/alpha-exchange/phone/send-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
-    const data = await response.json().catch(() => ({}));
-    setPhoneMessage(response.ok ? (isAr ? "تم إرسال رمز التحقق." : "Verification code sent.") : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
+    const response = await fetch("/api/alpha-exchange/phone/send-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
+      body: JSON.stringify({ phone, locale: isAr ? "ar" : "en" }),
+    });
+    const data = await response.json().catch(() => ({})) as { error?: string; message?: string };
+    setPhoneMessage(response.ok
+      ? (data.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."))
+      : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
   }
 
   async function verifyPhoneCode() {
@@ -447,7 +553,7 @@ export function AccountSettingsPanel({
     const data = await response.json().catch(() => ({}));
     if (response.ok) {
       setPhoneVerified(true);
-      setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل إشعارات SMS." : "Phone verified. You can now enable SMS notifications.");
+      setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل قنوات الهاتف المتاحة." : "Phone verified. You can now enable available phone notification channels.");
     } else {
       setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
     }
@@ -927,7 +1033,7 @@ export function AccountSettingsPanel({
                   />
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
-                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لإشعارات SMS." : "Phone verified for SMS notifications.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل إشعارات SMS." : "Verify an E.164 phone number to enable SMS notifications.")}</p>
+                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل خدمات الهاتف المتاحة." : "Verify an E.164 phone number to enable available phone services.")}</p>
                   {!phoneVerified && <div className="flex flex-wrap gap-2">
                     <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+15551234567" className="max-w-xs" />
                     <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>{isAr ? "إرسال الرمز" : "Send code"}</Button>
@@ -935,6 +1041,53 @@ export function AccountSettingsPanel({
                     <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
                   </div>}
                   {phoneMessage && <p className="text-xs text-[#C9A227]">{phoneMessage}</p>}
+                </div>
+                <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">WhatsApp Business</p>
+                      <p className="mt-1 text-xs text-[#9CA3AF]">
+                        {whatsAppAvailabilityMessage(whatsappChannel.status, isAr)}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${whatsappChannel.sendingEnabled ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>
+                      {whatsappChannel.sendingEnabled
+                        ? (isAr ? "مفعّل" : "Active")
+                        : (isAr ? "غير مفعّل" : "Not active")}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <span className="text-sm text-[#D1D5DB]">{isAr ? "تحديثات الطلب وغرفة التداول" : "Request and Trade Room updates"}</span>
+                    <PillToggle
+                      checked={whatsappChannel.tradeUpdates}
+                      disabled={whatsappBusy || !whatsappChannel.available || !phoneVerified}
+                      onChange={(value) => void saveWhatsAppChannel({ ...whatsappChannel, tradeUpdates: value })}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <span className="text-sm text-[#D1D5DB]">{isAr ? "تنبيه بوجود رسالة جديدة" : "New message waiting alerts"}</span>
+                    <PillToggle
+                      checked={whatsappChannel.chatMessages}
+                      disabled={whatsappBusy || !whatsappChannel.available || !phoneVerified}
+                      onChange={(value) => void saveWhatsAppChannel({ ...whatsappChannel, chatMessages: value })}
+                    />
+                  </div>
+                  <p className="text-xs leading-5 text-[#9CA3AF]">
+                    {whatsappChannel.consentText ?? (isAr
+                      ? "عند التفعيل، أوافق على استلام تنبيهات Alpha Traders على رقم WhatsApp الموثّق. لا تتضمن الرسائل نص المحادثة أو تفاصيل المعاملة، ويمكنني إيقافها من الإعدادات أو بالرد STOP."
+                      : "By enabling, I agree to receive Alpha Traders alerts on my verified WhatsApp number. Messages do not include chat text or transaction details, and I can opt out in Settings or by replying STOP.")}
+                  </p>
+                  {whatsappChannel.consented ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={whatsappBusy}
+                      onClick={() => void saveWhatsAppChannel({ tradeUpdates: false, chatMessages: false })}
+                    >
+                      {isAr ? "إيقاف جميع إشعارات WhatsApp" : "Turn off all WhatsApp notifications"}
+                    </Button>
+                  ) : null}
+                  {whatsappMessage ? <p role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</p> : null}
                 </div>
               </div>
               <div className="space-y-3">
