@@ -24,6 +24,8 @@ import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
+import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
+import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import {
   sendMarketplaceEmail,
@@ -103,6 +105,7 @@ import type {
   NotificationPreferences,
   NotificationState,
   NotificationTradeSnapshot,
+  WhatsAppNotificationEvent,
   SellerPublicProfile,
   PremiumSellerProfileData,
   SellerReputationSnapshot,
@@ -552,6 +555,15 @@ function sanitizeNotificationTradeSnapshot(snapshot: NotificationTradeSnapshot |
     counterpartyName: redactExchangeUserContent(snapshot.counterpartyName),
     counterpartyAvatarUrl: sanitizeCounterpartyMediaUrl(snapshot.counterpartyAvatarUrl) || undefined,
   };
+}
+
+export function sanitizeNotificationForClient(notification: AlphaExchangeNotification) {
+  const clientNotification = { ...notification };
+  delete clientNotification.whatsappEvent;
+  delete clientNotification.whatsappEventAt;
+  delete clientNotification.whatsappEventKey;
+  delete clientNotification.whatsappChannelOnly;
+  return clientNotification;
 }
 
 function sanitizeInternalNotificationHref(value?: string) {
@@ -3546,6 +3558,7 @@ function claimDueTradeActionReminders(
         actionHref: requestDetailsHref(request.id),
         actionLabel: "Open Trade Room",
         reason: TRADE_ACTION_REMINDER_REASON,
+        whatsappEvent: "trade_room_reminder",
         priority: plan.priority,
         forceInApp: true,
         deferRealtime: true,
@@ -4470,14 +4483,21 @@ type DeferredNotificationPublication = {
 
 function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
   if (!publication) return;
-  publishRealtimeEvent({
-    type: publication.type,
-    payload: { notification: publication.notification },
-  });
+  if (publication.notification.whatsappChannelOnly !== true) {
+    publishRealtimeEvent({
+      type: publication.type,
+      payload: { notification: sanitizeNotificationForClient(publication.notification) },
+    });
+  }
   // A burst of trade-room chat reuses one notification row and advances its
   // persisted updatedAt value. The mobile outbox keys each revision so every
   // new message can alert the device while duplicate publications stay safe.
-  scheduleMobilePushDelivery(publication.notification);
+  if (publication.notification.whatsappChannelOnly !== true) {
+    scheduleMobilePushDelivery(publication.notification);
+  }
+  // WhatsApp delivery independently re-reads the canonical notification,
+  // participant, verified destination and current consent before sending.
+  scheduleWhatsAppNotificationDelivery(publication.notification);
 }
 
 function pushNotification(
@@ -4500,6 +4520,8 @@ function pushNotification(
     actionLabel?: string;
     actionHref?: string;
     reason?: string;
+    /** Explicit external event; WhatsApp eligibility is never inferred from copy. */
+    whatsappEvent?: WhatsAppNotificationEvent;
     priority?: NotificationPriorityLevel;
     state?: NotificationState;
     /** Transactional trade communication may not be silently hidden by a stale UI preference. */
@@ -4513,7 +4535,9 @@ function pushNotification(
   ensureDisplayNumbers(db);
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) return null;
-  if (user.notificationPreferences?.inApp === false && input.forceInApp !== true) return null;
+  const inAppEnabled = user.notificationPreferences?.inApp !== false || input.forceInApp === true;
+  const persistForWhatsApp = Boolean(input.whatsappEvent && isWhatsAppSendingEnabled());
+  if (!inAppEnabled && !persistForWhatsApp) return null;
   const inferredRequest = resolveTradeContextForNotification(db, {
     userId: input.userId,
     relatedRequestId: input.relatedRequestId,
@@ -4534,7 +4558,8 @@ function pushNotification(
   } as AlphaExchangeNotification);
   const createdAt = nowIso();
   const relatedHref = sanitizeInternalNotificationHref(input.relatedHref) || (relatedRequestId ? requestDetailsHref(relatedRequestId) : undefined);
-  const nextState = input.state ?? "unread";
+  const channelOnly = !inAppEnabled;
+  const nextState = input.state ?? (channelOnly ? "archived" : "unread");
 
   const duplicate = db.notifications.find((item) => {
     if (item.userId !== input.userId) return false;
@@ -4571,6 +4596,10 @@ function pushNotification(
         actionLabel: input.actionLabel ?? duplicate.actionLabel,
         actionHref: sanitizeInternalNotificationHref(input.actionHref) ?? sanitizeInternalNotificationHref(duplicate.actionHref) ?? relatedHref,
         reason: input.reason ?? duplicate.reason,
+        whatsappEvent: input.whatsappEvent,
+        whatsappEventAt: input.whatsappEvent ? createdAt : undefined,
+        whatsappEventKey: input.whatsappEvent ? `wae-${randomUUID()}` : undefined,
+        whatsappChannelOnly: channelOnly || undefined,
         archivedAt: nextState === "archived" ? createdAt : undefined,
         updatedAt: createdAt,
       });
@@ -4598,6 +4627,10 @@ function pushNotification(
     actionLabel: input.actionLabel,
     actionHref: sanitizeInternalNotificationHref(input.actionHref) ?? relatedHref,
     reason: input.reason,
+    whatsappEvent: input.whatsappEvent,
+    whatsappEventAt: input.whatsappEvent ? createdAt : undefined,
+    whatsappEventKey: input.whatsappEvent ? `wae-${randomUUID()}` : undefined,
+    whatsappChannelOnly: channelOnly || undefined,
     relatedTradeId: input.relatedTradeId,
     relatedRequestId,
     relatedListingId: input.relatedListingId,
@@ -4903,6 +4936,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     pushNotification(db, {
       userId: request.sellerId,
@@ -4912,6 +4946,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     for (const adminUser of getAdminNotificationRecipients(db)) {
       pushNotification(db, {
@@ -8706,6 +8741,7 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
         relatedHref: requestDetailsHref(activeRequest.id),
+        whatsappEvent: "trade_cancelled",
       });
       pushNotification(db, {
         userId: activeRequest.sellerId,
@@ -8715,6 +8751,7 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
         relatedHref: requestDetailsHref(activeRequest.id),
+        whatsappEvent: "trade_cancelled",
       });
     }
   }
@@ -9361,6 +9398,7 @@ export async function createPurchaseRequest(input: {
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
+    whatsappEvent: "new_request",
   });
   pushAdminTradeActivityNotifications(db, {
     title: isPriceOffer ? "New Price Offer Submitted" : "New Trade Request Submitted",
@@ -10253,27 +10291,24 @@ async function closePurchaseRequestManuallyAttempt(
     newValue: { closedAt: now, closeReason, closeExplanation: closeExplanation || undefined },
   });
 
-  const counterpartyId = request.buyerId === input.actorUserId ? request.sellerId : request.buyerId;
-  pushNotification(db, {
-    userId: counterpartyId,
-    category: "trade",
-    title: "Trade closed",
-    message: closeExplanation
-      ? `The trade was closed manually. Reason: ${closeReason}. ${closeExplanation}`
-      : `The trade was closed manually. Reason: ${closeReason}.`,
-    relatedTradeId: request.tradeId ?? request.id,
-    relatedListingId: request.listingId,
-    relatedHref: requestDetailsHref(request.id),
-  });
-  pushNotification(db, {
-    userId: input.actorUserId,
-    category: "trade",
-    title: "Trade closed",
-    message: `You closed this trade. Reason: ${closeReason}.`,
-    relatedTradeId: request.tradeId ?? request.id,
-    relatedListingId: request.listingId,
-    relatedHref: requestDetailsHref(request.id),
-  });
+  const participantRecipientIds = [request.buyerId, request.sellerId];
+  for (const recipientUserId of new Set(participantRecipientIds)) {
+    const closedByRecipient = recipientUserId === input.actorUserId;
+    pushNotification(db, {
+      userId: recipientUserId,
+      category: "trade",
+      title: "Trade closed",
+      message: closedByRecipient
+        ? `You closed this trade. Reason: ${closeReason}.`
+        : closeExplanation
+          ? `The trade was closed manually. Reason: ${closeReason}. ${closeExplanation}`
+          : `The trade was closed manually. Reason: ${closeReason}.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_cancelled",
+    });
+  }
 
   try {
     await writeDb(db, {
@@ -10423,6 +10458,7 @@ export async function postTradeRoomMessage(input: {
       actionLabel: "Open Trade Room",
       actionHref: `${requestDetailsHref(canonicalRequest.id)}#chat`,
       reason: "trade_room_message",
+      whatsappEvent: "trade_room_message",
       forceInApp: true,
       deferRealtime: true,
     });
@@ -10591,6 +10627,7 @@ export async function postTradeRoomPoke(input: {
     actionLabel: "Open Trade Room",
     actionHref: `${requestDetailsHref(request.id)}#chat`,
     reason: "trade_room_poke",
+    whatsappEvent: "trade_room_reminder",
     forceInApp: true,
     deferRealtime: true,
   });
@@ -11088,6 +11125,7 @@ async function uploadTradeEvidenceAttempt(
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
   }
   if (shouldAutoConfirmUsdtSent) {
@@ -11115,12 +11153,36 @@ async function uploadTradeEvidenceAttempt(
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     queueSmsDelivery(db, {
       eventType: "usdt_sent",
       eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`,
       recipientUserId: request.buyerId,
       destinationPath: requestDetailsHref(request.id),
+    });
+  }
+  if (
+    !shouldAutoSubmitPayment
+    && !shouldAutoConfirmUsdtSent
+    && new Set<PurchaseRequestStatus>([
+      "accepted",
+      "payment_sent",
+      "funds_received",
+      "usdt_release_pending",
+      "usdt_sent",
+    ]).has(nextRequest.status)
+  ) {
+    pushNotification(db, {
+      userId: input.side === "buyer" ? request.sellerId : request.buyerId,
+      category: "trade",
+      title: "Trade evidence updated",
+      message: "New evidence is available in your active Trade Room.",
+      relatedRequestId: request.id,
+      relatedTradeId: nextRequest.tradeId,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
   }
   db.purchaseRequests[requestIndex] = nextRequest;
@@ -12064,6 +12126,7 @@ async function updatePurchaseRequestStatusAttempt(
         relatedTradeId: sibling.tradeId,
         relatedListingId: sibling.listingId,
         relatedHref: requestDetailsHref(sibling.id),
+        whatsappEvent: "request_declined",
       });
     }
     await appendListingStateAudit(db, {
@@ -12088,6 +12151,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "request_accepted",
     });
     pushAdminTradeActivityNotifications(db, {
       title: isPriceOffer ? "Price Offer Accepted" : "Trade Request Accepted",
@@ -12121,6 +12185,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "request_declined",
     });
   } else if (input.nextStatus === "cancelled") {
     next.status = "cancelled";
@@ -12137,6 +12202,7 @@ async function updatePurchaseRequestStatusAttempt(
         relatedTradeId: next.tradeId,
         relatedListingId: request.listingId,
         relatedHref: requestDetailsHref(request.id),
+        whatsappEvent: "trade_cancelled",
       });
     }
   } else if (input.nextStatus === "payment_sent") {
@@ -12173,6 +12239,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     queueSmsDelivery(db, { eventType: "payment_sent", eventKey: `trade:${request.id}:payment-sent:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     notificationMs += Date.now() - notificationStartedAt;
@@ -12198,6 +12265,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "usdt_release_pending") {
@@ -12219,6 +12287,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
   } else if (input.nextStatus === "usdt_sent") {
     const sellerEvidence = getTradeEvidenceFile(db, request.id, "seller");
@@ -12249,6 +12318,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     if (isAtmTrade) {
       pushNotification(db, {
@@ -12260,6 +12330,7 @@ async function updatePurchaseRequestStatusAttempt(
         relatedRequestId: request.id,
         relatedListingId: request.listingId,
         relatedHref: requestDetailsHref(request.id),
+        whatsappEvent: "trade_update",
       });
     }
     queueSmsDelivery(db, { eventType: "usdt_sent", eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
@@ -12405,6 +12476,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_completed",
     });
     pushNotification(db, {
       userId: request.buyerId,
@@ -12431,6 +12503,7 @@ async function updatePurchaseRequestStatusAttempt(
       actionHref: commission ? commissionPaymentDestination(commission.id) : requestDetailsHref(request.id),
       actionLabel: commission ? "Pay Commission" : undefined,
       reason: commission ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : undefined,
+      whatsappEvent: "trade_completed",
     });
     if (commission) {
       pushNotification(db, {
@@ -15232,7 +15305,7 @@ export async function getNotificationsForUser(input: {
   const query = String(input.query ?? "").trim().toLowerCase();
   // Pre-filter by userId before enriching to avoid O(all_notifications × lookup_size) work.
   const notifications = db.notifications
-    .filter((notification) => notification.userId === input.userId)
+    .filter((notification) => notification.userId === input.userId && notification.whatsappChannelOnly !== true)
     .map((notification) => enrichNotification(db, notification, sharedDisplayLookup))
     .filter((notification) => {
       if (category && notification.category !== category) return false;
@@ -15258,8 +15331,11 @@ export async function getNotificationsForUser(input: {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
   const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
   const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120);
+  const clientNotifications = sortedNotifications
+    .slice(safeOffset, safeOffset + safeLimit)
+    .map(sanitizeNotificationForClient);
   return {
-    notifications: sortedNotifications.slice(safeOffset, safeOffset + safeLimit),
+    notifications: clientNotifications,
     total: sortedNotifications.length,
     unreadCount,
     activity,
@@ -15409,9 +15485,19 @@ export async function updateNotificationPreferences(
   }
   const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
   const next = normalizeNotificationPreferences({
+    ...current,
     inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
     email: typeof input.preferences.email === "boolean" ? input.preferences.email : current.email,
     sms: typeof input.preferences.sms === "boolean" ? input.preferences.sms : current.sms,
+    browserPush: typeof input.preferences.browserPush === "boolean" ? input.preferences.browserPush : current.browserPush,
+    browserPushTradeUpdates: typeof input.preferences.browserPushTradeUpdates === "boolean" ? input.preferences.browserPushTradeUpdates : current.browserPushTradeUpdates,
+    browserPushChatMessages: typeof input.preferences.browserPushChatMessages === "boolean" ? input.preferences.browserPushChatMessages : current.browserPushChatMessages,
+    browserPushListings: typeof input.preferences.browserPushListings === "boolean" ? input.preferences.browserPushListings : current.browserPushListings,
+    browserPushFeedback: typeof input.preferences.browserPushFeedback === "boolean" ? input.preferences.browserPushFeedback : current.browserPushFeedback,
+    browserPushAdminAlerts: typeof input.preferences.browserPushAdminAlerts === "boolean" ? input.preferences.browserPushAdminAlerts : current.browserPushAdminAlerts,
+    browserPushPromptDismissedAt: input.preferences.browserPushPromptDismissedAt ?? current.browserPushPromptDismissedAt,
+    browserPushPermissionState: input.preferences.browserPushPermissionState ?? current.browserPushPermissionState,
+    browserPushSubscriptionHash: input.preferences.browserPushSubscriptionHash ?? current.browserPushSubscriptionHash,
   });
   db.users[index] = {
     ...db.users[index],
@@ -15880,6 +15966,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_cancelled",
     });
   }
   await writeDb(db, { selectedTables: TRADE_STATUS_BASE_TABLES });

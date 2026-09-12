@@ -476,6 +476,16 @@ export interface MobileNotificationPreferences {
 
 export interface MobileNotificationPreferencesResponse {
   preferences: MobileNotificationPreferences;
+  whatsapp: {
+    tradeUpdates: boolean;
+    chatMessages: boolean;
+    consented: boolean;
+    consentVersion: string;
+    consentText: string;
+    available: boolean;
+    sendingEnabled: boolean;
+    status: "ready" | "awaiting_meta_approval" | "not_configured" | "feature_disabled" | "storage_unavailable";
+  };
   phone: {
     verified: boolean;
     masked: string | null;
@@ -483,7 +493,12 @@ export interface MobileNotificationPreferencesResponse {
   requestId: string;
 }
 
-export type MobileNotificationPreferencesUpdateRequest = Partial<MobileNotificationPreferences>;
+export type MobileNotificationPreferencesUpdateRequest = Partial<MobileNotificationPreferences> & {
+  whatsappTradeUpdates?: boolean;
+  whatsappChatMessages?: boolean;
+  whatsappConsentAccepted?: boolean;
+  whatsappConsentVersion?: string;
+};
 
 export type MobileSupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
 

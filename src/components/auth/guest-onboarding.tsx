@@ -216,18 +216,19 @@ export function GuestOnboarding({
     try {
       const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
         body: JSON.stringify({
           firstName: seller.firstName,
           lastName: seller.lastName,
           displayName: seller.displayName,
           phone: seller.phone,
+          locale: isAr ? "ar" : "en",
         }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code.", "تعذر إرسال رمز التحقق."));
       setSellerStep("otp_sent");
-      setSellerStatus2(isAr ? "تم إرسال رمز التحقق." : (payload.message ?? "Verification code sent."));
+      setSellerStatus2(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setSellerError(isAr ? "تعذر إرسال رمز التحقق." : (detail || "Failed to send verification code."));
