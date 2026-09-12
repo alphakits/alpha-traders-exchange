@@ -83,13 +83,72 @@ describe("production environment safety validation", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "automatic");
 
     const { errors } = validateEnv();
-    expect(errors.join("\n")).toContain("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER must be either twilio or whatsapp");
+    expect(errors.join("\n")).toContain("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER must be disabled, twilio, or whatsapp");
+  });
+
+  it("keeps phone verification and Twilio disabled by default", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "twilio");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "configured-sid");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "configured-token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15550000000");
+
+    const { errors } = validateEnv();
+    const phoneOrTwilioErrors = errors.filter((error) => (
+      error.includes("Phone verification")
+      || error.includes("phone verification")
+      || error.includes("Twilio")
+      || error.includes("TWILIO_")
+    ));
+    expect(phoneOrTwilioErrors).toEqual([]);
+  });
+
+  it("requires an explicit provider when phone verification is enabled", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "disabled");
+
+    const { errors } = validateEnv();
+    expect(errors.join("\n")).toContain("Phone verification requires an explicit twilio or whatsapp provider");
+  });
+
+  it("requires the separate exact-true Twilio send gate for Twilio phone verification", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "twilio");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "1");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "configured-sid");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "configured-token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15550000000");
+
+    const { errors } = validateEnv();
+    expect(errors.join("\n")).toContain("Twilio phone verification requires ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=true");
+  });
+
+  it("requires complete Twilio credentials only when its send gate is explicitly enabled", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "configured-sid");
+
+    const { errors } = validateEnv();
+    const message = errors.join("\n");
+    expect(message).toContain("TWILIO_AUTH_TOKEN");
+    expect(message).toContain("TWILIO_PHONE_NUMBER");
   });
 
   it("keeps WhatsApp authentication independent from Utility notification sending", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
     vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED", "true");
@@ -109,6 +168,7 @@ describe("production environment safety validation", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
     vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED", "true");
@@ -129,6 +189,7 @@ describe("production environment safety validation", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
     vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED", "false");
     vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED", "false");

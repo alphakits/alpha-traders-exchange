@@ -11,7 +11,7 @@ vi.mock("@/lib/auth", () => ({
   AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
-import { requireApiUser, requireApiAdmin, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireApiAdmin, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { getCurrentSessionUser } from "@/lib/auth";
 
 const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUser);
@@ -63,6 +63,7 @@ describe("requireEmailVerificationForTrading", () => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = originalBypassEnv;
 });
 
@@ -120,8 +121,39 @@ describe("requireApiAdmin", () => {
   });
 });
 
+describe("requireApiSellerWorkspaceActor", () => {
+  it("rejects a stale seller session whose email is not verified", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller", emailVerified: false }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+    } as never);
+
+    const { user, unauthorized } = await requireApiSellerWorkspaceActor();
+
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+    await expect(unauthorized?.json()).resolves.toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
+  });
+
+  it("allows an email-verified seller without requiring a phone", async () => {
+    const seller = {
+      ...makeUser({ role: "approved_seller", emailVerified: true }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+    };
+    mockGetCurrentSessionUser.mockResolvedValue(seller as never);
+
+    const { user, unauthorized } = await requireApiSellerWorkspaceActor();
+
+    expect(user).toEqual(seller);
+    expect(unauthorized).toBeNull();
+  });
+});
+
 describe("requirePhoneVerificationForTrading", () => {
   it("allows configured bypass email even without verified phone", () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
     const denied = requirePhoneVerificationForTrading({
       id: "user-1",
@@ -134,6 +166,7 @@ describe("requirePhoneVerificationForTrading", () => {
   });
 
   it("still denies non-whitelisted accounts without verified phone", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
     const denied = requirePhoneVerificationForTrading({
       id: "user-2",

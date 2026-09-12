@@ -44,7 +44,9 @@ const ENV_VARS: EnvVar[] = [
   { key: "TWILIO_ACCOUNT_SID", required: false, description: "Twilio account SID for server-side SMS delivery" },
   { key: "TWILIO_AUTH_TOKEN", required: false, description: "Twilio auth token for server-side SMS delivery and callback validation" },
   { key: "TWILIO_PHONE_NUMBER", required: false, description: "Twilio E.164 sender number for server-side SMS delivery" },
-  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", required: false, description: "Phone verification transport: twilio or whatsapp" },
+  { key: "ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", required: false, description: "Explicitly enable all outbound Twilio SMS" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", required: false, description: "Explicitly enable optional phone verification" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", required: false, description: "Phone verification transport: disabled, twilio, or whatsapp" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED", required: false, description: "Expose explicit WhatsApp notification consent controls after Meta policy clearance" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED", required: false, description: "Enable approved WhatsApp Cloud API template delivery" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED", required: false, description: "Enable direct Meta WhatsApp authentication-template phone verification" },
@@ -212,18 +214,33 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
     const whatsappAuthSendEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED);
     const whatsappAuthTemplateApproved = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED);
     const whatsappPolicyApproved = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED);
-    const phoneVerificationProvider = process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase() || "twilio";
+    const twilioSendEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED);
+    const phoneVerificationEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED);
+    const phoneVerificationProvider = process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase() || "disabled";
     const whatsappPhoneVerificationSelected = phoneVerificationProvider === "whatsapp";
-    if (phoneVerificationProvider !== "twilio" && phoneVerificationProvider !== "whatsapp") {
-      errors.push("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER must be either twilio or whatsapp.");
+    if (!["disabled", "twilio", "whatsapp"].includes(phoneVerificationProvider)) {
+      errors.push("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER must be disabled, twilio, or whatsapp.");
     }
-    if (whatsappPhoneVerificationSelected && !whatsappAuthSendEnabled) {
+    if (twilioSendEnabled) {
+      const missingTwilio = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"]
+        .filter((key) => !process.env[key]?.trim());
+      if (missingTwilio.length > 0) {
+        errors.push(`Missing required Twilio environment variable(s): ${missingTwilio.join(", ")}.`);
+      }
+    }
+    if (phoneVerificationEnabled && phoneVerificationProvider === "disabled") {
+      errors.push("Phone verification requires an explicit twilio or whatsapp provider.");
+    }
+    if (phoneVerificationEnabled && phoneVerificationProvider === "twilio" && !twilioSendEnabled) {
+      errors.push("Twilio phone verification requires ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=true.");
+    }
+    if (phoneVerificationEnabled && whatsappPhoneVerificationSelected && !whatsappAuthSendEnabled) {
       errors.push(
         "WhatsApp phone verification requires ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED=true after the authentication template is approved.",
       );
     }
     const whatsappNotificationConfigured = whatsappConsentUiEnabled || whatsappSendEnabled;
-    const whatsappAuthenticationConfigured = whatsappAuthSendEnabled || whatsappPhoneVerificationSelected;
+    const whatsappAuthenticationConfigured = whatsappAuthSendEnabled || (phoneVerificationEnabled && whatsappPhoneVerificationSelected);
     if (whatsappAuthenticationConfigured && !whatsappAuthTemplateApproved) {
       errors.push(
         "WhatsApp phone verification requires ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED=true after Meta approves alpha_phone_verification.",

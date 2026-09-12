@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
@@ -86,6 +86,8 @@ function request(method: "GET" | "PATCH", body?: Record<string, unknown>, includ
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
   mocks.requireMobileApiUser.mockResolvedValue({
     user,
     accessToken: "mobile-access-token",
@@ -98,6 +100,10 @@ beforeEach(() => {
   mocks.updateWhatsAppSubscription.mockResolvedValue(whatsappDisabled);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("mobile notification preferences route", () => {
   it("returns only preference state and a masked verified phone", async () => {
     const response = await GET(request("GET"));
@@ -106,9 +112,10 @@ describe("mobile notification preferences route", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      preferences: { inApp: true, email: false, sms: true },
+      preferences: { inApp: true, email: false, sms: false },
       phone: { verified: true, masked: "+97•••67" },
       whatsapp: { status: "feature_disabled" },
+      capabilities: { phoneVerification: false, sms: false },
       requestId: "notification-settings-request",
     });
     expect(serialized).not.toContain("never-return-password-hash");
@@ -124,7 +131,8 @@ describe("mobile notification preferences route", () => {
       preferences: { email: true, inApp: false },
     });
     await expect(response.json()).resolves.toMatchObject({
-      preferences: { inApp: true, email: true, sms: true },
+      preferences: { inApp: true, email: true, sms: false },
+      capabilities: { phoneVerification: false, sms: false },
     });
   });
 
@@ -141,7 +149,15 @@ describe("mobile notification preferences route", () => {
     expect(mocks.updateNotificationPreferences).not.toHaveBeenCalled();
   });
 
-  it("requires a verified phone before enabling SMS", async () => {
+  it("rejects SMS opt-in without persistence while Twilio sending is disabled", async () => {
+    const response = await PATCH(request("PATCH", { sms: true }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.updateNotificationPreferences).not.toHaveBeenCalled();
+  });
+
+  it("requires a verified phone when Twilio sending is explicitly enabled", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     mocks.requireMobileApiUser.mockResolvedValueOnce({
       user: { ...user, verifiedPhone: undefined, phoneVerifiedAt: undefined },
       accessToken: "mobile-access-token",
@@ -152,6 +168,23 @@ describe("mobile notification preferences route", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.updateNotificationPreferences).not.toHaveBeenCalled();
+  });
+
+  it("persists SMS opt-in only when Twilio sending is explicitly enabled", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+
+    const response = await PATCH(request("PATCH", { sms: true }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.updateNotificationPreferences).toHaveBeenCalledWith({
+      userId: user.id,
+      preferences: { sms: true },
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      preferences: { sms: true },
+      capabilities: { phoneVerification: true, sms: true },
+    });
   });
 
   it("uses only the authenticated verified phone for explicit WhatsApp consent", async () => {

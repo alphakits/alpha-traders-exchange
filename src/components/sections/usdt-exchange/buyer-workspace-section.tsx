@@ -216,12 +216,8 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                     <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
                   </label>
                   <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "البريد الإلكتروني (قريباً)" : "Email (future-ready)"}</span>
+                    <span>{isAr ? "البريد الإلكتروني" : "Email"}</span>
                     <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "رسائل SMS (قريباً)" : "SMS (future-ready)"}</span>
-                    <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
                   </label>
                   <Button type="submit" size="sm" variant="secondary">{isAr ? "حفظ التفضيلات" : "Save Preferences"}</Button>
                 </form>

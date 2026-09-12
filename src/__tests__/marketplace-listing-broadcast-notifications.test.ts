@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
 
@@ -173,6 +173,41 @@ describe("marketplace listing publication broadcasts", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not create or send an SMS delivery when Twilio credentials exist but sending is off", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACconfigured");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "configured-token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const owner = snapshot.users.find((user) => user.id === OWNER_ID);
+    expect(owner).toBeDefined();
+    owner!.notificationPreferences = { inApp: true, email: false, sms: true };
+    owner!.verifiedPhone = TEST_PHONE;
+    owner!.phoneVerifiedAt = new Date().toISOString();
+
+    await createSellerApplication({
+      userId: BUYER_ID,
+      fullName: "Eligible Buyer",
+      email: BUYER_EMAIL,
+      whatsappNumber: TEST_PHONE,
+      preferredNetworks: ["USDT (TRC20 / Tron)"],
+      expectedMonthlyTradingVolume: "2500",
+      additionalNotes: "Ready to sell",
+    });
+
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.smsDeliveries ?? []).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("repairs blank notification content while preserving the unread count", async () => {

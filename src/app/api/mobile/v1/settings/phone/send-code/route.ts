@@ -10,6 +10,7 @@ import {
   resolveMobileLocale,
 } from "@/lib/mobile-api";
 import { sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireMobileApiUser(request, requestId, metadata);
     if (!auth.user) return auth.unauthorized;
+    if (!isMarketplacePhoneVerificationEnabled()) {
+      return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
+    }
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       identifier: auth.user.id,

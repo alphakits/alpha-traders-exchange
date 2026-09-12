@@ -20,6 +20,8 @@ import {
   WhatsAppPreferenceValidationError,
   type WhatsAppChannelStatus,
 } from "@/lib/whatsapp-notifications";
+import { isTwilioSendEnabled } from "@/lib/notification-platform";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 
 type NotificationUser = {
   id: string;
@@ -60,7 +62,7 @@ async function responsePayload(
     preferences: {
       inApp: preferences?.inApp !== false,
       email: preferences?.email === true,
-      sms: preferences?.sms === true,
+      sms: isTwilioSendEnabled() && preferences?.sms === true,
     },
     whatsapp: {
       ...whatsappPayload(channel ?? await getWhatsAppChannelStatus(user.id)),
@@ -71,6 +73,10 @@ async function responsePayload(
       masked: user.verifiedPhone
         ? `${user.verifiedPhone.slice(0, 3)}•••${user.verifiedPhone.slice(-2)}`
         : null,
+    },
+    capabilities: {
+      phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      sms: isTwilioSendEnabled(),
     },
   };
 }
@@ -137,6 +143,9 @@ export async function PATCH(request: NextRequest) {
       booleanKeys.some((key) => typeof body[key] !== "boolean")
       || ("whatsappConsentVersion" in body && typeof body.whatsappConsentVersion !== "string")
     ) {
+      return mobileError("INVALID_REQUEST", requestId, locale, 400);
+    }
+    if (body.sms === true && !isTwilioSendEnabled()) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
     if (body.sms === true && (!auth.user.verifiedPhone || !auth.user.phoneVerifiedAt)) {

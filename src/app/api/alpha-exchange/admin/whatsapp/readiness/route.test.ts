@@ -17,6 +17,7 @@ vi.mock("@/lib/whatsapp-notifications", () => ({
 import { GET } from "./route";
 
 const ENVIRONMENT_KEYS = [
+  "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED",
   "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER",
   "ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED",
   "ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED",
@@ -35,6 +36,7 @@ describe("admin WhatsApp readiness", () => {
   beforeEach(() => {
     for (const key of ENVIRONMENT_KEYS) delete process.env[key];
     Object.assign(process.env, {
+      ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED: "true",
       ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER: "whatsapp",
       ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED: "false",
       ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED: "true",
@@ -88,5 +90,15 @@ describe("admin WhatsApp readiness", () => {
     expect(serialized).not.toContain("private-meta-case");
     expect(serialized).not.toContain("123456789012345");
     expect(serialized).not.toContain("987654321098765");
+  });
+
+  it("reports phone verification as disabled unless the master flag is explicitly enabled", async () => {
+    delete process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED;
+
+    const response = await GET();
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.authentication.selectedPhoneVerificationProvider).toBe("disabled");
   });
 });

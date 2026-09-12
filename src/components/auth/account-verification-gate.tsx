@@ -176,9 +176,13 @@ export function AccountVerificationGate({
                   : "Complete verification to access Alpha Exchange"}
               </h1>
               <p className="mt-2 text-sm text-[#D1D5DB]">
-                {isAr
-                  ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
-                  : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading."}
+                {phoneVerificationEnabled
+                  ? (isAr
+                    ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
+                    : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading.")
+                  : (isAr
+                    ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة والمطلوبة للوصول إلى Alpha Exchange."
+                    : "Email verification is the only verification method enabled and required to access Alpha Exchange.")}
               </p>
             </div>
           </div>
@@ -186,7 +190,7 @@ export function AccountVerificationGate({
 
         {loading ? <p className="mt-5 text-sm text-[#9CA3AF]">{isAr ? "جاري تحميل حالة التحقق..." : "Loading verification status..."}</p> : null}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className={`mt-6 grid gap-4 ${phoneVerificationEnabled ? "md:grid-cols-2" : ""}`}>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -219,6 +223,7 @@ export function AccountVerificationGate({
             ) : null}
           </div>
 
+          {phoneVerificationEnabled ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -302,6 +307,7 @@ export function AccountVerificationGate({
               </p>
             )}
           </div>
+          ) : null}
         </div>
 
         {visibleError ? <p className="mt-4 text-sm text-rose-300">{visibleError}</p> : null}

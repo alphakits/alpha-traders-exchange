@@ -37,6 +37,26 @@ describe("AccountVerificationGate canonical session ownership", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/me", { cache: "no-store", credentials: "include" });
   });
 
+  it("shows email as the only verification method when phone verification is off", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ user: unverifiedUser }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CanonicalSessionProvider initialSessionUser={unverifiedUser}>
+        <AccountVerificationGate locale="en" initialEmail="buyer@example.test" initialName="Buyer User" phoneVerificationEnabled={false} />
+      </CanonicalSessionProvider>,
+    );
+
+    expect(await screen.findByText("Email verification is the only verification method enabled and required to access Alpha Exchange.")).toBeTruthy();
+    expect(screen.getByText("Email verification")).toBeTruthy();
+    expect(screen.queryByText("Phone verification")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send verification code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify phone" })).toBeNull();
+  });
+
   it("sends the Arabic locale when resending account verification", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === "/api/auth/me") {

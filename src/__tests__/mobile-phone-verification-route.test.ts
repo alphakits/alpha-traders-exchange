@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
@@ -59,6 +59,7 @@ function request(path: "send-code" | "verify-code", body: Record<string, unknown
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
   mocks.requireUser.mockResolvedValue({ user, accessToken: "mobile-token", unauthorized: null });
   mocks.rate.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
   mocks.begin.mockResolvedValue({ phone: "+972501234567", code: "482901" });
@@ -66,7 +67,35 @@ beforeEach(() => {
   mocks.confirm.mockResolvedValue({ id: user.id, verifiedPhone: "+972501234567" });
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("mobile phone verification routes", () => {
+  it("rejects sends without creating or delivering a code when phone verification is disabled", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+
+    const response = await sendCode(request("send-code", { phone: "+972501234567" }));
+
+    expect(response.status).toBe(503);
+    expect(mocks.rate).not.toHaveBeenCalled();
+    expect(mocks.begin).not.toHaveBeenCalled();
+    expect(mocks.deliver).not.toHaveBeenCalled();
+  });
+
+  it("rejects confirmations without reading a code when phone verification is disabled", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+
+    const response = await verifyCode(request("verify-code", {
+      phone: "+972501234567",
+      code: "482901",
+    }));
+
+    expect(response.status).toBe(503);
+    expect(mocks.rate).not.toHaveBeenCalled();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
+
   it("sends the persisted OTP through the selected provider without returning it", async () => {
     const response = await sendCode(request("send-code", { phone: "+972501234567" }));
     const payload = await response.json();

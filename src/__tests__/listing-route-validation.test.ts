@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
+  requireEmailVerificationForTrading: vi.fn(),
   canPublishListings: vi.fn(),
   getMarketplaceListingById: vi.fn(),
   updateMarketplaceListingForSeller: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
+  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -39,6 +41,7 @@ import { PATCH } from "@/app/api/alpha-exchange/listings/[listingId]/route";
 describe("alpha-exchange listing route validation", () => {
   beforeEach(() => {
     mocks.requireApiUser.mockReset();
+    mocks.requireEmailVerificationForTrading.mockReset().mockReturnValue(null);
     mocks.canPublishListings.mockReset();
     mocks.getMarketplaceListingById.mockReset();
     mocks.updateMarketplaceListingForSeller.mockReset();

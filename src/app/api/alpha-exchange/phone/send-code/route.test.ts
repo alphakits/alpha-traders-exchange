@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -26,6 +26,7 @@ import { POST } from "./route";
 
 describe("profile phone verification code delivery", () => {
   beforeEach(() => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     mocks.requireApiUser.mockReset().mockResolvedValue({
       user: { id: "user-1", role: "buyer" },
       unauthorized: null,
@@ -40,6 +41,30 @@ describe("profile phone verification code delivery", () => {
       provider: "whatsapp",
       channel: "whatsapp",
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns email-only mode without rate limiting, persisting, or sending a code", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+    const request = new Request("https://example.test/api/alpha-exchange/phone/send-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+972541234567" }),
+    });
+
+    const response = await POST(request as never);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Phone verification is disabled. Email verification is the active verification method.",
+      supportCode: "OTP_PROVIDER_CONFIGURATION",
+    });
+    expect(mocks.checkSharedRateLimit).not.toHaveBeenCalled();
+    expect(mocks.beginProfilePhoneVerification).not.toHaveBeenCalled();
+    expect(mocks.sendPhoneVerificationCode).not.toHaveBeenCalled();
   });
 
   it("passes the persisted code to the selected provider without returning it", async () => {

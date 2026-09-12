@@ -138,11 +138,13 @@ function PillToggle({ checked, disabled = false, onChange }: { checked: boolean;
 export function AccountSettingsPanel({
   locale,
   phoneVerificationEnabled,
+  smsDeliveryEnabled = false,
   initialTab,
   initialSellerBankAccess,
 }: {
   locale: "ar" | "en";
   phoneVerificationEnabled: boolean;
+  smsDeliveryEnabled?: boolean;
   initialTab?: Tab;
   initialSellerBankAccess?: boolean;
 }) {
@@ -971,8 +973,8 @@ export function AccountSettingsPanel({
               {!phoneVerificationEnabled ? (
                 <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                   {isAr
-                    ? "التحقق من رقم الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. سيتوفر قريبًا."
-                    : "Phone verification is temporarily unavailable while we complete service activation. It will be available soon."}
+                    ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة حاليًا. التحقق عبر الهاتف متوقف وغير مطلوب."
+                    : "Email verification is the only verification method currently enabled. Phone verification is off and is not required."}
                 </div>
               ) : null}
               <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-4">
@@ -1019,7 +1021,7 @@ export function AccountSettingsPanel({
                     onChange={(v) => void saveNotificationChannels({ ...notifChannels, email: v })}
                   />
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                {smsDeliveryEnabled ? <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
                   <span className="text-sm text-[#D1D5DB]">{isAr ? "إشعارات الرسائل النصية" : "SMS notifications"}</span>
                   <PillToggle
                     checked={notifChannels.sms}
@@ -1031,8 +1033,8 @@ export function AccountSettingsPanel({
                       void saveNotificationChannels({ ...notifChannels, sms: v });
                     }}
                   />
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
+                </div> : null}
+                {phoneVerificationEnabled ? <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
                   <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل خدمات الهاتف المتاحة." : "Verify an E.164 phone number to enable available phone services.")}</p>
                   {!phoneVerified && <div className="flex flex-wrap gap-2">
                     <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+15551234567" className="max-w-xs" />
@@ -1041,7 +1043,13 @@ export function AccountSettingsPanel({
                     <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
                   </div>}
                   {phoneMessage && <p className="text-xs text-[#C9A227]">{phoneMessage}</p>}
-                </div>
+                </div> : (
+                  <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
+                    {isAr
+                      ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة حاليًا. التحقق عبر الهاتف ورسائل SMS متوقفان."
+                      : "Email verification is the only verification method currently enabled. Phone verification and SMS are off."}
+                  </div>
+                )}
                 <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>

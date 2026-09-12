@@ -2,16 +2,18 @@ import "server-only";
 
 import {
   getBilingualOtpSms,
+  isTwilioSendEnabled,
   normalizeE164,
   sendTwilioMessageWithRetry,
 } from "@/lib/notification-platform";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import {
   getWhatsAppAuthenticationReadiness,
   sendWhatsAppAuthenticationCodeWithRetry,
   type WhatsAppTemplateLocale,
 } from "@/lib/whatsapp-platform";
 
-export type PhoneVerificationProvider = "twilio" | "whatsapp";
+export type PhoneVerificationProvider = "disabled" | "twilio" | "whatsapp";
 export type PhoneVerificationChannel = "sms" | "whatsapp";
 export type PhoneVerificationSupportCode =
   | "OTP_PROVIDER_CONFIGURATION"
@@ -35,9 +37,11 @@ export type PhoneVerificationDeliveryResult =
 export function getPhoneVerificationProvider(
   env: NodeJS.ProcessEnv = process.env,
 ): PhoneVerificationProvider | null {
+  if (!isMarketplacePhoneVerificationEnabled(env)) return "disabled";
   const configured = env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase();
-  if (!configured || configured === "twilio") return "twilio";
+  if (!configured || configured === "disabled") return "disabled";
   if (configured === "whatsapp") return "whatsapp";
+  if (configured === "twilio") return isTwilioSendEnabled(env) ? "twilio" : "disabled";
   return null;
 }
 
@@ -81,7 +85,7 @@ export async function sendPhoneVerificationCode(input: {
   if (!/^\d{6}$/.test(input.code)) return unavailable();
 
   const provider = getPhoneVerificationProvider();
-  if (!provider) return unavailable();
+  if (!provider || provider === "disabled") return unavailable(provider ?? undefined);
 
   if (provider === "whatsapp") {
     if (!getWhatsAppAuthenticationReadiness().readyToSend) return unavailable(provider);
