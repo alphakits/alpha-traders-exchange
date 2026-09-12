@@ -64,7 +64,7 @@ function parseTransferAmountMicros(transfer: TronGridTrc20Transfer) {
   if (!rawValue || !/^\d+$/.test(rawValue) || !Number.isInteger(decimals) || decimals !== 6) return null;
   try {
     const micros = BigInt(rawValue);
-    if (micros <= 0n || micros > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    if (micros <= BigInt(0) || micros > BigInt(Number.MAX_SAFE_INTEGER)) return null;
     return Number(micros);
   } catch {
     return null;
@@ -157,8 +157,6 @@ async function reconcileUnsubmittedCommissionPayments() {
       return blockTimestamp >= assignedAt - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS;
     });
 
-    // Never guess when the same amount could belong to more than one unpaid commission.
-    // Current exact-payment intents are unique, while this guard keeps legacy/base amounts safe.
     if (amountCandidates.length !== 1) continue;
     const commission = amountCandidates[0];
     usedCommissionIds.add(commission.id);
@@ -225,8 +223,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // A discovered payment is verified immediately above. Keep enough execution
-    // budget to recheck older submitted TxIDs without exceeding the 60s cron cap.
     const pendingLimit = autoReconciliation.matched > 0 ? 1 : 2;
     const result = await reverifyPendingCommissionPayments({ limit: pendingLimit });
     logEvent("info", {
