@@ -10,6 +10,8 @@ import {
   WhatsAppPreferenceValidationError,
 } from "@/lib/whatsapp-notifications";
 import type { NotificationPreferences } from "@/types/alpha-exchange";
+import { isTwilioSendEnabled } from "@/lib/notification-platform";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 
 const traditionalPreferenceKeys = [
   "inApp",
@@ -41,7 +43,7 @@ function traditionalPayload(user: { notificationPreferences?: Partial<Notificati
   return {
     inApp: user.notificationPreferences?.inApp !== false,
     email: user.notificationPreferences?.email === true,
-    sms: user.notificationPreferences?.sms === true,
+    sms: isTwilioSendEnabled() && user.notificationPreferences?.sms === true,
     browserPush: user.notificationPreferences?.browserPush === true,
     browserPushTradeUpdates: user.notificationPreferences?.browserPushTradeUpdates !== false,
     browserPushChatMessages: user.notificationPreferences?.browserPushChatMessages !== false,
@@ -82,6 +84,10 @@ export async function GET() {
     preferences: traditionalPayload(user),
     whatsapp: await whatsappPayload(user.id, user.preferredLocale),
     phone: phonePayload(user),
+    capabilities: {
+      phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      sms: isTwilioSendEnabled(),
+    },
   });
 }
 
@@ -105,6 +111,9 @@ export async function PATCH(request: NextRequest) {
     const traditionalKeys = traditionalPreferenceKeys.filter((key) => key in body);
     if (traditionalKeys.some((key) => typeof body[key] !== "boolean")) {
       return NextResponse.json({ error: "Notification channel values must be boolean." }, { status: 400 });
+    }
+    if (body.sms === true && !isTwilioSendEnabled()) {
+      return NextResponse.json({ error: "SMS notifications are disabled." }, { status: 400 });
     }
     if (body.sms === true && (!user.verifiedPhone || !user.phoneVerifiedAt)) {
       return NextResponse.json({ error: "Verify a phone number before enabling SMS notifications." }, { status: 400 });
@@ -164,7 +173,15 @@ export async function PATCH(request: NextRequest) {
       });
       preferences = traditionalPayload({ notificationPreferences: updated });
     }
-    return NextResponse.json({ preferences, whatsapp, phone: phonePayload(user) });
+    return NextResponse.json({
+      preferences,
+      whatsapp,
+      phone: phonePayload(user),
+      capabilities: {
+        phoneVerification: isMarketplacePhoneVerificationEnabled(),
+        sms: isTwilioSendEnabled(),
+      },
+    });
   } catch (error) {
     if (error instanceof WhatsAppPreferenceValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });

@@ -7,6 +7,7 @@ import { logEvent } from "@/lib/structured-logging";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 
 function getOtpExpiryMinutes() {
   const configured = Number(process.env.BUYER_OTP_EXPIRY_MINUTES ?? "10");
@@ -20,6 +21,13 @@ export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  if (!isMarketplacePhoneVerificationEnabled()) {
+    return NextResponse.json({
+      error: "Phone verification is disabled. Email verification is the active verification method.",
+      supportCode: "OTP_PROVIDER_CONFIGURATION",
+      requestId,
+    }, { status: 503 });
+  }
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `auth:buyer-otp-verify:${user.id}`,

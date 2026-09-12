@@ -87,7 +87,16 @@ type TwilioSendInput = {
   timeoutMs?: number;
 };
 
+export function isTwilioSendEnabled(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED?.trim().toLowerCase() === "true";
+}
+
 export async function sendTwilioMessage(input: TwilioSendInput): Promise<TwilioSendResult> {
+  if (!isTwilioSendEnabled()) {
+    return { ok: false, retryable: false, error: "Twilio SMS is disabled." };
+  }
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = normalizeE164(process.env.TWILIO_PHONE_NUMBER ?? "");

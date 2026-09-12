@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceListingById, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
@@ -29,6 +29,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
@@ -227,6 +229,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }

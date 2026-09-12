@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { isTwilioSendEnabled } from "@/lib/notification-platform";
 import { buildPageMetadata } from "@/lib/seo";
 import { AccountSettingsPanel } from "@/components/settings/account-settings-panel";
 
@@ -28,6 +29,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     <AccountSettingsPanel
       locale={locale === "ar" ? "ar" : "en"}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+      smsDeliveryEnabled={isTwilioSendEnabled()}
       initialTab={query.tab === "profile"
         ? "profile"
         : query.tab === "account"

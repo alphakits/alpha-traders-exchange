@@ -490,6 +490,10 @@ export interface MobileNotificationPreferencesResponse {
     verified: boolean;
     masked: string | null;
   };
+  capabilities: {
+    phoneVerification: boolean;
+    sms: boolean;
+  };
   requestId: string;
 }
 

@@ -104,7 +104,9 @@ export default function OnboardingScreen() {
             <OnboardingInput isRTL={isRTL} label={isAr ? "اسم العائلة" : "Last Name"} onChangeText={setLastName} value={lastName} />
             <OnboardingInput isRTL={isRTL} label={isAr ? "اسم العرض (اختياري)" : "Display Name (Optional)"} onChangeText={setDisplayName} value={displayName} />
             <Text style={[styles.note, isRTL && styles.rtlText]}>
-              {isAr ? "رقم الهاتف اختياري ولا يمنع تداول المشتري." : "Phone verification is optional and does not block Buyer trading."}
+              {isAr
+                ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المطلوبة حاليًا."
+                : "Email verification is the only verification method currently required."}
             </Text>
             <GoldButton
               disabled={!firstName.trim() || !lastName.trim() || Boolean(loading)}

@@ -44,7 +44,8 @@ import { formatCommissionId } from "@/lib/format-id";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
-import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
+import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { validateUploadContent } from "@/lib/file-content-validation";
 import { toAdminSellerSummary, toAdminUserSummary } from "@/lib/client-session-user";
@@ -4654,6 +4655,7 @@ export function hasVerifiedPhoneForSms(user: Pick<AlphaExchangeUser, "verifiedPh
 }
 
 function queueSmsDelivery(db: AlphaExchangeDb, input: { eventType: SmsEventType; eventKey: string; recipientUserId: string; destinationPath: string }) {
+  if (!isTwilioSendEnabled()) return;
   const user = db.users.find((item) => item.id === input.recipientUserId);
   if (!user || user.notificationPreferences?.sms !== true || !hasVerifiedPhoneForSms(user)) return;
   const phone = normalizeE164(user.verifiedPhone ?? "");
@@ -5629,6 +5631,7 @@ function hashPhoneOtp(phone: string, code: string, salt: string) {
 }
 
 export async function beginProfilePhoneVerification(input: { userId: string; phone: string }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const phone = normalizeE164(input.phone);
   if (!phone) throw new Error("Enter a valid international E.164 phone number.");
   const db = await readDb();
@@ -5649,6 +5652,7 @@ export async function beginProfilePhoneVerification(input: { userId: string; pho
 }
 
 export async function confirmProfilePhoneVerification(input: { userId: string; phone: string; code: string }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
   if (!phone || !/^\d{6}$/.test(input.code)) throw new Error("Invalid verification code.");
   const db = await readDb();
@@ -5750,6 +5754,7 @@ export async function beginBuyerVerification(input: {
   displayName?: string;
   phone: string;
 }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   assertNoExchangeDirectContact(input.firstName, input.lastName, input.displayName);
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
@@ -5784,6 +5789,7 @@ export async function beginBuyerVerification(input: {
 }
 
 export async function completeBuyerVerification(input: { userId: string; phone: string }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
   if (index === -1) throw new Error("User not found.");

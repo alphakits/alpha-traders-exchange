@@ -7,6 +7,11 @@ import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 
+const phoneVerificationMocks = vi.hoisted(() => ({
+  isMarketplacePhoneVerificationDisabled: vi.fn(),
+  isVerified: vi.fn(),
+}));
+
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
     set: vi.fn(),
@@ -43,11 +48,11 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
 }));
 
 vi.mock("@/lib/phone-verification", () => ({
-  isMarketplacePhoneVerificationDisabled: vi.fn(() => true),
+  isMarketplacePhoneVerificationDisabled: phoneVerificationMocks.isMarketplacePhoneVerificationDisabled,
 }));
 
 vi.mock("@/lib/verification-bypass", () => ({
-  isVerified: vi.fn(() => true),
+  isVerified: phoneVerificationMocks.isVerified,
 }));
 
 vi.mock("@/lib/site-url", () => ({
@@ -96,6 +101,8 @@ beforeEach(() => {
   mockGetSiteUrl.mockReturnValue("https://www.alphatraders.co.il");
   mockBuildAuthEmail.mockReturnValue({ subject: "Verify", html: "<p>Verify</p>", text: "Verify" });
   mockSendAuthEmailViaResend.mockResolvedValue({ ok: true });
+  phoneVerificationMocks.isMarketplacePhoneVerificationDisabled.mockReturnValue(false);
+  phoneVerificationMocks.isVerified.mockReturnValue(false);
 });
 
 describe("POST /api/auth/login", () => {
@@ -154,7 +161,7 @@ describe("POST /api/auth/login", () => {
     expect(mockCreateUserSession).not.toHaveBeenCalled();
   });
 
-  it("allows a locally authenticated account with an explicit verified-email marker", async () => {
+  it("allows a locally authenticated account with verified email without synthesizing phone verification", async () => {
     mockAuthenticateLocalUser.mockResolvedValue(verifiedLocalUser as never);
     const request = new Request("https://example.com/api/auth/login", {
       method: "POST",
@@ -171,5 +178,7 @@ describe("POST /api/auth/login", () => {
     }));
     expect(mockCreateUserSession).toHaveBeenCalledWith(verifiedLocalUser.id, 14);
     expect(setCookie).toHaveBeenCalledWith("alpha-verified", "1", expect.any(Object));
+    expect(setCookie).toHaveBeenCalledWith("alpha-phone-verified", "", expect.any(Object));
+    expect(setCookie).not.toHaveBeenCalledWith("alpha-phone-verified", "1", expect.any(Object));
   });
 });

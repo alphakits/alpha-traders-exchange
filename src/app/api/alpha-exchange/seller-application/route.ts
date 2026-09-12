@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSellerApplication, getSellerApplicationByUserId } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:seller-application", maxRequests: 6, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   if (isAlphaExchangeOwnerEmail(user.email)) {

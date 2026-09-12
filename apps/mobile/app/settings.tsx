@@ -143,14 +143,14 @@ export default function SettingsScreen() {
               label={isAr ? "إشعارات البريد الإلكتروني" : "Email notifications"}
               onChange={(value) => notificationMutation.mutate({ email: value })}
             />
-            <PreferenceToggle
+            {notificationQuery.data.capabilities.sms ? <PreferenceToggle
               checked={notificationQuery.data.preferences.sms}
               disabled={notificationMutation.isPending || !notificationQuery.data.phone.verified}
               isRTL={isRTL}
               label={isAr ? "رسائل SMS" : "SMS notifications"}
               onChange={(value) => notificationMutation.mutate({ sms: value })}
-            />
-            {!notificationQuery.data.phone.verified ? (
+            /> : null}
+            {notificationQuery.data.capabilities.phoneVerification && !notificationQuery.data.phone.verified ? (
               <View style={styles.phoneVerificationPanel}>
                 <Text style={[styles.preferenceLabel, isRTL && styles.rtlText]}>
                   {isAr ? "توثيق رقم الهاتف" : "Verify phone number"}
@@ -220,8 +220,14 @@ export default function SettingsScreen() {
                   </Text>
                 ) : null}
               </View>
-            ) : notificationQuery.data.phone.masked ? (
+            ) : notificationQuery.data.capabilities.phoneVerification && notificationQuery.data.phone.masked ? (
               <Text style={[styles.status, isRTL && styles.rtlText]}>{notificationQuery.data.phone.masked}</Text>
+            ) : !notificationQuery.data.capabilities.phoneVerification ? (
+              <Text style={[styles.status, isRTL && styles.rtlText]}>
+                {isAr
+                  ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة حاليًا. التحقق عبر الهاتف ورسائل SMS متوقفان."
+                  : "Email verification is the only verification method currently enabled. Phone verification and SMS are off."}
+              </Text>
             ) : null}
             <View style={styles.whatsappPanel}>
               <Text style={[styles.preferenceLabel, isRTL && styles.rtlText]}>WhatsApp Business</Text>

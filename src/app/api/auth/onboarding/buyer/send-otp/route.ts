@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { beginBuyerVerification, beginProfilePhoneVerification } from "@/lib/alpha-exchange-store";
 import { sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -9,6 +10,13 @@ export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  if (!isMarketplacePhoneVerificationEnabled()) {
+    return NextResponse.json({
+      error: "Phone verification is disabled. Email verification is the active verification method.",
+      supportCode: "OTP_PROVIDER_CONFIGURATION",
+      requestId,
+    }, { status: 503 });
+  }
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `auth:buyer-otp-send:${user.id}`,

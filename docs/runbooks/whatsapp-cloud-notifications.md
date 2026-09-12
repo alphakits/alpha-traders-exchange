@@ -6,6 +6,20 @@ intentionally fail-closed: deploying the code or adding credentials cannot
 send a message unless the relevant send switch, policy acknowledgement,
 approval reference, and approved-template gate are all enabled.
 
+## Current email-only baseline
+
+Account verification currently uses email only. Keep
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=false` and
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER=disabled` in production. Phone
+verification endpoints and phone-code delivery remain unavailable in this
+state.
+
+Twilio is independently fail-closed. Keep
+`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false`; stored `TWILIO_*` credentials alone
+cannot enable SMS or phone-code delivery. Remove unused Twilio credentials from
+the production environment when operational access is available, but do not
+treat credential removal as the kill switch.
+
 ## Policy gate
 
 Do not enable consent collection or outbound delivery until Meta has provided
@@ -84,7 +98,10 @@ order after written approval is:
 5. Confirm both `alpha_phone_verification` language versions are approved, then
    set `ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED=true`,
    `ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED=true`, and
-   `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER=whatsapp`.
+   `ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER=whatsapp`. Only after those
+   checks pass and phone verification is deliberately approved for release,
+   set `ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true`. Leave
+   `ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false`.
 6. Deploy and have one internal account explicitly request a code. Confirm it
    arrives once through WhatsApp, expires after 10 minutes, and verifies the
    same phone. A timeout is not retried automatically; request a new code under
@@ -120,7 +137,10 @@ reminder jobs succeeding first.
 
 Set `ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED=false` and redeploy to stop Utility
 notifications while leaving audit and consent records intact. Set
-`ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED=false` to stop WhatsApp phone-code
-delivery independently. If the consent experience must also be hidden, set
+`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=false` to restore email-only account
+verification, and set `ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED=false` to stop
+WhatsApp phone-code delivery independently. Keep
+`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false` to block all Twilio sends even if
+credentials still exist. If the consent experience must also be hidden, set
 `ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED=false`. Rotate the access token and
 webhook token after any suspected credential exposure.

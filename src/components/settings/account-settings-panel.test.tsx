@@ -187,15 +187,28 @@ describe("Account settings notification channels", () => {
   it.each([
     {
       locale: "en" as const,
-      visibleChannels: ["In-app notifications", "Email notifications", "SMS notifications"],
+      visibleChannels: ["In-app notifications", "Email notifications"],
+      hiddenSmsLabel: "SMS notifications",
       hiddenPushLabel: "Browser push",
+      hiddenPhoneAction: "Send code",
+      emailOnlyNotice: "Email verification is the only verification method currently enabled. Phone verification and SMS are off.",
     },
     {
       locale: "ar" as const,
-      visibleChannels: ["إشعارات داخل المنصة", "إشعارات البريد الإلكتروني", "إشعارات الرسائل النصية"],
+      visibleChannels: ["إشعارات داخل المنصة", "إشعارات البريد الإلكتروني"],
+      hiddenSmsLabel: "إشعارات الرسائل النصية",
       hiddenPushLabel: "إشعارات المتصفح",
+      hiddenPhoneAction: "إرسال الرمز",
+      emailOnlyNotice: "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة حاليًا. التحقق عبر الهاتف ورسائل SMS متوقفان.",
     },
-  ])("shows only implemented delivery channels in $locale", async ({ locale, visibleChannels, hiddenPushLabel }) => {
+  ])("shows email-only verification and only active delivery channels in $locale", async ({
+    locale,
+    visibleChannels,
+    hiddenSmsLabel,
+    hiddenPushLabel,
+    hiddenPhoneAction,
+    emailOnlyNotice,
+  }) => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("/api/auth/profile")) {
@@ -230,6 +243,9 @@ describe("Account settings notification channels", () => {
     for (const label of visibleChannels) {
       expect(await screen.findByText(label)).toBeTruthy();
     }
+    expect(screen.getByText(emailOnlyNotice)).toBeTruthy();
+    expect(screen.queryByText(hiddenSmsLabel)).toBeNull();
+    expect(screen.queryByRole("button", { name: hiddenPhoneAction })).toBeNull();
     expect(screen.queryByText(hiddenPushLabel)).toBeNull();
     expect(screen.queryByText(locale === "ar" ? "تفعيل إشعارات المتصفح" : "Enable browser push")).toBeNull();
   });
