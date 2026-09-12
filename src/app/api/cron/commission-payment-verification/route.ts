@@ -5,14 +5,16 @@ import {
   reverifyPendingCommissionPayments,
   submitSellerCommissionWalletPayment,
 } from "@/lib/alpha-exchange-store";
-import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
+import {
+  CANONICAL_TRC20_COMMISSION_WALLET,
+  OFFICIAL_TRON_USDT_CONTRACT,
+} from "@/lib/commission-config";
 import { logEvent } from "@/lib/structured-logging";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const OFFICIAL_TRON_USDT_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
 const TRONGRID_DEFAULT_BASE_URL = "https://api.trongrid.io";
 const TRONGRID_SCAN_TIMEOUT_MS = 8_000;
 const MAX_AUTO_RECONCILIATIONS_PER_RUN = 2;

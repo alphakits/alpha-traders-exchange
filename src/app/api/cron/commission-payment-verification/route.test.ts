@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const WALLET = "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8";
 const TX_ID = "81b3e4c7fbd1a9748d8d718f781cf08cd38a142b7c7484ffca94ea7329f7d8a7";
-const USDT_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
+const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const NON_USDT_TRC20_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
 const SECRET = "test-cron-secret-that-is-at-least-32-characters";
 
 const mocks = vi.hoisted(() => ({
@@ -120,6 +121,8 @@ describe("automatic commission payment verification cron", () => {
 
     const response = await GET(request(`Bearer ${SECRET}`));
     expect(response.status).toBe(200);
+    const requestedUrl = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
+    expect(requestedUrl.searchParams.get("contract_address")).toBe(USDT_CONTRACT);
     expect(mocks.submitSellerCommissionWalletPayment).toHaveBeenCalledWith({
       sellerUserId: "seller-625",
       commissionId: "commission-625",
@@ -130,6 +133,27 @@ describe("automatic commission payment verification cron", () => {
     expect(mocks.reverifyPendingCommissionPayments).toHaveBeenCalledWith({ limit: 1 });
     const body = await response.json();
     expect(body.autoReconciliation).toMatchObject({ matched: 1, verified: 1, legacyMatched: 0, errors: 0 });
+  });
+
+  it("rejects a same-amount transfer whose token contract is not official USDT", async () => {
+    const assignedAt = Date.now() - 60_000;
+    mocks.getAdminPrepDashboardData.mockResolvedValue({
+      commissionRecords: [{
+        id: "commission-625",
+        sellerId: "seller-625",
+        paymentStatus: "pending",
+        paymentExpectedAmount: 6.25,
+        paymentExpectedAmountMode: "unique_v1",
+        paymentExpectedAmountAssignedAt: new Date(assignedAt).toISOString(),
+      }],
+    });
+    const transfer = tronGridTransfer("6250000", assignedAt + 30_000);
+    transfer.data[0].token_info.address = NON_USDT_TRC20_CONTRACT;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(transfer)));
+
+    const response = await GET(request(`Bearer ${SECRET}`));
+    expect(response.status).toBe(200);
+    expect(mocks.submitSellerCommissionWalletPayment).not.toHaveBeenCalled();
   });
 
   it("backfills a legacy base-amount payment made after commission creation but before the later assignment timestamp", async () => {
