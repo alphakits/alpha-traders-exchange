@@ -223,6 +223,10 @@ function formatUsdt(value: number) {
   return `${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
 }
 
+function formatExactUsdt(value: number) {
+  return `${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDT`;
+}
+
 function formatPercent(value: number) {
   return `${value.toLocaleString("en-IL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
@@ -512,6 +516,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [manualCommissionReason, setManualCommissionReason] = useState("");
   const [manualCommissionDueDate, setManualCommissionDueDate] = useState("");
   const [manualCommissionSubmitting, setManualCommissionSubmitting] = useState(false);
+  const [commissionPaidPending, setCommissionPaidPending] = useState<{
+    record: CommissionRecord;
+    sellerName: string;
+    sourceLabel: string;
+  } | null>(null);
+  const [commissionPaidReason, setCommissionPaidReason] = useState("");
+  const [commissionPaidSaving, setCommissionPaidSaving] = useState(false);
+  const [commissionPaidError, setCommissionPaidError] = useState<string | null>(null);
 
   const [auditQuery, setAuditQuery] = useState("");
   const [auditAction, setAuditAction] = useState<"all" | AuditLogEntry["action"]>("all");
@@ -531,11 +543,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [announcementMessageAr, setAnnouncementMessageAr] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
   const lastFocusedDeepLinkRef = useRef<string | null>(null);
-  const [deepLinkTargetElement, setDeepLinkTargetElement] = useState<HTMLTableRowElement | null>(null);
+  const [deepLinkTargetElement, setDeepLinkTargetElement] = useState<HTMLElement | null>(null);
   const setSellerApplicationRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
   const setMarketplaceListingRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
   const setPurchaseRequestRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
-  const setCommissionRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
+  const setCommissionRow = useCallback((element: HTMLElement | null) => setDeepLinkTargetElement(element), []);
   const searchParamsKey = searchParams.toString();
   const adminDestination = useMemo(
     () => parseAdminDashboardDestination(new URLSearchParams(searchParamsKey)),
@@ -598,13 +610,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [complianceWalletAddress, setComplianceWalletAddress] = useState("");
 
   useEffect(() => {
-    if (!selectedSeller && !selectedRequest && !rankConfirmPending) return;
+    if (!selectedSeller && !selectedRequest && !rankConfirmPending && !commissionPaidPending) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (rankConfirmPending) {
+      if (commissionPaidPending && !commissionPaidSaving) {
+        setCommissionPaidPending(null);
+        setCommissionPaidReason("");
+        setCommissionPaidError(null);
+      } else if (rankConfirmPending) {
         setRankConfirmPending(null);
         setRankConfirmReason("");
       } else if (selectedRequest) {
@@ -619,12 +635,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [rankConfirmPending, selectedRequest, selectedSeller]);
+  }, [commissionPaidPending, commissionPaidSaving, rankConfirmPending, selectedRequest, selectedSeller]);
 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setLoading(true);
     setError(null);
     try {
       const [response, smsResponse] = await Promise.all([
@@ -638,7 +654,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     } catch (requestError) {
       setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
     } finally {
-      setLoading(false);
+      if (!options.silent) setLoading(false);
     }
   }, [isArabic, locale]);
 
@@ -1290,6 +1306,84 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     const p = await r.json() as { error?: string };
     pushToast(r.ok ? t("Review window unlocked.", "تم فتح نافذة التقييم.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
     if (r.ok) await fetchData();
+  }
+
+  function openCommissionPaidDialog(record: CommissionRecord, sellerName: string, sourceLabel: string) {
+    setCommissionPaidPending({ record, sellerName, sourceLabel });
+    setCommissionPaidReason(t(
+      "Payment received and confirmed manually by the owner.",
+      "تم استلام الدفعة وتأكيدها يدويًا من المالك.",
+    ));
+    setCommissionPaidError(null);
+  }
+
+  function closeCommissionPaidDialog() {
+    if (commissionPaidSaving) return;
+    setCommissionPaidPending(null);
+    setCommissionPaidReason("");
+    setCommissionPaidError(null);
+  }
+
+  async function handleConfirmCommissionPaid() {
+    if (!commissionPaidPending || commissionPaidSaving) return;
+    const reason = commissionPaidReason.trim();
+    if (!reason) {
+      setCommissionPaidError(t(
+        "Add a short payment reference or reason before confirming.",
+        "أضف مرجع الدفع أو سببًا مختصرًا قبل التأكيد.",
+      ));
+      return;
+    }
+
+    setCommissionPaidSaving(true);
+    setCommissionPaidError(null);
+    try {
+      const response = await fetch(`/api/alpha-exchange/admin/commissions/${commissionPaidPending.record.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          paymentStatus: "paid",
+          paymentVerificationStatus: "verified",
+          paymentVerificationNotes: reason,
+          reason,
+        }),
+      });
+      let payload: { commission?: CommissionRecord; error?: string } = {};
+      try {
+        payload = await response.json() as { commission?: CommissionRecord; error?: string };
+      } catch {
+        payload = {};
+      }
+      if (!response.ok || !payload.commission) {
+        throw new Error(payload.error || t(
+          "The commission could not be marked paid. Please try again.",
+          "تعذر تسجيل العمولة كمدفوعة. حاول مرة أخرى.",
+        ));
+      }
+      const updatedCommission = payload.commission;
+
+      setData((current) => current ? {
+        ...current,
+        commissionRecords: current.commissionRecords.map((record) => (
+          record.id === updatedCommission.id ? updatedCommission : record
+        )),
+      } : current);
+      setCommissionPaidPending(null);
+      setCommissionPaidReason("");
+      pushToast(t(
+        "Commission marked paid. Seller confirmation was sent.",
+        "تم تسجيل العمولة كمدفوعة وإرسال التأكيد للبائع.",
+      ));
+      await fetchData({ silent: true });
+    } catch (actionError) {
+      const message = actionError instanceof Error
+        ? actionError.message
+        : t("The commission could not be marked paid. Please try again.", "تعذر تسجيل العمولة كمدفوعة. حاول مرة أخرى.");
+      setCommissionPaidError(message);
+      pushToast(message);
+    } finally {
+      setCommissionPaidSaving(false);
+    }
   }
 
   async function handleReverifyCommission(commissionId: string) {
@@ -2894,121 +2988,157 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </p>
                         ) : null}
 
-                        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
-                          <table className="w-full min-w-[980px] text-sm">
-                            <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
-                              <tr>
-                                <th className="w-[13rem] px-4 py-3 text-center">{t("Source / Trade", "المصدر / الصفقة")}</th>
-                                <th className="px-4 py-3">{t("Buyer / Reason", "المشتري / السبب")}</th>
-                                <th className="px-4 py-3">{t("Seller", "البائع")}</th>
-                                <th className="px-4 py-3">{t("Trade Value", "قيمة الصفقة")}</th>
-                                <th className="px-4 py-3">{t("Commission", "العمولة")}</th>
-                                <th className="px-4 py-3">{t("Payment Status", "حالة الدفع")}</th>
-                                <th className="px-4 py-3">{t("Date", "التاريخ")}</th>
-                                <th className="px-4 py-3">{t("Actions", "الإجراءات")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {commissionsRows.rows.map((record) => {
-                                const request = record.purchaseRequestId
-                                  ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
-                                  : undefined;
-                                const seller = sellersById.get(record.sellerId);
-                                const isAdminIssued = record.source === "admin_manual";
-                                return (
-                                  <tr
-                                    key={record.id}
-                                    id={`commission-${record.id}`}
-                                    ref={adminDestination.commissionId === record.id ? setCommissionRow : undefined}
-                                    tabIndex={-1}
-                                    className={`border-t border-white/10 ${adminDestination.commissionId === record.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
-                                  >
-                                    <td className="w-[13rem] px-4 py-3 text-center text-[#D1D5DB]">
-                                      {isAdminIssued ? (
-                                        <div className="flex flex-col items-center gap-1">
-                                          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">{t("Admin-issued", "صادرة عن الإدارة")}</span>
-                                          <span className="font-mono text-[11px]">{displayCommissionId(record)}</span>
-                                        </div>
-                                      ) : (
-                                        <span className="font-mono font-medium whitespace-nowrap">{displayTradeId(request, record.tradeId ?? record.purchaseRequestId)}</span>
-                                      )}
-                                    </td>
-                                    <td className="max-w-[20rem] px-4 py-3 text-white">
-                                      {isAdminIssued
-                                        ? <span className="whitespace-pre-wrap break-words text-xs text-[#D1D5DB]">{record.issueReason || t("Admin-issued seller obligation", "التزام بائع صادر عن الإدارة")}</span>
-                                        : request?.buyerName ?? record.buyerId ?? "—"}
-                                    </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{isAdminIssued ? "—" : formatCurrency(record.grossAmount)}</td>
-                                    <td className="px-4 py-3 text-[#C9A227]">{formatUsdt(record.commissionAmount)}</td>
-                                    <td className="px-4 py-3">
-                                      <span className={`rounded-full px-2.5 py-1 text-xs ${record.paymentStatus === "paid" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
-                                        {statusLabel(record.paymentStatus)}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(record.createdAt)}</td>
-                                    <td className="px-4 py-3">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        {record.paymentStatus !== "paid" ? (
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => {
-                                              if (!window.confirm(t("Mark this commission as paid?", "هل تريد تسجيل هذه العمولة كمدفوعة؟"))) return;
-                                              const reason = requestReason(t("Reason for marking this commission paid:", "سبب تسجيل العمولة كمدفوعة:"), t("Commission manually marked paid.", "تم تسجيل العمولة كمدفوعة يدويًا."));
-                                              if (!reason) return;
-                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid", paymentVerificationStatus: "verified", reason }) }), t("Commission marked paid.", "تم تسجيل العمولة كمدفوعة."));
-                                            }}
-                                          >
-                                            {t("Mark Paid", "تسجيل كمدفوعة")}
-                                          </Button>
-                                        ) : (
-                                          <span className="text-xs text-[#9CA3AF]">{t("Settled", "تمت التسوية")}</span>
-                                        )}
-                                        {record.paymentVerificationStatus !== "failed" ? (
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => {
-                                              if (!window.confirm(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟"))) return;
-                                              const reason = requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة."));
-                                              if (!reason) return;
-                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
-                                            }}
-                                          >
-                                            {t("Reject", "رفض")}
-                                          </Button>
-                                        ) : null}
-                                        {record.paymentStatus !== "pending" || record.paymentVerificationStatus === "failed" ? (
-                                          <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="secondary"
-                                            onClick={() => {
-                                              if (!window.confirm(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟"))) return;
-                                              const reason = requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
-                                              if (!reason) return;
-                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
-                                            }}
-                                          >
-                                            {t("Reset Pending", "إعادة للانتظار")}
-                                          </Button>
-                                        ) : null}
-                                        {record.paymentSignature ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => void handleReverifyCommission(record.id)}>
-                                            {t("Reverify", "إعادة التحقق")}
-                                          </Button>
-                                        ) : null}
+                        <div data-testid="commission-card-list" className="mt-5 grid min-w-0 gap-3 xl:grid-cols-2">
+                          {commissionsRows.rows.map((record) => {
+                            const request = record.purchaseRequestId
+                              ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
+                              : undefined;
+                            const seller = sellersById.get(record.sellerId);
+                            const sellerName = seller?.fullName ?? record.sellerId;
+                            const isAdminIssued = record.source === "admin_manual";
+                            const sourceLabel = isAdminIssued
+                              ? `${t("Admin-issued", "صادرة عن الإدارة")} · ${displayCommissionId(record)}`
+                              : displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
+                            const exactPayment = typeof record.paymentExpectedAmount === "number"
+                              ? record.paymentExpectedAmount
+                              : record.commissionAmount;
+                            return (
+                              <article
+                                key={record.id}
+                                id={`commission-${record.id}`}
+                                data-testid={`commission-card-${record.id}`}
+                                ref={adminDestination.commissionId === record.id ? setCommissionRow : undefined}
+                                tabIndex={-1}
+                                className={`min-w-0 rounded-2xl border bg-gradient-to-br from-white/[0.045] to-transparent p-4 shadow-[0_16px_40px_rgba(0,0,0,0.2)] sm:p-5 ${adminDestination.commissionId === record.id ? "border-[#C9A227]/55 bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/30" : "border-white/10"}`}
+                              >
+                                <div className="flex min-w-0 items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#7F8490]">{t("Seller", "البائع")}</p>
+                                    <h3 className="mt-1 break-words text-base font-semibold text-white">{sellerName}</h3>
+                                    {isAdminIssued ? (
+                                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                                        <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-semibold text-[#F4D87A]">
+                                          {t("Admin-issued", "صادرة عن الإدارة")}
+                                        </span>
+                                        <span className="break-all font-mono text-[11px] text-[#9CA3AF]">{displayCommissionId(record)}</span>
                                       </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              {commissionsRows.rows.length === 0 ? renderEmptyTableRow(t("No commission records match your filters.", "لا توجد سجلات عمولة تطابق الفلاتر."), 8) : null}
-                            </tbody>
-                          </table>
+                                    ) : (
+                                      <p className="mt-1 break-all font-mono text-[11px] text-[#9CA3AF]">{sourceLabel}</p>
+                                    )}
+                                  </div>
+                                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${record.paymentStatus === "paid" ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border-red-500/35 bg-red-500/10 text-red-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
+                                    {statusLabel(record.paymentStatus)}
+                                  </span>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                                  <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
+                                    <p className="mt-1 text-sm font-semibold text-[#F4D87A]">{formatUsdt(record.commissionAmount)}</p>
+                                  </div>
+                                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Exact payment", "الدفع الدقيق")}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{formatExactUsdt(exactPayment)}</p>
+                                  </div>
+                                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Trade value", "قيمة الصفقة")}</p>
+                                    <p className="mt-1 text-sm font-medium text-white">{isAdminIssued ? "—" : formatCurrency(record.grossAmount)}</p>
+                                  </div>
+                                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Issued", "تاريخ الإصدار")}</p>
+                                    <p className="mt-1 text-xs font-medium leading-5 text-white">{formatDate(record.createdAt)}</p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm">
+                                  <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{isAdminIssued ? t("Reason", "السبب") : t("Buyer", "المشتري")}</p>
+                                  <p className="mt-1 whitespace-pre-wrap break-words text-[#D1D5DB]">
+                                    {isAdminIssued
+                                      ? record.issueReason || t("Admin-issued seller obligation", "التزام بائع صادر عن الإدارة")
+                                      : request?.buyerName ?? record.buyerId ?? "—"}
+                                  </p>
+                                </div>
+
+                                {record.paymentSignature || record.paymentVerificationNotes ? (
+                                  <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2.5 text-xs text-[#9CA3AF]">
+                                    {record.paymentSignature ? (
+                                      <p className="break-all"><span className="text-[#D1D5DB]">{t("Payment reference:", "مرجع الدفع:")}</span> {record.paymentSignature}</p>
+                                    ) : null}
+                                    {record.paymentVerificationNotes ? <p className="mt-1 break-words">{record.paymentVerificationNotes}</p> : null}
+                                  </div>
+                                ) : null}
+
+                                <div className="mt-4">
+                                  {record.paymentStatus !== "paid" ? (
+                                    <Button
+                                      type="button"
+                                      className="h-12 w-full bg-[#C9A227] px-4 text-black hover:bg-[#E3C65A]"
+                                      onClick={() => openCommissionPaidDialog(record, sellerName, sourceLabel)}
+                                    >
+                                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                                      {t("Mark Paid", "تسجيل كمدفوعة")}
+                                    </Button>
+                                  ) : (
+                                    <div className="flex h-12 items-center justify-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/[0.08] text-sm font-medium text-emerald-300">
+                                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                                      {t("Payment settled", "تمت تسوية الدفع")}
+                                    </div>
+                                  )}
+
+                                  <details className="group mt-2 rounded-xl border border-white/10 bg-black/20">
+                                    <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-medium text-[#9CA3AF] marker:hidden">
+                                      <span>{t("More actions", "إجراءات إضافية")}</span>
+                                      <span className="transition group-open:rotate-180" aria-hidden="true">⌄</span>
+                                    </summary>
+                                    <div className="grid grid-cols-1 gap-2 border-t border-white/10 p-2 sm:grid-cols-3">
+                                      {record.paymentVerificationStatus !== "failed" ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          className="w-full"
+                                          onClick={() => {
+                                            if (!window.confirm(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟"))) return;
+                                            const reason = requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة."));
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
+                                          }}
+                                        >
+                                          {t("Reject", "رفض")}
+                                        </Button>
+                                      ) : null}
+                                      {record.paymentStatus !== "pending" || record.paymentVerificationStatus === "failed" ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          className="w-full"
+                                          onClick={() => {
+                                            if (!window.confirm(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟"))) return;
+                                            const reason = requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
+                                          }}
+                                        >
+                                          {t("Reset Pending", "إعادة للانتظار")}
+                                        </Button>
+                                      ) : null}
+                                      {record.paymentSignature ? (
+                                        <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => void handleReverifyCommission(record.id)}>
+                                          {t("Reverify", "إعادة التحقق")}
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  </details>
+                                </div>
+                              </article>
+                            );
+                          })}
+                          {commissionsRows.rows.length === 0 ? (
+                            <div className="rounded-2xl border border-dashed border-white/15 px-4 py-10 text-center text-sm text-[#9CA3AF] xl:col-span-2">
+                              {t("No commission records match your filters.", "لا توجد سجلات عمولة تطابق الفلاتر.")}
+                            </div>
+                          ) : null}
                         </div>
                         {renderPagination(commissionsRows.safePage, commissionsRows.totalPages, setCommissionsPage)}
                       </CardContent>
@@ -4203,6 +4333,137 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           </div>
         ) : null}
 
+      {commissionPaidPending ? (
+          <div
+            className="alpha-modal-backdrop fixed inset-0 z-[70] flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center sm:p-4"
+            onClick={closeCommissionPaidDialog}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="commission-paid-dialog-title"
+              aria-describedby="commission-paid-dialog-description"
+              className="alpha-modal-panel max-h-[calc(100dvh-0.5rem)] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/15 bg-[#0D0D0D] px-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-24px_60px_rgba(0,0,0,0.7)] sm:rounded-3xl sm:p-6 sm:shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20 sm:hidden" aria-hidden="true" />
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" />
+                    <h3 id="commission-paid-dialog-title" className="text-lg font-semibold text-white">
+                      {t("Confirm commission payment", "تأكيد دفع العمولة")}
+                    </h3>
+                  </div>
+                  <p id="commission-paid-dialog-description" className="mt-1 text-sm leading-5 text-[#9CA3AF]">
+                    {t(
+                      "Review the seller and amount before changing the account status.",
+                      "راجع البائع والمبلغ قبل تغيير حالة الحساب.",
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label={t("Close payment confirmation", "إغلاق تأكيد الدفع")}
+                  onClick={closeCommissionPaidDialog}
+                  disabled={commissionPaidSaving}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-[#9CA3AF] transition hover:text-white disabled:opacity-40"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#7F8490]">{t("Seller", "البائع")}</p>
+                    <p className="mt-1 break-words font-semibold text-white">{commissionPaidPending.sellerName}</p>
+                    <p className="mt-1 break-all font-mono text-[11px] text-[#9CA3AF]">{commissionPaidPending.sourceLabel}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs ${commissionPaidPending.record.paymentStatus === "overdue" ? "border-red-500/35 bg-red-500/10 text-red-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
+                    {statusLabel(commissionPaidPending.record.paymentStatus)}
+                  </span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2.5">
+                  <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
+                    <p className="mt-1 font-semibold text-[#F4D87A]">{formatUsdt(commissionPaidPending.record.commissionAmount)}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Requested payment", "الدفع المطلوب")}</p>
+                    <p className="mt-1 font-medium text-white">
+                      {formatExactUsdt(commissionPaidPending.record.paymentExpectedAmount ?? commissionPaidPending.record.commissionAmount)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label htmlFor="commission-paid-reason" className="block text-sm font-medium text-white">
+                  {t("Payment reference or reason", "مرجع الدفع أو السبب")}
+                </label>
+                <p className="mt-1 text-xs leading-5 text-[#9CA3AF]">
+                  {t(
+                    "This is saved in the audit log. Add the Binance internal transfer number when available.",
+                    "يُحفظ هذا في سجل النشاط. أضف رقم تحويل Binance الداخلي عند توفره.",
+                  )}
+                </p>
+                <Textarea
+                  id="commission-paid-reason"
+                  value={commissionPaidReason}
+                  onChange={(event) => {
+                    setCommissionPaidReason(event.target.value);
+                    if (commissionPaidError) setCommissionPaidError(null);
+                  }}
+                  rows={3}
+                  maxLength={500}
+                  placeholder={t(
+                    "Example: Received via Binance internal transfer 410678442518.",
+                    "مثال: تم الاستلام عبر تحويل Binance الداخلي 410678442518.",
+                  )}
+                  className="mt-2 min-h-24"
+                />
+                <p className="mt-1 text-end text-[11px] text-[#6B7280]">{commissionPaidReason.length}/500</p>
+              </div>
+
+              {commissionPaidError ? (
+                <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm leading-5 text-red-200">
+                  {commissionPaidError}
+                </p>
+              ) : null}
+
+              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
+                {t(
+                  "Confirmation marks this commission paid, records the audit reason, notifies the seller, and unlocks selling when no other commission is due.",
+                  "سيؤدي التأكيد إلى تسجيل العمولة كمدفوعة وحفظ السبب وإشعار البائع وفتح البيع إذا لم تبقَ عمولة أخرى.",
+                )}
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="order-2 h-12 w-full sm:order-1"
+                  onClick={closeCommissionPaidDialog}
+                  disabled={commissionPaidSaving}
+                >
+                  {t("Cancel", "إلغاء")}
+                </Button>
+                <Button
+                  type="button"
+                  className="order-1 h-12 w-full bg-emerald-400 text-black hover:bg-emerald-300 sm:order-2"
+                  onClick={() => void handleConfirmCommissionPaid()}
+                  loading={commissionPaidSaving}
+                  loadingLabel={t("Saving payment...", "جارٍ حفظ الدفع...")}
+                  disabled={!commissionPaidReason.trim()}
+                >
+                  {t("Confirm & Mark Paid", "تأكيد وتسجيل كمدفوعة")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
       {rankConfirmPending ? (
           <div
             className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
@@ -4280,7 +4541,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         ) : null}
 
       {toast ? (
-          <div className="alpha-reveal-rise fixed bottom-5 end-5 z-50 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)]">
+          <div className="alpha-reveal-rise fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[90] rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-3 text-center text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)] md:inset-x-auto md:bottom-5 md:end-5 md:rounded-full md:py-2 md:text-start">
             {toast}
           </div>
         ) : null}
