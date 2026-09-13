@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
@@ -270,6 +270,140 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(await screen.findByText("Admin-issued")).toBeTruthy();
     expect(screen.getByText("Documented settlement adjustment")).toBeTruthy();
     expect(screen.queryByText("Trade #commission-admin-manual-1")).toBeNull();
+  });
+
+  it("renders phone-safe commission cards and marks a payment paid through the in-page dialog", async () => {
+    navigationState.search = "section=commissions";
+    const seller = {
+      id: "seller-rayan-1",
+      fullName: "Rayan Mariah",
+      email: "rayan@example.test",
+      whatsappNumber: "+972500000001",
+      role: "approved_seller",
+      roles: ["buyer", "approved_seller"],
+      sellerStatus: "approved_seller",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    };
+    const commission = {
+      id: "commission-rayan-1",
+      source: "admin_manual",
+      sellerId: seller.id,
+      issuedByUserId: "admin-1",
+      issueReason: "Trade commission adjustment",
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 4.18,
+      paymentExpectedAmount: 4.180001,
+      paymentExpectedAmountMode: "unique_v1",
+      paymentExpectedAmountAssignedAt: "2026-09-12T17:30:00.000Z",
+      paymentStatus: "overdue",
+      dueAt: "2026-09-12T20:30:00.000Z",
+      createdAt: "2026-09-04T17:30:00.000Z",
+      updatedAt: "2026-09-12T17:30:00.000Z",
+    };
+    const paidCommission = {
+      ...commission,
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentVerificationNotes: "Received via Binance internal transfer 410678442518.",
+      paidAt: "2026-09-13T12:15:30.000Z",
+      updatedAt: "2026-09-13T12:15:30.000Z",
+    };
+    let settled = false;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (url.endsWith(`/api/alpha-exchange/admin/commissions/${commission.id}`) && init?.method === "PATCH") {
+        settled = true;
+        return Response.json({ commission: paidCommission });
+      }
+      return Response.json(adminPayload([listing], [seller], [settled ? paidCommission : commission]));
+    });
+
+    render(<AlphaExchangeAdminDashboard />);
+
+    expect(await screen.findByRole("heading", { name: "Commissions" })).toBeTruthy();
+    const cardList = screen.getByTestId("commission-card-list");
+    const card = within(cardList).getByTestId(`commission-card-${commission.id}`);
+    expect(within(card).getByText("Rayan Mariah")).toBeTruthy();
+    expect(within(card).getByText("4.180001 USDT")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
+
+    const markPaid = within(card).getByRole("button", { name: "Mark Paid" });
+    expect(markPaid.className).toContain("w-full");
+    expect(markPaid.className).toContain("h-12");
+    fireEvent.click(markPaid);
+
+    const dialog = await screen.findByRole("dialog", { name: "Confirm commission payment" });
+    expect(within(dialog).getByText("Rayan Mariah")).toBeTruthy();
+    expect(within(dialog).getByText("4.180001 USDT")).toBeTruthy();
+    const reason = within(dialog).getByLabelText("Payment reference or reason") as HTMLTextAreaElement;
+    fireEvent.change(reason, { target: { value: "Received via Binance internal transfer 410678442518." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
+
+    await waitFor(() => {
+      const request = vi.mocked(fetch).mock.calls.find(([input, init]) => (
+        String(input).endsWith(`/api/alpha-exchange/admin/commissions/${commission.id}`)
+        && init?.method === "PATCH"
+      ));
+      expect(request).toBeTruthy();
+      expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paymentVerificationNotes: "Received via Binance internal transfer 410678442518.",
+        reason: "Received via Binance internal transfer 410678442518.",
+      });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Confirm commission payment" })).toBeNull());
+    expect(await screen.findByText("Payment settled")).toBeTruthy();
+    expect(screen.getByText("Commission marked paid. Seller confirmation was sent.")).toBeTruthy();
+  });
+
+  it("keeps the payment dialog open and shows the API error when settlement fails", async () => {
+    navigationState.search = "section=commissions";
+    const seller = {
+      id: "seller-payment-error",
+      fullName: "Payment Error Seller",
+      email: "payment-error@example.test",
+      whatsappNumber: "+972500000002",
+      role: "approved_seller",
+      roles: ["buyer", "approved_seller"],
+      sellerStatus: "approved_seller",
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    };
+    const commission = {
+      id: "commission-payment-error",
+      source: "admin_manual",
+      sellerId: seller.id,
+      issueReason: "Manual payment test",
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 5.68,
+      paymentExpectedAmount: 5.680001,
+      paymentStatus: "pending",
+      dueAt: "2026-09-20T00:00:00.000Z",
+      createdAt: "2026-09-13T00:00:00.000Z",
+      updatedAt: "2026-09-13T00:00:00.000Z",
+    };
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (url.endsWith(`/api/alpha-exchange/admin/commissions/${commission.id}`) && init?.method === "PATCH") {
+        return Response.json({ error: "Commission record changed. Refresh and try again." }, { status: 409 });
+      }
+      return Response.json(adminPayload([listing], [seller], [commission]));
+    });
+
+    render(<AlphaExchangeAdminDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Mark Paid" }));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm commission payment" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
+
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Commission record changed. Refresh and try again.");
+    expect(screen.getByRole("dialog", { name: "Confirm commission payment" })).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("requires and submits both language editions for an emergency broadcast", async () => {

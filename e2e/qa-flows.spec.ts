@@ -19,6 +19,14 @@ async function readState(ctx: APIRequestContext) {
   return (await res.json()) as Record<string, unknown>;
 }
 
+async function writeState(ctx: APIRequestContext, state: Record<string, unknown>) {
+  const res = await ctx.put("/api/testing/alpha-exchange-state", {
+    headers: TEST_SUPPORT_HEADERS,
+    data: state,
+  });
+  expect(res.ok()).toBeTruthy();
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
@@ -93,6 +101,70 @@ test.describe("Admin flow · Listing Reliability", () => {
       return;
     }
     await expect(page.getByText(/No seller reliability data available yet/i)).toBeVisible();
+  });
+});
+
+test.describe("Admin flow · mobile commission settlement", () => {
+  test("keeps each commission and its Mark Paid action together on an iPhone viewport", async ({ page }) => {
+    const state = await readState(page.request);
+    const now = new Date();
+    const commissionId = `qa-mobile-commission-${world!.seller.id}`;
+    const commission = {
+      id: commissionId,
+      source: "admin_manual",
+      sellerId: world!.seller.id,
+      issuedByUserId: world!.admin.id,
+      issueReason: "Mobile commission settlement QA",
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount: 4.18,
+      paymentExpectedAmount: 4.180001,
+      paymentExpectedAmountMode: "unique_v1",
+      paymentExpectedAmountAssignedAt: now.toISOString(),
+      paymentStatus: "overdue",
+      dueAt: new Date(now.getTime() - 60_000).toISOString(),
+      createdAt: new Date(now.getTime() - 120_000).toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    state.commissionRecords = [
+      ...((state.commissionRecords as Array<Record<string, unknown>> | undefined) ?? []).filter((record) => record.id !== commissionId),
+      commission,
+    ];
+    await writeState(page.request, state);
+    await login(page.request, world!.admin.email, world!.admin.password);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/en/admin/alpha-exchange?section=commissions&commission=${encodeURIComponent(commissionId)}`);
+
+    const card = page.getByTestId(`commission-card-${commissionId}`);
+    await expect(card).toBeVisible();
+    await expect(card.getByText("QA Seller")).toBeVisible();
+    await expect(card.getByText("4.180001 USDT")).toBeVisible();
+    await expect(card.getByRole("button", { name: "Mark Paid" })).toBeVisible();
+    const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(horizontalOverflow, "admin commissions must not overflow horizontally on iPhone").toBeLessThanOrEqual(1);
+
+    await card.getByRole("button", { name: "Mark Paid" }).click();
+    const dialog = page.getByRole("dialog", { name: "Confirm commission payment" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("QA Seller")).toBeVisible();
+    await dialog.getByLabel("Payment reference or reason").fill("Received via Binance internal transfer 410678442518.");
+    await dialog.getByRole("button", { name: "Confirm & Mark Paid" }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(card.getByText("Payment settled")).toBeVisible();
+    await expect(page.getByText("Commission marked paid. Seller confirmation was sent.")).toBeVisible();
+
+    const persisted = await readState(page.request);
+    const savedCommission = ((persisted.commissionRecords as Array<Record<string, unknown>> | undefined) ?? [])
+      .find((record) => record.id === commissionId);
+    expect(savedCommission).toMatchObject({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentVerificationNotes: "Received via Binance internal transfer 410678442518.",
+    });
+    const confirmation = ((persisted.notifications as Array<Record<string, unknown>> | undefined) ?? [])
+      .find((notification) => notification.userId === world!.seller.id && notification.title === "Commission marked paid");
+    expect(confirmation).toBeTruthy();
   });
 });
 

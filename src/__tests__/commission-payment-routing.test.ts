@@ -328,6 +328,10 @@ describe("commission wallet payment routing", () => {
 
   it("does not tell a seller to pay again while an overdue TxID is awaiting verification", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       dueAt: new Date(Date.now() - 60_000).toISOString(),
@@ -354,6 +358,10 @@ describe("commission wallet payment routing", () => {
   it("verifies a solidified official USDT TRC20 transfer and unlocks the seller automatically", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     vi.stubEnv("ALPHA_EXCHANGE_TRONGRID_API_KEY", "test-trongrid-key");
     const fetchMock = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       expect(String(request)).toMatch(/walletsolidity\/gettransactioninfobyid$/);
@@ -385,6 +393,10 @@ describe("commission wallet payment routing", () => {
     });
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     expect(snapshot.purchaseRequests[0]?.timeline.some((entry) => entry.type === "commission_paid")).toBe(true);
+    expect(snapshot.notifications).toContainEqual(expect.objectContaining({
+      userId: SELLER_ID,
+      title: "Commission payment verified",
+    }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -687,6 +699,10 @@ describe("commission wallet payment routing", () => {
   it("automatically reconciles a pre-upgrade verified-but-unpaid commission", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     const submittedAt = new Date(Date.now() - 60_000).toISOString();
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
@@ -858,6 +874,10 @@ describe("commission wallet payment routing", () => {
   it("turns an automatically detected terminal mismatch into a visible replace-TxID state", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       paymentExpectedAmount: 5.000001,
@@ -1053,6 +1073,10 @@ describe("commission wallet payment routing", () => {
   it("settles and unlocks an unpaid commission when admin reverification confirms it on-chain", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       paymentNetwork: "TRC20",
@@ -1469,7 +1493,11 @@ describe("commission wallet payment routing", () => {
   it("confirms a manual settlement, clears stale failure notes, unlocks listings, and emails the seller", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
-    db.users[0] = { ...db.users[0]!, preferredLocale: "en" };
+    db.users[0] = {
+      ...db.users[0]!,
+      preferredLocale: "en",
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       displayNumber: 10,
