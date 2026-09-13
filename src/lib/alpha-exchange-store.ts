@@ -3946,6 +3946,7 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
       actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
       actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
       reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      forceInApp: true,
       deferRealtime: true,
     });
     if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -4857,6 +4858,7 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
     actionHref: commissionPaymentDestination(record.id),
     actionLabel: verificationPending ? "View Payment Status" : "Pay Commission",
     reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+    forceInApp: true,
   });
   const owner = getOwnerUser(db);
   if (owner) {
@@ -4873,6 +4875,7 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
       relatedHref: adminCommissionDestination(record.id),
       actionHref: adminCommissionDestination(record.id),
       actionLabel: "Review Commission",
+      forceInApp: true,
     });
   }
 }
@@ -12524,6 +12527,7 @@ async function updatePurchaseRequestStatusAttempt(
         actionHref: commissionPaymentDestination(commission.id),
         actionLabel: "Pay Commission",
         reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
       });
       const completedTradeSeller = db.users.find((user) => user.id === request.sellerId);
       for (const adminUser of getAdminNotificationRecipients(db)) {
@@ -14021,6 +14025,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         actionHref: confirmation.actionPath,
         actionLabel: confirmation.actionLabel.en,
         reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -14037,6 +14042,7 @@ export async function submitSellerCommissionWalletPayment(input: {
           relatedHref: adminCommissionDestination(canonicalRecord.id),
           actionHref: adminCommissionDestination(canonicalRecord.id),
           actionLabel: "Review Commission",
+          forceInApp: true,
           deferRealtime: true,
         });
         if (ownerPublication) notificationPublications.push(ownerPublication);
@@ -14055,6 +14061,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         actionLabel: "Replace TxID",
         reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         priority: "high",
+        forceInApp: true,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -14405,6 +14412,7 @@ export async function updateCommissionPaymentStatus(input: {
         actionHref: confirmation.actionPath,
         actionLabel: confirmation.actionLabel.en,
         reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
         deferRealtime: true,
       });
       if (publication) notificationPublications.push(publication);
@@ -16278,6 +16286,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
         actionHref: confirmation.actionPath,
         actionLabel: confirmation.actionLabel.en,
         reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -16294,6 +16303,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
           relatedHref: adminCommissionDestination(canonicalRecord.id),
           actionHref: adminCommissionDestination(canonicalRecord.id),
           actionLabel: "Review Commission",
+          forceInApp: true,
           deferRealtime: true,
         });
         if (ownerPublication) notificationPublications.push(ownerPublication);
