@@ -100,7 +100,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       "select to_regclass($1) is not null as ready",
-      ["alpha_exchange.idx_alpha_exchange_evidence_blobs_updated"],
+      ["alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
   });
@@ -127,6 +127,114 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_notifications_trust_reconciliation"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create table if not exists alpha_exchange.evidence_blobs"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_evidence_blobs_updated"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_commissions_unpaid_seller"))).toBe(true);
+  });
+
+  it("loads unpaid commission seller IDs with one targeted canonical query", async () => {
+    const query = vi.fn((queryText: string, _values?: unknown[]) => {
+      void _values;
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("select distinct seller_id from alpha_exchange.commissions")) {
+        return Promise.resolve({ rows: [{ seller_id: "seller-1" }, { seller_id: "seller-2" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.loadUnpaidCommissionSellerIds()).resolves.toEqual(["seller-1", "seller-2"]);
+    expect(query.mock.calls.filter(([sql]) => String(sql).includes("select distinct seller_id"))).toHaveLength(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("from alpha_exchange.listings order by"))).toBe(false);
+  });
+
+  it("loads one Trade Room snapshot and revision without a full-table fan-out", async () => {
+    const requestPayload = {
+      id: "purchase-1",
+      tradeId: "trade-1",
+      listingId: "listing-1",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      buyerName: "Buyer",
+      usdtAmount: "100",
+      fiatAmount: "330",
+      pricePerUsdt: "3.3",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      status: "accepted",
+      createdAt: "2026-09-14T18:00:00.000Z",
+      updatedAt: "2026-09-14T18:00:01.000Z",
+    };
+    const query = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      if (queryText.includes("request.payload as request_payload")) {
+        return Promise.resolve({ rows: [{
+          request_payload: requestPayload,
+          listing_payload: { id: "listing-1", sellerId: "seller-1" },
+          buyer_payload: { id: "buyer-1", fullName: "Buyer" },
+          seller_payload: { id: "seller-1", fullName: "Seller" },
+          dispute_payloads: [],
+          commission_payloads: [],
+          evidence_payloads: [],
+          version: "42",
+        }] });
+      }
+      if (queryText.includes("select id, buyer_id, seller_id, status")) {
+        return Promise.resolve({ rows: [{
+          id: "purchase-1",
+          buyer_id: "buyer-1",
+          seller_id: "seller-1",
+          status: "accepted",
+          updated_at: "2026-09-14T18:00:01.000Z",
+        }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.loadTradeRoomSnapshot(["purchase-1"])).resolves.toMatchObject({
+      purchaseRequests: [{ id: "purchase-1", status: "accepted" }],
+      marketplaceListings: [{ id: "listing-1" }],
+      users: [{ id: "buyer-1" }, { id: "seller-1" }],
+      __runtimeVersion: 42,
+    });
+    await expect(repository.loadTradeRoomRevision(["purchase-1"])).resolves.toEqual({
+      id: "purchase-1",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      status: "accepted",
+      updatedAt: "2026-09-14T18:00:01.000Z",
+    });
+
+    expect(query.mock.calls.filter(([sql]) => String(sql).includes("request.payload as request_payload"))).toHaveLength(1);
+    expect(query.mock.calls.filter(([sql]) => String(sql).includes("select id, buyer_id, seller_id, status"))).toHaveLength(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("select payload from alpha_exchange.users"))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => String(sql).startsWith("select payload from alpha_exchange.purchase_requests"))).toBe(false);
+  });
+
+  it("loads only the explicitly selected critical-path snapshot tables", async () => {
+    const query = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      if (queryText.includes("runtime_meta")) return Promise.resolve({ rows: [{ version: "17" }] });
+      if (queryText.includes("from alpha_exchange.purchase_requests")) {
+        return Promise.resolve({ rows: [{ payload: { id: "purchase-1", status: "accepted" } }] });
+      }
+      if (queryText.includes("from alpha_exchange.notifications")) return Promise.resolve({ rows: [] });
+      throw new Error(`Unexpected full-table query: ${queryText}`);
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    const snapshot = await repository.loadSelectedSnapshot(["purchase_requests", "notifications"]);
+
+    expect(snapshot.purchaseRequests).toEqual([{ id: "purchase-1", status: "accepted" }]);
+    expect(snapshot.users).toEqual([]);
+    expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(17);
+    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("select payload from alpha_exchange."));
+    expect(selectedQueries).toHaveLength(2);
   });
 
   it("stores db:// compliance evidence in PostgreSQL instead of the deployment filesystem", async () => {

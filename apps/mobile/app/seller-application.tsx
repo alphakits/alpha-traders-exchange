@@ -212,7 +212,7 @@ export default function SellerApplicationScreen() {
             <View style={styles.reviewNote}>
               <Text style={[styles.reviewTitle, isRTL && styles.rtlText]}>{isAr ? "ماذا يحدث بعد التقديم؟" : "What happens after you apply?"}</Text>
               <Text style={[styles.body, isRTL && styles.rtlText]}>
-                {isAr ? "• يدخل طلبك في مراجعة يدوية.\n• يتواصل الفريق عبر WhatsApp عند الحاجة.\n• قد نطلب معلومات إضافية قبل الموافقة." : "• Your application enters manual review.\n• The team may contact you through WhatsApp.\n• Additional verification may be requested before approval."}
+                {isAr ? "• يدخل طلبك في مراجعة يدوية.\n• رقم WhatsApp مخصص للتواصل فقط ولن نرسل إليه رمز تحقق.\n• قد نطلب معلومات إضافية قبل الموافقة." : "• Your application enters manual review.\n• The WhatsApp number is for contact only; no verification code will be sent.\n• Additional information may be requested before approval."}
               </Text>
             </View>
 

@@ -22,6 +22,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@alpha-traders/contracts": path.resolve(__dirname, "./packages/contracts/src/index.ts"),
+      "server-only": path.resolve(__dirname, "./src/test/server-only.ts"),
     },
   },
 });

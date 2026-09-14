@@ -33,6 +33,7 @@ export type MarketplaceEmailEvent =
   | "owner_listing_review_required"
   | "owner_seller_application_review_required"
   | "seller_prestige_promoted"
+  | "commission_paid"
   | "marketplace_enforcement_fee_issued"
   | "marketplace_enforcement_fee_paid"
   | "marketplace_enforcement_seller_revoked";

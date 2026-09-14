@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getTradeRoomData, type TradeRoomData } from "@/lib/alpha-exchange-store";
+import { getTradeRoomData, getTradeRoomRevision, type TradeRoomData } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -12,11 +12,15 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const DEBUG = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-// The in-process event bus supplies the same-instance hot path. This existing
-// SSE snapshot stream also reconciles the durable canonical state often enough
-// for a participant connected through another server instance to see a chat
-// message or Poke promptly, without adding another client realtime system.
-const CROSS_INSTANCE_RECONCILIATION_MS = 5_000;
+// Same-instance writes arrive immediately through the event bus. A tiny,
+// indexed row check covers other server instances within one second; the full
+// Trade Room snapshot is fetched only when that exact trade changed.
+const CROSS_INSTANCE_REVISION_POLL_MS = 1_000;
+const SSE_KEEPALIVE_MS = 15_000;
+
+function revisionKey(room: Pick<TradeRoomData["request"], "id" | "status" | "updatedAt">) {
+  return `${room.id}:${room.status}:${room.updatedAt}`;
+}
 
 function isRelevantTradeRoomEvent(event: RealtimeEvent, requestId: string) {
   if (event.type === "trade.status_changed") {
@@ -73,15 +77,22 @@ export async function GET(request: NextRequest, context: RouteContext) {
       let closed = false;
       let snapshotInFlight = false;
       let snapshotQueued = false;
+      let revisionInFlight = false;
       let unsubscribe: (() => void) | null = null;
       let keepAlive: ReturnType<typeof setInterval> | null = null;
+      let revisionPoll: ReturnType<typeof setInterval> | null = null;
       let pendingInitialSnapshot: TradeRoomData | null = initialSnapshot;
+      let lastKnownRevision = revisionKey(initialSnapshot.request);
       const cleanup = () => {
         if (closed) return;
         closed = true;
         if (keepAlive) {
           clearInterval(keepAlive);
           keepAlive = null;
+        }
+        if (revisionPoll) {
+          clearInterval(revisionPoll);
+          revisionPoll = null;
         }
         unsubscribe?.();
         unsubscribe = null;
@@ -101,7 +112,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
           return false;
         }
       };
-      const sendSnapshot = async (trigger: "init" | "event" | "keepalive", publishedAtEpochMs?: number) => {
+      const sendSnapshot = async (trigger: "init" | "event" | "reconcile", publishedAtEpochMs?: number) => {
         if (closed) return;
         if (snapshotInFlight) {
           snapshotQueued = true;
@@ -117,10 +128,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
                 actorUserId: user.id,
                 actorRole: user.role,
                 markMessagesRead: false,
-                // Local realtime events already update the writer's cache. The
-                // periodic SSE reconciliation must bypass that per-instance cache
-                // so another server instance observes the durable message/Poke.
-                strongConsistency: trigger !== "event",
+                // This selects the one-query Trade Room repository path. It is
+                // both canonical and cheaper than the old full snapshot read.
+                strongConsistency: true,
               });
           const snapshotMs = trigger === "init" && pendingInitialSnapshot
             ? initialSnapshotMs
@@ -137,6 +147,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
               publishToSentMs: publishedAtEpochMs ? sentAtEpochMs - publishedAtEpochMs : null,
             },
           };
+          lastKnownRevision = revisionKey(room.request);
           if (DEBUG) {
             console.log("[trade-room-stream] snapshot", {
               requestId,
@@ -167,9 +178,34 @@ export async function GET(request: NextRequest, context: RouteContext) {
       });
 
       keepAlive = setInterval(() => {
-        if (!enqueueSafe(": keepalive\n\n")) return;
-        void sendSnapshot("keepalive");
-      }, CROSS_INSTANCE_RECONCILIATION_MS);
+        enqueueSafe(": keepalive\n\n");
+      }, SSE_KEEPALIVE_MS);
+
+      revisionPoll = setInterval(() => {
+        if (closed || revisionInFlight) return;
+        revisionInFlight = true;
+        void getTradeRoomRevision({
+          purchaseRequestId: requestId,
+          actorUserId: user.id,
+          actorRole: user.role,
+        }).then(async (revision) => {
+          const currentRevision = `${revision.id}:${revision.status}:${revision.updatedAt}`;
+          if (!closed && currentRevision !== lastKnownRevision) {
+            await sendSnapshot("reconcile");
+          }
+        }).catch((error) => {
+          // A transient revision-read failure must not tear down an otherwise
+          // healthy stream. The next one-second poll retries automatically.
+          if (DEBUG) {
+            console.log("[trade-room-stream] revision poll failed", {
+              requestId,
+              errorName: error instanceof Error ? error.name : "unknown",
+            });
+          }
+        }).finally(() => {
+          revisionInFlight = false;
+        });
+      }, CROSS_INSTANCE_REVISION_POLL_MS);
 
       const signal = request.signal;
       if (signal.aborted) {

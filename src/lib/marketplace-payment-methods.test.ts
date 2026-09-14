@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { getDefaultListingPaymentMethods, getMarketplacePaymentMethodOptions, normalizeMarketplacePaymentMethod } from "./marketplace-payment-methods";
+import {
+  getDefaultListingPaymentMethods,
+  getMarketplacePaymentMethodOptions,
+  isBuyerEvidenceRequiredForPaymentMethod,
+  isCashTradeCompletionAvailable,
+  isCashTradeUsdtSentConfirmationAvailable,
+  isSellerEvidenceRequiredForPaymentMethod,
+  normalizeMarketplacePaymentMethod,
+  requiresIsraeliBankSelection,
+  requiresSellerPayoutBankAccount,
+} from "./marketplace-payment-methods";
 
 describe("getMarketplacePaymentMethodOptions", () => {
   it("keeps cardless withdrawal visible when a seller did not enable it", () => {
@@ -25,5 +35,27 @@ describe("getMarketplacePaymentMethodOptions", () => {
       "Face-to-Face (Meet in Person)",
     ]);
     expect(getDefaultListingPaymentMethods([])).toEqual(["Bank Transfer"]);
+  });
+
+  it("does not require a payout account for Cardless ATM listings", () => {
+    const methods = ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"];
+
+    expect(requiresIsraeliBankSelection(methods)).toBe(true);
+    expect(requiresSellerPayoutBankAccount(methods)).toBe(false);
+    expect(requiresSellerPayoutBankAccount([...methods, "Bank Transfer"])).toBe(true);
+  });
+
+  it("uses confirmations instead of photo evidence for both cash methods", () => {
+    for (const method of ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"]) {
+      expect(isBuyerEvidenceRequiredForPaymentMethod(method)).toBe(false);
+      expect(isSellerEvidenceRequiredForPaymentMethod(method)).toBe(false);
+      expect(isCashTradeCompletionAvailable(method, "accepted")).toBe(false);
+      expect(isCashTradeCompletionAvailable(method, "payment_sent")).toBe(false);
+      expect(isCashTradeCompletionAvailable(method, "funds_received")).toBe(false);
+      expect(isCashTradeUsdtSentConfirmationAvailable(method, "funds_received")).toBe(true);
+      expect(isCashTradeCompletionAvailable(method, "usdt_sent")).toBe(true);
+    }
+    expect(isBuyerEvidenceRequiredForPaymentMethod("Bank Transfer")).toBe(true);
+    expect(isBuyerEvidenceRequiredForPaymentMethod("Legacy transfer method")).toBe(true);
   });
 });

@@ -333,6 +333,8 @@ environment. The marketplace baseline and current runtime parity require:
 - `supabase/migrations/20260720193000_admin_cms_storage.sql`
 - `supabase/migrations/20260827090000_alpha_exchange_preferred_locale.sql`
 - `supabase/migrations/20260905223000_alpha_exchange_runtime_schema_parity.sql`
+- `supabase/migrations/20260912010000_manual_seller_commissions.sql`
+- `supabase/migrations/20260912023000_alpha_exchange_whatsapp_notifications.sql`
 
 Trade evidence uploads are stored in PostgreSQL `bytea` rows in `alpha_exchange.evidence`.
 Admin lesson/media uploads are stored in the Supabase Storage bucket `admin-media` by default, with metadata stored in `admin_cms.media_items`.

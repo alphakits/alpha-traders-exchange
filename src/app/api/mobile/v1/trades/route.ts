@@ -18,7 +18,7 @@ import {
   toMobileTradeSummary,
 } from "@/lib/mobile-trades";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -99,9 +99,9 @@ export async function POST(request: NextRequest) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
 
-    const rate = await checkSharedRateLimit({
+    const rate = checkRateLimit({
       headers: request.headers,
-      key: "mobile:trade:create",
+      key: "mobile:trade:create:v2",
       identifier: auth.user.id,
       maxRequests: 20,
       windowMs: 60_000,
@@ -125,22 +125,24 @@ export async function POST(request: NextRequest) {
       actorUserId: auth.user.id,
     });
 
-    try {
-      const deliverTradeEmails = await prepareTradeEventEmails({
-        event: "new_buy_request",
-        request: created.request,
-      });
-      after(deliverTradeEmails);
-    } catch (emailError) {
-      logEvent("error", {
-        event: "mobile_trade_email_schedule",
-        actorUserId: auth.user.id,
-        resourceId: created.request.id,
-        outcome: "failed",
-        reason: "create_post_commit_schedule_failed",
-        metadata: { errorType: emailError instanceof Error ? emailError.name : typeof emailError },
-      });
-    }
+    after(async () => {
+      try {
+        const deliverTradeEmails = await prepareTradeEventEmails({
+          event: "new_buy_request",
+          request: created.request,
+        });
+        await deliverTradeEmails();
+      } catch (emailError) {
+        logEvent("error", {
+          event: "mobile_trade_email_schedule",
+          actorUserId: auth.user.id,
+          resourceId: created.request.id,
+          outcome: "failed",
+          reason: "create_post_commit_schedule_failed",
+          metadata: { errorType: emailError instanceof Error ? emailError.name : typeof emailError },
+        });
+      }
+    });
 
     logEvent("info", {
       event: "mobile_trade_create",

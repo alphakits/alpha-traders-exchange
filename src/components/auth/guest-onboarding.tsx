@@ -216,18 +216,19 @@ export function GuestOnboarding({
     try {
       const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
         body: JSON.stringify({
           firstName: seller.firstName,
           lastName: seller.lastName,
           displayName: seller.displayName,
           phone: seller.phone,
+          locale: isAr ? "ar" : "en",
         }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code.", "تعذر إرسال رمز التحقق."));
       setSellerStep("otp_sent");
-      setSellerStatus2(isAr ? "تم إرسال رمز التحقق." : (payload.message ?? "Verification code sent."));
+      setSellerStatus2(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setSellerError(isAr ? "تعذر إرسال رمز التحقق." : (detail || "Failed to send verification code."));
@@ -366,8 +367,8 @@ export function GuestOnboarding({
               <div className="space-y-3">
                 <p className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
                   {isAr
-                    ? "رقم الهاتف اختياري ولا يمنع تداول المشتري."
-                    : "Phone verification is optional and does not block Buyer trading."}
+                    ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المطلوبة حاليًا. التحقق من الهاتف متوقف."
+                    : "Email verification is the only verification method currently required. Phone verification is off."}
                 </p>
                 <Button
                   type="button"
@@ -588,7 +589,7 @@ export function GuestOnboarding({
                         : (phoneVerificationEnabled
                           ? "The Alpha Traders team contacts you via WhatsApp using your verified number."
                           : "The Alpha Traders team contacts you via WhatsApp using the number you provide in your application.")}</li>
-                      <li>{isAr ? "قد نطلب معلومات إضافية قبل الموافقة." : "Additional verification may be requested before approval."}</li>
+                      <li>{isAr ? "قد نطلب معلومات إضافية قبل الموافقة." : "Additional information may be requested before approval."}</li>
                     </ul>
                   </div>
                   <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
@@ -616,8 +617,8 @@ export function GuestOnboarding({
                     <div className="space-y-3">
                       <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
                         {isAr
-                          ? "التحقق عبر الهاتف غير متاح مؤقتًا. سنستخدم رقم WhatsApp الذي تضيفه في الطلب إلى أن يكتمل تفعيل الخدمة."
-                          : "Phone verification is temporarily unavailable. We’ll use the WhatsApp number in your application until service activation is complete."}
+                          ? "التحقق من الهاتف متوقف. رقم WhatsApp في الطلب مخصص للتواصل فقط ولن يُستخدم لإرسال رمز تحقق."
+                          : "Phone verification is off. The WhatsApp number in your application is contact information only and will not receive a verification code."}
                       </div>
                       <Button
                         type="button"

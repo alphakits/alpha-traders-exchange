@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/notification-platform", () => ({
+  isTwilioSendEnabled: vi.fn(),
   mapTwilioStatus: vi.fn(),
   validateTwilioSignature: vi.fn(),
 }));
@@ -13,7 +14,7 @@ vi.mock("@/lib/site-url", () => ({
 }));
 
 import { POST } from "@/app/api/twilio/status/route";
-import { mapTwilioStatus, validateTwilioSignature } from "@/lib/notification-platform";
+import { isTwilioSendEnabled, mapTwilioStatus, validateTwilioSignature } from "@/lib/notification-platform";
 import { updateSmsDeliveryStatus } from "@/lib/alpha-exchange-store";
 
 function callbackRequest(body: Record<string, string>) {
@@ -29,9 +30,21 @@ function callbackRequest(body: Record<string, string>) {
 
 describe("Twilio status callback", () => {
   beforeEach(() => {
+    vi.mocked(isTwilioSendEnabled).mockReset().mockReturnValue(true);
     vi.mocked(validateTwilioSignature).mockReset().mockReturnValue(true);
     vi.mocked(mapTwilioStatus).mockReset().mockReturnValue("delivered");
     vi.mocked(updateSmsDeliveryStatus).mockReset().mockResolvedValue(true);
+  });
+
+  it("returns 404 without parsing or persisting callbacks while Twilio is disabled", async () => {
+    vi.mocked(isTwilioSendEnabled).mockReturnValue(false);
+
+    const response = await POST(callbackRequest({ MessageSid: "SM123", MessageStatus: "delivered" }));
+
+    expect(response.status).toBe(404);
+    expect(validateTwilioSignature).not.toHaveBeenCalled();
+    expect(mapTwilioStatus).not.toHaveBeenCalled();
+    expect(updateSmsDeliveryStatus).not.toHaveBeenCalled();
   });
 
   it("acknowledges a valid callback after persisting it", async () => {

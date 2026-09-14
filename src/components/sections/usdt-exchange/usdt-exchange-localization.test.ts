@@ -22,6 +22,7 @@ import {
   localizedTimelineMessage,
   marketTrendAriaLabel,
   marketReferenceLabel,
+  paymentMethodTradeInstruction,
   sellerAccountStatusLabel,
   spokenLanguageLabel,
   tradeStatusLabel,
@@ -56,6 +57,25 @@ describe("USDT exchange localized mobile copy", () => {
     expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "accepted", paymentSentAt: "2026-09-04T12:00:00.000Z" }, "buyer-1")).toBe(false);
     expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "payment_sent" }, "buyer-1")).toBe(false);
     expect(canCancelBuyerHistoryRequest(pendingRequest, "seller-1")).toBe(false);
+  });
+
+  it("keeps cash-trade dashboard guidance aligned with the no-photo Trade Room sequence", () => {
+    expect(paymentMethodTradeInstruction("Cardless ATM Withdrawal", "buyer", false)).toContain("send the withdrawal code to the seller");
+    expect(paymentMethodTradeInstruction("Cardless ATM Withdrawal", "seller", false)).toContain("No photo is required");
+    expect(paymentMethodTradeInstruction("Face-to-Face (Meet in Person)", "buyer", false)).toContain("seller separately confirms USDT sent");
+
+    const buyerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/buyer-workspace-section.tsx"), "utf8");
+    const sellerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/seller-workspace-section.tsx"), "utf8");
+    expect(buyerWorkspace).toContain("Continue Cash Trade");
+    expect(sellerWorkspace).toContain("Continue Cash Trade");
+    expect(buyerWorkspace).not.toContain("Mark Withdrawal Ready");
+    expect(buyerWorkspace).toContain("seller confirms USDT sent and then marks the trade completed");
+    expect(sellerWorkspace).toContain("Confirm USDT sent first, then mark the trade completed with a separate button");
+
+    const exchangePage = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
+    expect(exchangePage).toContain('cashTrade ? "confirm-usdt-sent" : "release-usdt"');
+    expect(exchangePage).toContain('cashTrade && isSellerActor) action = "complete-cash-trade"');
+    expect(exchangePage).toContain('!isCashTradePaymentMethod(request.paymentMethod)');
   });
 
   it("keeps public marketing sections out of authenticated workspaces", () => {

@@ -388,7 +388,9 @@ describe("marketplace concurrency at ten-seller scale", () => {
     const requestIds = new Set(submissions.map((submission) => submission.request.id));
     const completedRequests = snapshot.purchaseRequests.filter((request) => requestIds.has(request.id));
     const completedListings = snapshot.marketplaceListings.filter((listing) => listings.some((created) => created.id === listing.id));
-    const commissions = (await getCommissionRecordsForAdmin()).filter((record) => requestIds.has(record.purchaseRequestId));
+    const commissions = (await getCommissionRecordsForAdmin()).filter((record) => (
+      record.purchaseRequestId ? requestIds.has(record.purchaseRequestId) : false
+    ));
 
     expect(completedRequests).toHaveLength(10);
     expect(completedRequests.every((request) => request.status === "review_open")).toBe(true);

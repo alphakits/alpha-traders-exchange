@@ -476,14 +476,33 @@ export interface MobileNotificationPreferences {
 
 export interface MobileNotificationPreferencesResponse {
   preferences: MobileNotificationPreferences;
+  whatsapp: {
+    tradeUpdates: boolean;
+    chatMessages: boolean;
+    consented: boolean;
+    consentVersion: string;
+    consentText: string;
+    available: boolean;
+    sendingEnabled: boolean;
+    status: "ready" | "awaiting_meta_approval" | "not_configured" | "feature_disabled" | "storage_unavailable";
+  };
   phone: {
     verified: boolean;
     masked: string | null;
   };
+  capabilities: {
+    phoneVerification: boolean;
+    sms: boolean;
+  };
   requestId: string;
 }
 
-export type MobileNotificationPreferencesUpdateRequest = Partial<MobileNotificationPreferences>;
+export type MobileNotificationPreferencesUpdateRequest = Partial<MobileNotificationPreferences> & {
+  whatsappTradeUpdates?: boolean;
+  whatsappChatMessages?: boolean;
+  whatsappConsentAccepted?: boolean;
+  whatsappConsentVersion?: string;
+};
 
 export type MobileSupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
 
@@ -715,6 +734,8 @@ export type MobileCommissionNetwork = "TRC20";
 
 export interface MobileSellerCommissionRecord {
   commissionId: string;
+  source?: "trade" | "admin_manual";
+  issueReason?: string;
   /** Exact USDT amount to transfer; includes the six-decimal verification suffix. */
   amountDue: number;
   /** Explicit alias for newer clients. Older clients use `amountDue`. */
@@ -726,7 +747,7 @@ export interface MobileSellerCommissionRecord {
   /** Whether the submitted TxID may be replaced while automatic verification is pending. */
   paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
   dueAt?: string;
-  relatedRequestId: string;
+  relatedRequestId?: string;
   relatedTradeId?: string;
   relatedTradeDisplayNumber?: number;
 }
@@ -939,9 +960,11 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canDecline: boolean;
     canCancel: boolean;
     canViewBankDetails: boolean;
+    canMarkPaymentSent: boolean;
     canUploadPaymentEvidence: boolean;
     canConfirmFunds: boolean;
     canBeginRelease: boolean;
+    canMarkUsdtSent: boolean;
     canUploadReleaseEvidence: boolean;
     canConfirmReceived: boolean;
     canCompleteFaceToFace: boolean;

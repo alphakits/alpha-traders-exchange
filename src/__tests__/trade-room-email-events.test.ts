@@ -162,7 +162,7 @@ describe("Trade Room email events", () => {
     }));
   });
 
-  it("sends no-evidence completion instructions when a Face-to-Face trade is accepted", async () => {
+  it("sends the no-photo sequential instructions when a Face-to-Face trade is accepted", async () => {
     const deliver = await prepareTradeEventEmails({
       event: "trade_accepted",
       request: {
@@ -178,8 +178,8 @@ describe("Trade Room email events", () => {
       to: "buyer-1@example.test",
       title: { ar: "تم قبول صفقة اللقاء الشخصي", en: "Face-to-Face Trade Accepted" },
       message: {
-        ar: expect.stringContaining("دون رفع إثبات"),
-        en: expect.stringContaining("without uploading evidence"),
+        ar: expect.stringContaining("لا يلزم رفع صورة"),
+        en: expect.stringContaining("no photo is required"),
       },
     }));
   });

@@ -385,6 +385,75 @@ describe("partial listing preservation", () => {
     expect(listing.bankName).toBe("Bank Hapoalim, Bank Leumi");
   });
 
+  it("persists a full seller edit for buyers while adding Cardless ATM without a payout account", async () => {
+    const original = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Face-to-Face (Meet in Person)"],
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(original.id);
+
+    const updated = await updateMarketplaceListingForSeller({
+      listingId: original.id,
+      sellerId: SELLER_ID,
+      actorUserId: SELLER_ID,
+      availableAmount: "750",
+      price: "3.24",
+      currency: "ILS",
+      network: "BEP20",
+      paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "75",
+      maximumTrade: "700",
+      sellerDescription: "Fast local settlement.",
+      responseTime: "10 min",
+      changeReason: "Price updated",
+      changeExplanation: "Updated every editable listing field.",
+    });
+
+    const publicListing = (await getMarketplaceListings("active")).find((listing) => listing.id === original.id);
+    expect(updated).toMatchObject({
+      availableAmount: "750",
+      price: "3.24",
+      currency: "ILS",
+      network: "BEP20",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "75",
+      maximumTrade: "700",
+      sellerDescription: "Fast local settlement.",
+      responseTime: "10 min",
+      status: "active",
+      approvalStatus: "approved",
+    });
+    expect(updated.bankAccountId).toBeUndefined();
+    expect(publicListing).toMatchObject({
+      id: original.id,
+      availableAmount: "750",
+      price: "3.24",
+      currency: "ILS",
+      network: "BEP20",
+      paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "75",
+      maximumTrade: "700",
+      sellerDescription: "Fast local settlement.",
+      responseTime: "10 min",
+      status: "active",
+      approvalStatus: "approved",
+    });
+  });
+
   it("uses the buyer-selected payment method throughout the trade request", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,

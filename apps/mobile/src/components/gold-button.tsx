@@ -109,8 +109,11 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   label: {
+    flexShrink: 1,
     fontSize: typography.body,
     fontWeight: "800",
+    lineHeight: 20,
+    textAlign: "center",
   },
   goldLabel: {
     color: colors.background,

@@ -24,6 +24,8 @@ import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
+import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
+import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import {
   sendMarketplaceEmail,
@@ -38,10 +40,12 @@ import {
   type AdminAnnouncementEmailContent,
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
+import { formatCommissionId } from "@/lib/format-id";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
-import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
+import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { validateUploadContent } from "@/lib/file-content-validation";
 import { toAdminSellerSummary, toAdminUserSummary } from "@/lib/client-session-user";
@@ -50,9 +54,11 @@ import { logEvent } from "@/lib/structured-logging";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
+  isBuyerEvidenceRequiredForPaymentMethod,
   isCardlessAtmPaymentMethod,
   isCashTradeCompletionAvailable,
   isCashTradePaymentMethod,
+  isCashTradeUsdtSentConfirmationAvailable,
   isFaceToFacePaymentMethod,
   requiresIsraeliBankSelection,
   isSellerEvidenceRequiredForPaymentMethod,
@@ -102,6 +108,7 @@ import type {
   NotificationPreferences,
   NotificationState,
   NotificationTradeSnapshot,
+  WhatsAppNotificationEvent,
   SellerPublicProfile,
   PremiumSellerProfileData,
   SellerReputationSnapshot,
@@ -466,6 +473,8 @@ function resolveNotificationPriority(notification: Pick<AlphaExchangeNotificatio
 }
 
 function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller: boolean) {
+  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   if (request.status === "pending") {
     if (request.priceMode === "buyer_offer") {
       return recipientIsSeller ? "Accept or decline this price offer" : "Wait for seller response to your price offer";
@@ -473,12 +482,30 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
     return recipientIsSeller ? "Accept or decline this request" : "Wait for seller response";
   }
   if (request.status === "accepted") {
+    if (cashTrade) {
+      return recipientIsSeller
+        ? (cardlessAtm ? "Wait for buyer to send the withdrawal code" : "Wait for buyer to hand over the cash")
+        : (cardlessAtm ? "Send the withdrawal code and confirm it" : "Hand over the cash and confirm it");
+    }
     return recipientIsSeller ? "Wait for buyer payment proof" : "Upload payment proof and mark Payment Sent";
   }
   if (request.status === "payment_sent") {
-    return recipientIsSeller ? "Verify payment, upload proof, then mark USDT Sent" : "Wait for seller USDT release";
+    if (cashTrade) {
+      return recipientIsSeller
+        ? (cardlessAtm ? "Collect the ATM cash and confirm receipt" : "Confirm the cash was received")
+        : "Wait for seller cash confirmation";
+    }
+    return recipientIsSeller ? "Verify payment, then continue to USDT release" : "Wait for seller USDT release";
+  }
+  if (request.status === "funds_received" || request.status === "usdt_release_pending") {
+    return cashTrade && recipientIsSeller
+      ? "Send USDT to the revealed wallet and confirm it was sent"
+      : recipientIsSeller
+        ? "Send USDT and upload the required release proof"
+        : "Wait for seller USDT release";
   }
   if (request.status === "usdt_sent") {
+    if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Wait for seller completion";
     return recipientIsSeller ? "Wait for buyer completion confirmation" : "Confirm trade completed";
   }
   if (request.status === "review_open" || request.status === "completed") {
@@ -539,6 +566,7 @@ function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, 
     usdtAmount: request.usdtAmount,
     fiatAmount: request.fiatAmount,
     currency: request.currency,
+    paymentMethod: request.paymentMethod,
     currentStage: request.status,
     requiredAction: resolveTradeRequiredAction(request, recipientIsSeller),
   };
@@ -551,6 +579,15 @@ function sanitizeNotificationTradeSnapshot(snapshot: NotificationTradeSnapshot |
     counterpartyName: redactExchangeUserContent(snapshot.counterpartyName),
     counterpartyAvatarUrl: sanitizeCounterpartyMediaUrl(snapshot.counterpartyAvatarUrl) || undefined,
   };
+}
+
+export function sanitizeNotificationForClient(notification: AlphaExchangeNotification) {
+  const clientNotification = { ...notification };
+  delete clientNotification.whatsappEvent;
+  delete clientNotification.whatsappEventAt;
+  delete clientNotification.whatsappEventKey;
+  delete clientNotification.whatsappChannelOnly;
+  return clientNotification;
 }
 
 function sanitizeInternalNotificationHref(value?: string) {
@@ -896,7 +933,9 @@ function isQaResetModeEnabled() {
 }
 
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
-  const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
+  const request = record.purchaseRequestId
+    ? db.purchaseRequests.find((item) => item.id === record.purchaseRequestId)
+    : undefined;
   if (request) {
     if (isQaCommissionModeEnabled()) return 1;
     const requestedUsdt = toNumber(request.usdtAmount);
@@ -904,6 +943,10 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
   }
   if (isQaCommissionModeEnabled()) return 1;
   return roundUsdt(record.commissionAmount);
+}
+
+function getCommissionSubject(record: CommissionRecord) {
+  return record.purchaseRequestId ? `trade ${record.purchaseRequestId}` : "this admin-issued commission";
 }
 
 const USDT_MICROS_PER_TOKEN = 1_000_000;
@@ -1998,7 +2041,9 @@ export async function getSellerProfileRouteData(input: {
     dbInput: db,
   });
 
-  const listings = await getMarketplaceListings("active", db, input.viewerUserId);
+  const listings = await getMarketplaceListings("active", db, input.viewerUserId, {
+    requireCanonicalCommissionLocks: true,
+  });
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const similarSellers = listings
@@ -3377,21 +3422,22 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
     const actionStartedAt = stageTimestamp(request.tradeCreatedAt, ["request_accepted", "price_offer_accepted"]);
     if (!actionStartedAt) return null;
     const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
+    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
       stage: request.status,
       actionStartedAt,
-      recipients: faceToFace
-        ? [
-            { side: "buyer", userId: request.buyerId },
-            { side: "seller", userId: request.sellerId },
-          ]
-        : [{ side: "buyer", userId: request.buyerId }],
+      recipients: [{ side: "buyer", userId: request.buyerId }],
       title,
       message: faceToFace
         ? {
-            ar: `الصفقة ${referenceLabel} ما زالت بانتظار إكمال التبادل وتأكيد إنهائها. افتح غرفة الصفقة الآن.`,
-            en: `Trade ${referenceLabel} is still waiting for the in-person exchange and completion confirmation. Open the Trade Room now.`,
+            ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أنك سلّمت النقد للبائع. لا يلزم رفع صورة. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is waiting for you to confirm that you handed the cash to the seller. No photo is required. Open the Trade Room now.`,
           }
+        : cardlessAtm
+          ? {
+              ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أنك أرسلت رمز السحب دون بطاقة. لا يلزم رفع صورة. افتح غرفة الصفقة الآن.`,
+              en: `Trade ${referenceLabel} is waiting for you to confirm that you sent the cardless withdrawal code. No photo is required. Open the Trade Room now.`,
+            }
         : {
             ar: `الصفقة ${referenceLabel} بانتظار رفع إثبات الدفع وتأكيد إرسال الدفعة منك. افتح غرفة الصفقة الآن.`,
             en: `Trade ${referenceLabel} is waiting for you to upload payment proof and mark payment sent. Open the Trade Room now.`,
@@ -3403,15 +3449,27 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
   if (request.status === "payment_sent") {
     const actionStartedAt = stageTimestamp(request.paymentSentAt, ["payment_sent"]);
     if (!actionStartedAt) return null;
+    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
     return {
       stage: request.status,
       actionStartedAt,
       recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: {
-        ar: `الصفقة ${referenceLabel} بانتظار تحققك من وصول الأموال وتأكيد الاستلام. افتح غرفة الصفقة الآن.`,
-        en: `Trade ${referenceLabel} is waiting for you to verify the funds and confirm receipt. Open the Trade Room now.`,
-      },
+      message: cardlessAtm
+        ? {
+            ar: `الصفقة ${referenceLabel} بانتظار سحبك للنقد من الصراف وتأكيد الاستلام. لا يلزم رفع صورة.`,
+            en: `Trade ${referenceLabel} is waiting for you to collect the ATM cash and confirm receipt. No photo is required.`,
+          }
+        : faceToFace
+          ? {
+              ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أن النقد بحوزتك فعليًا. لا يلزم رفع صورة.`,
+              en: `Trade ${referenceLabel} is waiting for you to confirm that the cash is physically in your possession. No photo is required.`,
+            }
+          : {
+              ar: `الصفقة ${referenceLabel} بانتظار تحققك من وصول الأموال وتأكيد الاستلام. افتح غرفة الصفقة الآن.`,
+              en: `Trade ${referenceLabel} is waiting for you to verify the funds and confirm receipt. Open the Trade Room now.`,
+            },
       priority: "critical",
     };
   }
@@ -3424,10 +3482,15 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
       actionStartedAt,
       recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: {
-        ar: `الصفقة ${referenceLabel} بانتظار بدء إرسال USDT منك. افتح غرفة الصفقة الآن وأكمل الخطوة التالية.`,
-        en: `Trade ${referenceLabel} is waiting for you to start the USDT release. Open the Trade Room and complete the next step now.`,
-      },
+      message: isCashTradePaymentMethod(request.paymentMethod)
+        ? {
+            ar: `تم فتح عنوان محفظة المشتري في الصفقة ${referenceLabel}. أرسل USDT ثم اضغط زر تأكيد الإرسال الآن.`,
+            en: `The buyer wallet is now revealed in trade ${referenceLabel}. Send USDT, then confirm that it was sent.`,
+          }
+        : {
+            ar: `الصفقة ${referenceLabel} بانتظار بدء إرسال USDT منك. افتح غرفة الصفقة الآن وأكمل الخطوة التالية.`,
+            en: `Trade ${referenceLabel} is waiting for you to start the USDT release. Open the Trade Room and complete the next step now.`,
+          },
       priority: "critical",
     };
   }
@@ -3440,10 +3503,15 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
       actionStartedAt,
       recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: {
-        ar: `الصفقة ${referenceLabel} بانتظار إتمام إرسال USDT ورفع إثبات الإرسال منك. افتح غرفة الصفقة الآن.`,
-        en: `Trade ${referenceLabel} is waiting for you to finish sending USDT and upload release evidence. Open the Trade Room now.`,
-      },
+      message: isCashTradePaymentMethod(request.paymentMethod)
+        ? {
+            ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أنك أرسلت USDT. بعد التأكيد يمكنك إكمال الصفقة. لا يلزم رفع صورة.`,
+            en: `Trade ${referenceLabel} is waiting for you to confirm that you sent USDT. You can complete it immediately afterward. No photo is required.`,
+          }
+        : {
+            ar: `الصفقة ${referenceLabel} بانتظار إتمام إرسال USDT ورفع إثبات الإرسال منك. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is waiting for you to finish sending USDT and upload release evidence. Open the Trade Room now.`,
+          },
       priority: "critical",
     };
   }
@@ -3451,21 +3519,17 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
   if (request.status === "usdt_sent") {
     const actionStartedAt = stageTimestamp(request.usdtSentAt, ["usdt_sent"]);
     if (!actionStartedAt) return null;
-    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
       stage: request.status,
       actionStartedAt,
-      recipients: cardlessAtm
-        ? [
-            { side: "buyer", userId: request.buyerId },
-            { side: "seller", userId: request.sellerId },
-          ]
+      recipients: isCashTradePaymentMethod(request.paymentMethod)
+        ? [{ side: "seller", userId: request.sellerId }]
         : [{ side: "buyer", userId: request.buyerId }],
       title,
-      message: cardlessAtm
+      message: isCashTradePaymentMethod(request.paymentMethod)
         ? {
-            ar: `تم تسجيل إرسال USDT في صفقة السحب دون بطاقة ${referenceLabel}. بعد التأكد من استلام الطرفين للنقد وUSDT، يمكن للمشتري أو البائع إكمال الصفقة.`,
-            en: `USDT was marked sent for Cardless ATM trade ${referenceLabel}. After both cash and USDT are received, either the buyer or seller can complete the trade.`,
+            ar: `تم تسجيل إرسال USDT في الصفقة ${referenceLabel}. أكمل الصفقة الآن لفتح التقييم وتسجيل العمولة.`,
+            en: `USDT was marked sent for trade ${referenceLabel}. Complete the trade now to open review and record the commission.`,
           }
         : {
             ar: `الصفقة ${referenceLabel} بانتظار تأكيد استلام USDT منك. افتح غرفة الصفقة الآن وتحقق قبل التأكيد.`,
@@ -3537,6 +3601,7 @@ function claimDueTradeActionReminders(
         actionHref: requestDetailsHref(request.id),
         actionLabel: "Open Trade Room",
         reason: TRADE_ACTION_REMINDER_REASON,
+        whatsappEvent: "trade_room_reminder",
         priority: plan.priority,
         forceInApp: true,
         deferRealtime: true,
@@ -3733,7 +3798,18 @@ const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies re
 const TRADE_BANK_DETAILS_AUDIT_TABLES = ["purchase_requests", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const COMMISSION_ASSIGNMENT_TABLES = ["commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_ROOM_INTERACTION_TABLES = ["purchase_requests", "notifications"] as const satisfies readonly SnapshotTableName[];
+const TRADE_ROOM_INTERACTION_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_FAST_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications", "audit_logs", "sms_deliveries", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_TERMINAL_READ_TABLES = [
+  ...TRADE_STATUS_FAST_READ_TABLES,
+  "activity_logs",
+  "disputes",
+  "trust_snapshots",
+  "trust_score_history",
+] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_FAST_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications", "audit_logs", "activity_logs", "sms_deliveries", "marketplace_enforcement_records"] as const satisfies readonly SnapshotTableName[];
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
@@ -3772,6 +3848,7 @@ async function writeDb(
     validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     validateLatestBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     rebaseOnLatest?: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
+    cacheResult?: boolean;
   },
 ) {
   const normalized = normalizeDb(db);
@@ -3805,10 +3882,25 @@ async function writeDb(
     if (storeWriteStart) {
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
     }
-    dbCache = { value: normalized, updatedAt: Date.now() };
+    dbCache = options?.cacheResult === false
+      ? null
+      : { value: normalized, updatedAt: Date.now() };
   } finally {
     dbReadInFlight = null;
   }
+}
+
+async function readDbForCriticalTradeMutation(tableNames: readonly SnapshotTableName[]) {
+  // Mutations must observe another instance's latest evidence and lifecycle
+  // state before validating. Use the targeted canonical read every time rather
+  // than a potentially stale 15-second process cache.
+  const repository = await getAlphaExchangeRepository();
+  const partial = typeof repository.loadSelectedSnapshot === "function"
+    ? await repository.loadSelectedSnapshot(tableNames)
+    : await repository.loadSnapshot();
+  const normalized = normalizeDb(partial);
+  ensureDisplayNumbers(normalized);
+  return { db: normalized, fromFullCache: false };
 }
 
 /**
@@ -3915,13 +4007,14 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
       message: fullyUnlocked
         ? "Your previously verified commission payment has been reconciled. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
         : `Your previously verified commission payment has been reconciled. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
-      relatedTradeId: current.purchaseRequestId,
+      relatedTradeId: current.tradeId ?? current.purchaseRequestId,
       relatedRequestId: current.purchaseRequestId,
       relatedListingId: current.listingId,
       relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
       actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
       actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
       reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      forceInApp: true,
       deferRealtime: true,
     });
     if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -3931,14 +4024,22 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
 }
 
 async function readDbWithPersistedCommissionPaymentExpectedAmounts() {
-  const db = await readDb();
+  // Commission debt is a financial lock and must not be served from the
+  // process-local 15-second snapshot cache. In a multi-instance deployment an
+  // admin can create a commission on one instance while the seller's next
+  // request lands on another; a cached read there would incorrectly report no
+  // debt (or reject its payment as "Commission record not found"). Always
+  // begin allocation/reconciliation from the canonical persisted snapshot.
+  const db = await readDb({ bypassCache: true });
+  const overdueChanged = await applyCommissionOverdueRules(db);
   let committedReconciliation = await reconcileVerifiedUnpaidCommissions(db);
   const allocationChanged = ensureCommissionPaymentExpectedAmounts(db);
-  if (!committedReconciliation.changed && !allocationChanged) return db;
+  if (!overdueChanged && !committedReconciliation.changed && !allocationChanged) return db;
 
   await writeDb(db, {
     selectedTables: COMMISSION_PAYMENT_TABLES,
     rebaseOnLatest: async (canonicalSnapshot) => {
+      await applyCommissionOverdueRules(canonicalSnapshot);
       committedReconciliation = await reconcileVerifiedUnpaidCommissions(canonicalSnapshot);
       ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
       return canonicalSnapshot;
@@ -4350,6 +4451,101 @@ async function sendSellerEnforcementEmail(
   return result.ok;
 }
 
+type CommissionPaymentConfirmationContext = {
+  commission: Pick<CommissionRecord, "id" | "displayNumber">;
+  amountDueUsdt: number;
+  remainingCommissions: Array<Pick<CommissionRecord, "id" | "displayNumber">>;
+};
+
+function buildCommissionPaymentConfirmation(input: CommissionPaymentConfirmationContext) {
+  const commissionLabel = formatCommissionId(input.commission.displayNumber, input.commission.id);
+  const amountLabel = input.amountDueUsdt.toFixed(2);
+  const remainingCommissionCount = input.remainingCommissions.length;
+  const fullyUnlocked = remainingCommissionCount === 0;
+  const nextCommission = input.remainingCommissions[0];
+  const actionPath = fullyUnlocked
+    ? "/dashboard/seller#my-listings-section"
+    : commissionPaymentDestination(nextCommission!.id);
+
+  return {
+    commissionLabel,
+    fullyUnlocked,
+    actionPath,
+    actionLabel: fullyUnlocked
+      ? { ar: "متابعة إدارة الإعلانات", en: "Continue Managing Listings" }
+      : { ar: "دفع العمولة", en: "Pay Commission" },
+    title: { ar: "تم تأكيد دفع العمولة", en: "Commission Payment Confirmed" },
+    message: fullyUnlocked
+      ? {
+          ar: `تم تأكيد دفعتك البالغة ${amountLabel} USDT للعمولة ${commissionLabel}. تم سداد جميع العمولات المستحقة وإزالة قيود الإدراج المتعلقة بالعمولة. يمكنك الآن إنشاء الإعلانات وإدارتها ونشرها مجددًا. وتظل أي قيود أخرى على الحساب سارية.`,
+          en: `Your ${amountLabel} USDT payment for commission ${commissionLabel} has been confirmed. All commission dues are paid, so commission-related restrictions have been cleared. You can create, manage, and publish listings again. Any other account restrictions still apply.`,
+        }
+      : {
+          ar: `تم تأكيد دفعتك البالغة ${amountLabel} USDT للعمولة ${commissionLabel}. لا تزال ${remainingCommissionCount} من دفعات العمولات مستحقة، لذلك يبقى الوصول إلى الإدراج مقيدًا حتى سداد جميع العمولات.`,
+          en: `Your ${amountLabel} USDT payment for commission ${commissionLabel} has been confirmed. ${remainingCommissionCount} other commission payment${remainingCommissionCount === 1 ? " remains" : "s remain"} due, so listing access stays restricted until all commission dues are paid.`,
+        },
+  };
+}
+
+async function dispatchCommissionPaymentConfirmationEmail(
+  db: AlphaExchangeDb,
+  sellerId: string,
+  input: CommissionPaymentConfirmationContext,
+) {
+  const seller = db.users.find((user) => user.id === sellerId);
+  if (!seller) return;
+  const confirmation = buildCommissionPaymentConfirmation(input);
+  const delivery = async () => {
+    try {
+      const result = await sendMarketplaceEmail({
+        event: "commission_paid",
+        to: seller.email,
+        recipientName: seller.fullName,
+        recipientLocale: normalizePreferredLocale(seller.preferredLocale),
+        title: confirmation.title,
+        message: confirmation.message,
+        actionLabel: confirmation.actionLabel,
+        actionPath: confirmation.actionPath,
+        referenceLabel: confirmation.commissionLabel,
+        idempotencyKey: `commission-paid:${input.commission.id}:${seller.id}`,
+      });
+      if (!result.ok) {
+        logEvent("error", {
+          event: "marketplace_email_delivery",
+          targetUserId: seller.id,
+          resourceId: input.commission.id,
+          outcome: "failed",
+          reason: "commission_paid",
+          metadata: {
+            providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+            deliveryReason: result.reason,
+          },
+        });
+      }
+    } catch (error) {
+      logEvent("error", {
+        event: "marketplace_email_delivery",
+        targetUserId: seller.id,
+        resourceId: input.commission.id,
+        outcome: "failed",
+        reason: "commission_paid",
+        metadata: { errorType: error instanceof Error ? error.name : typeof error },
+      });
+    }
+  };
+
+  // Commission settlement is a transactional account-access event, so it is
+  // delivered independently of optional marketplace-marketing preferences.
+  // Schedule it only after the canonical payment write has committed.
+  try {
+    after(delivery);
+  } catch {
+    // Store tests and non-request maintenance jobs run without a Next.js
+    // request context; keep the same behavior there without losing coverage.
+    await delivery();
+  }
+}
+
 type DeferredNotificationPublication = {
   type: "notification.created" | "notification.updated";
   notification: AlphaExchangeNotification;
@@ -4357,14 +4553,21 @@ type DeferredNotificationPublication = {
 
 function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
   if (!publication) return;
-  publishRealtimeEvent({
-    type: publication.type,
-    payload: { notification: publication.notification },
-  });
+  if (publication.notification.whatsappChannelOnly !== true) {
+    publishRealtimeEvent({
+      type: publication.type,
+      payload: { notification: sanitizeNotificationForClient(publication.notification) },
+    });
+  }
   // A burst of trade-room chat reuses one notification row and advances its
   // persisted updatedAt value. The mobile outbox keys each revision so every
   // new message can alert the device while duplicate publications stay safe.
-  scheduleMobilePushDelivery(publication.notification);
+  if (publication.notification.whatsappChannelOnly !== true) {
+    scheduleMobilePushDelivery(publication.notification);
+  }
+  // WhatsApp delivery independently re-reads the canonical notification,
+  // participant, verified destination and current consent before sending.
+  scheduleWhatsAppNotificationDelivery(publication.notification);
 }
 
 function pushNotification(
@@ -4387,10 +4590,14 @@ function pushNotification(
     actionLabel?: string;
     actionHref?: string;
     reason?: string;
+    /** Explicit external event; WhatsApp eligibility is never inferred from copy. */
+    whatsappEvent?: WhatsAppNotificationEvent;
     priority?: NotificationPriorityLevel;
     state?: NotificationState;
     /** Transactional trade communication may not be silently hidden by a stale UI preference. */
     forceInApp?: boolean;
+    /** Distinguishes same-title notifications that represent different records. */
+    dedupeKey?: string;
     /** Persist first, then emit the notification event from the caller. */
     deferRealtime?: boolean;
   },
@@ -4398,7 +4605,9 @@ function pushNotification(
   ensureDisplayNumbers(db);
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) return null;
-  if (user.notificationPreferences?.inApp === false && input.forceInApp !== true) return null;
+  const inAppEnabled = user.notificationPreferences?.inApp !== false || input.forceInApp === true;
+  const persistForWhatsApp = Boolean(input.whatsappEvent && isWhatsAppSendingEnabled());
+  if (!inAppEnabled && !persistForWhatsApp) return null;
   const inferredRequest = resolveTradeContextForNotification(db, {
     userId: input.userId,
     relatedRequestId: input.relatedRequestId,
@@ -4419,13 +4628,15 @@ function pushNotification(
   } as AlphaExchangeNotification);
   const createdAt = nowIso();
   const relatedHref = sanitizeInternalNotificationHref(input.relatedHref) || (relatedRequestId ? requestDetailsHref(relatedRequestId) : undefined);
-  const nextState = input.state ?? "unread";
+  const channelOnly = !inAppEnabled;
+  const nextState = input.state ?? (channelOnly ? "archived" : "unread");
 
   const duplicate = db.notifications.find((item) => {
     if (item.userId !== input.userId) return false;
     if (item.category !== input.category) return false;
     if (item.title !== input.title) return false;
     if ((item.relatedRequestId ?? "") !== (relatedRequestId ?? "")) return false;
+    if (input.dedupeKey && sanitizeInternalNotificationHref(item.actionHref) !== input.dedupeKey) return false;
     const ageMs = Date.now() - new Date(item.createdAt).getTime();
     return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 45_000;
   });
@@ -4455,6 +4666,10 @@ function pushNotification(
         actionLabel: input.actionLabel ?? duplicate.actionLabel,
         actionHref: sanitizeInternalNotificationHref(input.actionHref) ?? sanitizeInternalNotificationHref(duplicate.actionHref) ?? relatedHref,
         reason: input.reason ?? duplicate.reason,
+        whatsappEvent: input.whatsappEvent,
+        whatsappEventAt: input.whatsappEvent ? createdAt : undefined,
+        whatsappEventKey: input.whatsappEvent ? `wae-${randomUUID()}` : undefined,
+        whatsappChannelOnly: channelOnly || undefined,
         archivedAt: nextState === "archived" ? createdAt : undefined,
         updatedAt: createdAt,
       });
@@ -4482,6 +4697,10 @@ function pushNotification(
     actionLabel: input.actionLabel,
     actionHref: sanitizeInternalNotificationHref(input.actionHref) ?? relatedHref,
     reason: input.reason,
+    whatsappEvent: input.whatsappEvent,
+    whatsappEventAt: input.whatsappEvent ? createdAt : undefined,
+    whatsappEventKey: input.whatsappEvent ? `wae-${randomUUID()}` : undefined,
+    whatsappChannelOnly: channelOnly || undefined,
     relatedTradeId: input.relatedTradeId,
     relatedRequestId,
     relatedListingId: input.relatedListingId,
@@ -4504,16 +4723,26 @@ export function hasVerifiedPhoneForSms(user: Pick<AlphaExchangeUser, "verifiedPh
   return Boolean(user.verifiedPhone && user.phoneVerifiedAt && normalizeE164(user.verifiedPhone));
 }
 
-function queueSmsDelivery(db: AlphaExchangeDb, input: { eventType: SmsEventType; eventKey: string; recipientUserId: string; destinationPath: string }) {
+function queueSmsDelivery(db: AlphaExchangeDb, input: {
+  eventType: SmsEventType;
+  eventKey: string;
+  recipientUserId: string;
+  destinationPath: string;
+  copy?: { ar: string; en: string };
+}) {
+  if (!isTwilioSendEnabled()) return;
   const user = db.users.find((item) => item.id === input.recipientUserId);
   if (!user || user.notificationPreferences?.sms !== true || !hasVerifiedPhoneForSms(user)) return;
   const phone = normalizeE164(user.verifiedPhone ?? "");
   if (!phone || (db.smsDeliveries ?? []).some((item) => item.eventKey === input.eventKey)) return;
   const now = nowIso();
   const destination = new URL(input.destinationPath, getSiteUrl()).toString();
+  const body = input.copy
+    ? ["Alpha Traders", input.copy.ar, input.copy.en, destination].filter(Boolean).join("\n")
+    : getSmsTemplate(input.eventType, destination);
   const record: SmsDeliveryRecord = {
     id: `sms-${randomUUID()}`, eventKey: input.eventKey, eventType: input.eventType, recipientUserId: user.id,
-    recipientPhone: phone, body: getSmsTemplate(input.eventType, destination), status: "queued", retryCount: 0, createdAt: now, updatedAt: now,
+    recipientPhone: phone, body, status: "queued", retryCount: 0, createdAt: now, updatedAt: now,
   };
   (db.smsDeliveries ??= []).push(record);
 }
@@ -4697,15 +4926,16 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
     category: "trade",
     title: verificationPending ? "Commission verification pending" : "Commission overdue",
     message: verificationPending
-      ? `Your commission TxID for trade ${record.purchaseRequestId} is saved and automatic verification is still running. Do not send another payment.`
-      : `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
+      ? `Your commission TxID for ${getCommissionSubject(record)} is saved and automatic verification is still running. Do not send another payment.`
+      : `Commission for ${getCommissionSubject(record)} is overdue and requires payment.`,
     relatedRequestId: record.purchaseRequestId,
-    relatedTradeId: record.purchaseRequestId,
+    relatedTradeId: record.tradeId ?? record.purchaseRequestId,
     relatedListingId: record.listingId,
     relatedHref: commissionPaymentDestination(record.id),
     actionHref: commissionPaymentDestination(record.id),
     actionLabel: verificationPending ? "View Payment Status" : "Pay Commission",
     reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+    forceInApp: true,
   });
   const owner = getOwnerUser(db);
   if (owner) {
@@ -4714,19 +4944,20 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
       category: "trade",
       title: verificationPending ? "Commission verification pending" : "Commission overdue",
       message: verificationPending
-        ? `Commission TxID for trade ${record.purchaseRequestId} is awaiting automatic verification after its due time.`
-        : `Commission for trade ${record.purchaseRequestId} is now overdue.`,
+        ? `Commission TxID for ${getCommissionSubject(record)} is awaiting automatic verification after its due time.`
+        : `Commission for ${getCommissionSubject(record)} is now overdue.`,
       relatedRequestId: record.purchaseRequestId,
-      relatedTradeId: record.purchaseRequestId,
+      relatedTradeId: record.tradeId ?? record.purchaseRequestId,
       relatedListingId: record.listingId,
       relatedHref: adminCommissionDestination(record.id),
       actionHref: adminCommissionDestination(record.id),
       actionLabel: "Review Commission",
+      forceInApp: true,
     });
   }
 }
 
-async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+async function applyCommissionOverdueRules(db: AlphaExchangeDb) {
   let changed = false;
   const nowMs = Date.now();
 
@@ -4737,6 +4968,13 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     changed = true;
     await markCommissionOverdue(db, record, SYSTEM_ACTOR_USER_ID);
   }
+
+  return changed;
+}
+
+async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+  let changed = await applyCommissionOverdueRules(db);
+  const nowMs = Date.now();
 
   for (const request of db.purchaseRequests) {
     if (request.status !== "usdt_release_pending") continue;
@@ -4780,6 +5018,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     pushNotification(db, {
       userId: request.sellerId,
@@ -4789,6 +5028,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     for (const adminUser of getAdminNotificationRecipients(db)) {
       pushNotification(db, {
@@ -4815,6 +5055,10 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
   const buyerConfirmationTimeoutRequestIds: string[] = [];
   for (const request of db.purchaseRequests) {
     if (request.status !== "usdt_sent") continue;
+    // Cash trades never wait for buyer receipt. Only the seller may run their
+    // explicit completion action, so the legacy Bank Transfer timeout must
+    // never auto-complete Face-to-Face or Cardless ATM trades.
+    if (isCashTradePaymentMethod(request.paymentMethod)) continue;
     if (request.completedAt) continue;
     if (!request.usdtSentAt) continue;
     const usdtSentMs = new Date(request.usdtSentAt).getTime();
@@ -5471,6 +5715,7 @@ function hashPhoneOtp(phone: string, code: string, salt: string) {
 }
 
 export async function beginProfilePhoneVerification(input: { userId: string; phone: string }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const phone = normalizeE164(input.phone);
   if (!phone) throw new Error("Enter a valid international E.164 phone number.");
   const db = await readDb();
@@ -5491,6 +5736,7 @@ export async function beginProfilePhoneVerification(input: { userId: string; pho
 }
 
 export async function confirmProfilePhoneVerification(input: { userId: string; phone: string; code: string }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
   if (!phone || !/^\d{6}$/.test(input.code)) throw new Error("Invalid verification code.");
   const db = await readDb();
@@ -5592,6 +5838,7 @@ export async function beginBuyerVerification(input: {
   displayName?: string;
   phone: string;
 }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   assertNoExchangeDirectContact(input.firstName, input.lastName, input.displayName);
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
@@ -5626,6 +5873,7 @@ export async function beginBuyerVerification(input: {
 }
 
 export async function completeBuyerVerification(input: { userId: string; phone: string }) {
+  if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
   if (index === -1) throw new Error("User not found.");
@@ -7452,15 +7700,30 @@ export async function overrideSellerPrestigeByAdmin(input: {
   return db.users[sellerIndex];
 }
 
-export async function getMarketplaceListings(status?: string, dbInput?: AlphaExchangeDb, viewerUserId?: string) {
+export async function getMarketplaceListings(
+  status?: string,
+  dbInput?: AlphaExchangeDb,
+  viewerUserId?: string,
+  options?: { requireCanonicalCommissionLocks?: boolean },
+) {
+  const isPublicFeed = !status || status === "all" || status === "active";
   const db = dbInput ?? await readDb();
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
+  const cachedCommissionBlockedSellerIds = db.commissionRecords
+    .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
+    .map((record) => record.sellerId);
+  // Public listing visibility is a financial authorization decision. Read
+  // only the authoritative unpaid-seller IDs on every public request so a
+  // commission issued on another instance hides listings immediately, while
+  // avoiding a full multi-table snapshot load on this high-traffic route.
+  const requiresCanonicalCommissionLocks = isPublicFeed
+    && (!dbInput || options?.requireCanonicalCommissionLocks === true);
   const sellersBlockedByCommission = new Set(
-    db.commissionRecords
-      .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
-      .map((record) => record.sellerId),
+    requiresCanonicalCommissionLocks
+      ? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
+      : cachedCommissionBlockedSellerIds,
   );
   const sellersBlockedByEnforcement = new Set(
     getMarketplaceEnforcementRecords(db)
@@ -7481,7 +7744,6 @@ export async function getMarketplaceListings(status?: string, dbInput?: AlphaExc
       }
     }
   }
-  const isPublicFeed = !status || status === "all" || status === "active";
   const rawListings =
     isPublicFeed
       ? db.marketplaceListings.filter((listing) => {
@@ -8569,6 +8831,7 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
         relatedHref: requestDetailsHref(activeRequest.id),
+        whatsappEvent: "trade_cancelled",
       });
       pushNotification(db, {
         userId: activeRequest.sellerId,
@@ -8578,6 +8841,7 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
         relatedHref: requestDetailsHref(activeRequest.id),
+        whatsappEvent: "trade_cancelled",
       });
     }
   }
@@ -8862,6 +9126,8 @@ export async function getSellerCommissionStatus(
     const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
     return {
       commissionId: record.id,
+      source: record.source ?? "trade",
+      issueReason: record.issueReason,
       amountDue: getCommissionAmountDueUsdt(db, record),
       paymentAmountDue: getCommissionPaymentAmountDueUsdt(record),
       paymentVerificationStatus: record.paymentVerificationStatus,
@@ -8871,7 +9137,7 @@ export async function getSellerCommissionStatus(
       paymentExpectedAmountMode: record.paymentExpectedAmountMode,
       dueAt: record.dueAt,
       relatedRequestId: record.purchaseRequestId,
-      relatedTradeId: request?.tradeId,
+      relatedTradeId: request?.tradeId ?? record.tradeId,
       relatedTradeDisplayNumber: request?.displayNumber,
     };
   });
@@ -8886,12 +9152,34 @@ export async function getSellerCommissionStatus(
     payableAmountDue,
     dueAt: primaryRecord?.dueAt,
     commissionId: primaryRecord?.id,
+    source: primaryRecord ? primaryRecord.source ?? "trade" as const : undefined,
+    issueReason: primaryRecord?.issueReason,
     selectionError: requestedCommissionId && !primaryRecord ? "The requested commission is not available for payment." : undefined,
     relatedRequestId: primaryRecord?.purchaseRequestId,
-    relatedTradeId: primaryRequest?.tradeId,
+    relatedTradeId: primaryRequest?.tradeId ?? primaryRecord?.tradeId,
     relatedTradeDisplayNumber: primaryRequest?.displayNumber,
     payableRecords,
   };
+}
+
+/**
+ * Returns the seller's listings, lock summary, and payable commissions from a
+ * single canonical snapshot. Keeping these values together prevents a
+ * cross-instance cache race from showing a pending commission beside an
+ * incorrectly enabled marketplace workspace.
+ */
+export async function getSellerListingWorkspaceData(input: {
+  sellerId: string;
+  status?: string;
+  commissionId?: string;
+}) {
+  const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  const [listings, summary, commissionStatus] = await Promise.all([
+    getMyMarketplaceListings(input.sellerId, input.status, db),
+    getSellerListingWorkspaceSummary(input.sellerId, db),
+    getSellerCommissionStatus(input.sellerId, db, { commissionId: input.commissionId }),
+  ]);
+  return { listings, summary, commissionStatus };
 }
 
 export function getCommissionQaModeStatus() {
@@ -8955,13 +9243,16 @@ export async function createPurchaseRequest(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(PURCHASE_REQUEST_FAST_READ_TABLES);
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const now = nowIso();
   const pendingConfirmationTrade = db.purchaseRequests.find(
-    (r) => r.buyerId === input.buyerId && r.status === "usdt_sent" && r.buyerConfirmationArchivedAt,
+    (r) => r.buyerId === input.buyerId
+      && r.status === "usdt_sent"
+      && !isCashTradePaymentMethod(r.paymentMethod)
+      && r.buyerConfirmationArchivedAt,
   );
   if (pendingConfirmationTrade) {
     throw new TradeBlockedError(
@@ -8971,7 +9262,9 @@ export async function createPurchaseRequest(input: {
     );
   }
   const activeBuyerTrade = db.purchaseRequests.find(
-    (r) => r.buyerId === input.buyerId && isActiveTradeStatus(r.status) && !r.buyerConfirmationArchivedAt,
+    (r) => r.buyerId === input.buyerId
+      && isActiveTradeStatus(r.status)
+      && (!r.buyerConfirmationArchivedAt || isCashTradePaymentMethod(r.paymentMethod)),
   );
   if (activeBuyerTrade) {
     throw new TradeBlockedError(
@@ -8984,7 +9277,7 @@ export async function createPurchaseRequest(input: {
     (r) => r.buyerId === input.buyerId
       && r.listingId === input.listingId
       && isActionableTradeStatus(r.status)
-      && !r.buyerConfirmationArchivedAt,
+      && (!r.buyerConfirmationArchivedAt || isCashTradePaymentMethod(r.paymentMethod)),
   );
   if (existingRequestForListing) {
     throw new TradeBlockedError(
@@ -9041,7 +9334,7 @@ export async function createPurchaseRequest(input: {
       relatedListingId: input.listingId,
       relatedHref: "/usdt-exchange",
     });
-    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, cacheResult: fromFullCache });
     throw new Error("Listing is not available for a new buyer right now.");
   }
   if (listing.sellerId === input.buyerId) throw new Error("You cannot submit a purchase request to your own listing.");
@@ -9063,7 +9356,7 @@ export async function createPurchaseRequest(input: {
       relatedListingId: input.listingId,
       relatedHref: "/usdt-exchange",
     });
-    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, cacheResult: fromFullCache });
     throw new Error("Seller is currently unavailable for new buyer matches.");
   }
   const sellerCommissionBlock = getUnpaidSellerCommissionRecords(db, listing.sellerId)[0];
@@ -9200,6 +9493,7 @@ export async function createPurchaseRequest(input: {
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
+    whatsappEvent: "new_request",
   });
   pushAdminTradeActivityNotifications(db, {
     title: isPriceOffer ? "New Price Offer Submitted" : "New Trade Request Submitted",
@@ -9223,6 +9517,7 @@ export async function createPurchaseRequest(input: {
   const writeStartedAt = Date.now();
   await writeDb(db, {
     selectedTables: PURCHASE_REQUEST_CREATE_TABLES,
+    cacheResult: fromFullCache,
     // Two tabs, a mobile-network retry, or two Vercel instances can validate
     // the same buyer snapshot before either request commits. Re-check the
     // invariant while the repository's cross-instance advisory lock is held
@@ -9233,7 +9528,7 @@ export async function createPurchaseRequest(input: {
           && candidate.buyerId === input.buyerId
           && candidate.listingId === input.listingId
           && isActionableTradeStatus(candidate.status)
-          && !candidate.buyerConfirmationArchivedAt,
+          && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod)),
       );
       if (duplicateRequest) {
         throw new TradeBlockedError(
@@ -9248,6 +9543,7 @@ export async function createPurchaseRequest(input: {
         (candidate) => candidate.id !== request.id
           && candidate.buyerId === input.buyerId
           && candidate.status === "usdt_sent"
+          && !isCashTradePaymentMethod(candidate.paymentMethod)
           && candidate.buyerConfirmationArchivedAt,
       );
       if (awaitingConfirmation) {
@@ -9263,7 +9559,7 @@ export async function createPurchaseRequest(input: {
         (candidate) => candidate.id !== request.id
           && candidate.buyerId === input.buyerId
           && isActiveTradeStatus(candidate.status)
-          && !candidate.buyerConfirmationArchivedAt,
+          && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod)),
       );
       if (concurrentActiveTrade) {
         throw new TradeBlockedError(
@@ -9744,25 +10040,35 @@ export async function getTradeRoomData(input: {
   strongConsistency?: boolean;
 }): Promise<TradeRoomData> {
   const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-  const db = await readDb({ bypassCache: input.strongConsistency === true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
-  const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
+  // The SSE stream never mutates read receipts, so it only needs the records
+  // that belong to this Trade Room. Loading those records in one query avoids
+  // the previous 27-table snapshot fan-out on every live connection.
+  const useTargetedRead = input.strongConsistency === true && input.markMessagesRead === false;
+  const repository = useTargetedRead ? await getAlphaExchangeRepository() : null;
+  const db = useTargetedRead && repository && typeof repository.loadTradeRoomSnapshot === "function"
+    ? await repository.loadTradeRoomSnapshot(lookupCandidates)
+    : await readDb({ bypassCache: input.strongConsistency === true });
+  const requestIndex = db?.purchaseRequests.findIndex((item) => (
+    lookupCandidates.includes(item.id) || Boolean(item.tradeId && lookupCandidates.includes(item.tradeId))
+  )) ?? -1;
   if (requestIndex === -1) {
     if (debug) console.log("[trade-room-open] store lookup failed", {
       incomingRequestId: input.purchaseRequestId,
       lookupCandidates,
       reason: "request_not_found",
-      totalRequests: db.purchaseRequests.length,
+      totalRequests: db?.purchaseRequests.length ?? 0,
     });
     logEvent("warn", {
       event: "trade_room_lookup",
       actorUserId: input.actorUserId,
       outcome: "denied",
       reason: "trade_not_found",
-      metadata: { requestCount: db.purchaseRequests.length },
+      metadata: { requestCount: db?.purchaseRequests.length ?? 0 },
     });
     throw new Error("Trade not found.");
   }
+  if (!db) throw new Error("Trade not found.");
   let request = db.purchaseRequests[requestIndex];
   if (debug) console.log("[trade-room-open] store lookup success", {
     incomingRequestId: input.purchaseRequestId,
@@ -9880,6 +10186,45 @@ export async function getTradeRoomData(input: {
       ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
       : undefined,
   };
+}
+
+/**
+ * Returns only the durable fields needed to detect a cross-instance Trade
+ * Room update. This stays deliberately separate from getTradeRoomData so an
+ * idle SSE connection performs one tiny row query instead of loading the
+ * exchange snapshot.
+ */
+export async function getTradeRoomRevision(input: {
+  purchaseRequestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+}) {
+  const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
+  const repository = await getAlphaExchangeRepository();
+  let resolvedRevision;
+  if (typeof repository.loadTradeRoomRevision === "function") {
+    resolvedRevision = await repository.loadTradeRoomRevision(lookupCandidates);
+  } else {
+    const db = await readDb({ bypassCache: true });
+    const request = db.purchaseRequests.find((candidate) => lookupCandidates.includes(candidate.id));
+    resolvedRevision = request ? {
+      id: request.id,
+      buyerId: request.buyerId,
+      sellerId: request.sellerId,
+      status: request.status,
+      updatedAt: request.updatedAt,
+    } : null;
+  }
+  if (!resolvedRevision) throw new Error("Trade not found.");
+  if (
+    input.actorRole !== "admin"
+    && input.actorRole !== "owner"
+    && resolvedRevision.buyerId !== input.actorUserId
+    && resolvedRevision.sellerId !== input.actorUserId
+  ) {
+    throw new Error("You are not allowed to access trade evidence.");
+  }
+  return resolvedRevision;
 }
 
 type TradeRoomBankDetailsResult = {
@@ -10092,27 +10437,24 @@ async function closePurchaseRequestManuallyAttempt(
     newValue: { closedAt: now, closeReason, closeExplanation: closeExplanation || undefined },
   });
 
-  const counterpartyId = request.buyerId === input.actorUserId ? request.sellerId : request.buyerId;
-  pushNotification(db, {
-    userId: counterpartyId,
-    category: "trade",
-    title: "Trade closed",
-    message: closeExplanation
-      ? `The trade was closed manually. Reason: ${closeReason}. ${closeExplanation}`
-      : `The trade was closed manually. Reason: ${closeReason}.`,
-    relatedTradeId: request.tradeId ?? request.id,
-    relatedListingId: request.listingId,
-    relatedHref: requestDetailsHref(request.id),
-  });
-  pushNotification(db, {
-    userId: input.actorUserId,
-    category: "trade",
-    title: "Trade closed",
-    message: `You closed this trade. Reason: ${closeReason}.`,
-    relatedTradeId: request.tradeId ?? request.id,
-    relatedListingId: request.listingId,
-    relatedHref: requestDetailsHref(request.id),
-  });
+  const participantRecipientIds = [request.buyerId, request.sellerId];
+  for (const recipientUserId of new Set(participantRecipientIds)) {
+    const closedByRecipient = recipientUserId === input.actorUserId;
+    pushNotification(db, {
+      userId: recipientUserId,
+      category: "trade",
+      title: "Trade closed",
+      message: closedByRecipient
+        ? `You closed this trade. Reason: ${closeReason}.`
+        : closeExplanation
+          ? `The trade was closed manually. Reason: ${closeReason}. ${closeExplanation}`
+          : `The trade was closed manually. Reason: ${closeReason}.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_cancelled",
+    });
+  }
 
   try {
     await writeDb(db, {
@@ -10175,7 +10517,7 @@ export async function postTradeRoomMessage(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(TRADE_ROOM_INTERACTION_READ_TABLES);
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
@@ -10262,6 +10604,7 @@ export async function postTradeRoomMessage(input: {
       actionLabel: "Open Trade Room",
       actionHref: `${requestDetailsHref(canonicalRequest.id)}#chat`,
       reason: "trade_room_message",
+      whatsappEvent: "trade_room_message",
       forceInApp: true,
       deferRealtime: true,
     });
@@ -10281,6 +10624,7 @@ export async function postTradeRoomMessage(input: {
   const writeStartedAt = Date.now();
   await writeDb(db, {
     selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    cacheResult: fromFullCache,
     // Reapply the exact message operation under the repository's canonical
     // transaction lock when another Vercel instance wrote first. The stable
     // client id turns an uncertain response/retry into one durable message and
@@ -10325,7 +10669,7 @@ export async function postTradeRoomPoke(input: {
   actorUserId: string;
   requestHeaders: Headers;
 }) {
-  const db = await readDb({ bypassCache: true });
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(TRADE_ROOM_INTERACTION_READ_TABLES);
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
   if (requestIndex === -1) {
     throw new TradeRoomPokeError({
@@ -10430,12 +10774,14 @@ export async function postTradeRoomPoke(input: {
     actionLabel: "Open Trade Room",
     actionHref: `${requestDetailsHref(request.id)}#chat`,
     reason: "trade_room_poke",
+    whatsappEvent: "trade_room_reminder",
     forceInApp: true,
     deferRealtime: true,
   });
 
   await writeDb(db, {
     selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    cacheResult: fromFullCache,
     // The initial read is intentionally not the final authority. Snapshot
     // writes serialize through the repository advisory transaction lock; check
     // the merged canonical request while that lock is held so a cancellation,
@@ -10770,6 +11116,9 @@ async function uploadTradeEvidenceAttempt(
   if (input.side === "seller" && request.sellerId !== input.actorUserId) {
     throw new Error("Only the seller can upload seller evidence.");
   }
+  if (isCashTradePaymentMethod(request.paymentMethod)) {
+    throw new Error("Photo evidence is not used for Face-to-Face or Cardless ATM trades. Use the guided confirmation buttons instead.");
+  }
   if (request.status === "pending" || request.status === "declined" || request.status === "cancelled") {
     throw new Error("Evidence can be uploaded only after trade acceptance.");
   }
@@ -10927,6 +11276,7 @@ async function uploadTradeEvidenceAttempt(
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
   }
   if (shouldAutoConfirmUsdtSent) {
@@ -10954,12 +11304,36 @@ async function uploadTradeEvidenceAttempt(
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     queueSmsDelivery(db, {
       eventType: "usdt_sent",
       eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`,
       recipientUserId: request.buyerId,
       destinationPath: requestDetailsHref(request.id),
+    });
+  }
+  if (
+    !shouldAutoSubmitPayment
+    && !shouldAutoConfirmUsdtSent
+    && new Set<PurchaseRequestStatus>([
+      "accepted",
+      "payment_sent",
+      "funds_received",
+      "usdt_release_pending",
+      "usdt_sent",
+    ]).has(nextRequest.status)
+  ) {
+    pushNotification(db, {
+      userId: input.side === "buyer" ? request.sellerId : request.buyerId,
+      category: "trade",
+      title: "Trade evidence updated",
+      message: "New evidence is available in your active Trade Room.",
+      relatedRequestId: request.id,
+      relatedTradeId: nextRequest.tradeId,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
   }
   db.purchaseRequests[requestIndex] = nextRequest;
@@ -11506,7 +11880,13 @@ async function updatePurchaseRequestStatusAttempt(
       actorRole: input.actorRole,
     });
   }
-  let db = await readDb({ bypassCache: true });
+  const useFastStatusRead = input.nextStatus !== "completed"
+    && input.nextStatus !== "declined"
+    && input.nextStatus !== "cancelled";
+  const statusRead = await readDbForCriticalTradeMutation(
+    useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES,
+  );
+  let db = statusRead.db;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const readDbMs = Date.now() - startedAt;
   let timelineMs = 0;
@@ -11543,6 +11923,9 @@ async function updatePurchaseRequestStatusAttempt(
   const isCashTradeCompletion = input.completionMode === "cash_trade" || input.completionMode === "face_to_face";
   const isAdminCompletion = input.completionMode === "admin_override";
   const isCompletionOverride = isCashTradeCompletion || isAdminCompletion;
+  const isCashUsdtSentConfirmation = isSeller
+    && input.nextStatus === "usdt_sent"
+    && isCashTradeUsdtSentConfirmationAvailable(requestPaymentMethod, request.status);
 
   if (!isSeller && !isBuyer && !isAdmin) {
     throw new TradeBlockedError("actor-not-allowed", "You are not allowed to update this request.", request.id, {
@@ -11569,9 +11952,9 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (isCashTradeCompletion && !isSeller && !isBuyer) {
-    throw new TradeBlockedError("cash-trade-completion-participant-required", "Only the buyer or seller can complete this cash trade.", request.id, {
-      guard: "cash-trade-participant",
+  if (isCashTradeCompletion && !isSeller) {
+    throw new TradeBlockedError("cash-trade-completion-participant-required", "Only the seller can complete this cash trade after confirming USDT was sent.", request.id, {
+      guard: "cash-trade-seller",
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
     });
@@ -11586,6 +11969,14 @@ async function updatePurchaseRequestStatusAttempt(
   if (isAdminCompletion && input.nextStatus !== "completed") {
     throw new TradeBlockedError("admin-completion-command-invalid", "Admin completion can only complete a trade.", request.id, {
       guard: "admin-completion-command",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
+  if (input.nextStatus === "completed" && isCashTrade && !isCashTradeCompletion && !isAdminCompletion) {
+    throw new TradeBlockedError("cash-trade-seller-completion-required", "Only the seller can complete a cash trade after sending USDT.", request.id, {
+      guard: "cash-trade-seller-completion-command",
+      currentStatus: request.status,
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
     });
@@ -11716,7 +12107,7 @@ async function updatePurchaseRequestStatusAttempt(
     cancelled: [],
   };
   if (isCashTradeCompletion && !isCashTradeCompletionAvailable(requestPaymentMethod, currentStatus)) {
-    throw new TradeBlockedError("cash-trade-completion-status-not-eligible", "This cash trade must be accepted and active before it can be completed.", request.id, {
+    throw new TradeBlockedError("cash-trade-completion-status-not-eligible", "The seller must confirm USDT was sent before completing this cash trade.", request.id, {
       guard: "cash-trade-active-status",
       currentStatus,
       nextStatus: input.nextStatus,
@@ -11740,7 +12131,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (!isCompletionOverride && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
+  if (!isCompletionOverride && !isCashUsdtSentConfirmation && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
     throw new TradeBlockedError("invalid-status-transition", `Invalid status transition from ${currentStatus} to ${input.nextStatus}.`, request.id, {
       guard: "allowed-by-status",
       currentStatus,
@@ -11869,9 +12260,9 @@ async function updatePurchaseRequestStatusAttempt(
       senderUserId: input.actorUserId,
       senderRole: actorRole,
       message: isFaceToFaceTrade
-        ? "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission."
+        ? "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isAtmTrade
-          ? "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission."
+          ? "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isPriceOffer
           ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
           : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
@@ -11903,6 +12294,7 @@ async function updatePurchaseRequestStatusAttempt(
         relatedTradeId: sibling.tradeId,
         relatedListingId: sibling.listingId,
         relatedHref: requestDetailsHref(sibling.id),
+        whatsappEvent: "request_declined",
       });
     }
     await appendListingStateAudit(db, {
@@ -11920,13 +12312,14 @@ async function updatePurchaseRequestStatusAttempt(
       message: isPriceOffer
         ? `Seller accepted your price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. You can now continue in the Trade Room.`
         : isFaceToFaceTrade
-          ? "Your meeting is ready. Review the safety guidelines before meeting."
+          ? "Your meeting is ready. After handing over the cash, confirm it in the Trade Room. No photo is required."
           : isAtmTrade
-            ? "Your Cardless ATM trade is active. Follow each Trade Room step; after cash collection and USDT delivery, either participant can mark it complete."
+            ? "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
           : "Seller accepted your trade request. You can now upload your payment receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "request_accepted",
     });
     pushAdminTradeActivityNotifications(db, {
       title: isPriceOffer ? "Price Offer Accepted" : "Trade Request Accepted",
@@ -11960,6 +12353,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "request_declined",
     });
   } else if (input.nextStatus === "cancelled") {
     next.status = "cancelled";
@@ -11976,26 +12370,45 @@ async function updatePurchaseRequestStatusAttempt(
         relatedTradeId: next.tradeId,
         relatedListingId: request.listingId,
         relatedHref: requestDetailsHref(request.id),
+        whatsappEvent: "trade_cancelled",
       });
     }
   } else if (input.nextStatus === "payment_sent") {
     const buyerEvidence = getTradeEvidenceFile(db, request.id, "buyer");
-    if (!buyerEvidence) throw new Error("Buyer evidence is required before marking payment sent.");
+    if (isBuyerEvidenceRequiredForPaymentMethod(requestPaymentMethod) && !buyerEvidence) {
+      throw new Error("Buyer evidence is required before marking payment sent.");
+    }
     next.status = "payment_sent";
-    next.buyerEvidence = buyerEvidence;
+    if (buyerEvidence) {
+      next.buyerEvidence = buyerEvidence;
+    }
     next.paymentSentAt = now;
     if (listing && listing.activeTradeRequestId === request.id) {
       listing.status = "in_trade";
       listing.updatedAt = now;
     }
     const timelineStartedAt = Date.now();
-    appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: input.actorUserId, actorRole, message: "Buyer marked payment sent", createdAt: now });
+    appendTradeTimelineEntry(next, {
+      type: "payment_sent",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: isAtmTrade
+        ? "Buyer confirmed the cardless withdrawal code was sent"
+        : isFaceToFaceTrade
+          ? "Buyer confirmed the cash was handed to the seller"
+          : "Buyer marked payment sent",
+      createdAt: now,
+    });
     timelineMs += Date.now() - timelineStartedAt;
     const chatStartedAt = Date.now();
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Buyer submitted payment. Seller should now confirm the money was received.",
+      message: isAtmTrade
+        ? "Buyer confirmed the cardless withdrawal code was sent. Seller should collect the ATM cash, then confirm receipt."
+        : isFaceToFaceTrade
+          ? "Buyer confirmed the cash was handed over. Seller should confirm receipt before sending USDT."
+          : "Buyer submitted payment. Seller should now confirm the money was received.",
       createdAt: now,
     });
     chatMs += Date.now() - chatStartedAt;
@@ -12003,26 +12416,39 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
-      title: isAtmTrade ? "Withdrawal ready" : "Buyer marked payment sent",
+      title: isAtmTrade ? "Cardless withdrawal code ready" : isFaceToFaceTrade ? "Buyer handed over cash" : "Buyer marked payment sent",
       message: isBankTransferTrade
         ? "Buyer marked payment as sent. Please verify the funds in your bank account."
         : isAtmTrade
-          ? "Buyer has prepared the cardless withdrawal. Confirm after collecting the cash."
-          : "Buyer marked payment as sent. Confirm funds in person after following safety guidelines.",
+          ? "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room."
+          : "Buyer confirmed the cash was handed over. Confirm receipt before sending USDT.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     queueSmsDelivery(db, { eventType: "payment_sent", eventKey: `trade:${request.id}:payment-sent:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     notificationMs += Date.now() - notificationStartedAt;
   } else if (input.nextStatus === "funds_received") {
     next.status = "funds_received";
     next.fundsReceivedAt = now;
-    appendTradeTimelineEntry(next, { type: "seller_confirmed_funds", actorUserId: input.actorUserId, actorRole, message: "Seller confirmed funds received", createdAt: now });
+    appendTradeTimelineEntry(next, {
+      type: "seller_confirmed_funds",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: isAtmTrade
+        ? "Seller confirmed ATM cash collected"
+        : isFaceToFaceTrade
+          ? "Seller confirmed cash received"
+          : "Seller confirmed funds received",
+      createdAt: now,
+    });
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Seller confirmed the funds were received. USDT release is now unlocked.",
+      message: isCashTrade
+        ? "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required."
+        : "Seller confirmed the funds were received. USDT release is now unlocked.",
       createdAt: now,
     });
     pushNotification(db, {
@@ -12032,11 +12458,12 @@ async function updatePurchaseRequestStatusAttempt(
       message: isBankTransferTrade
         ? "Seller verified the bank transfer and confirmed funds received."
         : isAtmTrade
-          ? "Seller confirmed cash was collected from the cardless ATM."
-          : "Seller confirmed in-person payment was received.",
+          ? "Seller confirmed cash was collected from the cardless ATM. Your wallet is now visible to the seller for the USDT transfer."
+          : "Seller confirmed in-person cash was received. Your wallet is now visible to the seller for the USDT transfer.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
     queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "usdt_release_pending") {
@@ -12058,6 +12485,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
   } else if (input.nextStatus === "usdt_sent") {
     const sellerEvidence = getTradeEvidenceFile(db, request.id, "seller");
@@ -12073,35 +12501,48 @@ async function updatePurchaseRequestStatusAttempt(
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: isAtmTrade
-        ? "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission."
+      message: isCashTrade
+        ? "Seller marked USDT as sent. The seller should now complete the cash trade; no photo is required. Completion opens review and creates the seller commission."
         : "Seller marked USDT as sent. Buyer should now confirm receipt.",
       createdAt: now,
     });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: isAtmTrade ? "Cardless ATM trade ready to complete" : "Seller marked USDT sent",
-      message: isAtmTrade
-        ? "Seller marked USDT as sent. Once you receive it, either you or the seller can complete the trade and open review."
+      title: "Seller marked USDT sent",
+      message: isCashTrade
+        ? "The seller marked USDT as sent and will complete the cash trade. Check your receiving wallet."
         : "Seller marked USDT as sent. Please confirm receipt to complete the trade.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
     });
-    if (isAtmTrade) {
+    if (isCashTrade) {
       pushNotification(db, {
         userId: request.sellerId,
         category: "trade",
-        title: "Cardless ATM trade ready to complete",
-        message: "After the buyer receives the USDT, either participant can complete the trade. Completion opens review and creates your 1% commission charge.",
+        title: "Cash trade ready to complete",
+        message: "Confirm completion after sending USDT. Only you can close this trade, and no photo is required.",
         relatedTradeId: next.tradeId,
         relatedRequestId: request.id,
         relatedListingId: request.listingId,
         relatedHref: requestDetailsHref(request.id),
+        whatsappEvent: "trade_update",
       });
     }
-    queueSmsDelivery(db, { eventType: "usdt_sent", eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
+    queueSmsDelivery(db, {
+      eventType: "usdt_sent",
+      eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`,
+      recipientUserId: request.buyerId,
+      destinationPath: requestDetailsHref(request.id),
+      copy: isCashTrade
+        ? {
+            ar: "أكد البائع إرسال USDT وسيُكمل الصفقة. لا يلزم منك تأكيد الاستلام.",
+            en: "Seller confirmed USDT sent and will complete the trade. No receipt confirmation is required from you.",
+          }
+        : undefined,
+    });
   } else if (input.nextStatus === "completed") {
     const completionActorLabel = isAdminCompletion ? "Admin" : isSeller ? "Seller" : "Buyer";
     const cashTradeLabel = isAtmTrade ? "Cardless ATM" : "Face-to-Face";
@@ -12179,6 +12620,7 @@ async function updatePurchaseRequestStatusAttempt(
         : roundUsdt(normalizedUsdt * COMMISSION_RATE);
       commission = {
         id: `commission-${randomUUID()}`,
+        source: "trade",
         purchaseRequestId: request.id,
         tradeId: next.tradeId,
         listingId: request.listingId,
@@ -12243,6 +12685,7 @@ async function updatePurchaseRequestStatusAttempt(
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_completed",
     });
     pushNotification(db, {
       userId: request.buyerId,
@@ -12269,6 +12712,7 @@ async function updatePurchaseRequestStatusAttempt(
       actionHref: commission ? commissionPaymentDestination(commission.id) : requestDetailsHref(request.id),
       actionLabel: commission ? "Pay Commission" : undefined,
       reason: commission ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : undefined,
+      whatsappEvent: "trade_completed",
     });
     if (commission) {
       pushNotification(db, {
@@ -12283,6 +12727,7 @@ async function updatePurchaseRequestStatusAttempt(
         actionHref: commissionPaymentDestination(commission.id),
         actionLabel: "Pay Commission",
         reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
       });
       const completedTradeSeller = db.users.find((user) => user.id === request.sellerId);
       for (const adminUser of getAdminNotificationRecipients(db)) {
@@ -12397,6 +12842,7 @@ async function updatePurchaseRequestStatusAttempt(
     await writeDb(db, {
       traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
       selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
+      cacheResult: statusRead.fromFullCache,
       // A snapshot can become stale between validation and the repository's
       // cross-instance advisory lock. Reject only relevant stale state here,
       // then rerun the whole business transition from the canonical snapshot.
@@ -12557,6 +13003,144 @@ export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   return db.commissionRecords;
+}
+
+/**
+ * Issues a standalone seller commission from the admin workspace. It enters
+ * the same exact-amount TRC20 lifecycle as a trade-backed 1% commission, but
+ * intentionally has no fake trade, listing, or buyer linkage.
+ */
+export async function issueSellerCommissionByAdmin(input: {
+  sellerId: string;
+  actorUserId: string;
+  commissionAmount: number;
+  reason: string;
+  dueAt?: string;
+}) {
+  const sellerId = input.sellerId.trim();
+  const reason = input.reason.trim();
+  const amountInput = Number(input.commissionAmount);
+  const commissionAmount = Number.isFinite(amountInput) ? roundUsdt(amountInput) : 0;
+  if (!sellerId) throw new Error("Seller is required.");
+  if (!reason) throw new Error("Commission reason is required.");
+  if (reason.length > 500) throw new Error("Commission reason must be 500 characters or fewer.");
+  if (!Number.isFinite(amountInput) || commissionAmount < 0.01) {
+    throw new Error("Commission amount must be at least 0.01 USDT.");
+  }
+  if (commissionAmount > 1_000_000) {
+    throw new Error("Commission amount cannot exceed 1,000,000 USDT.");
+  }
+
+  const createdAt = nowIso();
+  let dueAt = addDaysIso(createdAt, COMMISSION_GRACE_PERIOD_DAYS);
+  if (input.dueAt?.trim()) {
+    const parsedDueAt = new Date(input.dueAt);
+    if (!Number.isFinite(parsedDueAt.getTime())) throw new Error("Commission due date is invalid.");
+    if (parsedDueAt.getTime() <= new Date(createdAt).getTime()) {
+      throw new Error("Commission due date must be in the future.");
+    }
+    dueAt = parsedDueAt.toISOString();
+  }
+
+  const commissionId = `commission-${randomUUID()}`;
+  type AssignmentResult = {
+    commission: CommissionRecord;
+    notificationPublications: DeferredNotificationPublication[];
+  };
+  let committed: AssignmentResult | null = null;
+
+  const applyAssignmentToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const actor = snapshot.users.find((user) => user.id === input.actorUserId);
+    if (!actor || (!hasRole(actor, "admin") && !hasRole(actor, "owner"))) {
+      throw new Error("Only an admin can issue a seller commission.");
+    }
+    const seller = snapshot.users.find((user) => user.id === sellerId);
+    if (!seller) throw new Error("Seller not found.");
+    if (hasRole(seller, "owner")) throw new Error("Owner account cannot receive a seller commission.");
+    if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
+      throw new Error("Commissions can be issued only to active or suspended seller accounts.");
+    }
+
+    const existing = snapshot.commissionRecords.find((record) => record.id === commissionId);
+    if (existing) {
+      // A repository retry may replay this closure after the record and its
+      // notification were already built. Keep the deferred publication so a
+      // successful commit still wakes the seller's open workspace.
+      const notificationPublications = committed?.commission.id === existing.id
+        ? committed.notificationPublications
+        : [];
+      committed = { commission: existing, notificationPublications };
+      return snapshot;
+    }
+
+    const commission: CommissionRecord = {
+      id: commissionId,
+      source: "admin_manual",
+      sellerId,
+      issuedByUserId: input.actorUserId,
+      issueReason: reason,
+      rate: 0,
+      grossAmount: 0,
+      commissionAmount,
+      paymentStatus: "pending",
+      dueAt,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    snapshot.commissionRecords.push(commission);
+    // Allocate the immutable six-decimal amount before the seller is notified,
+    // while the repository's canonical rebase lock is held when necessary.
+    ensureCommissionPaymentExpectedAmounts(snapshot);
+    const exactAmount = getCommissionPaymentAmountDueUsdt(commission);
+
+    await appendAuditLog(snapshot, {
+      action: "commission_recorded",
+      actorUserId: input.actorUserId,
+      targetUserId: sellerId,
+      details: `Manual seller commission ${commission.id} issued for ${commissionAmount.toFixed(2)} USDT.`,
+      reason,
+      newValue: {
+        commissionId: commission.id,
+        source: commission.source,
+        commissionAmount,
+        paymentExpectedAmount: exactAmount,
+        dueAt,
+      },
+    });
+
+    const notificationPublications: DeferredNotificationPublication[] = [];
+    const publication = pushNotification(snapshot, {
+      userId: sellerId,
+      category: "trade",
+      priority: "high",
+      title: "Commission payment required",
+      message: `An admin issued a ${commissionAmount.toFixed(2)} USDT commission. Pay exactly ${exactAmount.toFixed(6)} USDT on TRON (TRC20). Reason: ${reason}`,
+      relatedHref: commissionPaymentDestination(commission.id),
+      actionHref: commissionPaymentDestination(commission.id),
+      actionLabel: "Pay Commission",
+      reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      forceInApp: true,
+      dedupeKey: commissionPaymentDestination(commission.id),
+      deferRealtime: true,
+    });
+    if (publication) notificationPublications.push(publication);
+    committed = { commission, notificationPublications };
+    return snapshot;
+  };
+
+  const db = await readDb({ bypassCache: true });
+  await applyAssignmentToCanonicalSnapshot(db);
+  await writeDb(db, {
+    selectedTables: COMMISSION_ASSIGNMENT_TABLES,
+    rebaseOnLatest: applyAssignmentToCanonicalSnapshot,
+  });
+
+  const result = committed as AssignmentResult | null;
+  if (!result) throw new Error("Failed to issue seller commission.");
+  for (const publication of result.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
+  return result.commission;
 }
 
 // ── Blockchain Commission Verification ──────────────────────────────────────
@@ -13401,7 +13985,10 @@ export async function submitSellerCommissionWalletPayment(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  let db = await readDb();
+  // A payment for a newly assigned commission can arrive on a different
+  // serverless instance than the admin assignment. Do not let that instance's
+  // short-lived snapshot cache turn a real commission into a false 404.
+  let db = await readDb({ bypassCache: true });
   const validationStartedAt = Date.now();
   let index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
@@ -13608,6 +14195,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     }
 
     const notificationPublications: DeferredNotificationPublication[] = [];
+    let paymentConfirmation: CommissionPaymentConfirmationContext | undefined;
     const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
     if (verification.verified && request) {
       appendTradeTimelineEntry(request, {
@@ -13620,22 +14208,25 @@ export async function submitSellerCommissionWalletPayment(input: {
     }
     if (verification.verified) {
       const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
-      const fullyUnlocked = remainingCommissions.length === 0;
-      const nextCommission = remainingCommissions[0];
+      paymentConfirmation = {
+        commission: nextRecord,
+        amountDueUsdt: canonicalAmountDueUsdt,
+        remainingCommissions,
+      };
+      const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
         category: "trade",
         title: "Commission payment verified",
-        message: fullyUnlocked
-          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
-          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
-        relatedTradeId: canonicalRecord.purchaseRequestId,
+        message: confirmation.message.en,
+        relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
-        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
-        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        relatedHref: confirmation.actionPath,
+        actionHref: confirmation.actionPath,
+        actionLabel: confirmation.actionLabel.en,
+        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -13647,11 +14238,12 @@ export async function submitSellerCommissionWalletPayment(input: {
           category: "system",
           title: "Commission payment received",
           message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Exact payment: ${canonicalAmountDueUsdt.toFixed(6)} USDT. Tx: ${input.paymentSignature.trim()}`,
-          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
           relatedListingId: canonicalRecord.listingId,
           relatedHref: adminCommissionDestination(canonicalRecord.id),
           actionHref: adminCommissionDestination(canonicalRecord.id),
           actionLabel: "Review Commission",
+          forceInApp: true,
           deferRealtime: true,
         });
         if (ownerPublication) notificationPublications.push(ownerPublication);
@@ -13662,7 +14254,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         category: "trade",
         title: "Commission payment needs attention",
         message: `The submitted TRON transaction was not credited: ${verification.notes} Open the commission payment and submit the correct TxID.`,
-        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
         relatedHref: commissionPaymentDestination(canonicalRecord.id),
@@ -13670,12 +14262,13 @@ export async function submitSellerCommissionWalletPayment(input: {
         actionLabel: "Replace TxID",
         reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         priority: "high",
+        forceInApp: true,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
     }
 
-    return { commission: nextRecord, request, notificationPublications };
+    return { commission: nextRecord, request, notificationPublications, paymentConfirmation };
   };
 
   let committed = await applyCommissionPaymentToCanonicalSnapshot(db);
@@ -13698,6 +14291,9 @@ export async function submitSellerCommissionWalletPayment(input: {
   }
   for (const publication of committed.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  if (committed.paymentConfirmation) {
+    await dispatchCommissionPaymentConfirmationEmail(db, committed.commission.sellerId, committed.paymentConfirmation);
   }
   return {
     commission: committed.commission,
@@ -13925,6 +14521,7 @@ export async function updateCommissionPaymentStatus(input: {
     commission: CommissionRecord;
     request?: PurchaseRequest;
     notificationPublications: DeferredNotificationPublication[];
+    paymentConfirmation?: CommissionPaymentConfirmationContext;
     changed: boolean;
   };
   let committed: CommittedCommissionStatus | null = null;
@@ -13938,7 +14535,9 @@ export async function updateCommissionPaymentStatus(input: {
       ?? (input.paymentStatus === "paid" ? "verified" : current.paymentVerificationStatus);
     const paymentVerificationNotes = input.paymentVerificationNotes !== undefined
       ? input.paymentVerificationNotes.trim() || undefined
-      : current.paymentVerificationNotes;
+      : input.paymentStatus === "paid" && paymentVerificationStatus === "verified"
+        ? input.reason?.trim() || "Payment verified manually by an admin."
+        : current.paymentVerificationNotes;
 
     if (
       current.paymentStatus === input.paymentStatus
@@ -13984,6 +14583,7 @@ export async function updateCommissionPaymentStatus(input: {
     });
 
     const notificationPublications: DeferredNotificationPublication[] = [];
+    let paymentConfirmation: CommissionPaymentConfirmationContext | undefined;
     if (input.paymentStatus === "paid" && !wasPaid) {
       if (request) {
         appendTradeTimelineEntry(request, {
@@ -13994,19 +14594,31 @@ export async function updateCommissionPaymentStatus(input: {
           createdAt: now,
         });
       }
+      const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, current.sellerId);
+      paymentConfirmation = {
+        commission: nextRecord,
+        amountDueUsdt,
+        remainingCommissions,
+      };
+      const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const publication = pushNotification(snapshot, {
         userId: current.sellerId,
         category: "trade",
         title: "Commission marked paid",
-        message: `Commission for trade ${current.purchaseRequestId} has been marked paid.`,
-        relatedTradeId: current.purchaseRequestId,
+        message: confirmation.message.en,
+        relatedTradeId: current.tradeId ?? current.purchaseRequestId,
+        relatedRequestId: current.purchaseRequestId,
         relatedListingId: current.listingId,
-        relatedHref: "/usdt-exchange",
+        relatedHref: confirmation.actionPath,
+        actionHref: confirmation.actionPath,
+        actionLabel: confirmation.actionLabel.en,
+        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
         deferRealtime: true,
       });
       if (publication) notificationPublications.push(publication);
     }
-    committed = { commission: nextRecord, request, notificationPublications, changed: true };
+    committed = { commission: nextRecord, request, notificationPublications, paymentConfirmation, changed: true };
     return snapshot;
   };
 
@@ -14032,6 +14644,9 @@ export async function updateCommissionPaymentStatus(input: {
   }
   for (const publication of result.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  if (result.paymentConfirmation) {
+    await dispatchCommissionPaymentConfirmationEmail(db, result.commission.sellerId, result.paymentConfirmation);
   }
   return result.commission;
 }
@@ -14905,7 +15520,7 @@ export async function getNotificationsForUser(input: {
   const query = String(input.query ?? "").trim().toLowerCase();
   // Pre-filter by userId before enriching to avoid O(all_notifications × lookup_size) work.
   const notifications = db.notifications
-    .filter((notification) => notification.userId === input.userId)
+    .filter((notification) => notification.userId === input.userId && notification.whatsappChannelOnly !== true)
     .map((notification) => enrichNotification(db, notification, sharedDisplayLookup))
     .filter((notification) => {
       if (category && notification.category !== category) return false;
@@ -14931,8 +15546,11 @@ export async function getNotificationsForUser(input: {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
   const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
   const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120);
+  const clientNotifications = sortedNotifications
+    .slice(safeOffset, safeOffset + safeLimit)
+    .map(sanitizeNotificationForClient);
   return {
-    notifications: sortedNotifications.slice(safeOffset, safeOffset + safeLimit),
+    notifications: clientNotifications,
     total: sortedNotifications.length,
     unreadCount,
     activity,
@@ -15082,9 +15700,19 @@ export async function updateNotificationPreferences(
   }
   const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
   const next = normalizeNotificationPreferences({
+    ...current,
     inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
     email: typeof input.preferences.email === "boolean" ? input.preferences.email : current.email,
     sms: typeof input.preferences.sms === "boolean" ? input.preferences.sms : current.sms,
+    browserPush: typeof input.preferences.browserPush === "boolean" ? input.preferences.browserPush : current.browserPush,
+    browserPushTradeUpdates: typeof input.preferences.browserPushTradeUpdates === "boolean" ? input.preferences.browserPushTradeUpdates : current.browserPushTradeUpdates,
+    browserPushChatMessages: typeof input.preferences.browserPushChatMessages === "boolean" ? input.preferences.browserPushChatMessages : current.browserPushChatMessages,
+    browserPushListings: typeof input.preferences.browserPushListings === "boolean" ? input.preferences.browserPushListings : current.browserPushListings,
+    browserPushFeedback: typeof input.preferences.browserPushFeedback === "boolean" ? input.preferences.browserPushFeedback : current.browserPushFeedback,
+    browserPushAdminAlerts: typeof input.preferences.browserPushAdminAlerts === "boolean" ? input.preferences.browserPushAdminAlerts : current.browserPushAdminAlerts,
+    browserPushPromptDismissedAt: input.preferences.browserPushPromptDismissedAt ?? current.browserPushPromptDismissedAt,
+    browserPushPermissionState: input.preferences.browserPushPermissionState ?? current.browserPushPermissionState,
+    browserPushSubscriptionHash: input.preferences.browserPushSubscriptionHash ?? current.browserPushSubscriptionHash,
   });
   db.users[index] = {
     ...db.users[index],
@@ -15553,6 +16181,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_cancelled",
     });
   }
   await writeDb(db, { selectedTables: TRADE_STATUS_BASE_TABLES });
@@ -15758,8 +16387,10 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   });
 
   type AdminReverificationCommit = {
+    commission?: CommissionRecord;
     request?: PurchaseRequest;
     notificationPublications: DeferredNotificationPublication[];
+    paymentConfirmation?: CommissionPaymentConfirmationContext;
     newlySettled: boolean;
   };
   let committed: AdminReverificationCommit = {
@@ -15826,6 +16457,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
 
     const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
     const notificationPublications: DeferredNotificationPublication[] = [];
+    let paymentConfirmation: CommissionPaymentConfirmationContext | undefined;
     if (newlySettled) {
       if (request) {
         appendTradeTimelineEntry(request, {
@@ -15837,22 +16469,25 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
         });
       }
       const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
-      const fullyUnlocked = remainingCommissions.length === 0;
-      const nextCommission = remainingCommissions[0];
+      paymentConfirmation = {
+        commission: nextRecord,
+        amountDueUsdt: canonicalAmountDue,
+        remainingCommissions,
+      };
+      const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
         category: "trade",
         title: "Commission payment verified",
-        message: fullyUnlocked
-          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
-          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
-        relatedTradeId: canonicalRecord.purchaseRequestId,
+        message: confirmation.message.en,
+        relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
         relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
-        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
-        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
-        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        relatedHref: confirmation.actionPath,
+        actionHref: confirmation.actionPath,
+        actionLabel: confirmation.actionLabel.en,
+        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        forceInApp: true,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -15864,11 +16499,12 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
           category: "system",
           title: "Commission payment received",
           message: `Commission ${canonicalRecord.id} verified via ${canonicalRecord.paymentNetwork}. Exact payment: ${canonicalAmountDue.toFixed(6)} USDT. Tx: ${canonicalRecord.paymentSignature}`,
-          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedTradeId: canonicalRecord.tradeId ?? canonicalRecord.purchaseRequestId,
           relatedListingId: canonicalRecord.listingId,
           relatedHref: adminCommissionDestination(canonicalRecord.id),
           actionHref: adminCommissionDestination(canonicalRecord.id),
           actionLabel: "Review Commission",
+          forceInApp: true,
           deferRealtime: true,
         });
         if (ownerPublication) notificationPublications.push(ownerPublication);
@@ -15883,7 +16519,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
       details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : result.pending ? "pending" : "failed"} — ${result.notes}`,
       reason: input.reason?.trim() || undefined,
     });
-    committed = { request, notificationPublications, newlySettled };
+    committed = { commission: nextRecord, request, notificationPublications, paymentConfirmation, newlySettled };
     return snapshot;
   };
 
@@ -15900,6 +16536,9 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   }
   for (const publication of committed.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  if (committed.paymentConfirmation && committed.commission) {
+    await dispatchCommissionPaymentConfirmationEmail(db, committed.commission.sellerId, committed.paymentConfirmation);
   }
   return result;
 }
@@ -15922,7 +16561,11 @@ export async function recalculateAllTrustByAdmin(input: { actorUserId: string; r
 }
 
 export async function getAdminPrepDashboardData() {
-  const db = await readDb();
+  // Financial records shown immediately after an admin mutation must come
+  // from canonical persistence. A cached snapshot from another warm instance
+  // can otherwise make a successfully issued commission disappear for the
+  // cache window and invite an accidental duplicate charge.
+  const db = await readDb({ bypassCache: true });
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });

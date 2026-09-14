@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
@@ -66,10 +66,12 @@ type MockPayableCommission = {
   commissionId: string;
   amountDue: number;
   paymentAmountDue: number;
-  relatedRequestId: string;
-  relatedTradeId: string;
-  relatedTradeDisplayNumber: number;
+  relatedRequestId?: string;
+  relatedTradeId?: string;
+  relatedTradeDisplayNumber?: number;
   dueAt: string;
+  source?: string;
+  issueReason?: string;
   paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
   paymentVerificationNotes?: string;
   paymentSignature?: string;
@@ -83,6 +85,7 @@ let commissionPaymentResponse: {
   verification: { verified: boolean; pending?: boolean; notes: string };
 } = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
 let commissionPaymentSideEffect: ((commissionId: string) => void) | null = null;
+let notificationStreamListener: EventListener | null = null;
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -100,6 +103,7 @@ describe("seller commission Pay Now", () => {
     workspaceCanCreateListingOverride = null;
     commissionPaymentResponse = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
     commissionPaymentSideEffect = null;
+    notificationStreamListener = null;
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn().mockImplementation((query: string) => ({
@@ -121,8 +125,12 @@ describe("seller commission Pay Now", () => {
       configurable: true,
       writable: true,
       value: class {
-        addEventListener() {}
-        removeEventListener() {}
+        addEventListener(type: string, listener: EventListener) {
+          if (type === "notifications") notificationStreamListener = listener;
+        }
+        removeEventListener(type: string, listener: EventListener) {
+          if (type === "notifications" && notificationStreamListener === listener) notificationStreamListener = null;
+        }
         close() {}
       },
     });
@@ -179,6 +187,8 @@ describe("seller commission Pay Now", () => {
             relatedTradeId: primaryRecord?.relatedTradeId,
             relatedTradeDisplayNumber: primaryRecord?.relatedTradeDisplayNumber,
             dueAt: primaryRecord?.dueAt,
+            source: primaryRecord?.source,
+            issueReason: primaryRecord?.issueReason,
             selectionError: requestedCommissionId && !primaryRecord
               ? "The requested commission is not available for payment."
               : undefined,
@@ -254,6 +264,81 @@ describe("seller commission Pay Now", () => {
       expect(element?.textContent).toContain("7.000001 USDT");
     });
     expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an already-open seller workspace when an admin issues a commission", async () => {
+    commissionRecordsOverride = [];
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+
+    const commissionStatus = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain("No commission due");
+      expect(notificationStreamListener).not.toBeNull();
+      return element!;
+    });
+
+    commissionRecordsOverride = [{
+      commissionId: "commission-admin-1",
+      amountDue: 12.5,
+      paymentAmountDue: 12.500001,
+      dueAt: "2026-09-15T00:00:00.000Z",
+      source: "admin_manual",
+      issueReason: "Documented seller adjustment",
+    }];
+    act(() => {
+      notificationStreamListener?.(new MessageEvent("notifications", {
+        data: JSON.stringify({
+          unreadCount: 1,
+          notifications: [{
+            id: "notification-admin-commission-1",
+            userId: seller.id,
+            category: "trade",
+            title: "Commission payment required",
+            message: "An administrator issued a commission.",
+            isRead: false,
+            reason: "commission_payment_due",
+            actionHref: "/usdt-exchange?commission=pay&commissionId=commission-admin-1#commission-payment",
+            createdAt: "2026-09-12T00:00:00.000Z",
+          }],
+        }),
+      }));
+    });
+
+    await waitFor(() => {
+      expect(commissionStatus.textContent).toContain("Commission Due");
+      expect(commissionStatus.textContent).toContain("12.50 USDT");
+      expect(within(commissionStatus).getByRole("button", { name: "Pay Now" })).not.toBeNull();
+    });
+  });
+
+  it("shows a trade-less manual commission as admin-issued and keeps it payable", async () => {
+    commissionRecordsOverride = [{
+      commissionId: "commission-admin-2",
+      amountDue: 9,
+      paymentAmountDue: 9.000001,
+      dueAt: "2026-09-15T00:00:00.000Z",
+      source: "admin_manual",
+      issueReason: "Seller support adjustment approved by administration",
+    }];
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+
+    const commissionStatus = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain("Admin-issued commission");
+      expect(element?.textContent).toContain("Seller support adjustment approved by administration");
+      expect(element?.textContent).not.toContain("Trade reference");
+      return element!;
+    });
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: "Pay Now" }));
+
+    const paymentPanel = await waitFor(() => {
+      const element = document.getElementById("commission-payment");
+      expect(element?.textContent).toContain("Admin-issued commission");
+      expect(element?.textContent).toContain("9.000001 USDT");
+      return element!;
+    });
+    fireEvent.click(within(paymentPanel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
+    expect(paymentPanel.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
   });
 
   it("keeps a suspended seller in the payment workspace while listing creation stays blocked", async () => {

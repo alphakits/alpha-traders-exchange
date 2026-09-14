@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
-import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 
 export async function requireApiUser() {
@@ -64,7 +64,7 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
 /**
  * Returns null (bypass) when:
  *   - User is admin or owner (always bypass)
- *   - the explicit local test runtime enables ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1
+ *   - phone verification is not explicitly enabled (the default email-only mode)
  *   - User has an already-verified phone number
  * Otherwise returns a 403 response requiring phone verification.
  */
@@ -72,8 +72,8 @@ export function requirePhoneVerificationForTrading(user: { id: string; role: str
   // Admin and owner always bypass phone verification.
   const isAdminOrOwner = user.role === "admin" || user.role === "owner" || (user.roles ?? []).includes("admin") || (user.roles ?? []).includes("owner");
   if (isAdminOrOwner) return null;
-  // Local test-only bypass. Deployed production runtimes reject this setting.
-  if (isMarketplacePhoneVerificationDisabled()) return null;
+  // Email-only mode never requires a phone. Phone enforcement is opt-in.
+  if (!isMarketplacePhoneVerificationEnabled()) return null;
   if (hasPhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",
@@ -192,6 +192,10 @@ export async function requireApiSellerWorkspaceActor() {
   const result = await requireApiUser();
   if (!result.user) return result;
   const user = result.user;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) {
+    return { user: null, unauthorized: emailVerificationRequired };
+  }
   const isSellerWorkspaceUser =
     hasRole(user, "approved_seller") ||
     hasRole(user, "pending_seller_approval") ||

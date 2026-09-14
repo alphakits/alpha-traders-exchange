@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   deleteNotification: vi.fn(),
   markNotificationReadState: vi.fn(),
+  sanitizeNotificationForClient: vi.fn((notification: unknown) => notification),
   updateNotificationState: vi.fn(),
   requireApiUser: vi.fn(),
 }));
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/alpha-exchange-store", () => ({
   deleteNotification: mocks.deleteNotification,
   markNotificationReadState: mocks.markNotificationReadState,
+  sanitizeNotificationForClient: mocks.sanitizeNotificationForClient,
   updateNotificationState: mocks.updateNotificationState,
 }));
 

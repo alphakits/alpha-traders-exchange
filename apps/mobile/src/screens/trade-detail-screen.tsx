@@ -55,10 +55,24 @@ type BankDetails = {
 function stageInstruction(
   status: MobileTradeStatus,
   t: ReturnType<typeof useLocale>["t"],
-  completionKind: "face_to_face" | "cardless_atm" | null = null,
+  cashTradeKind: "face_to_face" | "cardless_atm" | null = null,
+  side: "buyer" | "seller" = "buyer",
 ) {
-  if (completionKind === "cardless_atm") return t("cardlessAtmReady");
-  if (completionKind === "face_to_face") return t("faceToFaceReady");
+  if (cashTradeKind) {
+    if (status === "pending") return t("waitingForSeller");
+    if (status === "accepted") {
+      if (side === "buyer") return cashTradeKind === "cardless_atm" ? t("cashBuyerSendCodeNext") : t("cashBuyerHandOverNext");
+      return cashTradeKind === "cardless_atm" ? t("cashSellerWaitCode") : t("cashSellerWaitHandover");
+    }
+    if (status === "payment_sent") {
+      if (side === "seller") return cashTradeKind === "cardless_atm" ? t("cashSellerCollectAtmNext") : t("cashSellerConfirmReceiptNext");
+      return t("cashBuyerWaitReceiptConfirmation");
+    }
+    if (status === "funds_received" || status === "usdt_release_pending") {
+      return side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
+    }
+    if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
+  }
   if (status === "pending") return t("waitingForSeller");
   if (status === "accepted") return t("waitingForBuyerPayment");
   if (status === "payment_sent") return t("waitingForFunds");
@@ -249,7 +263,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   function confirmCashTradeCompletion() {
     if (busyAction) return;
     const isCardlessAtm = query.data?.trade.paymentMethod === "Cardless ATM Withdrawal";
-    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), isCardlessAtm ? t("cardlessAtmCompletionConfirmation") : t("faceToFaceCompletionConfirmation"), [
+    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), t("cashUsdtCompletionConfirmation"), [
       { text: t("cancel"), style: "cancel" },
       { text: t("confirm"), onPress: () => void completeCashTrade() },
     ]);
@@ -496,9 +510,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const actionsDisabled = busyAction !== null;
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
   const isCardlessAtm = trade.paymentMethod === "Cardless ATM Withdrawal";
-  const completionKind = actions.canCompleteFaceToFace
-    ? (isCardlessAtm ? "cardless_atm" : "face_to_face")
-    : null;
+  const cashTradeKind = isCardlessAtm ? "cardless_atm" : isFaceToFace ? "face_to_face" : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -528,10 +540,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={styles.statusText}>{mobileTradeStatusLabel(trade.status, locale)}</Text>
             </View>
           </View>
-          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, completionKind)}</Text>
+          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, cashTradeKind, trade.side)}</Text>
         </View>
 
-        {!actions.canCompleteFaceToFace && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
+        {!cashTradeKind && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
           <View style={[
             styles.deadlineCard,
             visibleTimeRemaining <= 300 && styles.deadlineCardWarning,
@@ -587,12 +599,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {actions.canCompleteFaceToFace ? (
+        {cashTradeKind && !["declined", "cancelled", "completed", "review_open", "locked"].includes(trade.status) ? (
           <View style={styles.faceToFaceCard}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-              {isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle")}
+              {t("cashNoEvidenceTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{isCardlessAtm ? t("cardlessAtmNoAdditionalEvidence") : t("faceToFaceNoEvidence")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("cashNoEvidenceBody")}</Text>
           </View>
         ) : null}
 
@@ -625,30 +637,48 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               loading={busyAction === "complete-cash-trade"}
               onPress={confirmCashTradeCompletion}
             >
-              {isCardlessAtm ? t("completeCardlessAtmTrade") : t("completeFaceToFaceTrade")}
+              {t("sentUsdtComplete")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence ? (
+          {actions.canMarkUsdtSent ? (
+            <GoldButton
+              disabled={actionsDisabled}
+              loading={busyAction === "usdt_sent"}
+              onPress={() => confirmStatus("usdt_sent", t("cashUsdtSentConfirmation"))}
+            >
+              {t("confirmUsdtSent")}
+            </GoldButton>
+          ) : null}
+          {actions.canMarkPaymentSent ? (
+            <GoldButton
+              disabled={actionsDisabled}
+              loading={busyAction === "payment_sent"}
+              onPress={() => confirmStatus("payment_sent", isCardlessAtm ? t("withdrawalCodeSentConfirmation") : t("cashHandoverConfirmation"))}
+            >
+              {isCardlessAtm ? t("sentWithdrawalCode") : t("handedOverCash")}
+            </GoldButton>
+          ) : null}
+          {actions.canUploadPaymentEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-buyer" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("buyer")}>
               {trade.hasBuyerEvidence ? t("receiptUploaded") : t("uploadPaymentReceipt")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canConfirmFunds ? (
-            <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", t("fundsConfirmation"))}>
-              {t("confirmFunds")}
+          {actions.canConfirmFunds ? (
+            <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", cashTradeKind ? (isCardlessAtm ? t("atmCashReceivedConfirmation") : t("cashReceivedConfirmation")) : t("fundsConfirmation"))}>
+              {cashTradeKind ? (isCardlessAtm ? t("collectedAtmCash") : t("receivedCash")) : t("confirmFunds")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canBeginRelease ? (
+          {actions.canBeginRelease ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "usdt_release_pending"} onPress={() => confirmStatus("usdt_release_pending", t("releaseConfirmation"))}>
               {t("beginUsdtRelease")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canUploadReleaseEvidence ? (
+          {actions.canUploadReleaseEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-seller" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("seller")}>
               {trade.hasSellerEvidence ? t("releaseProofUploaded") : t("uploadReleaseProof")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canConfirmReceived ? (
+          {actions.canConfirmReceived ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "completed"} onPress={() => confirmStatus("completed", t("receivedConfirmation"))}>
               {t("confirmReceived")}
             </GoldButton>
@@ -780,7 +810,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {!actions.canCompleteFaceToFace && (actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence) ? (
+        {actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence ? (
           <Text style={[styles.privacyNote, isRTL && styles.rtlText]}>◈ {t("evidencePrivacy")}</Text>
         ) : null}
 

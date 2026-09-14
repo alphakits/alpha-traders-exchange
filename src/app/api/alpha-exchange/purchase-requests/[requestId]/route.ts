@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -35,10 +35,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   if (emailVerificationRequired) return emailVerificationRequired;
 
-  const rate = await checkSharedRateLimit({
+  // A status transition already performs its durable write in the store. Do
+  // not put a separate shared-database limiter write in front of every Trade
+  // Room tap: it added latency, failed closed during database contention, and
+  // grouped unrelated customers behind the same carrier/NAT IP. Authenticated
+  // user IDs keep this guard isolated and synchronous.
+  const rate = checkRateLimit({
     headers: request.headers,
-    key: "exchange:purchase-request-status",
-    maxRequests: 40,
+    key: "exchange:purchase-request-status:v2",
+    identifier: user.id,
+    maxRequests: 60,
     windowMs: 60_000,
   });
   if (routeDebug) {
@@ -143,32 +149,33 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // review_open/completed/locked) return statusChanged=false and must NOT re-send emails.
     const emailEvent = statusChanged ? tradeEmailEventForStatus(status) : null;
     if (emailEvent || additionallyDeclinedRequests.length > 0) {
-      try {
-        const deliveries = await Promise.all([
-          ...additionallyDeclinedRequests.map((declinedRequest) =>
-            prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
-          ),
-          ...(emailEvent ? [prepareTradeEventEmails({ event: emailEvent, request: updated })] : []),
-        ]);
-        after(() => Promise.allSettled(deliveries.map((deliverEmails) => deliverEmails())));
-      } catch (emailScheduleError) {
-        // Status, timeline, in-app notification, and SSE publication have
-        // already committed. Preserve the successful lifecycle response even
-        // when recipient lookup or email scheduling is temporarily unhealthy.
-        logEvent("error", {
-          event: "trade_lifecycle_email_schedule",
-          actorUserId: user.id,
-          actorRole: user.role,
-          resourceId: requestId,
-          outcome: "failed",
-          reason: "status_post_commit_schedule_failed",
-          metadata: {
-            nextStatus: status,
-            emailEvent,
-            errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError,
-          },
-        });
-      }
+      after(async () => {
+        try {
+          const deliveries = await Promise.all([
+            ...additionallyDeclinedRequests.map((declinedRequest) =>
+              prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
+            ),
+            ...(emailEvent ? [prepareTradeEventEmails({ event: emailEvent, request: updated })] : []),
+          ]);
+          await Promise.allSettled(deliveries.map((deliverEmails) => deliverEmails()));
+        } catch (emailScheduleError) {
+          // Lifecycle state and realtime publication are already durable; all
+          // recipient/provider work remains outside the user's tap latency.
+          logEvent("error", {
+            event: "trade_lifecycle_email_schedule",
+            actorUserId: user.id,
+            actorRole: user.role,
+            resourceId: requestId,
+            outcome: "failed",
+            reason: "status_post_commit_schedule_failed",
+            metadata: {
+              nextStatus: status,
+              emailEvent,
+              errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError,
+            },
+          });
+        }
+      });
     }
     if (routeDebug) {
       console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });

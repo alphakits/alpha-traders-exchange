@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getBilingualOtpSms, getSmsTemplate, isSmsLifecycleEvent, mapTwilioStatus, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, validateTwilioSignature } from "@/lib/notification-platform";
+import { getBilingualOtpSms, getSmsTemplate, isSmsLifecycleEvent, isTwilioSendEnabled, mapTwilioStatus, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, validateTwilioSignature } from "@/lib/notification-platform";
 
 describe("notification platform", () => {
   afterEach(() => {
@@ -48,7 +48,33 @@ describe("notification platform", () => {
     ]);
   });
 
+  it("requires the exact true opt-in and never sends from credentials alone", async () => {
+    expect(isTwilioSendEnabled({ ALPHA_EXCHANGE_TWILIO_SEND_ENABLED: "true" })).toBe(true);
+    expect(isTwilioSendEnabled({ ALPHA_EXCHANGE_TWILIO_SEND_ENABLED: " TRUE " })).toBe(true);
+    expect(isTwilioSendEnabled({ ALPHA_EXCHANGE_TWILIO_SEND_ENABLED: "1" })).toBe(false);
+    expect(isTwilioSendEnabled({ ALPHA_EXCHANGE_TWILIO_SEND_ENABLED: "yes" })).toBe(false);
+    expect(isTwilioSendEnabled({})).toBe(false);
+
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendTwilioMessageWithRetry({
+      to: "+15557654321",
+      body: "critical",
+    })).resolves.toEqual({
+      ok: false,
+      retryable: false,
+      error: "Twilio SMS is disabled.",
+      attempts: 1,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("upgrades legacy OTP callers before the provider request is sent", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
@@ -83,6 +109,7 @@ describe("notification platform", () => {
 
   it("retries transient Twilio failures once", async () => {
     vi.useFakeTimers();
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
@@ -100,6 +127,7 @@ describe("notification platform", () => {
 
   it("aborts a timed-out provider request without waiting indefinitely", async () => {
     vi.useFakeTimers();
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
@@ -128,6 +156,7 @@ describe("notification platform", () => {
   });
 
   it("records provider error code and HTTP status without returning provider text", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
     vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");

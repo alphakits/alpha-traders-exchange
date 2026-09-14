@@ -58,16 +58,22 @@ describe("mobile accessibility completion", () => {
     expect(tradeRoom).toContain("setBankDetails(null)");
   });
 
-  it("keeps participant cash completion explicit and confirmed in the native Trade Room", () => {
+  it("keeps the guided seller-only cash completion explicit and confirmed in the native Trade Room", () => {
     const tradeRoom = source("apps/mobile/src/screens/trade-detail-screen.tsx");
     const mobileApi = source("apps/mobile/src/api/mobile-api.ts");
 
     expect(tradeRoom).toContain("actions.canCompleteFaceToFace");
-    expect(tradeRoom).toContain('t("cardlessAtmCompletionConfirmation")');
-    expect(tradeRoom).toContain('t("faceToFaceCompletionConfirmation")');
+    expect(tradeRoom).toContain('t("cashUsdtCompletionConfirmation")');
+    expect(tradeRoom).toContain("actions.canMarkUsdtSent");
+    expect(tradeRoom).toContain('t("cashUsdtSentConfirmation")');
+    expect(tradeRoom).toContain('t("confirmUsdtSent")');
+    expect(tradeRoom).toContain("actions.canMarkPaymentSent");
+    expect(tradeRoom).toContain('t("sentWithdrawalCode")');
+    expect(tradeRoom).toContain('t("handedOverCash")');
     expect(tradeRoom).toContain('loading={busyAction === "complete-cash-trade"}');
-    expect(tradeRoom).toContain("!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence");
-    expect(tradeRoom).toContain("!actions.canCompleteFaceToFace && actions.canUploadReleaseEvidence");
+    expect(tradeRoom).toContain("actions.canUploadPaymentEvidence");
+    expect(tradeRoom).toContain("actions.canUploadReleaseEvidence");
+    expect(tradeRoom).toContain('t("cashNoEvidenceBody")');
     expect(mobileApi).toContain('body: { action: "complete_cash_trade" }');
   });
 

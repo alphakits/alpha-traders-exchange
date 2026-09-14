@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
+  checkRateLimit: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   getTradeRoomData: vi.fn(),
   logEvent: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("@/lib/api-auth", () => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: mocks.checkRateLimit,
   checkSharedRateLimit: mocks.checkSharedRateLimit,
 }));
 
@@ -57,6 +59,12 @@ function routeContext(requestId = "purchase-1") {
   return { params: Promise.resolve({ requestId }) };
 }
 
+async function runPostResponseTasks() {
+  for (const [task] of mocks.after.mock.calls as Array<[() => Promise<void>]>) {
+    await task();
+  }
+}
+
 describe("Trade Room message email scheduling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -74,13 +82,13 @@ describe("Trade Room message email scheduling", () => {
     });
     mocks.prepareTradeRoomConversationEmail.mockResolvedValue(deliverEmail);
     mocks.after.mockImplementation(() => undefined);
+    mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
+    mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.requireEmailVerificationForTrading.mockReturnValue(null);
   });
 
   it("schedules only the first recipient/trade message email in the server-owned two-minute burst", async () => {
     mocks.checkSharedRateLimit
-      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
-      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
       .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
       .mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 119, reason: "limit_reached" });
 
@@ -89,6 +97,8 @@ describe("Trade Room message email scheduling", () => {
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
+    expect(mocks.prepareTradeRoomConversationEmail).not.toHaveBeenCalled();
+    await runPostResponseTasks();
     expect(mocks.prepareTradeRoomConversationEmail).toHaveBeenCalledTimes(1);
     expect(mocks.prepareTradeRoomConversationEmail).toHaveBeenCalledWith({
       event: "trade_room_message",
@@ -98,7 +108,7 @@ describe("Trade Room message email scheduling", () => {
       senderRole: "buyer",
       idempotencyKey: "trade-room-message:message-1:seller-1",
     });
-    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(mocks.after).toHaveBeenCalledTimes(2);
     expect(mocks.checkSharedRateLimit).toHaveBeenLastCalledWith(expect.objectContaining({
       key: "exchange:trade-room-message-email",
       identifier: "purchase-1:seller-1",
@@ -109,7 +119,6 @@ describe("Trade Room message email scheduling", () => {
 
   it("does not roll back a persisted message when preparing the email fails", async () => {
     mocks.checkSharedRateLimit
-      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
       .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.prepareTradeRoomConversationEmail.mockRejectedValueOnce(new Error("email provider unavailable"));
 
@@ -117,7 +126,9 @@ describe("Trade Room message email scheduling", () => {
 
     expect(response.status).toBe(201);
     expect(mocks.postTradeRoomMessage).toHaveBeenCalledTimes(1);
-    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledOnce();
+    expect(mocks.prepareTradeRoomConversationEmail).not.toHaveBeenCalled();
+    await runPostResponseTasks();
     expect(mocks.logEvent).toHaveBeenCalledWith("error", expect.objectContaining({
       event: "trade_room_email_schedule",
       reason: "post_commit_schedule_failed",
@@ -164,6 +175,8 @@ describe("Trade Room message email scheduling", () => {
     await POST(createMessageRequest("other trade", "trade-b"), routeContext("trade-b"));
     await POST(createMessageRequest("reverse", "trade-a"), routeContext("trade-a"));
 
+    expect(mocks.prepareTradeRoomConversationEmail).not.toHaveBeenCalled();
+    await runPostResponseTasks();
     expect(mocks.prepareTradeRoomConversationEmail).toHaveBeenCalledTimes(3);
     const emailBurstKeys = mocks.checkSharedRateLimit.mock.calls
       .map(([input]) => input as { key?: string; identifier?: string })
@@ -186,7 +199,6 @@ describe("Trade Room message email scheduling", () => {
 
   it("forwards the stable client message id used for exact-once retries", async () => {
     mocks.checkSharedRateLimit
-      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
       .mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 119, reason: "limit_reached" });
     const clientMessageId = "ad0bdb49-b5ca-443e-aeda-2318f716c654";
 
@@ -197,7 +209,6 @@ describe("Trade Room message email scheduling", () => {
   });
 
   it("returns a stable policy code so blocked contact details are explained inline", async () => {
-    mocks.checkSharedRateLimit.mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.postTradeRoomMessage.mockRejectedValueOnce(new Error(DIRECT_CONTACT_CONTENT_ERROR));
 
     const response = await POST(createMessageRequest("050-123-4567"), routeContext());
@@ -208,7 +219,6 @@ describe("Trade Room message email scheduling", () => {
   });
 
   it("does not schedule a second email when a retry replays an already-committed message", async () => {
-    mocks.checkSharedRateLimit.mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.postTradeRoomMessage.mockResolvedValueOnce({
       message: { id: "message-1" },
       created: false,
