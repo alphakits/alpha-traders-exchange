@@ -21,7 +21,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { getDefaultListingPaymentMethods, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { getDefaultListingPaymentMethods, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
@@ -3118,7 +3118,7 @@ export function UsdtExchangePage({
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
   const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
-  const listingCreateRequiresBankAccount = listingCreateRequiresBank;
+  const listingCreateRequiresBankAccount = requiresSellerPayoutBankAccount(listingCreateSelectedMethods);
   const listingCreateSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingCreateForm.bankAccountId);
   const listingCreateBankAccountMismatch = Boolean(
     listingCreateRequiresBankAccount
@@ -3181,12 +3181,19 @@ export function UsdtExchangePage({
   const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
   const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
   const listingEditRequiresBank = requiresBankSelection(listingEditSelectedMethods);
-  const listingEditRequiresBankAccount = listingEditRequiresBank;
+  const listingEditRequiresBankAccount = requiresSellerPayoutBankAccount(listingEditSelectedMethods);
+  const listingEditSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingEditForm.bankAccountId);
+  const listingEditBankAccountMismatch = Boolean(
+    listingEditRequiresBankAccount
+    && listingEditForm.bankAccountId
+    && (!listingEditSelectedBankAccount || !isPayoutBankSupported(listingEditSelectedBanks, listingEditSelectedBankAccount.bankName)),
+  );
   const listingEditMissingRequired = !listingEditAmount
     || !listingEditPrice
     || !listingEditSelectedMethods.length
     || (listingEditRequiresBank && !listingEditSelectedBanks.length)
-    || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId);
+    || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId)
+    || listingEditBankAccountMismatch;
   const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditNeedsReason = listingEditOriginal
     ? listingEditRequiresReason(listingEditOriginal, {
@@ -5404,6 +5411,7 @@ export function UsdtExchangePage({
               isWorkspaceWidgetsLoading,
               listingActionKey,
               listingEditAmount,
+              listingEditBankAccountMismatch,
               listingEditForm,
               listingEditGuardTone,
               listingEditNeedsReason,
