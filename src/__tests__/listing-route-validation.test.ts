@@ -138,6 +138,63 @@ describe("alpha-exchange listing route validation", () => {
     }));
   });
 
+  it("forwards every editable seller field in one atomic listing update", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue({
+      id: "listing-1",
+      price: "3.10",
+      currency: "ILS",
+      availableAmount: "1000",
+      minimumTrade: "100",
+      maximumTrade: "1000",
+      network: "TRC20",
+      paymentMethods: ["Face-to-Face (Meet in Person)"],
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      bankName: undefined,
+      sellerDescription: "",
+    });
+
+    const request = new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
+      method: "PATCH",
+      body: JSON.stringify({
+        availableAmount: "750",
+        price: "3.20",
+        currency: "ILS",
+        network: "BEP20",
+        paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+        bankName: "Bank Hapoalim",
+        minimumTrade: "75",
+        maximumTrade: "700",
+        sellerDescription: "Fast local settlement.",
+        responseTime: "10 min",
+        changeReason: "Price updated",
+        changeExplanation: "Updated the active listing terms.",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await PATCH(request, { params: Promise.resolve({ listingId: "listing-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalledWith(expect.objectContaining({
+      listingId: "listing-1",
+      sellerId: "seller-1",
+      actorUserId: "seller-1",
+      availableAmount: "750",
+      price: "3.20",
+      currency: "ILS",
+      network: "BEP20",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+      bankAccountId: undefined,
+      bankName: "Bank Hapoalim",
+      minimumTrade: "75",
+      maximumTrade: "700",
+      sellerDescription: "Fast local settlement.",
+      responseTime: "10 min",
+      changeReason: "Price updated",
+      changeExplanation: "Updated the active listing terms.",
+    }));
+  });
+
   it("requires supported banks when cardless ATM is enabled", async () => {
     mocks.getMarketplaceListingById.mockResolvedValue({
       id: "listing-1",
