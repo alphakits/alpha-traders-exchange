@@ -182,6 +182,10 @@ check(navigation.includes("isTrustedWebsiteBlobUrl"), "First-party blob navigati
 check(Boolean(easConfig.build?.preview), "The EAS preview build profile is missing.");
 check(easConfig.build?.production?.autoIncrement === true, "Production build-number auto-increment is missing.");
 check(Boolean(easConfig.submit?.production), "The EAS production submission profile is missing.");
+check(
+  easConfig.submit?.production?.ios?.ascAppId === "6812101323",
+  "The EAS iOS submission profile is not connected to the Alpha Traders App Store record.",
+);
 check(installedIphoneWorkflow.includes("type: apple-device-registration-request"), "The registered-iPhone workflow is missing device registration.");
 check(installedIphoneWorkflow.includes("refresh_ad_hoc_provisioning_profile: true"), "The registered-iPhone workflow does not refresh provisioning.");
 check(iosTestflightWorkflow.includes("branches: [release/ios-testflight]"), "The TestFlight workflow is not isolated to its controlled release branch.");
