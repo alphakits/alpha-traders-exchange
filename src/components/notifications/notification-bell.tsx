@@ -116,9 +116,9 @@ function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorU
   if (request.status === "pending" && isSeller) return "accept-trade";
   if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
   if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return cashTrade ? "send-usdt-complete" : "release-usdt";
-  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "send-usdt-complete" : "upload-seller-evidence";
-  if (request.status === "usdt_sent" && cashTrade && isSeller) return "send-usdt-complete";
+  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
+  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
   if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
   if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
   return "open-trade";
@@ -139,7 +139,9 @@ function inferTradeActionFromNotificationText(notification: AlphaExchangeNotific
   if (/withdrawal code|handed over cash|handed the cash/.test(text)) return "confirm-money-received";
   if (/trade request accepted/.test(text)) return "upload-payment-receipt";
   if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
-  if (/buyer wallet is now revealed|send-and-complete/.test(text)) return "send-usdt-complete";
+  if (/buyer wallet is now revealed|send-and-complete/.test(text)) return "confirm-usdt-sent";
+  if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
+  if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
   if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
   if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
   if (/review available|trade completed/.test(text)) return "review-trade";

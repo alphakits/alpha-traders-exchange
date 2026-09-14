@@ -101,9 +101,9 @@ function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorU
   if (request.status === "pending" && isSeller) return "accept-trade";
   if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
   if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return cashTrade ? "send-usdt-complete" : "release-usdt";
-  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "send-usdt-complete" : "upload-seller-evidence";
-  if (request.status === "usdt_sent" && cashTrade && isSeller) return "send-usdt-complete";
+  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
+  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
   if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
   if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
   return "open-trade";
@@ -133,7 +133,8 @@ function tradeRoomActionLabel(action: string, locale: AppLocale) {
   if (action === "confirm-money-received") return isAr ? "تأكيد استلام الدفعة" : "Confirm payment received";
   if (action === "release-usdt") return isAr ? "بدء إرسال USDT" : "Begin USDT release";
   if (action === "upload-seller-evidence") return isAr ? "رفع الإثبات وإرسال USDT" : "Upload proof and send USDT";
-  if (action === "send-usdt-complete") return isAr ? "إرسال USDT وإكمال الصفقة" : "Send USDT and complete trade";
+  if (action === "confirm-usdt-sent") return isAr ? "تأكيد إرسال USDT" : "Confirm USDT sent";
+  if (action === "complete-cash-trade" || action === "send-usdt-complete") return isAr ? "تحديد الصفقة كمكتملة" : "Mark trade as completed";
   if (action === "confirm-usdt-received") return isAr ? "تأكيد استلام USDT" : "Confirm USDT received";
   if (action === "review-trade") return isAr ? "إضافة تقييم للصفقة" : "Leave a trade review";
   return isAr ? "عرض تفاصيل الصفقة" : "View trade details";

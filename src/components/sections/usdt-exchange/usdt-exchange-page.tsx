@@ -21,7 +21,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { getDefaultListingPaymentMethods, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { getDefaultListingPaymentMethods, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
@@ -1003,19 +1003,19 @@ export function paymentMethodTradeInstruction(method: string, actor: "buyer" | "
   }
   if (normalized === "Face-to-Face (Meet in Person)") {
     if (isAr) return actor === "seller"
-      ? "اللقاء الشخصي: أكّد فقط بعد استلام النقد فعليًا، ثم أرسل USDT وأكمل الصفقة من غرفة التداول. لا يلزم رفع صورة."
-      : "اللقاء الشخصي: سلّم النقد ثم أكّد ذلك من غرفة التداول. البائع وحده يُكمل بعد إرسال USDT، ولا يلزم رفع صورة.";
+      ? "اللقاء الشخصي: أكّد فقط بعد استلام النقد فعليًا. ثم أكّد إرسال USDT وحدد الصفقة كمكتملة بزر منفصل. لا يلزم رفع صورة."
+      : "اللقاء الشخصي: سلّم النقد ثم أكّد ذلك من غرفة التداول. يؤكد البائع إرسال USDT ثم يُكمل الصفقة بشكل منفصل؛ لا يلزم تأكيد المشتري أو رفع صورة.";
     return actor === "seller"
-      ? "Face-to-Face: confirm only after you physically receive the cash, then send USDT and complete in the Trade Room. No photo is required."
-      : "Face-to-Face: hand over the cash, then confirm it in the Trade Room. Only the seller completes after sending USDT; no photo is required.";
+      ? "Face-to-Face: confirm only after you physically receive the cash. Then confirm USDT sent and mark the trade completed with a separate button. No photo is required."
+      : "Face-to-Face: hand over the cash, then confirm it in the Trade Room. The seller separately confirms USDT sent and completes the trade; no buyer receipt confirmation or photo is required.";
   }
   if (normalized === "Cardless ATM Withdrawal") {
     if (isAr) return actor === "seller"
-      ? "السحب بلا بطاقة: أكّد فقط بعد سحب النقد فعليًا، ثم أرسل USDT وأكمل من غرفة التداول. لا يلزم رفع صورة."
-      : "السحب بلا بطاقة: أرسل رمز السحب للبائع ثم أكّد ذلك من غرفة التداول. لا يلزم رفع صورة.";
+      ? "السحب بلا بطاقة: أكّد فقط بعد سحب النقد فعليًا. ثم أكّد إرسال USDT وحدد الصفقة كمكتملة بزر منفصل. لا يلزم رفع صورة."
+      : "السحب بلا بطاقة: أرسل رمز السحب للبائع ثم أكّد ذلك من غرفة التداول. يؤكد البائع إرسال USDT ثم يُكمل الصفقة؛ لا يلزم منك تأكيد الاستلام أو رفع صورة.";
     return actor === "seller"
-      ? "Cardless ATM: confirm only after you collect the cash, then send USDT and complete in the Trade Room. No photo is required."
-      : "Cardless ATM: send the withdrawal code to the seller, then confirm it in the Trade Room. No photo is required.";
+      ? "Cardless ATM: confirm only after you collect the cash. Then confirm USDT sent and mark the trade completed with a separate button. No photo is required."
+      : "Cardless ATM: send the withdrawal code to the seller, then confirm it in the Trade Room. The seller confirms USDT sent and completes the trade; no buyer receipt confirmation or photo is required.";
   }
   return isAr ? "اتبع الخط الزمني للصفقة وأكمل كل خطوة تحقق قبل المتابعة." : "Follow the trade timeline and complete each verification step before moving forward.";
 }
@@ -3098,7 +3098,9 @@ export function UsdtExchangePage({
     && !isAdminSession,
   );
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
-  const archivedConfirmationTrade = buyerRequests.find((request) => request.status === "usdt_sent" && request.buyerConfirmationArchivedAt);
+  const archivedConfirmationTrade = buyerRequests.find((request) => request.status === "usdt_sent"
+    && !isCashTradePaymentMethod(request.paymentMethod)
+    && request.buyerConfirmationArchivedAt);
   const pendingBuyerReviewTrade = buyerRequests.find((request) => ["review_open", "locked", "completed"].includes(request.status) && !request.buyerReview);
   useEffect(() => {
     if (!sessionUser) return;
@@ -3958,13 +3960,15 @@ export function UsdtExchangePage({
     if (!snapshot?.requestId || !snapshot.currentStage || !sessionUser) return null;
     const isSellerActor = snapshot.sellerId === sessionUser.id;
     const isBuyerActor = snapshot.buyerId === sessionUser.id;
-    let action: "accept-trade" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
+    const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
+    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
     if (snapshot.currentStage === "pending" && isSellerActor) action = "accept-trade";
-    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = "upload-payment-receipt";
+    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
     else if (snapshot.currentStage === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_sent" && isBuyerActor) action = "confirm-usdt-received";
+    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
+    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+    else if (snapshot.currentStage === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
+    else if (snapshot.currentStage === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
     else if ((snapshot.currentStage === "review_open" || snapshot.currentStage === "completed" || snapshot.currentStage === "locked") && isBuyerActor) action = "review-trade";
     if (action === "open-trade") return null;
     const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
@@ -3979,13 +3983,15 @@ export function UsdtExchangePage({
     if (!sessionUser) return `/trade-room/${request.id}`;
     const isSellerActor = request.sellerId === sessionUser.id;
     const isBuyerActor = request.buyerId === sessionUser.id;
-    let action: "accept-trade" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
+    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
     if (request.status === "pending" && isSellerActor) action = "accept-trade";
-    else if (request.status === "accepted" && isBuyerActor) action = "upload-payment-receipt";
+    else if (request.status === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
     else if (request.status === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (request.status === "funds_received" && isSellerActor) action = "upload-seller-evidence";
-    else if (request.status === "usdt_release_pending" && isSellerActor) action = "upload-seller-evidence";
-    else if (request.status === "usdt_sent" && isBuyerActor) action = "confirm-usdt-received";
+    else if (request.status === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
+    else if (request.status === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+    else if (request.status === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
+    else if (request.status === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
     else if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor) action = "review-trade";
     const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
       ? "evidence"
@@ -4040,8 +4046,12 @@ export function UsdtExchangePage({
   const inferTradeActionFromNotification = useCallback((notification: AlphaExchangeNotification) => {
     const text = `${notification.title} ${notification.message}`.toLowerCase();
     if (/new trade request/.test(text)) return "accept-trade";
+    if (/withdrawal code|handed over cash|handed the cash/.test(text)) return "confirm-money-received";
     if (/trade request accepted/.test(text)) return "upload-payment-receipt";
     if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
+    if (/buyer wallet is now revealed|send-and-complete/.test(text)) return "confirm-usdt-sent";
+    if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
+    if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
     if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
     if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
     if (/review available|trade completed/.test(text)) return "review-trade";

@@ -4,6 +4,7 @@ import {
   getMarketplacePaymentMethodOptions,
   isBuyerEvidenceRequiredForPaymentMethod,
   isCashTradeCompletionAvailable,
+  isCashTradeUsdtSentConfirmationAvailable,
   isSellerEvidenceRequiredForPaymentMethod,
   normalizeMarketplacePaymentMethod,
   requiresIsraeliBankSelection,
@@ -50,7 +51,9 @@ describe("getMarketplacePaymentMethodOptions", () => {
       expect(isSellerEvidenceRequiredForPaymentMethod(method)).toBe(false);
       expect(isCashTradeCompletionAvailable(method, "accepted")).toBe(false);
       expect(isCashTradeCompletionAvailable(method, "payment_sent")).toBe(false);
-      expect(isCashTradeCompletionAvailable(method, "funds_received")).toBe(true);
+      expect(isCashTradeCompletionAvailable(method, "funds_received")).toBe(false);
+      expect(isCashTradeUsdtSentConfirmationAvailable(method, "funds_received")).toBe(true);
+      expect(isCashTradeCompletionAvailable(method, "usdt_sent")).toBe(true);
     }
     expect(isBuyerEvidenceRequiredForPaymentMethod("Bank Transfer")).toBe(true);
     expect(isBuyerEvidenceRequiredForPaymentMethod("Legacy transfer method")).toBe(true);

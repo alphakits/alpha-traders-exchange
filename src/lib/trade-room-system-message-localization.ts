@@ -20,12 +20,20 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
     en: "Seller accepted the trade request. Buyer can now upload the payment receipt.",
   },
   "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade.": {
-    ar: "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليتمكن البائع من إرسال USDT وإكمال الصفقة.",
-    en: "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+    ar: "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+  },
+  "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
   },
   "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade.": {
-    ar: "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليتمكن البائع من إرسال USDT وإكمال الصفقة.",
-    en: "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+    ar: "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+  },
+  "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
   },
   "Seller accepted request": {
     ar: "وافق البائع على الطلب.",
@@ -100,8 +108,12 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
     en: "Seller confirmed the funds were received. USDT release is now unlocked.",
   },
   "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required.": {
-    ar: "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وإكمال الصفقة. لا يلزم رفع صورة.",
-    en: "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required.",
+    ar: "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وتأكيد الإرسال. لا يلزم رفع صورة.",
+    en: "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.",
+  },
+  "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.": {
+    ar: "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وتأكيد الإرسال. لا يلزم رفع صورة.",
+    en: "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.",
   },
   "Seller confirmed ATM cash collected": {
     ar: "أكد البائع سحب النقد من الصراف.",
@@ -148,20 +160,20 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
     en: "Buyer confirmed trade completed.",
   },
   "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.": {
-    ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ثم يؤكد البائع الاستلام، وبعدها يرسل البائع USDT ويُكمل الصفقة. لا يلزم رفع صورة.",
-    en: "Seller accepted the Face-to-Face trade. The buyer confirms the cash handover, the seller confirms receipt, then the seller sends USDT and completes. No photo is required.",
+    ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ثم يؤكد البائع الاستلام، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Face-to-Face trade. The buyer confirms the cash handover, the seller confirms receipt, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
   },
   "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.": {
-    ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ثم يؤكد البائع الاستلام، وبعدها يرسل البائع USDT ويُكمل الصفقة. لا يلزم رفع صورة.",
-    en: "Seller accepted the Face-to-Face trade. The buyer confirms the cash handover, the seller confirms receipt, then the seller sends USDT and completes. No photo is required.",
+    ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ثم يؤكد البائع الاستلام، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Face-to-Face trade. The buyer confirms the cash handover, the seller confirms receipt, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
   },
   "Seller accepted the Cardless ATM trade. After the seller collects the cash and sends the agreed USDT, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.": {
-    ar: "وافق البائع على صفقة السحب دون بطاقة. يؤكد المشتري إرسال الرمز، ثم يؤكد البائع سحب النقد، وبعدها يرسل البائع USDT ويُكمل الصفقة. لا يلزم رفع صورة.",
-    en: "Seller accepted the Cardless ATM trade. The buyer confirms sending the code, the seller confirms collecting the cash, then the seller sends USDT and completes. No photo is required.",
+    ar: "وافق البائع على صفقة السحب دون بطاقة. يؤكد المشتري إرسال الرمز، ثم يؤكد البائع سحب النقد، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Cardless ATM trade. The buyer confirms sending the code, the seller confirms collecting the cash, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
   },
   "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission.": {
-    ar: "وافق البائع على صفقة السحب دون بطاقة. يؤكد المشتري إرسال الرمز، ثم يؤكد البائع سحب النقد، وبعدها يرسل البائع USDT ويُكمل الصفقة. لا يلزم رفع صورة.",
-    en: "Seller accepted the Cardless ATM trade. The buyer confirms sending the code, the seller confirms collecting the cash, then the seller sends USDT and completes. No photo is required.",
+    ar: "وافق البائع على صفقة السحب دون بطاقة. يؤكد المشتري إرسال الرمز، ثم يؤكد البائع سحب النقد، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Cardless ATM trade. The buyer confirms sending the code, the seller confirms collecting the cash, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
   },
   "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.": {
     ar: "أنهى المشتري صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
@@ -238,6 +250,9 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
 };
 
 const STALE_CASH_POLICY_MESSAGES = new Set([
+  "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+  "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+  "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required.",
   "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission.",
   "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.",
   "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.",

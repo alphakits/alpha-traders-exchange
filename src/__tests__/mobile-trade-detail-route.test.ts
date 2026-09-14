@@ -180,7 +180,7 @@ describe("mobile trade detail route", () => {
     });
   });
 
-  it("offers final Cardless ATM completion only to the seller after cash confirmation", async () => {
+  it("offers Cardless ATM USDT-sent confirmation before final seller completion", async () => {
     mocks.requireMobileApiUser.mockResolvedValueOnce({
       user: { id: "private-seller-id", role: "approved_seller" },
       accessToken: "access",
@@ -198,7 +198,8 @@ describe("mobile trade detail route", () => {
     await expect(response.json()).resolves.toMatchObject({
       trade: {
         actions: {
-          canCompleteFaceToFace: true,
+          canMarkUsdtSent: true,
+          canCompleteFaceToFace: false,
           canConfirmReceived: false,
           canUploadReleaseEvidence: false,
           canCancel: false,
@@ -243,7 +244,7 @@ describe("mobile trade detail route", () => {
     }));
   });
 
-  it("exposes and executes the seller-only Face-to-Face completion command", async () => {
+  it("exposes and executes seller-only Face-to-Face completion only after USDT was confirmed sent", async () => {
     mocks.requireMobileApiUser.mockResolvedValue({
       user: { id: "private-seller-id", role: "approved_seller" },
       accessToken: "access",
@@ -251,7 +252,7 @@ describe("mobile trade detail route", () => {
     });
     mocks.getTradeRoomData.mockResolvedValue(room({
       paymentMethod: "Face-to-Face (Meet in Person)",
-      status: "funds_received",
+      status: "usdt_sent",
       buyerEvidence: undefined,
     }));
     mocks.updatePurchaseRequestStatus.mockResolvedValueOnce({
@@ -266,7 +267,7 @@ describe("mobile trade detail route", () => {
 
     const detailResponse = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
     await expect(detailResponse.json()).resolves.toMatchObject({
-      trade: { actions: { canCompleteFaceToFace: true } },
+      trade: { actions: { canMarkUsdtSent: false, canCompleteFaceToFace: true } },
     });
 
     const response = await PATCH(request("PATCH", { action: "complete_face_to_face" }), {
@@ -300,7 +301,7 @@ describe("mobile trade detail route", () => {
     await expect(response.json()).resolves.toMatchObject({
       trade: {
         side: "seller",
-        actions: { canCompleteFaceToFace: false, canConfirmFunds: false },
+        actions: { canMarkUsdtSent: false, canCompleteFaceToFace: false, canConfirmFunds: false },
       },
     });
   });

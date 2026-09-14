@@ -493,7 +493,8 @@ function localizedTradeActionMatcher(expectedAction: string) {
   if (expectedAction === "accept-trade") return /Accept Trade|قبول الطلب/i;
   if (expectedAction === "confirm-cash-payment") return /I Sent the Withdrawal Code|I Handed Over the Cash|أرسلت رمز السحب|سلّمت النقد/i;
   if (expectedAction === "confirm-money-received") return /Confirm Money Received|I Collected the ATM Cash|I Received the Cash|تأكيد استلام الأموال|استلمت النقد/i;
-  if (expectedAction === "send-usdt-complete") return /I Sent USDT.*Complete Trade|أرسلت USDT.*إكمال الصفقة/i;
+  if (expectedAction === "confirm-usdt-sent") return /Confirm USDT Sent|تأكيد إرسال USDT/i;
+  if (expectedAction === "complete-cash-trade" || expectedAction === "send-usdt-complete") return /Mark Trade as Completed|تحديد الصفقة كمكتملة/i;
   if (expectedAction === "confirm-usdt-received") return /Confirm USDT Received|تأكيد استلام USDT/i;
   return /Submit Rating|إرسال التقييم/i;
 }
@@ -633,7 +634,7 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /I Received the Cash/i }).first().click();
-  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("send-usdt-complete") }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("confirm-usdt-sent") }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Buyer Receiving Wallet/i).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(BUYER_WALLET).first()).toBeVisible({ timeout: 20_000 });
 
@@ -644,7 +645,10 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
 
   await expect(page.getByText(/No Evidence Upload Required/i).first()).toBeVisible({ timeout: 20_000 });
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("send-usdt-complete") }).first().click();
+  await page.getByRole("button", { name: localizedTradeActionMatcher("confirm-usdt-sent") }).first().click();
+  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first()).toBeVisible({ timeout: 20_000 });
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first().click();
   await expect(page).toHaveURL(/\/en\/usdt-exchange\?trade=.+#my-trade-requests-section/, { timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
@@ -715,9 +719,9 @@ test("action transition matrix: destination query/hash + focused section + CTA a
     { label: "pending seller", status: "pending", actor: "seller", expectedAction: "accept-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "accepted buyer", status: "accepted", actor: "buyer", expectedAction: "confirm-cash-payment", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "payment_sent seller", status: "payment_sent", actor: "seller", expectedAction: "confirm-money-received", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "funds_received seller", status: "funds_received", actor: "seller", expectedAction: "send-usdt-complete", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "usdt_release_pending seller", status: "usdt_release_pending", actor: "seller", expectedAction: "send-usdt-complete", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "usdt_sent seller", status: "usdt_sent", actor: "seller", expectedAction: "send-usdt-complete", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "funds_received seller", status: "funds_received", actor: "seller", expectedAction: "confirm-usdt-sent", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "usdt_release_pending seller", status: "usdt_release_pending", actor: "seller", expectedAction: "confirm-usdt-sent", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "usdt_sent seller", status: "usdt_sent", actor: "seller", expectedAction: "complete-cash-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "review_open buyer", status: "review_open", actor: "buyer", expectedAction: "review-trade", expectedHash: "status-banner", viewport: { width: 1440, height: 900 } },
   ];
 

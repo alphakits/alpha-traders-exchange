@@ -337,8 +337,8 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                   <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
                                   <p className="mt-1">
                                     {isAr
-                                      ? "استخدم غرفة التداول للخطوة التالية الواضحة. يؤكد المشتري التسليم، ثم يؤكد البائع استلام النقد، والبائع وحده يُكمل بعد إرسال USDT."
-                                      : "Use the Trade Room for the guided next step. The buyer confirms the handover, the seller confirms cash receipt, and only the seller completes after sending USDT."}
+                                      ? "استخدم غرفة التداول للخطوة التالية الواضحة. بعد تأكيد النقد، يؤكد البائع إرسال USDT ثم يحدد الصفقة كمكتملة. لا يلزم تأكيد المشتري."
+                                      : "Use the Trade Room for the guided next step. After cash confirmation, the seller confirms USDT sent and then marks the trade completed. The buyer does not need to confirm."}
                                   </p>
                                 </div>
                               ) : (
