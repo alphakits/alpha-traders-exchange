@@ -214,6 +214,7 @@ export interface NotificationTradeSnapshot {
   usdtAmount: string;
   fiatAmount: string;
   currency: string;
+  paymentMethod?: string;
   currentStage: string;
   requiredAction: string;
 }

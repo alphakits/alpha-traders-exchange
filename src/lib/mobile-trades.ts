@@ -10,6 +10,7 @@ import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
   isCashTradeCompletionAvailable,
+  isCashTradePaymentMethod,
 } from "@/lib/marketplace-payment-methods";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
@@ -66,6 +67,7 @@ export function toMobileTradeDetail(
   const side = request.buyerId === userId ? "buyer" : "seller";
   const isBuyer = side === "buyer";
   const isSeller = side === "seller";
+  const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   const buyerReview = request.buyerReview
     ? {
         rating: request.buyerReview.rating,
@@ -105,22 +107,24 @@ export function toMobileTradeDetail(
         && Boolean(request.sellerBankAccountId)
         && isBankTransferPaymentMethod(request.paymentMethod)
         && !["pending", "declined", "cancelled"].includes(request.status),
+      canMarkPaymentSent: isBuyer
+        && isCashTrade
+        && request.status === "accepted",
       canUploadPaymentEvidence: isBuyer
         && request.status === "accepted"
-        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+        && !isCashTrade,
       canConfirmFunds: isSeller
-        && request.status === "payment_sent"
-        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+        && request.status === "payment_sent",
       canBeginRelease: isSeller
         && request.status === "funds_received"
-        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+        && !isCashTrade,
       canUploadReleaseEvidence: isSeller
         && request.status === "usdt_release_pending"
-        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+        && !isCashTrade,
       canConfirmReceived: isBuyer
         && request.status === "usdt_sent"
-        && !isCashTradeCompletionAvailable(request.paymentMethod, request.status),
-      canCompleteFaceToFace: (isBuyer || isSeller)
+        && !isCashTrade,
+      canCompleteFaceToFace: isSeller
         && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
       canOpenDispute: isBuyer && room.canOpenDispute && !room.hasOpenDispute,
       canSubmitReview: isBuyer

@@ -960,6 +960,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canDecline: boolean;
     canCancel: boolean;
     canViewBankDetails: boolean;
+    canMarkPaymentSent: boolean;
     canUploadPaymentEvidence: boolean;
     canConfirmFunds: boolean;
     canBeginRelease: boolean;

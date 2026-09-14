@@ -9,7 +9,6 @@ const SUPPORT_HEADERS = {
   "x-alpha-test-support": "enabled",
 };
 const BUYER_WALLET = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
-const TEST_FILE_BUFFER = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAsMB9JfJ8b4AAAAASUVORK5CYII=", "base64");
 
 const sellerPassword = `GhSeller!${randomBytes(14).toString("base64url")}`;
 const buyerPassword = `GhBuyer!${randomBytes(14).toString("base64url")}`;
@@ -492,32 +491,11 @@ function localizedTradeActionMatcher(expectedAction: string) {
   if (expectedAction === "upload-payment-receipt") return /Upload Payment Receipt|Submit Payment|إرسال الدفع|رفع إيصال الدفع/i;
   if (expectedAction === "upload-seller-evidence") return /Upload Seller Evidence|Release USDT|رفع إثبات البائع|إطلاق USDT/i;
   if (expectedAction === "accept-trade") return /Accept Trade|قبول الطلب/i;
-  if (expectedAction === "confirm-money-received") return /Confirm Money Received|تأكيد استلام الأموال/i;
+  if (expectedAction === "confirm-cash-payment") return /I Sent the Withdrawal Code|I Handed Over the Cash|أرسلت رمز السحب|سلّمت النقد/i;
+  if (expectedAction === "confirm-money-received") return /Confirm Money Received|I Collected the ATM Cash|I Received the Cash|تأكيد استلام الأموال|استلمت النقد/i;
+  if (expectedAction === "send-usdt-complete") return /I Sent USDT.*Complete Trade|أرسلت USDT.*إكمال الصفقة/i;
   if (expectedAction === "confirm-usdt-received") return /Confirm USDT Received|تأكيد استلام USDT/i;
   return /Submit Rating|إرسال التقييم/i;
-}
-
-async function uploadEvidenceInUi(page: Page, side: "buyer" | "seller") {
-  const section = page.locator("#evidence");
-  await expect(section).toBeVisible({ timeout: 20_000 });
-
-  const card = side === "buyer"
-    ? section.locator("div.rounded-xl.border.border-white\\/10.bg-black\\/25.p-3").first()
-    : section.locator("div.rounded-xl.border.border-white\\/10.bg-black\\/25.p-3").nth(1);
-
-  await card.locator("input[type='file']").setInputFiles({
-    name: side === "buyer" ? "buyer-proof.png" : "seller-proof.png",
-    mimeType: "image/png",
-    buffer: TEST_FILE_BUFFER,
-  });
-
-  if (side === "buyer") {
-    await page.getByRole("button", { name: localizedTradeActionMatcher("upload-payment-receipt") }).first().click();
-  } else {
-    await page.getByRole("button", { name: localizedTradeActionMatcher("upload-seller-evidence") }).first().click();
-  }
-
-  await expect(page.getByText(/Evidence Uploaded|Payment Submitted|USDT released|تم رفع الإثبات|تم إرسال الدفع|تم إصدار USDT/i).first()).toBeVisible({ timeout: 20_000 });
 }
 
 test.describe.configure({ mode: "serial" });
@@ -590,7 +568,7 @@ test("authenticated purchase creation is durable and duplicate-safe before UI na
   }
 });
 
-test("mobile guided flow: notifications, payment/evidence, live updates, and security gate", async ({ page }) => {
+test("mobile guided cash flow: no photos, wallet privacy, seller-only completion", async ({ page }) => {
   test.setTimeout(240_000);
   const viewport = { width: 390, height: 844 };
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
@@ -617,22 +595,23 @@ test("mobile guided flow: notifications, payment/evidence, live updates, and sec
 
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);
-  const buyerAcceptedTitle = "E2E Guided Upload Payment";
+  const buyerAcceptedTitle = "E2E Guided Confirm Cash";
   await injectTradeNotification(api, buyerEmail, buyerAcceptedTitle, requestId);
   await openNotificationAndNavigate({
     page,
     title: new RegExp(`^${escapeRegex(buyerAcceptedTitle)}$`, "i"),
     requestId,
-    expectedAction: "upload-payment-receipt",
-    expectedHash: "evidence",
+    expectedAction: "confirm-cash-payment",
+    expectedHash: "action-required",
     viewport,
   });
 
-  await uploadEvidenceInUi(page, "buyer");
-  await expect(page.getByText(/Waiting for Seller to Confirm Payment|No action now|بانتظار البائع لتأكيد الدفع|لا يوجد إجراء الآن/i).first()).toBeVisible({ timeout: 20_000 });
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: localizedTradeActionMatcher("confirm-cash-payment") }).first().click();
+  await expect(page.getByText(/Waiting for Seller to Confirm the Cash|No action now|بانتظار البائع لتأكيد استلام النقد|لا يوجد إجراء الآن/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, sellerEmail, sellerPassword);
-  await waitForNotification(api, sellerEmail, /buyer marked payment sent/i, requestId);
+  await waitForNotification(api, sellerEmail, /buyer handed over cash/i, requestId);
   const sellerConfirmTitle = "E2E Guided Confirm Money";
   await injectTradeNotification(api, sellerEmail, sellerConfirmTitle, requestId);
 
@@ -652,8 +631,9 @@ test("mobile guided flow: notifications, payment/evidence, live updates, and sec
 
   await expect(page.getByText(/Buyer Receiving Wallet/i)).toHaveCount(0);
 
-  await page.getByRole("button", { name: /Confirm Money Received/i }).first().click();
-  await expect(page.getByRole("button", { name: /Release USDT/i }).first()).toBeVisible({ timeout: 20_000 });
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: /I Received the Cash/i }).first().click();
+  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("send-usdt-complete") }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Buyer Receiving Wallet/i).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(BUYER_WALLET).first()).toBeVisible({ timeout: 20_000 });
 
@@ -662,25 +642,24 @@ test("mobile guided flow: notifications, payment/evidence, live updates, and sec
   const afterConfirmRoom = (await afterConfirmResponse.json()) as { request?: { buyerReceivingWalletAddress?: string } };
   expect(afterConfirmRoom.request?.buyerReceivingWalletAddress).toBe(BUYER_WALLET);
 
-  await page.getByRole("button", { name: /Release USDT/i }).first().click();
-  await expect(page.getByRole("button", { name: /Upload Seller Evidence/i }).first()).toBeVisible({ timeout: 20_000 });
-  await uploadEvidenceInUi(page, "seller");
-  await expect(page.getByText(/Waiting for Buyer to Confirm Receipt/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/No Evidence Upload Required/i).first()).toBeVisible({ timeout: 20_000 });
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: localizedTradeActionMatcher("send-usdt-complete") }).first().click();
+  await expect(page).toHaveURL(/\/en\/usdt-exchange\?trade=.+#my-trade-requests-section/, { timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
-  await waitForNotification(api, buyerEmail, /seller marked usdt sent/i, requestId);
-  const buyerConfirmTitle = "E2E Guided Confirm USDT";
+  await waitForNotification(api, buyerEmail, /face-to-face trade completed/i, requestId);
+  const buyerConfirmTitle = "E2E Guided Review Completed Trade";
   await injectTradeNotification(api, buyerEmail, buyerConfirmTitle, requestId);
   await openNotificationAndNavigate({
     page,
     title: new RegExp(`^${escapeRegex(buyerConfirmTitle)}$`, "i"),
     requestId,
-    expectedAction: "confirm-usdt-received",
-    expectedHash: "action-required",
+    expectedAction: "review-trade",
+    expectedHash: "status-banner",
     viewport,
   });
 
-  await page.getByRole("button", { name: /Confirm USDT Received/i }).first().click();
   await expect(page.getByRole("button", { name: /Submit Rating|إرسال التقييم/i }).first()).toBeVisible({ timeout: 20_000 });
 
   await api.dispose();
@@ -734,11 +713,11 @@ test("action transition matrix: destination query/hash + focused section + CTA a
 
   const cases: MatrixCase[] = [
     { label: "pending seller", status: "pending", actor: "seller", expectedAction: "accept-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "accepted buyer", status: "accepted", actor: "buyer", expectedAction: "upload-payment-receipt", expectedHash: "evidence", viewport: { width: 1440, height: 900 } },
+    { label: "accepted buyer", status: "accepted", actor: "buyer", expectedAction: "confirm-cash-payment", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "payment_sent seller", status: "payment_sent", actor: "seller", expectedAction: "confirm-money-received", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "funds_received seller", status: "funds_received", actor: "seller", expectedAction: "upload-seller-evidence", expectedHash: "evidence", viewport: { width: 1440, height: 900 } },
-    { label: "usdt_release_pending seller", status: "usdt_release_pending", actor: "seller", expectedAction: "upload-seller-evidence", expectedHash: "evidence", viewport: { width: 1440, height: 900 } },
-    { label: "usdt_sent buyer", status: "usdt_sent", actor: "buyer", expectedAction: "confirm-usdt-received", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "funds_received seller", status: "funds_received", actor: "seller", expectedAction: "send-usdt-complete", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "usdt_release_pending seller", status: "usdt_release_pending", actor: "seller", expectedAction: "send-usdt-complete", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "usdt_sent seller", status: "usdt_sent", actor: "seller", expectedAction: "send-usdt-complete", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "review_open buyer", status: "review_open", actor: "buyer", expectedAction: "review-trade", expectedHash: "status-banner", viewport: { width: 1440, height: 900 } },
   ];
 
@@ -752,32 +731,8 @@ test("action transition matrix: destination query/hash + focused section + CTA a
     purchaseRequests[requestIndex] = {
       ...currentRequest,
       status: item.status,
-      buyerEvidence: item.status === "pending" ? undefined : (currentRequest.buyerEvidence ?? {
-        id: `be-${randomUUID()}`,
-        purchaseRequestId: requestId,
-        side: "buyer",
-        uploadedByUserId: ids.buyer,
-        uploadedAt: iso(-5_000),
-        fileName: "buyer-proof.png",
-        mimeType: "image/png",
-        sizeBytes: TEST_FILE_BUFFER.length,
-        storagePath: `db://alpha-exchange-evidence/${requestId}/buyer-proof.png`,
-        status: "uploaded",
-      }),
-      sellerEvidence: (item.status === "review_open" || item.status === "usdt_sent")
-        ? (currentRequest.sellerEvidence ?? {
-          id: `se-${randomUUID()}`,
-          purchaseRequestId: requestId,
-          side: "seller",
-          uploadedByUserId: ids.seller,
-          uploadedAt: iso(-4_000),
-          fileName: "seller-proof.png",
-          mimeType: "image/png",
-          sizeBytes: TEST_FILE_BUFFER.length,
-          storagePath: `db://alpha-exchange-evidence/${requestId}/seller-proof.png`,
-          status: "uploaded",
-        })
-        : undefined,
+      buyerEvidence: undefined,
+      sellerEvidence: undefined,
       updatedAt: iso(),
     };
 

@@ -54,6 +54,7 @@ import { logEvent } from "@/lib/structured-logging";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
+  isBuyerEvidenceRequiredForPaymentMethod,
   isCardlessAtmPaymentMethod,
   isCashTradeCompletionAvailable,
   isCashTradePaymentMethod,
@@ -471,6 +472,8 @@ function resolveNotificationPriority(notification: Pick<AlphaExchangeNotificatio
 }
 
 function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller: boolean) {
+  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   if (request.status === "pending") {
     if (request.priceMode === "buyer_offer") {
       return recipientIsSeller ? "Accept or decline this price offer" : "Wait for seller response to your price offer";
@@ -478,12 +481,30 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
     return recipientIsSeller ? "Accept or decline this request" : "Wait for seller response";
   }
   if (request.status === "accepted") {
+    if (cashTrade) {
+      return recipientIsSeller
+        ? (cardlessAtm ? "Wait for buyer to send the withdrawal code" : "Wait for buyer to hand over the cash")
+        : (cardlessAtm ? "Send the withdrawal code and confirm it" : "Hand over the cash and confirm it");
+    }
     return recipientIsSeller ? "Wait for buyer payment proof" : "Upload payment proof and mark Payment Sent";
   }
   if (request.status === "payment_sent") {
-    return recipientIsSeller ? "Verify payment, upload proof, then mark USDT Sent" : "Wait for seller USDT release";
+    if (cashTrade) {
+      return recipientIsSeller
+        ? (cardlessAtm ? "Collect the ATM cash and confirm receipt" : "Confirm the cash was received")
+        : "Wait for seller cash confirmation";
+    }
+    return recipientIsSeller ? "Verify payment, then continue to USDT release" : "Wait for seller USDT release";
+  }
+  if (request.status === "funds_received" || request.status === "usdt_release_pending") {
+    return cashTrade && recipientIsSeller
+      ? "Send USDT to the revealed wallet and complete the trade"
+      : recipientIsSeller
+        ? "Send USDT and upload the required release proof"
+        : "Wait for seller USDT release";
   }
   if (request.status === "usdt_sent") {
+    if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Wait for seller completion";
     return recipientIsSeller ? "Wait for buyer completion confirmation" : "Confirm trade completed";
   }
   if (request.status === "review_open" || request.status === "completed") {
@@ -544,6 +565,7 @@ function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, 
     usdtAmount: request.usdtAmount,
     fiatAmount: request.fiatAmount,
     currency: request.currency,
+    paymentMethod: request.paymentMethod,
     currentStage: request.status,
     requiredAction: resolveTradeRequiredAction(request, recipientIsSeller),
   };
@@ -3399,21 +3421,22 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
     const actionStartedAt = stageTimestamp(request.tradeCreatedAt, ["request_accepted", "price_offer_accepted"]);
     if (!actionStartedAt) return null;
     const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
+    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
       stage: request.status,
       actionStartedAt,
-      recipients: faceToFace
-        ? [
-            { side: "buyer", userId: request.buyerId },
-            { side: "seller", userId: request.sellerId },
-          ]
-        : [{ side: "buyer", userId: request.buyerId }],
+      recipients: [{ side: "buyer", userId: request.buyerId }],
       title,
       message: faceToFace
         ? {
-            ar: `الصفقة ${referenceLabel} ما زالت بانتظار إكمال التبادل وتأكيد إنهائها. افتح غرفة الصفقة الآن.`,
-            en: `Trade ${referenceLabel} is still waiting for the in-person exchange and completion confirmation. Open the Trade Room now.`,
+            ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أنك سلّمت النقد للبائع. لا يلزم رفع صورة. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is waiting for you to confirm that you handed the cash to the seller. No photo is required. Open the Trade Room now.`,
           }
+        : cardlessAtm
+          ? {
+              ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أنك أرسلت رمز السحب دون بطاقة. لا يلزم رفع صورة. افتح غرفة الصفقة الآن.`,
+              en: `Trade ${referenceLabel} is waiting for you to confirm that you sent the cardless withdrawal code. No photo is required. Open the Trade Room now.`,
+            }
         : {
             ar: `الصفقة ${referenceLabel} بانتظار رفع إثبات الدفع وتأكيد إرسال الدفعة منك. افتح غرفة الصفقة الآن.`,
             en: `Trade ${referenceLabel} is waiting for you to upload payment proof and mark payment sent. Open the Trade Room now.`,
@@ -3425,15 +3448,27 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
   if (request.status === "payment_sent") {
     const actionStartedAt = stageTimestamp(request.paymentSentAt, ["payment_sent"]);
     if (!actionStartedAt) return null;
+    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
     return {
       stage: request.status,
       actionStartedAt,
       recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: {
-        ar: `الصفقة ${referenceLabel} بانتظار تحققك من وصول الأموال وتأكيد الاستلام. افتح غرفة الصفقة الآن.`,
-        en: `Trade ${referenceLabel} is waiting for you to verify the funds and confirm receipt. Open the Trade Room now.`,
-      },
+      message: cardlessAtm
+        ? {
+            ar: `الصفقة ${referenceLabel} بانتظار سحبك للنقد من الصراف وتأكيد الاستلام. لا يلزم رفع صورة.`,
+            en: `Trade ${referenceLabel} is waiting for you to collect the ATM cash and confirm receipt. No photo is required.`,
+          }
+        : faceToFace
+          ? {
+              ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أن النقد بحوزتك فعليًا. لا يلزم رفع صورة.`,
+              en: `Trade ${referenceLabel} is waiting for you to confirm that the cash is physically in your possession. No photo is required.`,
+            }
+          : {
+              ar: `الصفقة ${referenceLabel} بانتظار تحققك من وصول الأموال وتأكيد الاستلام. افتح غرفة الصفقة الآن.`,
+              en: `Trade ${referenceLabel} is waiting for you to verify the funds and confirm receipt. Open the Trade Room now.`,
+            },
       priority: "critical",
     };
   }
@@ -3446,10 +3481,15 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
       actionStartedAt,
       recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: {
-        ar: `الصفقة ${referenceLabel} بانتظار بدء إرسال USDT منك. افتح غرفة الصفقة الآن وأكمل الخطوة التالية.`,
-        en: `Trade ${referenceLabel} is waiting for you to start the USDT release. Open the Trade Room and complete the next step now.`,
-      },
+      message: isCashTradePaymentMethod(request.paymentMethod)
+        ? {
+            ar: `تم فتح عنوان محفظة المشتري في الصفقة ${referenceLabel}. أرسل USDT ثم اضغط زر الإرسال والإكمال الآن.`,
+            en: `The buyer wallet is now revealed in trade ${referenceLabel}. Send USDT, then use the send-and-complete button now.`,
+          }
+        : {
+            ar: `الصفقة ${referenceLabel} بانتظار بدء إرسال USDT منك. افتح غرفة الصفقة الآن وأكمل الخطوة التالية.`,
+            en: `Trade ${referenceLabel} is waiting for you to start the USDT release. Open the Trade Room and complete the next step now.`,
+          },
       priority: "critical",
     };
   }
@@ -3462,10 +3502,15 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
       actionStartedAt,
       recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: {
-        ar: `الصفقة ${referenceLabel} بانتظار إتمام إرسال USDT ورفع إثبات الإرسال منك. افتح غرفة الصفقة الآن.`,
-        en: `Trade ${referenceLabel} is waiting for you to finish sending USDT and upload release evidence. Open the Trade Room now.`,
-      },
+      message: isCashTradePaymentMethod(request.paymentMethod)
+        ? {
+            ar: `الصفقة ${referenceLabel} بانتظار تأكيدك أنك أرسلت USDT وإكمال الصفقة. لا يلزم رفع صورة.`,
+            en: `Trade ${referenceLabel} is waiting for you to confirm that you sent USDT and complete the trade. No photo is required.`,
+          }
+        : {
+            ar: `الصفقة ${referenceLabel} بانتظار إتمام إرسال USDT ورفع إثبات الإرسال منك. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is waiting for you to finish sending USDT and upload release evidence. Open the Trade Room now.`,
+          },
       priority: "critical",
     };
   }
@@ -3473,21 +3518,17 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
   if (request.status === "usdt_sent") {
     const actionStartedAt = stageTimestamp(request.usdtSentAt, ["usdt_sent"]);
     if (!actionStartedAt) return null;
-    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
     return {
       stage: request.status,
       actionStartedAt,
-      recipients: cardlessAtm
-        ? [
-            { side: "buyer", userId: request.buyerId },
-            { side: "seller", userId: request.sellerId },
-          ]
+      recipients: isCashTradePaymentMethod(request.paymentMethod)
+        ? [{ side: "seller", userId: request.sellerId }]
         : [{ side: "buyer", userId: request.buyerId }],
       title,
-      message: cardlessAtm
+      message: isCashTradePaymentMethod(request.paymentMethod)
         ? {
-            ar: `تم تسجيل إرسال USDT في صفقة السحب دون بطاقة ${referenceLabel}. بعد التأكد من استلام الطرفين للنقد وUSDT، يمكن للمشتري أو البائع إكمال الصفقة.`,
-            en: `USDT was marked sent for Cardless ATM trade ${referenceLabel}. After both cash and USDT are received, either the buyer or seller can complete the trade.`,
+            ar: `تم تسجيل إرسال USDT في الصفقة ${referenceLabel}. أكمل الصفقة الآن لفتح التقييم وتسجيل العمولة.`,
+            en: `USDT was marked sent for trade ${referenceLabel}. Complete the trade now to open review and record the commission.`,
           }
         : {
             ar: `الصفقة ${referenceLabel} بانتظار تأكيد استلام USDT منك. افتح غرفة الصفقة الآن وتحقق قبل التأكيد.`,
@@ -11801,9 +11842,9 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (isCashTradeCompletion && !isSeller && !isBuyer) {
-    throw new TradeBlockedError("cash-trade-completion-participant-required", "Only the buyer or seller can complete this cash trade.", request.id, {
-      guard: "cash-trade-participant",
+  if (isCashTradeCompletion && !isSeller) {
+    throw new TradeBlockedError("cash-trade-completion-participant-required", "Only the seller can complete this cash trade after confirming receipt of the cash.", request.id, {
+      guard: "cash-trade-seller",
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
     });
@@ -11818,6 +11859,14 @@ async function updatePurchaseRequestStatusAttempt(
   if (isAdminCompletion && input.nextStatus !== "completed") {
     throw new TradeBlockedError("admin-completion-command-invalid", "Admin completion can only complete a trade.", request.id, {
       guard: "admin-completion-command",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
+  if (input.nextStatus === "completed" && isCashTrade && !isCashTradeCompletion && !isAdminCompletion) {
+    throw new TradeBlockedError("cash-trade-seller-completion-required", "Only the seller can complete a cash trade after sending USDT.", request.id, {
+      guard: "cash-trade-seller-completion-command",
+      currentStatus: request.status,
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
     });
@@ -12101,9 +12150,9 @@ async function updatePurchaseRequestStatusAttempt(
       senderUserId: input.actorUserId,
       senderRole: actorRole,
       message: isFaceToFaceTrade
-        ? "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission."
+        ? "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade."
         : isAtmTrade
-          ? "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission."
+          ? "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade."
         : isPriceOffer
           ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
           : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
@@ -12153,9 +12202,9 @@ async function updatePurchaseRequestStatusAttempt(
       message: isPriceOffer
         ? `Seller accepted your price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. You can now continue in the Trade Room.`
         : isFaceToFaceTrade
-          ? "Your meeting is ready. Review the safety guidelines before meeting."
+          ? "Your meeting is ready. After handing over the cash, confirm it in the Trade Room. No photo is required."
           : isAtmTrade
-            ? "Your Cardless ATM trade is active. Follow each Trade Room step; after cash collection and USDT delivery, either participant can mark it complete."
+            ? "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
           : "Seller accepted your trade request. You can now upload your payment receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
@@ -12216,22 +12265,40 @@ async function updatePurchaseRequestStatusAttempt(
     }
   } else if (input.nextStatus === "payment_sent") {
     const buyerEvidence = getTradeEvidenceFile(db, request.id, "buyer");
-    if (!buyerEvidence) throw new Error("Buyer evidence is required before marking payment sent.");
+    if (isBuyerEvidenceRequiredForPaymentMethod(requestPaymentMethod) && !buyerEvidence) {
+      throw new Error("Buyer evidence is required before marking payment sent.");
+    }
     next.status = "payment_sent";
-    next.buyerEvidence = buyerEvidence;
+    if (buyerEvidence) {
+      next.buyerEvidence = buyerEvidence;
+    }
     next.paymentSentAt = now;
     if (listing && listing.activeTradeRequestId === request.id) {
       listing.status = "in_trade";
       listing.updatedAt = now;
     }
     const timelineStartedAt = Date.now();
-    appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: input.actorUserId, actorRole, message: "Buyer marked payment sent", createdAt: now });
+    appendTradeTimelineEntry(next, {
+      type: "payment_sent",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: isAtmTrade
+        ? "Buyer confirmed the cardless withdrawal code was sent"
+        : isFaceToFaceTrade
+          ? "Buyer confirmed the cash was handed to the seller"
+          : "Buyer marked payment sent",
+      createdAt: now,
+    });
     timelineMs += Date.now() - timelineStartedAt;
     const chatStartedAt = Date.now();
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Buyer submitted payment. Seller should now confirm the money was received.",
+      message: isAtmTrade
+        ? "Buyer confirmed the cardless withdrawal code was sent. Seller should collect the ATM cash, then confirm receipt."
+        : isFaceToFaceTrade
+          ? "Buyer confirmed the cash was handed over. Seller should confirm receipt before sending USDT."
+          : "Buyer submitted payment. Seller should now confirm the money was received.",
       createdAt: now,
     });
     chatMs += Date.now() - chatStartedAt;
@@ -12239,12 +12306,12 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
-      title: isAtmTrade ? "Withdrawal ready" : "Buyer marked payment sent",
+      title: isAtmTrade ? "Cardless withdrawal code ready" : isFaceToFaceTrade ? "Buyer handed over cash" : "Buyer marked payment sent",
       message: isBankTransferTrade
         ? "Buyer marked payment as sent. Please verify the funds in your bank account."
         : isAtmTrade
-          ? "Buyer has prepared the cardless withdrawal. Confirm after collecting the cash."
-          : "Buyer marked payment as sent. Confirm funds in person after following safety guidelines.",
+          ? "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room."
+          : "Buyer confirmed the cash was handed over. Confirm receipt before sending USDT.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -12255,11 +12322,23 @@ async function updatePurchaseRequestStatusAttempt(
   } else if (input.nextStatus === "funds_received") {
     next.status = "funds_received";
     next.fundsReceivedAt = now;
-    appendTradeTimelineEntry(next, { type: "seller_confirmed_funds", actorUserId: input.actorUserId, actorRole, message: "Seller confirmed funds received", createdAt: now });
+    appendTradeTimelineEntry(next, {
+      type: "seller_confirmed_funds",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: isAtmTrade
+        ? "Seller confirmed ATM cash collected"
+        : isFaceToFaceTrade
+          ? "Seller confirmed cash received"
+          : "Seller confirmed funds received",
+      createdAt: now,
+    });
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Seller confirmed the funds were received. USDT release is now unlocked.",
+      message: isCashTrade
+        ? "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required."
+        : "Seller confirmed the funds were received. USDT release is now unlocked.",
       createdAt: now,
     });
     pushNotification(db, {
@@ -12269,8 +12348,8 @@ async function updatePurchaseRequestStatusAttempt(
       message: isBankTransferTrade
         ? "Seller verified the bank transfer and confirmed funds received."
         : isAtmTrade
-          ? "Seller confirmed cash was collected from the cardless ATM."
-          : "Seller confirmed in-person payment was received.",
+          ? "Seller confirmed cash was collected from the cardless ATM. Your wallet is now visible to the seller for the USDT transfer."
+          : "Seller confirmed in-person cash was received. Your wallet is now visible to the seller for the USDT transfer.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -12312,29 +12391,29 @@ async function updatePurchaseRequestStatusAttempt(
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: isAtmTrade
-        ? "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission."
+      message: isCashTrade
+        ? "Seller marked USDT as sent. The seller should now complete the cash trade; no photo is required. Completion opens review and creates the seller commission."
         : "Seller marked USDT as sent. Buyer should now confirm receipt.",
       createdAt: now,
     });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: isAtmTrade ? "Cardless ATM trade ready to complete" : "Seller marked USDT sent",
-      message: isAtmTrade
-        ? "Seller marked USDT as sent. Once you receive it, either you or the seller can complete the trade and open review."
+      title: "Seller marked USDT sent",
+      message: isCashTrade
+        ? "The seller marked USDT as sent and will complete the cash trade. Check your receiving wallet."
         : "Seller marked USDT as sent. Please confirm receipt to complete the trade.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    if (isAtmTrade) {
+    if (isCashTrade) {
       pushNotification(db, {
         userId: request.sellerId,
         category: "trade",
-        title: "Cardless ATM trade ready to complete",
-        message: "After the buyer receives the USDT, either participant can complete the trade. Completion opens review and creates your 1% commission charge.",
+        title: "Cash trade ready to complete",
+        message: "Confirm completion after sending USDT. Only you can close this trade, and no photo is required.",
         relatedTradeId: next.tradeId,
         relatedRequestId: request.id,
         relatedListingId: request.listingId,
@@ -12353,6 +12432,22 @@ async function updatePurchaseRequestStatusAttempt(
       : isCashTradeCompletion
       ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete.`
       : "Buyer confirmed trade completed";
+    // The streamlined cash-flow completion button means “I sent the USDT”.
+    // Record that release in the immutable timeline before completing the
+    // trade, even though both transitions commit atomically in one write.
+    const cashReleaseAlreadyRecorded = Boolean(
+      next.usdtSentAt || next.timeline.some((entry) => entry.type === "usdt_sent"),
+    );
+    if (isCashTradeCompletion && !cashReleaseAlreadyRecorded) {
+      next.usdtSentAt = now;
+      appendTradeTimelineEntry(next, {
+        type: "usdt_sent",
+        actorUserId: input.actorUserId,
+        actorRole,
+        message: "Seller marked USDT sent",
+        createdAt: now,
+      });
+    }
     next.completedAt = now;
     appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: completionMessage, createdAt: now });
     next.lockedAt = now;

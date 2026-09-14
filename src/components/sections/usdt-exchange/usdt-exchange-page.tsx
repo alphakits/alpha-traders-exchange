@@ -1002,16 +1002,20 @@ export function paymentMethodTradeInstruction(method: string, actor: "buyer" | "
       : "Bank Transfer Instructions: after marking Payment Sent, wait for seller bank confirmation.";
   }
   if (normalized === "Face-to-Face (Meet in Person)") {
-    if (isAr) return "إرشادات اللقاء الشخصي: التقيا في مكان عام، واحمِ معلوماتك الخاصة، وتأكد من تحويل USDT قبل المغادرة.";
-    return "Face-to-Face Safety: meet in a public place, protect private information, and confirm USDT transfer before leaving.";
+    if (isAr) return actor === "seller"
+      ? "اللقاء الشخصي: أكّد فقط بعد استلام النقد فعليًا، ثم أرسل USDT وأكمل الصفقة من غرفة التداول. لا يلزم رفع صورة."
+      : "اللقاء الشخصي: سلّم النقد ثم أكّد ذلك من غرفة التداول. البائع وحده يُكمل بعد إرسال USDT، ولا يلزم رفع صورة.";
+    return actor === "seller"
+      ? "Face-to-Face: confirm only after you physically receive the cash, then send USDT and complete in the Trade Room. No photo is required."
+      : "Face-to-Face: hand over the cash, then confirm it in the Trade Room. Only the seller completes after sending USDT; no photo is required.";
   }
   if (normalized === "Cardless ATM Withdrawal") {
     if (isAr) return actor === "seller"
-      ? "السحب من الصراف بلا بطاقة: أكّد العملية فقط بعد استلام النقد من الصراف."
-      : "السحب من الصراف بلا بطاقة: حدّد «السحب جاهز» فقط بعد إنشاء رمز السحب من الصراف.";
+      ? "السحب بلا بطاقة: أكّد فقط بعد سحب النقد فعليًا، ثم أرسل USDT وأكمل من غرفة التداول. لا يلزم رفع صورة."
+      : "السحب بلا بطاقة: أرسل رمز السحب للبائع ثم أكّد ذلك من غرفة التداول. لا يلزم رفع صورة.";
     return actor === "seller"
-      ? "Cardless ATM Withdrawal: confirm only after you collect cash from the ATM."
-      : "Cardless ATM Withdrawal: mark Withdrawal Ready only after generating the ATM withdrawal code.";
+      ? "Cardless ATM: confirm only after you collect the cash, then send USDT and complete in the Trade Room. No photo is required."
+      : "Cardless ATM: send the withdrawal code to the seller, then confirm it in the Trade Room. No photo is required.";
   }
   return isAr ? "اتبع الخط الزمني للصفقة وأكمل كل خطوة تحقق قبل المتابعة." : "Follow the trade timeline and complete each verification step before moving forward.";
 }

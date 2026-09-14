@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import type { CommissionWorkspaceAction } from "@/lib/dashboard-workspace";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCashTradePaymentMethod, normalizeMarketplacePaymentMethod, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
 import { containsArabicText, localizeActivityCopy } from "@/lib/notification-localization";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -1422,6 +1422,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               ).map((request) => {
                 const presentation = getTradeQueuePresentation(request, "seller", isAr);
                 const isExpanded = sellerExpandedTradeId === request.id;
+                const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
                 return (
                   <div id={`trade-${request.id}`} key={request.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                     <button
@@ -1491,12 +1492,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
+                        variant={isCashTrade ? "default" : "secondary"}
                         onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
                         onFocus={() => handlePrefetchTradeRoom(request.id)}
                         onClick={() => handleOpenTradeRoom(request.id)}
                       >
-                        {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
+                        {isCashTrade ? (isAr ? "متابعة الصفقة النقدية" : "Continue Cash Trade") : (isAr ? "فتح غرفة التداول" : "Open Trade Room")}
                       </Button>
                       <Button
                         type="button"
@@ -1514,30 +1515,42 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" || requestActionKey === `${request.id}:declined`} onClick={() => handleSellerRequestAction(request.id, "declined")}>
                         {requestActionKey === `${request.id}:declined` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض" : "Decline")}
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
-                        onClick={() => handleSellerRequestAction(request.id, "funds_received")}
-                      >
-                        {requestActionKey === `${request.id}:funds_received`
-                          ? (isAr ? "جارٍ التنفيذ..." : "Processing...")
-                          : normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? (isAr ? "تأكيد استلام النقد" : "Confirm Cash Collected") : (isAr ? "تأكيد استلام الأموال" : "Confirm Funds Received")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
-                        onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
-                      >
-                        {requestActionKey === `${request.id}:usdt_release_pending` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "بدء إرسال USDT" : "Start USDT Release")}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
-                        {requestActionKey === `${request.id}:usdt_sent` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تحديد USDT كمُرسل" : "Mark USDT Sent")}
-                      </Button>
+                      {!isCashTrade ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
+                            onClick={() => handleSellerRequestAction(request.id, "funds_received")}
+                          >
+                            {requestActionKey === `${request.id}:funds_received` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تأكيد استلام الأموال" : "Confirm Funds Received")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
+                            onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
+                          >
+                            {requestActionKey === `${request.id}:usdt_release_pending` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "بدء إرسال USDT" : "Start USDT Release")}
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                            {requestActionKey === `${request.id}:usdt_sent` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تحديد USDT كمُرسل" : "Mark USDT Sent")}
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
+                    {isCashTrade ? (
+                      <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                        <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
+                        <p className="mt-1">
+                          {isAr
+                            ? "تابع داخل غرفة التداول. أكّد استلام النقد فعليًا، ثم ستظهر محفظة المشتري لإرسال USDT وإكمال الصفقة. البائع وحده يُكمل."
+                            : "Continue inside the Trade Room. Confirm actual cash receipt, then the buyer wallet is revealed so you can send USDT and complete. Only the seller completes."}
+                        </p>
+                      </div>
+                    ) : (
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                       <div>
                         <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
@@ -1598,6 +1611,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </div>
                       ) : null}
                     </div>
+                    )}
                     <div className="mt-4">
                       <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
                     </div>

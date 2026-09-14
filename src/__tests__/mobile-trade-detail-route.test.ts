@@ -172,18 +172,24 @@ describe("mobile trade detail route", () => {
         paymentMethod: "Cardless ATM Withdrawal",
         actions: {
           canViewBankDetails: false,
-          canUploadPaymentEvidence: true,
+          canMarkPaymentSent: true,
+          canUploadPaymentEvidence: false,
           canCompleteFaceToFace: false,
         },
       },
     });
   });
 
-  it("offers final Cardless ATM completion to either participant only after USDT is sent", async () => {
+  it("offers final Cardless ATM completion only to the seller after cash confirmation", async () => {
+    mocks.requireMobileApiUser.mockResolvedValueOnce({
+      user: { id: "private-seller-id", role: "approved_seller" },
+      accessToken: "access",
+      unauthorized: null,
+    });
     mocks.getTradeRoomData.mockResolvedValueOnce(room({
       paymentMethod: "Cardless ATM Withdrawal",
-      status: "usdt_sent",
-      buyerEvidence: { id: "buyer-evidence" },
+      status: "funds_received",
+      buyerEvidence: undefined,
     }));
 
     const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
@@ -194,6 +200,7 @@ describe("mobile trade detail route", () => {
         actions: {
           canCompleteFaceToFace: true,
           canConfirmReceived: false,
+          canUploadReleaseEvidence: false,
           canCancel: false,
         },
       },
@@ -236,10 +243,15 @@ describe("mobile trade detail route", () => {
     }));
   });
 
-  it("exposes and executes the participant-only Face-to-Face completion command", async () => {
+  it("exposes and executes the seller-only Face-to-Face completion command", async () => {
+    mocks.requireMobileApiUser.mockResolvedValue({
+      user: { id: "private-seller-id", role: "approved_seller" },
+      accessToken: "access",
+      unauthorized: null,
+    });
     mocks.getTradeRoomData.mockResolvedValue(room({
       paymentMethod: "Face-to-Face (Meet in Person)",
-      status: "accepted",
+      status: "funds_received",
       buyerEvidence: undefined,
     }));
     mocks.updatePurchaseRequestStatus.mockResolvedValueOnce({
@@ -264,13 +276,13 @@ describe("mobile trade detail route", () => {
     expect(response.status).toBe(200);
     expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
       requestId: "purchase-1",
-      actorUserId: "buyer-1",
+      actorUserId: "private-seller-id",
       nextStatus: "completed",
       completionMode: "cash_trade",
     }));
   });
 
-  it("exposes Face-to-Face completion to the seller in the native Trade Room", async () => {
+  it("does not expose Face-to-Face completion to the seller before buyer and seller confirmations", async () => {
     mocks.requireMobileApiUser.mockResolvedValueOnce({
       user: { id: "private-seller-id", role: "approved_seller" },
       accessToken: "access",
@@ -288,7 +300,7 @@ describe("mobile trade detail route", () => {
     await expect(response.json()).resolves.toMatchObject({
       trade: {
         side: "seller",
-        actions: { canCompleteFaceToFace: true },
+        actions: { canCompleteFaceToFace: false, canConfirmFunds: false },
       },
     });
   });
