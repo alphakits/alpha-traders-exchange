@@ -5,8 +5,9 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
-  checkSharedRateLimit: vi.fn(),
+  checkRateLimit: vi.fn(),
   getTradeRoomData: vi.fn(),
+  getTradeRoomRevision: vi.fn(),
   prepareTradeEventEmails: vi.fn(),
   requireMobileApiUser: vi.fn(),
   tradeEmailEventForStatus: vi.fn(),
@@ -20,13 +21,14 @@ vi.mock("next/server", async (importOriginal) => ({
 vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMobileApiUser }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getTradeRoomData: mocks.getTradeRoomData,
+  getTradeRoomRevision: mocks.getTradeRoomRevision,
   updatePurchaseRequestStatus: mocks.updatePurchaseRequestStatus,
 }));
 vi.mock("@/lib/marketplace-email-events", () => ({
   prepareTradeEventEmails: mocks.prepareTradeEventEmails,
   tradeEmailEventForStatus: mocks.tradeEmailEventForStatus,
 }));
-vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
 import { GET, PATCH } from "@/app/api/mobile/v1/trades/[requestId]/route";
@@ -114,7 +116,14 @@ beforeEach(() => {
     unauthorized: null,
   });
   mocks.getTradeRoomData.mockResolvedValue(room());
-  mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
+  mocks.getTradeRoomRevision.mockResolvedValue({
+    id: "purchase-1",
+    buyerId: "buyer-1",
+    sellerId: "private-seller-id",
+    status: "accepted",
+    updatedAt: "2026-09-06T12:00:00.000Z",
+  });
+  mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   mocks.tradeEmailEventForStatus.mockReturnValue(null);
   mocks.updatePurchaseRequestStatus.mockResolvedValue({
     request: room({ status: "cancelled" }).request,

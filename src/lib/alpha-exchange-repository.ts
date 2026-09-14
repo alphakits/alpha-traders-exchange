@@ -488,6 +488,14 @@ const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
 
 type SnapshotWithVersion = AlphaExchangeDb & { __runtimeVersion?: number };
 
+export type TradeRoomRevision = {
+  id: string;
+  buyerId: string;
+  sellerId: string;
+  status: PurchaseRequest["status"];
+  updatedAt: string;
+};
+
 type RepoTable<T> = {
   name: string;
   selectSql: string;
@@ -1968,6 +1976,175 @@ export class AlphaExchangeRepository {
     };
   }
 
+  /**
+   * Loads complete rows for a small, explicit set of snapshot tables plus the
+   * canonical runtime version. Critical trade mutations use this instead of
+   * paying for every unrelated exchange table before each tap.
+   */
+  async loadSelectedSnapshot(tableNames: readonly SnapshotTableName[]): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return this.loadSnapshot();
+
+    const selectedNames = Array.from(new Set(tableNames));
+    try {
+      const [versionResult, ...tableResults] = await Promise.all([
+        pool.query<{ version: string }>(
+          "select version::text as version from alpha_exchange.runtime_meta where singleton = true",
+        ),
+        ...selectedNames.map((tableName) => {
+          const table = getTable(tableName);
+          return pool.query<{ payload: unknown }>(table.selectSql);
+        }),
+      ]);
+      const rows = selectedNames.map((tableName, index) => ({
+        tableName,
+        rows: tableResults[index]?.rows ?? [],
+      }));
+      return attachVersion(
+        snapshotFromTableRows(rows),
+        Number(versionResult.rows[0]?.version ?? "0"),
+      );
+    } catch (error) {
+      logEvent("warn", {
+        event: "alpha_exchange_repository_selected_snapshot",
+        outcome: "failed",
+        reason: "selected_snapshot_fallback",
+        metadata: {
+          tableCount: selectedNames.length,
+          errorName: error instanceof Error ? error.name : typeof error,
+        },
+      });
+      return this.loadSnapshot();
+    }
+  }
+
+  /**
+   * Loads the exact records needed to render one Trade Room with a single
+   * PostgreSQL round trip. The live stream calls this only when that trade's
+   * revision changed; it must never fan out through the full exchange
+   * snapshot on a per-connection timer.
+   */
+  async loadTradeRoomSnapshot(lookupCandidates: string[]): Promise<SnapshotWithVersion | null> {
+    await this.ensureReady();
+    const candidates = Array.from(new Set(lookupCandidates.map((value) => value.trim()).filter(Boolean)));
+    if (candidates.length === 0) return null;
+
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      const request = snapshot.purchaseRequests.find((candidate) => (
+        candidates.includes(candidate.id) || Boolean(candidate.tradeId && candidates.includes(candidate.tradeId))
+      ));
+      return request ? snapshot : null;
+    }
+
+    type TradeRoomSnapshotRow = {
+      request_payload: PurchaseRequest;
+      listing_payload: MarketplaceListing | null;
+      buyer_payload: AlphaExchangeUser | null;
+      seller_payload: AlphaExchangeUser | null;
+      dispute_payloads: TradeDisputeCase[] | null;
+      commission_payloads: CommissionRecord[] | null;
+      evidence_payloads: TradeEvidenceFile[] | null;
+      version: string;
+    };
+
+    const result = await pool.query<TradeRoomSnapshotRow>(
+      `select
+         request.payload as request_payload,
+         listing.payload as listing_payload,
+         buyer.payload as buyer_payload,
+         seller.payload as seller_payload,
+         coalesce((
+           select jsonb_agg(dispute.payload order by dispute.sort_index asc)
+             from alpha_exchange.disputes dispute
+            where dispute.purchase_request_id = request.id
+         ), '[]'::jsonb) as dispute_payloads,
+         coalesce((
+           select jsonb_agg(commission.payload order by commission.sort_index asc)
+             from alpha_exchange.commissions commission
+            where commission.seller_id = request.seller_id
+         ), '[]'::jsonb) as commission_payloads,
+         coalesce((
+           select jsonb_agg(evidence.payload order by evidence.sort_index asc)
+             from alpha_exchange.evidence evidence
+            where evidence.purchase_request_id = request.id
+         ), '[]'::jsonb) as evidence_payloads,
+         meta.version::text as version
+       from alpha_exchange.purchase_requests request
+       left join alpha_exchange.listings listing on listing.id = request.listing_id
+       left join alpha_exchange.users buyer on buyer.id = request.buyer_id
+       left join alpha_exchange.users seller on seller.id = request.seller_id
+       cross join alpha_exchange.runtime_meta meta
+       where request.id = any($1::text[])
+       order by case when request.id = $2 then 0 else 1 end, request.updated_at desc
+       limit 1`,
+      [candidates, candidates[0]],
+    );
+    const row = result.rows[0];
+    if (!row?.request_payload) return null;
+
+    const snapshot = emptySnapshotCollections();
+    snapshot.purchaseRequests = [row.request_payload];
+    snapshot.marketplaceListings = row.listing_payload ? [row.listing_payload] : [];
+    snapshot.users = [row.buyer_payload, row.seller_payload]
+      .filter((user): user is AlphaExchangeUser => Boolean(user))
+      .filter((user, index, users) => users.findIndex((candidate) => candidate.id === user.id) === index);
+    snapshot.disputes = Array.isArray(row.dispute_payloads) ? row.dispute_payloads : [];
+    snapshot.commissionRecords = Array.isArray(row.commission_payloads) ? row.commission_payloads : [];
+    snapshot.tradeEvidenceFiles = Array.isArray(row.evidence_payloads) ? row.evidence_payloads : [];
+    return attachVersion(snapshot, Number(row.version ?? "0"));
+  }
+
+  /** Lightweight cross-instance change detector used by Trade Room SSE. */
+  async loadTradeRoomRevision(lookupCandidates: string[]): Promise<TradeRoomRevision | null> {
+    await this.ensureReady();
+    const candidates = Array.from(new Set(lookupCandidates.map((value) => value.trim()).filter(Boolean)));
+    if (candidates.length === 0) return null;
+
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      const request = snapshot.purchaseRequests.find((candidate) => (
+        candidates.includes(candidate.id) || Boolean(candidate.tradeId && candidates.includes(candidate.tradeId))
+      ));
+      return request
+        ? {
+            id: request.id,
+            buyerId: request.buyerId,
+            sellerId: request.sellerId,
+            status: request.status,
+            updatedAt: request.updatedAt,
+          }
+        : null;
+    }
+
+    const result = await pool.query<{
+      id: string;
+      buyer_id: string;
+      seller_id: string;
+      status: PurchaseRequest["status"];
+      updated_at: string;
+    }>(
+      `select id, buyer_id, seller_id, status, updated_at::text as updated_at
+         from alpha_exchange.purchase_requests
+        where id = any($1::text[])
+        order by case when id = $2 then 0 else 1 end, updated_at desc
+        limit 1`,
+      [candidates, candidates[0]],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      buyerId: row.buyer_id,
+      sellerId: row.seller_id,
+      status: row.status,
+      updatedAt: new Date(row.updated_at).toISOString(),
+    };
+  }
+
   async acquireAdminAnnouncementBatchLock(input: {
     run: AdminAnnouncementRun;
     staleBefore: string;
@@ -3230,7 +3407,9 @@ export async function getAlphaExchangeRepository() {
     globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
   }
   const repository = await globalThis.__alphaExchangeRepositoryPromise;
-  if (typeof repository.savePurchaseRequestCreationSnapshotTargeted !== "function") {
+  if (
+    typeof repository.savePurchaseRequestCreationSnapshotTargeted !== "function"
+  ) {
     globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
     return globalThis.__alphaExchangeRepositoryPromise;
   }

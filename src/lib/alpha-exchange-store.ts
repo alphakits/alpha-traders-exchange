@@ -3800,6 +3800,16 @@ const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs
 const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_ASSIGNMENT_TABLES = ["commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_ROOM_INTERACTION_TABLES = ["purchase_requests", "notifications"] as const satisfies readonly SnapshotTableName[];
+const TRADE_ROOM_INTERACTION_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_FAST_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications", "audit_logs", "sms_deliveries", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_TERMINAL_READ_TABLES = [
+  ...TRADE_STATUS_FAST_READ_TABLES,
+  "activity_logs",
+  "disputes",
+  "trust_snapshots",
+  "trust_score_history",
+] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_FAST_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications", "audit_logs", "activity_logs", "sms_deliveries", "marketplace_enforcement_records"] as const satisfies readonly SnapshotTableName[];
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
@@ -3838,6 +3848,7 @@ async function writeDb(
     validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     validateLatestBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     rebaseOnLatest?: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
+    cacheResult?: boolean;
   },
 ) {
   const normalized = normalizeDb(db);
@@ -3871,10 +3882,25 @@ async function writeDb(
     if (storeWriteStart) {
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
     }
-    dbCache = { value: normalized, updatedAt: Date.now() };
+    dbCache = options?.cacheResult === false
+      ? null
+      : { value: normalized, updatedAt: Date.now() };
   } finally {
     dbReadInFlight = null;
   }
+}
+
+async function readDbForCriticalTradeMutation(tableNames: readonly SnapshotTableName[]) {
+  // Mutations must observe another instance's latest evidence and lifecycle
+  // state before validating. Use the targeted canonical read every time rather
+  // than a potentially stale 15-second process cache.
+  const repository = await getAlphaExchangeRepository();
+  const partial = typeof repository.loadSelectedSnapshot === "function"
+    ? await repository.loadSelectedSnapshot(tableNames)
+    : await repository.loadSnapshot();
+  const normalized = normalizeDb(partial);
+  ensureDisplayNumbers(normalized);
+  return { db: normalized, fromFullCache: false };
 }
 
 /**
@@ -9217,7 +9243,7 @@ export async function createPurchaseRequest(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(PURCHASE_REQUEST_FAST_READ_TABLES);
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
@@ -9308,7 +9334,7 @@ export async function createPurchaseRequest(input: {
       relatedListingId: input.listingId,
       relatedHref: "/usdt-exchange",
     });
-    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, cacheResult: fromFullCache });
     throw new Error("Listing is not available for a new buyer right now.");
   }
   if (listing.sellerId === input.buyerId) throw new Error("You cannot submit a purchase request to your own listing.");
@@ -9330,7 +9356,7 @@ export async function createPurchaseRequest(input: {
       relatedListingId: input.listingId,
       relatedHref: "/usdt-exchange",
     });
-    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, cacheResult: fromFullCache });
     throw new Error("Seller is currently unavailable for new buyer matches.");
   }
   const sellerCommissionBlock = getUnpaidSellerCommissionRecords(db, listing.sellerId)[0];
@@ -9491,6 +9517,7 @@ export async function createPurchaseRequest(input: {
   const writeStartedAt = Date.now();
   await writeDb(db, {
     selectedTables: PURCHASE_REQUEST_CREATE_TABLES,
+    cacheResult: fromFullCache,
     // Two tabs, a mobile-network retry, or two Vercel instances can validate
     // the same buyer snapshot before either request commits. Re-check the
     // invariant while the repository's cross-instance advisory lock is held
@@ -10013,25 +10040,35 @@ export async function getTradeRoomData(input: {
   strongConsistency?: boolean;
 }): Promise<TradeRoomData> {
   const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-  const db = await readDb({ bypassCache: input.strongConsistency === true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
-  const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
+  // The SSE stream never mutates read receipts, so it only needs the records
+  // that belong to this Trade Room. Loading those records in one query avoids
+  // the previous 27-table snapshot fan-out on every live connection.
+  const useTargetedRead = input.strongConsistency === true && input.markMessagesRead === false;
+  const repository = useTargetedRead ? await getAlphaExchangeRepository() : null;
+  const db = useTargetedRead && repository && typeof repository.loadTradeRoomSnapshot === "function"
+    ? await repository.loadTradeRoomSnapshot(lookupCandidates)
+    : await readDb({ bypassCache: input.strongConsistency === true });
+  const requestIndex = db?.purchaseRequests.findIndex((item) => (
+    lookupCandidates.includes(item.id) || Boolean(item.tradeId && lookupCandidates.includes(item.tradeId))
+  )) ?? -1;
   if (requestIndex === -1) {
     if (debug) console.log("[trade-room-open] store lookup failed", {
       incomingRequestId: input.purchaseRequestId,
       lookupCandidates,
       reason: "request_not_found",
-      totalRequests: db.purchaseRequests.length,
+      totalRequests: db?.purchaseRequests.length ?? 0,
     });
     logEvent("warn", {
       event: "trade_room_lookup",
       actorUserId: input.actorUserId,
       outcome: "denied",
       reason: "trade_not_found",
-      metadata: { requestCount: db.purchaseRequests.length },
+      metadata: { requestCount: db?.purchaseRequests.length ?? 0 },
     });
     throw new Error("Trade not found.");
   }
+  if (!db) throw new Error("Trade not found.");
   let request = db.purchaseRequests[requestIndex];
   if (debug) console.log("[trade-room-open] store lookup success", {
     incomingRequestId: input.purchaseRequestId,
@@ -10149,6 +10186,45 @@ export async function getTradeRoomData(input: {
       ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
       : undefined,
   };
+}
+
+/**
+ * Returns only the durable fields needed to detect a cross-instance Trade
+ * Room update. This stays deliberately separate from getTradeRoomData so an
+ * idle SSE connection performs one tiny row query instead of loading the
+ * exchange snapshot.
+ */
+export async function getTradeRoomRevision(input: {
+  purchaseRequestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+}) {
+  const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
+  const repository = await getAlphaExchangeRepository();
+  let resolvedRevision;
+  if (typeof repository.loadTradeRoomRevision === "function") {
+    resolvedRevision = await repository.loadTradeRoomRevision(lookupCandidates);
+  } else {
+    const db = await readDb({ bypassCache: true });
+    const request = db.purchaseRequests.find((candidate) => lookupCandidates.includes(candidate.id));
+    resolvedRevision = request ? {
+      id: request.id,
+      buyerId: request.buyerId,
+      sellerId: request.sellerId,
+      status: request.status,
+      updatedAt: request.updatedAt,
+    } : null;
+  }
+  if (!resolvedRevision) throw new Error("Trade not found.");
+  if (
+    input.actorRole !== "admin"
+    && input.actorRole !== "owner"
+    && resolvedRevision.buyerId !== input.actorUserId
+    && resolvedRevision.sellerId !== input.actorUserId
+  ) {
+    throw new Error("You are not allowed to access trade evidence.");
+  }
+  return resolvedRevision;
 }
 
 type TradeRoomBankDetailsResult = {
@@ -10441,7 +10517,7 @@ export async function postTradeRoomMessage(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(TRADE_ROOM_INTERACTION_READ_TABLES);
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
@@ -10548,6 +10624,7 @@ export async function postTradeRoomMessage(input: {
   const writeStartedAt = Date.now();
   await writeDb(db, {
     selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    cacheResult: fromFullCache,
     // Reapply the exact message operation under the repository's canonical
     // transaction lock when another Vercel instance wrote first. The stable
     // client id turns an uncertain response/retry into one durable message and
@@ -10592,7 +10669,7 @@ export async function postTradeRoomPoke(input: {
   actorUserId: string;
   requestHeaders: Headers;
 }) {
-  const db = await readDb({ bypassCache: true });
+  const { db, fromFullCache } = await readDbForCriticalTradeMutation(TRADE_ROOM_INTERACTION_READ_TABLES);
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
   if (requestIndex === -1) {
     throw new TradeRoomPokeError({
@@ -10704,6 +10781,7 @@ export async function postTradeRoomPoke(input: {
 
   await writeDb(db, {
     selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    cacheResult: fromFullCache,
     // The initial read is intentionally not the final authority. Snapshot
     // writes serialize through the repository advisory transaction lock; check
     // the merged canonical request while that lock is held so a cancellation,
@@ -11802,7 +11880,13 @@ async function updatePurchaseRequestStatusAttempt(
       actorRole: input.actorRole,
     });
   }
-  let db = await readDb({ bypassCache: true });
+  const useFastStatusRead = input.nextStatus !== "completed"
+    && input.nextStatus !== "declined"
+    && input.nextStatus !== "cancelled";
+  const statusRead = await readDbForCriticalTradeMutation(
+    useFastStatusRead ? TRADE_STATUS_FAST_READ_TABLES : TRADE_STATUS_TERMINAL_READ_TABLES,
+  );
+  let db = statusRead.db;
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const readDbMs = Date.now() - startedAt;
   let timelineMs = 0;
@@ -12758,6 +12842,7 @@ async function updatePurchaseRequestStatusAttempt(
     await writeDb(db, {
       traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
       selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
+      cacheResult: statusRead.fromFullCache,
       // A snapshot can become stale between validation and the repository's
       // cross-instance advisory lock. Reject only relevant stale state here,
       // then rerun the whole business transition from the canonical snapshot.

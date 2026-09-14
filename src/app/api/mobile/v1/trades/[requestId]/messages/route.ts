@@ -1,5 +1,5 @@
 import { after, NextRequest } from "next/server";
-import { getTradeRoomData, postTradeRoomMessage } from "@/lib/alpha-exchange-store";
+import { getTradeRoomRevision, postTradeRoomMessage } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -10,7 +10,6 @@ import {
   resolveMobileLocale,
 } from "@/lib/mobile-api";
 import {
-  isMobileTradeParticipant,
   mobileTradeErrorCode,
   mobileTradeErrorStatus,
   toMobileTradeMessage,
@@ -19,7 +18,7 @@ import {
   prepareTradeRoomConversationEmail,
   TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS,
 } from "@/lib/marketplace-email-events";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
@@ -52,9 +51,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return mobileError("MESSAGE_INVALID", requestId, locale, 400);
     }
 
-    const rate = await checkSharedRateLimit({
+    const rate = checkRateLimit({
       headers: request.headers,
-      key: "exchange:trade-room-message",
+      key: "mobile:trade-room-message:v2",
       identifier: auth.user.id,
       maxRequests: 40,
       windowMs: 60_000,
@@ -65,14 +64,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     }
 
-    const room = await getTradeRoomData({
+    const revision = await getTradeRoomRevision({
       purchaseRequestId: params.requestId,
       actorUserId: auth.user.id,
       actorRole: auth.user.role,
-      markMessagesRead: false,
-      strongConsistency: true,
     });
-    if (!isMobileTradeParticipant(room.request, auth.user.id)) {
+    if (revision.buyerId !== auth.user.id && revision.sellerId !== auth.user.id) {
       return mobileError("TRADE_NOT_FOUND", requestId, locale, 404);
     }
 
@@ -86,43 +83,46 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     if (posted.created) {
-      try {
-        const emailBurst = await checkSharedRateLimit({
-          headers: request.headers,
-          key: "exchange:trade-room-message-email",
-          identifier: `${posted.trade.id}:${posted.notificationRecipientUserId}`,
-          maxRequests: 1,
-          windowMs: TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS,
-        });
-        if (emailBurst.allowed) {
-          const deliver = await prepareTradeRoomConversationEmail({
-            event: "trade_room_message",
-            request: posted.trade,
-            recipientUserId: posted.notificationRecipientUserId,
-            senderUserId: auth.user.id,
-            senderRole: posted.senderParticipantRole,
-            idempotencyKey: `trade-room-message:${posted.message.id}:${posted.notificationRecipientUserId}`,
+      const emailHeaders = new Headers(request.headers);
+      after(async () => {
+        try {
+          const emailBurst = await checkSharedRateLimit({
+            headers: emailHeaders,
+            key: "exchange:trade-room-message-email",
+            identifier: `${posted.trade.id}:${posted.notificationRecipientUserId}`,
+            maxRequests: 1,
+            windowMs: TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS,
           });
-          after(deliver);
-        } else if (emailBurst.reason === "limiter_unavailable") {
-          logEvent("warn", {
+          if (emailBurst.allowed) {
+            const deliver = await prepareTradeRoomConversationEmail({
+              event: "trade_room_message",
+              request: posted.trade,
+              recipientUserId: posted.notificationRecipientUserId,
+              senderUserId: auth.user.id,
+              senderRole: posted.senderParticipantRole,
+              idempotencyKey: `trade-room-message:${posted.message.id}:${posted.notificationRecipientUserId}`,
+            });
+            await deliver();
+          } else if (emailBurst.reason === "limiter_unavailable") {
+            logEvent("warn", {
+              event: "mobile_trade_message_email_schedule",
+              actorUserId: auth.user.id,
+              resourceId: posted.trade.id,
+              outcome: "failed",
+              reason: "burst_limiter_unavailable",
+            });
+          }
+        } catch (emailError) {
+          logEvent("error", {
             event: "mobile_trade_message_email_schedule",
             actorUserId: auth.user.id,
             resourceId: posted.trade.id,
             outcome: "failed",
-            reason: "burst_limiter_unavailable",
+            reason: "post_commit_schedule_failed",
+            metadata: { errorType: emailError instanceof Error ? emailError.name : typeof emailError },
           });
         }
-      } catch (emailError) {
-        logEvent("error", {
-          event: "mobile_trade_message_email_schedule",
-          actorUserId: auth.user.id,
-          resourceId: posted.trade.id,
-          outcome: "failed",
-          reason: "post_commit_schedule_failed",
-          metadata: { errorType: emailError instanceof Error ? emailError.name : typeof emailError },
-        });
-      }
+      });
     }
 
     return mobileJson(

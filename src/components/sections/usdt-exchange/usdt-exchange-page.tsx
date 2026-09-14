@@ -1397,6 +1397,7 @@ export function UsdtExchangePage({
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
   const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
+  const purchaseRequestInFlightRef = useRef(false);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
   const [purchasePriceMode, setPurchasePriceMode] = useState<"listing_price" | "buyer_offer">("listing_price");
   const [buyerOfferedPrice, setBuyerOfferedPrice] = useState("");
@@ -2941,7 +2942,9 @@ export function UsdtExchangePage({
 
   async function submitPurchaseRequest() {
     if (!selectedListing) return;
-    if (isSubmittingPurchase) return;
+    // React state updates after the current event. This synchronous ref closes
+    // the double-tap window on phones before a second handler can submit.
+    if (purchaseRequestInFlightRef.current || isSubmittingPurchase) return;
     if (listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod) && !faceToFaceSafetyAcknowledged) {
       setStatusMessage(isAr ? "وافق على إرشادات الخصوصية والأمان للقاء المباشر قبل المتابعة." : "Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
       return;
@@ -2975,6 +2978,7 @@ export function UsdtExchangePage({
     const fallbackMessage = isAr
       ? "تعذر بدء الصفقة بسبب خطأ غير متوقع. حاول مرة أخرى."
       : "We could not start this trade due to an unexpected server error.";
+    purchaseRequestInFlightRef.current = true;
     setIsSubmittingPurchase(true);
     try {
       const response = await fetch("/api/alpha-exchange/purchase-requests", {
@@ -3063,6 +3067,7 @@ export function UsdtExchangePage({
           : "Unable to reach the server right now. Check your connection and try again.");
       setStatusMessage(message);
     } finally {
+      purchaseRequestInFlightRef.current = false;
       setIsSubmittingPurchase(false);
     }
   }
