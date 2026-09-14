@@ -64,6 +64,9 @@ describe("mobile accessibility completion", () => {
 
     expect(tradeRoom).toContain("actions.canCompleteFaceToFace");
     expect(tradeRoom).toContain('t("cashUsdtCompletionConfirmation")');
+    expect(tradeRoom).toContain("actions.canMarkUsdtSent");
+    expect(tradeRoom).toContain('t("cashUsdtSentConfirmation")');
+    expect(tradeRoom).toContain('t("confirmUsdtSent")');
     expect(tradeRoom).toContain("actions.canMarkPaymentSent");
     expect(tradeRoom).toContain('t("sentWithdrawalCode")');
     expect(tradeRoom).toContain('t("handedOverCash")');

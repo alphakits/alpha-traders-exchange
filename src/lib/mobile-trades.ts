@@ -11,6 +11,7 @@ import {
   isBankTransferPaymentMethod,
   isCashTradeCompletionAvailable,
   isCashTradePaymentMethod,
+  isCashTradeUsdtSentConfirmationAvailable,
 } from "@/lib/marketplace-payment-methods";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
@@ -118,6 +119,8 @@ export function toMobileTradeDetail(
       canBeginRelease: isSeller
         && request.status === "funds_received"
         && !isCashTrade,
+      canMarkUsdtSent: isSeller
+        && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status),
       canUploadReleaseEvidence: isSeller
         && request.status === "usdt_release_pending"
         && !isCashTrade,

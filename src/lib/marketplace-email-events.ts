@@ -130,8 +130,8 @@ function tradeEmailContent(
         ...common,
         title,
         message: {
-          ar: "وافق البائع على صفقة اللقاء الشخصي. بعد تسليم النقد اضغط زر التأكيد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلام النقد ستظهر له محفظتك لإرسال USDT وإكمال الصفقة.",
-          en: "The seller accepted the Face-to-Face trade. After handing over the cash, use the confirmation button; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can send USDT and complete the trade.",
+          ar: "وافق البائع على صفقة اللقاء الشخصي. بعد تسليم النقد اضغط زر التأكيد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلام النقد ستظهر له محفظتك ليؤكد إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+          en: "The seller accepted the Face-to-Face trade. After handing over the cash, use the confirmation button; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can confirm USDT sent, then complete the trade separately.",
         },
       };
     }
@@ -142,8 +142,8 @@ function tradeEmailContent(
           ? { ar: "تم قبول عرض السعر", en: "Price Offer Accepted" }
           : { ar: "تم قبول صفقة السحب دون بطاقة", en: "Cardless ATM Trade Accepted" },
         message: {
-          ar: "وافق البائع على الصفقة. أرسل رمز السحب واضغط زر التأكيد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده ستظهر له محفظتك لإرسال USDT وإكمال الصفقة.",
-          en: "The seller accepted the trade. Send the withdrawal code and use the confirmation button; no photo is required. After the seller collects and confirms the cash, your wallet is revealed so the seller can send USDT and complete the trade.",
+          ar: "وافق البائع على الصفقة. أرسل رمز السحب واضغط زر التأكيد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده ستظهر له محفظتك ليؤكد إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+          en: "The seller accepted the trade. Send the withdrawal code and use the confirmation button; no photo is required. After the seller collects and confirms the cash, your wallet is revealed so the seller can confirm USDT sent, then complete the trade separately.",
         },
       };
     }
@@ -219,8 +219,8 @@ function tradeEmailContent(
       title: { ar: "أكد البائع استلام الأموال", en: "Seller Confirmed Funds Received" },
       message: cashTrade
         ? {
-            ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT ويُكمل الصفقة.",
-            en: "The seller confirmed receiving the cash. Your wallet is now revealed to the seller so they can send USDT and complete the trade.",
+            ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT ويؤكد الإرسال، ثم يُكمل الصفقة بزر منفصل.",
+            en: "The seller confirmed receiving the cash. Your wallet is now revealed so the seller can send USDT and confirm it, then complete the trade separately.",
           }
         : {
             ar: "أكد البائع استلام دفعتك. أصبحت خطوة إرسال USDT متاحة للبائع.",

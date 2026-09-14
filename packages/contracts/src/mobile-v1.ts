@@ -964,6 +964,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canUploadPaymentEvidence: boolean;
     canConfirmFunds: boolean;
     canBeginRelease: boolean;
+    canMarkUsdtSent: boolean;
     canUploadReleaseEvidence: boolean;
     canConfirmReceived: boolean;
     canCompleteFaceToFace: boolean;

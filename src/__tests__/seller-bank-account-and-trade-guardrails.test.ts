@@ -713,4 +713,66 @@ describe("seller bank accounts and trade guardrails", () => {
     expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
     expect(saveSnapshot.mock.calls.some(([, options]) => options?.selectedTables?.includes("trust_snapshots"))).toBe(false);
   });
+
+  it.each(["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])(
+    "never auto-completes a stale %s trade while the seller completion button is pending",
+    async (paymentMethod) => {
+      const sentAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const requestId = `req-seller-completion-${paymentMethod.startsWith("Face") ? "face" : "atm"}`;
+      const listingId = `listing-${requestId}`;
+      const snapshot = currentSnapshot();
+      snapshot.marketplaceListings.push({
+        id: listingId,
+        sellerId: SELLER_ID,
+        sellerDisplayName: "Seller One",
+        photos: [],
+        originalAmount: "1000",
+        availableAmount: "1000",
+        price: "3.20",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: [paymentMethod],
+        paymentMethod,
+        minimumTrade: "50",
+        maximumTrade: "1000",
+        status: "in_trade",
+        activeTradeRequestId: requestId,
+        createdAt: sentAt,
+        updatedAt: sentAt,
+      } as never);
+      snapshot.purchaseRequests.push({
+        id: requestId,
+        listingId,
+        buyerId: BUYER_ID,
+        buyerName: "Buyer",
+        sellerId: SELLER_ID,
+        usdtAmount: "100",
+        fiatAmount: "320",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethod,
+        status: "usdt_sent",
+        usdtSentAt: sentAt,
+        timeline: [],
+        createdAt: sentAt,
+        updatedAt: sentAt,
+      } as never);
+
+      await runAlphaExchangeMaintenance();
+
+      expect(currentSnapshot().purchaseRequests.find((item) => item.id === requestId)?.status).toBe("usdt_sent");
+      expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === requestId)).toHaveLength(0);
+      expect(currentSnapshot().marketplaceListings.find((item) => item.id === listingId)?.activeTradeRequestId).toBe(requestId);
+
+      const completed = await updatePurchaseRequestStatus({
+        requestId,
+        actorUserId: SELLER_ID,
+        actorRole: "approved_seller",
+        nextStatus: "completed",
+        completionMode: "cash_trade",
+      });
+      expect(completed.request.status).toBe("review_open");
+      expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === requestId)).toHaveLength(1);
+    },
+  );
 });

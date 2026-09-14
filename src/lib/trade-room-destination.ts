@@ -7,6 +7,9 @@ export type TradeRoomActionTarget =
   | "upload-payment-receipt"
   | "confirm-money-received"
   | "release-usdt"
+  | "confirm-usdt-sent"
+  | "complete-cash-trade"
+  // Legacy deep-link target retained for already-delivered notifications.
   | "send-usdt-complete"
   | "upload-seller-evidence"
   | "confirm-usdt-received"
@@ -32,13 +35,13 @@ function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: str
     return "confirm-money-received";
   }
   if (request.status === "funds_received" && isSellerActor(request, actorUserId)) {
-    return isCashTradePaymentMethod(request.paymentMethod) ? "send-usdt-complete" : "release-usdt";
+    return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "release-usdt";
   }
   if (request.status === "usdt_release_pending" && isSellerActor(request, actorUserId)) {
-    return isCashTradePaymentMethod(request.paymentMethod) ? "send-usdt-complete" : "upload-seller-evidence";
+    return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "upload-seller-evidence";
   }
   if (request.status === "usdt_sent" && isCashTradePaymentMethod(request.paymentMethod) && isSellerActor(request, actorUserId)) {
-    return "send-usdt-complete";
+    return "complete-cash-trade";
   }
   if (request.status === "usdt_sent" && !isCashTradePaymentMethod(request.paymentMethod) && isBuyerActor(request, actorUserId)) {
     return "confirm-usdt-received";

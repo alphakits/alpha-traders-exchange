@@ -407,6 +407,18 @@ describe("full Exchange App Review rehearsal", () => {
       markMessagesRead: false,
     });
     expect(sellerRoomAfterCash.request.buyerReceivingWalletAddress).toBe(REVIEW_WALLET);
+    const usdtSent = await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_sent",
+    });
+    expect(usdtSent.request).toMatchObject({
+      status: "usdt_sent",
+      buyerEvidence: undefined,
+      sellerEvidence: undefined,
+    });
+    expect(usdtSent.request.completedAt).toBeUndefined();
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
       actorUserId: SELLER_ID,

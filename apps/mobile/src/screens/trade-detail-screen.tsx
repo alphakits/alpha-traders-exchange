@@ -68,9 +68,10 @@ function stageInstruction(
       if (side === "seller") return cashTradeKind === "cardless_atm" ? t("cashSellerCollectAtmNext") : t("cashSellerConfirmReceiptNext");
       return t("cashBuyerWaitReceiptConfirmation");
     }
-    if (["funds_received", "usdt_release_pending", "usdt_sent"].includes(status)) {
+    if (status === "funds_received" || status === "usdt_release_pending") {
       return side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
     }
+    if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
   }
   if (status === "pending") return t("waitingForSeller");
   if (status === "accepted") return t("waitingForBuyerPayment");
@@ -637,6 +638,15 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               onPress={confirmCashTradeCompletion}
             >
               {t("sentUsdtComplete")}
+            </GoldButton>
+          ) : null}
+          {actions.canMarkUsdtSent ? (
+            <GoldButton
+              disabled={actionsDisabled}
+              loading={busyAction === "usdt_sent"}
+              onPress={() => confirmStatus("usdt_sent", t("cashUsdtSentConfirmation"))}
+            >
+              {t("confirmUsdtSent")}
             </GoldButton>
           ) : null}
           {actions.canMarkPaymentSent ? (

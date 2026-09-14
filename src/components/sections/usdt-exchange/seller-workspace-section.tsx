@@ -1546,8 +1546,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
                         <p className="mt-1">
                           {isAr
-                            ? "تابع داخل غرفة التداول. أكّد استلام النقد فعليًا، ثم ستظهر محفظة المشتري لإرسال USDT وإكمال الصفقة. البائع وحده يُكمل."
-                            : "Continue inside the Trade Room. Confirm actual cash receipt, then the buyer wallet is revealed so you can send USDT and complete. Only the seller completes."}
+                            ? "تابع داخل غرفة التداول. بعد تأكيد استلام النقد ستظهر محفظة المشتري. أكّد إرسال USDT أولًا، ثم حدّد الصفقة كمكتملة بزر منفصل."
+                            : "Continue inside the Trade Room. After cash confirmation, the buyer wallet appears. Confirm USDT sent first, then mark the trade completed with a separate button."}
                         </p>
                       </div>
                     ) : (

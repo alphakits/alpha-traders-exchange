@@ -8,9 +8,12 @@ export type MarketplacePaymentMethod = (typeof MARKETPLACE_PAYMENT_METHODS)[numb
 export const MAX_LISTING_PAYMENT_METHODS = 3;
 
 export const CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES = [
+  "usdt_sent",
+] as const;
+
+export const CASH_TRADE_USDT_SENT_CONFIRMATION_ELIGIBLE_STATUSES = [
   "funds_received",
   "usdt_release_pending",
-  "usdt_sent",
 ] as const;
 
 // Kept as a source-compatible alias for older imports. Face-to-Face and
@@ -84,6 +87,13 @@ export function isCashTradeCompletionAvailable(method: unknown, status: unknown)
   return isCashTradePaymentMethod(method)
     && typeof status === "string"
     && (CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
+}
+
+/** Cash trades record USDT as sent before the seller can complete the trade. */
+export function isCashTradeUsdtSentConfirmationAvailable(method: unknown, status: unknown) {
+  return isCashTradePaymentMethod(method)
+    && typeof status === "string"
+    && (CASH_TRADE_USDT_SENT_CONFIRMATION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
 }
 
 export function isBankTransferPaymentMethod(method: unknown) {

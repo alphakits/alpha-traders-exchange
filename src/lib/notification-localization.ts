@@ -133,6 +133,7 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
   "wait for seller cash confirmation": "انتظار تأكيد البائع استلام النقد",
   "verify payment, then continue to usdt release": "التحقق من الدفع ثم متابعة إرسال USDT",
   "send usdt to the revealed wallet and complete the trade": "إرسال USDT إلى المحفظة الظاهرة وإكمال الصفقة",
+  "send usdt to the revealed wallet and confirm it was sent": "إرسال USDT إلى المحفظة الظاهرة وتأكيد الإرسال",
   "send usdt and upload the required release proof": "إرسال USDT ورفع إثبات التحويل المطلوب",
   "verify payment, upload proof, then mark usdt sent": "التحقق من الدفع ورفع الإثبات ثم تأكيد إرسال USDT",
   "wait for seller usdt release": "انتظار إرسال USDT من البائع",
