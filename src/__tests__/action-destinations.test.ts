@@ -97,6 +97,19 @@ describe("canonical action destinations", () => {
     expect(tradeDestination(request("usdt_sent"), "buyer-1")).toContain("action=confirm-usdt-received#action-required");
   });
 
+  it("routes cash trades through confirmations and seller-only completion", () => {
+    const cashRequest = (status: PurchaseRequest["status"]) => ({
+      ...request(status),
+      paymentMethod: "Cardless ATM Withdrawal",
+    });
+
+    expect(tradeDestination(cashRequest("accepted"), "buyer-1")).toContain("action=confirm-cash-payment#action-required");
+    expect(tradeDestination(cashRequest("payment_sent"), "seller-1")).toContain("action=confirm-money-received#action-required");
+    expect(tradeDestination(cashRequest("funds_received"), "seller-1")).toContain("action=send-usdt-complete#action-required");
+    expect(tradeDestination(cashRequest("usdt_sent"), "seller-1")).toContain("action=send-usdt-complete#action-required");
+    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toBe("/trade-room/purchase-123?action=open-trade#status-banner");
+  });
+
   it("resolves completed trades to history/review context", () => {
     expect(tradeDestination(request("review_open"), "buyer-1")).toBe("/trade-room/purchase-123?action=review-trade#status-banner");
     expect(completedTradeDestination(request("completed"))).toBe("/usdt-exchange?trade=purchase-123#my-trade-requests-section");

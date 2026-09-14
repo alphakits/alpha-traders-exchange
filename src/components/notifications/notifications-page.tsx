@@ -24,6 +24,7 @@ import { useAuthenticatedNotificationStream } from "@/components/notifications/u
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { israelCalendarDayNumber } from "@/lib/israel-calendar";
+import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -41,6 +42,7 @@ type TradeRoomRequestPayload = {
   status: string;
   sellerId: string;
   buyerId: string;
+  paymentMethod?: string;
 };
 
 type TradeSnapshotPayload = {
@@ -48,6 +50,7 @@ type TradeSnapshotPayload = {
   currentStage?: string;
   sellerId?: string;
   buyerId?: string;
+  paymentMethod?: string;
 };
 
 type NotificationFilter = "all" | "actions" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
@@ -94,12 +97,14 @@ function buildTradeRoomHashForAction(action: string) {
 function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
   const isSeller = request.sellerId === actorUserId;
   const isBuyer = request.buyerId === actorUserId;
+  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
   if (request.status === "pending" && isSeller) return "accept-trade";
-  if (request.status === "accepted" && isBuyer) return "upload-payment-receipt";
+  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
   if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return "upload-seller-evidence";
-  if (request.status === "usdt_release_pending" && isSeller) return "upload-seller-evidence";
-  if (request.status === "usdt_sent" && isBuyer) return "confirm-usdt-received";
+  if (request.status === "funds_received" && isSeller) return cashTrade ? "send-usdt-complete" : "release-usdt";
+  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "send-usdt-complete" : "upload-seller-evidence";
+  if (request.status === "usdt_sent" && cashTrade && isSeller) return "send-usdt-complete";
+  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
   if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
   return "open-trade";
 }
@@ -110,7 +115,7 @@ function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null |
   const sellerId = String(snapshot?.sellerId ?? "").trim();
   const buyerId = String(snapshot?.buyerId ?? "").trim();
   if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId }, actorUserId);
+  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot?.paymentMethod }, actorUserId);
 }
 
 function notificationNeedsUserAction(notification: AlphaExchangeNotification) {
@@ -123,9 +128,12 @@ function notificationNeedsUserAction(notification: AlphaExchangeNotification) {
 function tradeRoomActionLabel(action: string, locale: AppLocale) {
   const isAr = locale === "ar";
   if (action === "accept-trade") return isAr ? "مراجعة طلب الصفقة" : "Review trade request";
+  if (action === "confirm-cash-payment") return isAr ? "تأكيد تسليم النقد أو الرمز" : "Confirm cash or code sent";
   if (action === "upload-payment-receipt") return isAr ? "رفع إيصال الدفع" : "Upload payment receipt";
   if (action === "confirm-money-received") return isAr ? "تأكيد استلام الدفعة" : "Confirm payment received";
+  if (action === "release-usdt") return isAr ? "بدء إرسال USDT" : "Begin USDT release";
   if (action === "upload-seller-evidence") return isAr ? "رفع الإثبات وإرسال USDT" : "Upload proof and send USDT";
+  if (action === "send-usdt-complete") return isAr ? "إرسال USDT وإكمال الصفقة" : "Send USDT and complete trade";
   if (action === "confirm-usdt-received") return isAr ? "تأكيد استلام USDT" : "Confirm USDT received";
   if (action === "review-trade") return isAr ? "إضافة تقييم للصفقة" : "Leave a trade review";
   return isAr ? "عرض تفاصيل الصفقة" : "View trade details";

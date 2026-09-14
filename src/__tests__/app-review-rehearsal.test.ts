@@ -379,39 +379,38 @@ describe("full Exchange App Review rehearsal", () => {
       actorRole: "buyer",
     })).rejects.toThrow("Bank details are available only after the seller accepts the trade.");
 
-    const buyerEvidence = await uploadTradeEvidence({
+    const sellerRoomBeforeCash = await getTradeRoomData({
       purchaseRequestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      markMessagesRead: false,
+    });
+    expect(sellerRoomBeforeCash.request.buyerReceivingWalletAddress).toBeUndefined();
+
+    const buyerConfirmation = await updatePurchaseRequestStatus({
+      requestId: created.request.id,
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-      side: "buyer",
-      fileName: "fictional-cardless-withdrawal.png",
-      mimeType: "image/png",
-      sizeBytes: 68,
-      contentBase64: PNG_BASE64,
+      nextStatus: "payment_sent",
     });
-    expect(buyerEvidence.request.status).toBe("payment_sent");
+    expect(buyerConfirmation.request).toMatchObject({ status: "payment_sent", buyerEvidence: undefined });
     await updatePurchaseRequestStatus({
       requestId: created.request.id,
       actorUserId: SELLER_ID,
       actorRole: "approved_seller",
       nextStatus: "funds_received",
     });
-    await updatePurchaseRequestStatus({
-      requestId: created.request.id,
+    const sellerRoomAfterCash = await getTradeRoomData({
+      purchaseRequestId: created.request.id,
       actorUserId: SELLER_ID,
       actorRole: "approved_seller",
-      nextStatus: "usdt_release_pending",
+      markMessagesRead: false,
     });
-    await updatePurchaseRequestStatus({
-      requestId: created.request.id,
-      actorUserId: SELLER_ID,
-      actorRole: "approved_seller",
-      nextStatus: "usdt_sent",
-    });
+    expect(sellerRoomAfterCash.request.buyerReceivingWalletAddress).toBe(REVIEW_WALLET);
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
-      actorUserId: BUYER_ID,
-      actorRole: "buyer",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
       nextStatus: "completed",
       completionMode: "cash_trade",
     });
@@ -447,17 +446,15 @@ describe("full Exchange App Review rehearsal", () => {
       activeTradeRequestId: undefined,
     });
     expect(saved.notifications).toEqual(expect.arrayContaining([
-      expect.objectContaining({ userId: SELLER_ID, title: "Withdrawal ready" }),
+      expect.objectContaining({ userId: SELLER_ID, title: "Cardless withdrawal code ready" }),
       expect.objectContaining({ userId: BUYER_ID, title: "Seller confirmed cash collected" }),
     ]));
     expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)?.timeline.map((entry) => entry.type))
       .toEqual(expect.arrayContaining([
         "request_submitted",
         "request_accepted",
-        "buyer_evidence_uploaded",
         "payment_sent",
         "seller_confirmed_funds",
-        "usdt_release_started",
         "usdt_sent",
         "trade_completed",
         "trade_locked",

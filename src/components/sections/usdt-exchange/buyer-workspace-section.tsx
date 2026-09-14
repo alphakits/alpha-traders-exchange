@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { Textarea } from "@/components/ui/textarea";
 import { localizeActivityCopy } from "@/lib/notification-localization";
-import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus } from "@/types/alpha-exchange";
 
@@ -274,6 +274,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                     {sortedBuyerRequests.slice(0, buyerTradeVisibleCount).map((request) => {
                       const presentation = getTradeQueuePresentation(request, "buyer", isAr);
                       const isExpanded = buyerExpandedTradeId === request.id;
+                      const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
                       return (
                         <div key={request.id} className="border-t border-white/10 first:border-t-0">
                           <button
@@ -314,19 +315,33 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <p className="mt-1">{isAr ? <>راجع التفاصيل في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                               </div>
                               <div className="flex flex-wrap gap-2">
-                                <Button type="button" size="sm" variant="secondary" onMouseEnter={() => handlePrefetchTradeRoom(request.id)} onFocus={() => handlePrefetchTradeRoom(request.id)} onClick={() => handleOpenTradeRoom(request.id)}>
-                                  {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
+                                <Button type="button" size="sm" variant={isCashTrade ? "default" : "secondary"} onMouseEnter={() => handlePrefetchTradeRoom(request.id)} onFocus={() => handlePrefetchTradeRoom(request.id)} onClick={() => handleOpenTradeRoom(request.id)}>
+                                  {isCashTrade ? (isAr ? "متابعة الصفقة النقدية" : "Continue Cash Trade") : (isAr ? "فتح غرفة التداول" : "Open Trade Room")}
                                 </Button>
-                                <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
-                                  {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? (isAr ? "تحديد السحب كجاهز" : "Mark Withdrawal Ready") : (isAr ? "تحديد الدفعة كمُرسلة" : "Mark Payment Sent")}
-                                </Button>
-                                <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
-                                  {isAr ? "تأكيد اكتمال الصفقة" : "Confirm Trade Completed"}
-                                </Button>
+                                {!isCashTrade ? (
+                                  <>
+                                    <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
+                                      {isAr ? "تحديد الدفعة كمُرسلة" : "Mark Payment Sent"}
+                                    </Button>
+                                    <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
+                                      {isAr ? "تأكيد اكتمال الصفقة" : "Confirm Trade Completed"}
+                                    </Button>
+                                  </>
+                                ) : null}
                                 <Button type="button" size="sm" variant="secondary" disabled={!canCancelBuyerHistoryRequest(request, sessionUser?.id)} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
                                   {isAr ? "إلغاء" : "Cancel"}
                                 </Button>
                               </div>
+                              {isCashTrade ? (
+                                <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                                  <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
+                                  <p className="mt-1">
+                                    {isAr
+                                      ? "استخدم غرفة التداول للخطوة التالية الواضحة. يؤكد المشتري التسليم، ثم يؤكد البائع استلام النقد، والبائع وحده يُكمل بعد إرسال USDT."
+                                      : "Use the Trade Room for the guided next step. The buyer confirms the handover, the seller confirms cash receipt, and only the seller completes after sending USDT."}
+                                  </p>
+                                </div>
+                              ) : (
                               <div className="grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                                 <div>
                                   <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
@@ -377,6 +392,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                   </div>
                                 ) : null}
                               </div>
+                              )}
                               <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
                               {request.status === "review_open" && !request.buyerReview ? (
                                 <form

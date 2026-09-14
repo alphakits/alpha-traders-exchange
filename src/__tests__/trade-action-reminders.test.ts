@@ -269,16 +269,19 @@ describe("automatic hourly Trade Room action reminders", () => {
     });
   });
 
-  it("reminds both participants in a face-to-face trade where either can complete", async () => {
+  it("reminds only the buyer to confirm the next Face-to-Face cash step", async () => {
     currentSnapshot().purchaseRequests.push(requestForStatus("accepted", {
       paymentMethod: "Face-to-Face (Meet in Person)",
     }));
 
     const result = await runTradeActionReminders({ now: NOW });
 
-    expect(result.notificationsCreated).toBe(2);
-    expect(new Set(currentSnapshot().notifications.map((item) => item.userId))).toEqual(new Set([BUYER_ID, SELLER_ID]));
-    expect(mocks.sendMarketplaceEmail).toHaveBeenCalledTimes(2);
+    expect(result.notificationsCreated).toBe(1);
+    expect(currentSnapshot().notifications[0]).toMatchObject({
+      userId: BUYER_ID,
+      message: expect.stringContaining("No photo is required"),
+    });
+    expect(mocks.sendMarketplaceEmail).toHaveBeenCalledTimes(1);
   });
 
   it("stops immediately for completed, closed, or timed-out trades", async () => {

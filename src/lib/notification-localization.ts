@@ -66,6 +66,11 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "new trade room message": "رسالة جديدة في غرفة التداول",
   "trade room reminder": "تذكير من غرفة التداول",
   "withdrawal ready": "السحب جاهز",
+  "cardless withdrawal code ready": "رمز السحب دون بطاقة جاهز",
+  "buyer handed over cash": "سلّم المشتري النقد",
+  "cash trade ready to complete": "الصفقة النقدية جاهزة للإكمال",
+  "face-to-face trade completed": "اكتملت صفقة اللقاء الشخصي",
+  "cardless atm trade completed": "اكتملت صفقة السحب دون بطاقة",
   "buyer marked payment sent": "أكد المشتري إرسال الدفعة",
   "seller confirmed cash collected": "أكد البائع استلام النقد",
   "seller confirmed funds received": "أكد البائع استلام الأموال",
@@ -117,10 +122,22 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
   "accept or decline this price offer": "قبول عرض السعر أو رفضه",
   "wait for seller response": "انتظار رد البائع",
   "wait for seller response to your price offer": "انتظار رد البائع على عرض سعرك",
+  "wait for buyer to send the withdrawal code": "انتظار المشتري لإرسال رمز السحب",
+  "wait for buyer to hand over the cash": "انتظار المشتري لتسليم النقد",
+  "send the withdrawal code and confirm it": "إرسال رمز السحب وتأكيده",
+  "hand over the cash and confirm it": "تسليم النقد وتأكيده",
   "wait for buyer payment proof": "انتظار إثبات دفع المشتري",
   "upload payment proof and mark payment sent": "رفع إثبات الدفع وتأكيد الإرسال",
+  "collect the atm cash and confirm receipt": "سحب النقد من الصراف وتأكيد الاستلام",
+  "confirm the cash was received": "تأكيد استلام النقد",
+  "wait for seller cash confirmation": "انتظار تأكيد البائع استلام النقد",
+  "verify payment, then continue to usdt release": "التحقق من الدفع ثم متابعة إرسال USDT",
+  "send usdt to the revealed wallet and complete the trade": "إرسال USDT إلى المحفظة الظاهرة وإكمال الصفقة",
+  "send usdt and upload the required release proof": "إرسال USDT ورفع إثبات التحويل المطلوب",
   "verify payment, upload proof, then mark usdt sent": "التحقق من الدفع ورفع الإثبات ثم تأكيد إرسال USDT",
   "wait for seller usdt release": "انتظار إرسال USDT من البائع",
+  "complete the cash trade": "إكمال الصفقة النقدية",
+  "wait for seller completion": "انتظار إكمال البائع",
   "wait for buyer completion confirmation": "انتظار تأكيد المشتري لإكمال الصفقة",
   "confirm trade completed": "تأكيد اكتمال الصفقة",
   "leave your trade review": "إضافة تقييمك للصفقة",
@@ -163,6 +180,18 @@ const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
   "the seller responded to your completed trade review.": "ردّ البائع على تقييمك للصفقة المكتملة.",
   "your meeting is ready. review the safety guidelines before meeting.":
     "تم تجهيز موعد اللقاء. راجع إرشادات الأمان قبل المقابلة.",
+  "your meeting is ready. after handing over the cash, confirm it in the trade room. no photo is required.":
+    "موعد اللقاء جاهز. بعد تسليم النقد، أكد ذلك في غرفة الصفقة. لا يلزم رفع صورة.",
+  "your cardless atm trade is active. send the withdrawal code, then confirm it in the trade room. no photo is required.":
+    "صفقة السحب دون بطاقة نشطة. أرسل رمز السحب ثم أكد ذلك في غرفة الصفقة. لا يلزم رفع صورة.",
+  "buyer sent the cardless withdrawal code. collect the atm cash, then confirm receipt in the trade room.":
+    "أرسل المشتري رمز السحب دون بطاقة. اسحب النقد من الصراف ثم أكد الاستلام في غرفة الصفقة.",
+  "buyer confirmed the cash was handed over. confirm receipt before sending usdt.":
+    "أكد المشتري تسليم النقد. أكد الاستلام قبل إرسال USDT.",
+  "the seller marked usdt as sent and will complete the cash trade. check your receiving wallet.":
+    "أكد البائع إرسال USDT وسيُكمل الصفقة النقدية. تحقق من محفظة الاستلام.",
+  "confirm completion after sending usdt. only you can close this trade, and no photo is required.":
+    "أكد الإكمال بعد إرسال USDT. أنت وحدك تستطيع إغلاق هذه الصفقة، ولا يلزم رفع صورة.",
   "seller accepted your trade request. you can now upload your payment receipt.":
     "قبل البائع طلب الصفقة. يمكنك الآن رفع إيصال الدفع.",
   "your trade request was declined by the seller.": "رفض البائع طلب الصفقة الخاص بك.",
@@ -170,7 +199,11 @@ const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
   "seller verified the bank transfer and confirmed funds received.":
     "تحقّق البائع من التحويل البنكي وأكد استلام الأموال.",
   "seller confirmed cash was collected from the cardless atm.": "أكد البائع استلام النقد من الصراف الآلي دون بطاقة.",
+  "seller confirmed cash was collected from the cardless atm. your wallet is now visible to the seller for the usdt transfer.":
+    "أكد البائع سحب النقد من الصراف دون بطاقة. أصبحت محفظتك ظاهرة للبائع الآن لتحويل USDT.",
   "seller confirmed in-person payment was received.": "أكد البائع استلام الدفعة وجهًا لوجه.",
+  "seller confirmed in-person cash was received. your wallet is now visible to the seller for the usdt transfer.":
+    "أكد البائع استلام النقد وجهًا لوجه. أصبحت محفظتك ظاهرة للبائع الآن لتحويل USDT.",
   "seller started the usdt release process. the 45-minute window has begun.":
     "بدأ البائع عملية إرسال USDT. بدأت مهلة الـ 45 دقيقة.",
   "your trade is complete and has been moved to your trade history.": "اكتملت صفقتك ونُقلت إلى سجل الصفقات.",
@@ -240,6 +273,14 @@ function entityReference(value: string) {
 }
 
 const ARABIC_MESSAGE_TEMPLATES: NotificationMessageTemplate[] = [
+  {
+    pattern: /^(Seller|Buyer) marked the (in-person exchange|cash and USDT exchange) complete\. The trade is now in history and review\.$/i,
+    translate: ([actor, exchange]) => `${actor.toLowerCase() === "seller" ? "أنهى البائع" : "أنهى المشتري"} ${exchange.toLowerCase() === "in-person exchange" ? "التبادل وجهًا لوجه" : "تبادل النقد وUSDT"}. انتقلت الصفقة إلى السجل والتقييم.`,
+  },
+  {
+    pattern: /^(Seller|Buyer) marked the (in-person exchange|cash and USDT exchange) complete\. The trade is in review; check your commission due\.$/i,
+    translate: ([actor, exchange]) => `${actor.toLowerCase() === "seller" ? "أنهى البائع" : "أنهى المشتري"} ${exchange.toLowerCase() === "in-person exchange" ? "التبادل وجهًا لوجه" : "تبادل النقد وUSDT"}. الصفقة قيد التقييم؛ تحقق من العمولة المستحقة.`,
+  },
   {
     pattern: /^Pay (.+?) USDT commission before accepting, publishing, renewing, or starting another trade\.$/i,
     translate: ([amount]) => `ادفع عمولة بقيمة ${amount} USDT قبل قبول صفقة أخرى أو نشر عرض أو تجديده أو بدء عملية شراء جديدة.`,
