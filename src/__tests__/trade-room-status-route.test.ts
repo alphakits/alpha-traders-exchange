@@ -93,7 +93,10 @@ describe("Trade Room status route post-commit reliability", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ request: { id: "purchase-1", status: "funds_received" }, statusChanged: true });
-    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledOnce();
+    expect(mocks.prepareTradeEventEmails).not.toHaveBeenCalled();
+    const postResponseTask = mocks.after.mock.calls[0]?.[0] as (() => Promise<void>) | undefined;
+    await postResponseTask?.();
     expect(mocks.logEvent).toHaveBeenCalledWith("error", expect.objectContaining({
       event: "trade_lifecycle_email_schedule",
       resourceId: "purchase-1",

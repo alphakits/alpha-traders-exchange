@@ -25,7 +25,7 @@ vi.mock("@/lib/api-auth", () => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
-  checkSharedRateLimit: mocks.checkRateLimit,
+  checkRateLimit: mocks.checkRateLimit,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", async (importOriginal) => {
@@ -187,7 +187,10 @@ describe("purchase request route", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(201);
-    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledOnce();
+    expect(mocks.prepareTradeEventEmails).not.toHaveBeenCalled();
+    const postResponseTask = mocks.after.mock.calls[0]?.[0] as (() => Promise<void>) | undefined;
+    await postResponseTask?.();
     expect(mocks.logEvent).toHaveBeenCalledWith("error", expect.objectContaining({
       event: "trade_lifecycle_email_schedule",
       resourceId: "purchase-1",

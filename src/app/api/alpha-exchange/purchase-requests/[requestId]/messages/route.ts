@@ -1,5 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { getTradeRoomData, postTradeRoomMessage } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { prepareTradeRoomConversationEmail, TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS } from "@/lib/marketplace-email-events";
@@ -46,9 +46,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
 
-  const rate = await checkSharedRateLimit({
+  const rate = checkRateLimit({
     headers: request.headers,
-    key: "exchange:trade-room-message",
+    key: "exchange:trade-room-message:v2",
+    identifier: user.id,
     maxRequests: 40,
     windowMs: 60_000,
   });
@@ -71,53 +72,54 @@ export async function POST(request: NextRequest, context: RouteContext) {
       imageName: body.imageName,
       imageMimeType: body.imageMimeType,
     });
-    // One immediate transactional email per recipient/trade burst. The shared
-    // limiter is PostgreSQL-backed in production and cannot be bypassed with a
-    // refresh, another device, or another Vercel instance. Chat and bell/SSE
-    // delivery have already committed and never depend on this provider work.
-    try {
-      if (!posted.created) {
-        return NextResponse.json(
-          { message: posted.message, created: false, metrics: posted.metrics },
-          { status: 200, headers: { "X-Trade-Message-Replayed": "1" } },
-        );
-      }
-      const emailBurst = await checkSharedRateLimit({
-        headers: request.headers,
-        key: "exchange:trade-room-message-email",
-        identifier: `${posted.trade.id}:${posted.notificationRecipientUserId}`,
-        maxRequests: 1,
-        windowMs: TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS,
-      });
-      if (emailBurst.allowed) {
-        const deliverEmail = await prepareTradeRoomConversationEmail({
-          event: "trade_room_message",
-          request: posted.trade,
-          recipientUserId: posted.notificationRecipientUserId,
-          senderUserId: user.id,
-          senderRole: posted.senderParticipantRole,
-          idempotencyKey: `trade-room-message:${posted.message.id}:${posted.notificationRecipientUserId}`,
+    if (!posted.created) {
+      return NextResponse.json(
+        { message: posted.message, created: false, metrics: posted.metrics },
+        { status: 200, headers: { "X-Trade-Message-Replayed": "1" } },
+      );
+    }
+    const emailHeaders = new Headers(request.headers);
+    // Email burst control, recipient lookup, and provider delivery all happen
+    // after the chat response. Live chat never waits for email infrastructure.
+    after(async () => {
+      try {
+        const emailBurst = await checkSharedRateLimit({
+          headers: emailHeaders,
+          key: "exchange:trade-room-message-email",
+          identifier: `${posted.trade.id}:${posted.notificationRecipientUserId}`,
+          maxRequests: 1,
+          windowMs: TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS,
         });
-        after(deliverEmail);
-      } else if (emailBurst.reason === "limiter_unavailable") {
-        logEvent("warn", {
+        if (emailBurst.allowed) {
+          const deliverEmail = await prepareTradeRoomConversationEmail({
+            event: "trade_room_message",
+            request: posted.trade,
+            recipientUserId: posted.notificationRecipientUserId,
+            senderUserId: user.id,
+            senderRole: posted.senderParticipantRole,
+            idempotencyKey: `trade-room-message:${posted.message.id}:${posted.notificationRecipientUserId}`,
+          });
+          await deliverEmail();
+        } else if (emailBurst.reason === "limiter_unavailable") {
+          logEvent("warn", {
+            event: "trade_room_email_schedule",
+            actorUserId: user.id,
+            resourceId: posted.trade.id,
+            outcome: "failed",
+            reason: "burst_limiter_unavailable",
+          });
+        }
+      } catch (emailScheduleError) {
+        logEvent("error", {
           event: "trade_room_email_schedule",
           actorUserId: user.id,
           resourceId: posted.trade.id,
           outcome: "failed",
-          reason: "burst_limiter_unavailable",
+          reason: "post_commit_schedule_failed",
+          metadata: { errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError },
         });
       }
-    } catch (emailScheduleError) {
-      logEvent("error", {
-        event: "trade_room_email_schedule",
-        actorUserId: user.id,
-        resourceId: posted.trade.id,
-        outcome: "failed",
-        reason: "post_commit_schedule_failed",
-        metadata: { errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError },
-      });
-    }
+    });
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - posted.metrics.totalMs);
     return NextResponse.json(

@@ -20,7 +20,7 @@ vi.mock("@/lib/api-auth", () => ({
 }));
 vi.mock("@/lib/roles", () => ({ hasRole: () => true }));
 vi.mock("@/lib/rate-limit", () => ({
-  checkSharedRateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
+  checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 vi.mock("@/lib/marketplace-email-events", () => ({

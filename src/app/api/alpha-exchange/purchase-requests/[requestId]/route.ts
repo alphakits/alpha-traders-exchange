@@ -149,32 +149,33 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // review_open/completed/locked) return statusChanged=false and must NOT re-send emails.
     const emailEvent = statusChanged ? tradeEmailEventForStatus(status) : null;
     if (emailEvent || additionallyDeclinedRequests.length > 0) {
-      try {
-        const deliveries = await Promise.all([
-          ...additionallyDeclinedRequests.map((declinedRequest) =>
-            prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
-          ),
-          ...(emailEvent ? [prepareTradeEventEmails({ event: emailEvent, request: updated })] : []),
-        ]);
-        after(() => Promise.allSettled(deliveries.map((deliverEmails) => deliverEmails())));
-      } catch (emailScheduleError) {
-        // Status, timeline, in-app notification, and SSE publication have
-        // already committed. Preserve the successful lifecycle response even
-        // when recipient lookup or email scheduling is temporarily unhealthy.
-        logEvent("error", {
-          event: "trade_lifecycle_email_schedule",
-          actorUserId: user.id,
-          actorRole: user.role,
-          resourceId: requestId,
-          outcome: "failed",
-          reason: "status_post_commit_schedule_failed",
-          metadata: {
-            nextStatus: status,
-            emailEvent,
-            errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError,
-          },
-        });
-      }
+      after(async () => {
+        try {
+          const deliveries = await Promise.all([
+            ...additionallyDeclinedRequests.map((declinedRequest) =>
+              prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
+            ),
+            ...(emailEvent ? [prepareTradeEventEmails({ event: emailEvent, request: updated })] : []),
+          ]);
+          await Promise.allSettled(deliveries.map((deliverEmails) => deliverEmails()));
+        } catch (emailScheduleError) {
+          // Lifecycle state and realtime publication are already durable; all
+          // recipient/provider work remains outside the user's tap latency.
+          logEvent("error", {
+            event: "trade_lifecycle_email_schedule",
+            actorUserId: user.id,
+            actorRole: user.role,
+            resourceId: requestId,
+            outcome: "failed",
+            reason: "status_post_commit_schedule_failed",
+            metadata: {
+              nextStatus: status,
+              emailEvent,
+              errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError,
+            },
+          });
+        }
+      });
     }
     if (routeDebug) {
       console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
