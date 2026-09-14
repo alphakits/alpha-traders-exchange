@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { authenticateLocalUser, createUserSession } from "@/lib/auth";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 
@@ -36,6 +36,7 @@ vi.mock("@/lib/auth-cookie", () => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0, reason: null })),
   checkSharedRateLimit: vi.fn(() => ({ allowed: true })),
   resolveClientIp: vi.fn(() => "127.0.0.1"),
 }));
@@ -67,6 +68,7 @@ vi.mock("@/lib/auth-email-delivery", () => ({
 const { POST } = await import("@/app/api/auth/login/route");
 
 const mockCookies = vi.mocked(cookies);
+const mockCheckRateLimit = vi.mocked(checkRateLimit);
 const mockCheckSharedRateLimit = vi.mocked(checkSharedRateLimit);
 const mockCreateEmailVerificationTokenForUser = vi.mocked(createEmailVerificationTokenForUser);
 const mockUpsertUserProfileForAuth = vi.mocked(upsertUserProfileForAuth);
@@ -93,6 +95,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   setCookie = vi.fn();
   mockCookies.mockResolvedValue({ set: setCookie } as never);
+  mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mockCheckSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mockAuthenticateLocalUser.mockResolvedValue(null);
   mockCreateEmailVerificationTokenForUser.mockResolvedValue({ token: "a".repeat(64) } as never);
@@ -120,6 +123,35 @@ describe("POST /api/auth/login", () => {
     expect(payload).toEqual({ error: "Invalid JSON body." });
   });
 
+  it("validates malformed credentials before consuming login rate-limit capacity", async () => {
+    const request = new Request("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "not-an-email", password: "password" }),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(mockCheckSharedRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("keeps login independent from the shared database limiter", async () => {
+    mockAuthenticateLocalUser.mockResolvedValue(verifiedLocalUser as never);
+    const request = new Request("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: verifiedLocalUser.email, password: "valid-password" }),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(2);
+    expect(mockCheckSharedRateLimit).not.toHaveBeenCalled();
+  });
+
   it.each([false, undefined])("rejects a local account without an explicit verified-email marker", async (emailVerified) => {
     mockAuthenticateLocalUser.mockResolvedValue({ ...verifiedLocalUser, emailVerified } as never);
     const request = new Request("https://example.com/api/auth/login", {
@@ -141,10 +173,7 @@ describe("POST /api/auth/login", () => {
   });
 
   it("does not issue a local verification email when the dedicated local recovery limit is exhausted", async () => {
-    mockCheckSharedRateLimit
-      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
-      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
-      .mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 60, reason: "limit_reached" });
+    mockCheckSharedRateLimit.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 60, reason: "limit_reached" });
     mockAuthenticateLocalUser.mockResolvedValue({ ...verifiedLocalUser, emailVerified: false } as never);
     const request = new Request("https://example.com/api/auth/login", {
       method: "POST",
