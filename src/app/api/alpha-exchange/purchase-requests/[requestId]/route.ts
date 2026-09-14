@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -35,10 +35,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   if (emailVerificationRequired) return emailVerificationRequired;
 
-  const rate = await checkSharedRateLimit({
+  // A status transition already performs its durable write in the store. Do
+  // not put a separate shared-database limiter write in front of every Trade
+  // Room tap: it added latency, failed closed during database contention, and
+  // grouped unrelated customers behind the same carrier/NAT IP. Authenticated
+  // user IDs keep this guard isolated and synchronous.
+  const rate = checkRateLimit({
     headers: request.headers,
-    key: "exchange:purchase-request-status",
-    maxRequests: 40,
+    key: "exchange:purchase-request-status:v2",
+    identifier: user.id,
+    maxRequests: 60,
     windowMs: 60_000,
   });
   if (routeDebug) {

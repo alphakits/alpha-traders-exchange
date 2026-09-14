@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
-import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkRateLimit, checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
@@ -136,9 +136,21 @@ export async function POST(request: NextRequest) {
     const password = String(body.password ?? "");
     const rememberMe = body.rememberMe !== false;
 
-    const ipRate = await checkSharedRateLimit({
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+
+    // Login availability must not depend on a second database write. The
+    // shared limiter used to fail closed whenever its table or connection was
+    // slow, which locked every customer out even while authentication itself
+    // was healthy. Keep both abuse guards on the serving instance so they are
+    // immediate and cannot turn a limiter incident into a login outage.
+    const ipRate = checkRateLimit({
       headers: request.headers,
-      key: "auth:login:ip",
+      key: "auth:login:availability-v2:ip",
       maxRequests: ipRateMaxRequests,
       windowMs: 10 * 60_000,
     });
@@ -148,9 +160,9 @@ export async function POST(request: NextRequest) {
         { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipRate.retryAfterSeconds) } },
       );
     }
-    const ipEmailRate = await checkSharedRateLimit({
+    const ipEmailRate = checkRateLimit({
       headers: request.headers,
-      key: "auth:login:ip-email",
+      key: "auth:login:availability-v2:ip-email",
       identifier: `${clientIp}:${email}`,
       maxRequests: ipEmailRateMaxRequests,
       windowMs: 10 * 60_000,
@@ -161,13 +173,6 @@ export async function POST(request: NextRequest) {
         { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipEmailRate.retryAfterSeconds) } },
       );
     }
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-
     const localAuthStartedAt = Date.now();
     const localUser = await authenticateLocalUser(email, password);
     const localAuthEndedAt = Date.now();
