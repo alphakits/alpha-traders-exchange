@@ -97,6 +97,10 @@ export function isBankTransferPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Bank Transfer";
 }
 
+export function requiresSellerPayoutBankAccount(rawMethods: unknown, fallbackMethod?: unknown) {
+  return resolveListingPaymentMethods(rawMethods, fallbackMethod).some(isBankTransferPaymentMethod);
+}
+
 export function requiresIsraeliBankSelection(rawMethods: unknown, fallbackMethod?: unknown) {
   return resolveListingPaymentMethods(rawMethods, fallbackMethod).some((method) =>
     isBankTransferPaymentMethod(method) || isCardlessAtmPaymentMethod(method),
