@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDefaultListingPaymentMethods, getMarketplacePaymentMethodOptions, normalizeMarketplacePaymentMethod } from "./marketplace-payment-methods";
+import { getDefaultListingPaymentMethods, getMarketplacePaymentMethodOptions, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount } from "./marketplace-payment-methods";
 
 describe("getMarketplacePaymentMethodOptions", () => {
   it("keeps cardless withdrawal visible when a seller did not enable it", () => {
@@ -25,5 +25,13 @@ describe("getMarketplacePaymentMethodOptions", () => {
       "Face-to-Face (Meet in Person)",
     ]);
     expect(getDefaultListingPaymentMethods([])).toEqual(["Bank Transfer"]);
+  });
+
+  it("does not require a payout account for Cardless ATM listings", () => {
+    const methods = ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"];
+
+    expect(requiresIsraeliBankSelection(methods)).toBe(true);
+    expect(requiresSellerPayoutBankAccount(methods)).toBe(false);
+    expect(requiresSellerPayoutBankAccount([...methods, "Bank Transfer"])).toBe(true);
   });
 });
