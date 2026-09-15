@@ -25,6 +25,8 @@ describe("authenticated navigation critical path", () => {
     const tradeHeaderFunction = store.slice(start, end);
 
     expect(header).toContain("getTradeHeaderStateForUser(sessionUser.id, sessionUser.role)");
+    expect(header).toContain("async function getNonBlockingTradeHeaderState");
+    expect(header).toContain("return { activeTrade: null, tradeReminder: null }");
     expect(header).not.toContain("getFirstActiveTradeForUser(sessionUser.id");
     expect(header).not.toContain("getTradeReminderForUser(sessionUser.id");
     expect(tradeHeaderFunction).toContain("readDbForTradeCandidate(userId, role, ACTIVE_TRADE_STATUSES, true)");
