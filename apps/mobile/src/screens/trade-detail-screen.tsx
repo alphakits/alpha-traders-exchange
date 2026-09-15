@@ -13,12 +13,18 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as Crypto from "expo-crypto";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MobileTradeDetail, MobileTradeStatus } from "@alpha-traders/contracts";
+import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import type {
+  MobileTradeDetail,
+  MobileTradeDetailResponse,
+  MobileTradeMutationResponse,
+  MobileTradesResponse,
+  MobileTradeStatus,
+} from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   completeMobileCashTrade,
@@ -55,10 +61,24 @@ type BankDetails = {
 function stageInstruction(
   status: MobileTradeStatus,
   t: ReturnType<typeof useLocale>["t"],
-  completionKind: "face_to_face" | "cardless_atm" | null = null,
+  cashTradeKind: "face_to_face" | "cardless_atm" | null = null,
+  side: "buyer" | "seller" = "buyer",
 ) {
-  if (completionKind === "cardless_atm") return t("cardlessAtmReady");
-  if (completionKind === "face_to_face") return t("faceToFaceReady");
+  if (cashTradeKind) {
+    if (status === "pending") return t("waitingForSeller");
+    if (status === "accepted") {
+      if (side === "buyer") return cashTradeKind === "cardless_atm" ? t("cashBuyerSendCodeNext") : t("cashBuyerHandOverNext");
+      return cashTradeKind === "cardless_atm" ? t("cashSellerWaitCode") : t("cashSellerWaitHandover");
+    }
+    if (status === "payment_sent") {
+      if (side === "seller") return cashTradeKind === "cardless_atm" ? t("cashSellerCollectAtmNext") : t("cashSellerConfirmReceiptNext");
+      return t("cashBuyerWaitReceiptConfirmation");
+    }
+    if (status === "funds_received" || status === "usdt_release_pending") {
+      return side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
+    }
+    if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
+  }
   if (status === "pending") return t("waitingForSeller");
   if (status === "accepted") return t("waitingForBuyerPayment");
   if (status === "payment_sent") return t("waitingForFunds");
@@ -125,6 +145,7 @@ function RatingSelector({
 
 export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
@@ -142,15 +163,22 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [visibleTimeRemaining, setVisibleTimeRemaining] = useState<number | null>(null);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
   const tradeScope = `${user?.id ?? "anonymous"}:${requestId}`;
+  const tradeQueryKey = ["mobile-trade", user?.id ?? "anonymous", requestId, locale] as const;
   const activeTradeScopeRef = useRef(tradeScope);
   activeTradeScopeRef.current = tradeScope;
   const query = useQuery({
     enabled: Boolean(requestId && user),
-    queryKey: ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
+    queryKey: tradeQueryKey,
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileTrade(tokens, requestLocale, requestId, signal)),
-    refetchInterval: 5_000,
-    staleTime: 2_000,
+    refetchInterval: (activeQuery) => {
+      if (!isFocused) return false;
+      const current = activeQuery.state.data as MobileTradeDetailResponse | undefined;
+      if (current?.trade.status === "declined" || current?.trade.status === "cancelled") return false;
+      if (current && ["completed", "review_open", "locked"].includes(current.trade.status)) return 5_000;
+      return 2_000;
+    },
+    staleTime: 1_000,
   });
   const serverTimeRemaining = query.data?.trade?.status === "usdt_release_pending"
     ? query.data.trade.timeRemainingSeconds
@@ -186,6 +214,33 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }, [query, queryClient]);
 
+  function applyTradeMutation(response: MobileTradeMutationResponse) {
+    queryClient.setQueryData<MobileTradeDetailResponse>(tradeQueryKey, (current) => current ? {
+      ...current,
+      requestId: response.requestId,
+      trade: {
+        ...current.trade,
+        ...response.trade,
+        actions: response.actions,
+      },
+    } : current);
+    queryClient.setQueriesData<InfiniteData<MobileTradesResponse>>(
+      { queryKey: ["mobile-trades"] },
+      (current) => current ? {
+        ...current,
+        pages: current.pages.map((page) => ({
+          ...page,
+          trades: page.trades.map((trade) => trade.id === response.trade.id ? response.trade : trade),
+        })),
+      } : current,
+    );
+    // The write response is authoritative for status and next actions. Refresh
+    // the larger timeline/chat projection in the background without holding
+    // the user's button in a loading state.
+    void query.refetch();
+    void queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] });
+  }
+
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
     else router.replace("/(tabs)/trades");
@@ -197,10 +252,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setBusyAction(status);
     try {
-      await requestWithSession((tokens, requestLocale) =>
+      const response = await requestWithSession((tokens, requestLocale) =>
         updateMobileTrade(tokens, requestLocale, requestId, status, safetyAcknowledged));
       if (activeTradeScopeRef.current !== operationScope) return;
-      await refreshTrade();
+      applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -229,14 +284,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setBusyAction("complete-cash-trade");
     try {
-      await requestWithSession((tokens, requestLocale) =>
+      const response = await requestWithSession((tokens, requestLocale) =>
         completeMobileCashTrade(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
       setNotice(query.data?.trade.paymentMethod === "Cardless ATM Withdrawal" ? t("cardlessAtmCompleted") : t("faceToFaceCompleted"));
-      await Promise.all([
-        refreshTrade(),
-        queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
-      ]);
+      applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -249,7 +301,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   function confirmCashTradeCompletion() {
     if (busyAction) return;
     const isCardlessAtm = query.data?.trade.paymentMethod === "Cardless ATM Withdrawal";
-    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), isCardlessAtm ? t("cardlessAtmCompletionConfirmation") : t("faceToFaceCompletionConfirmation"), [
+    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), t("cashUsdtCompletionConfirmation"), [
       { text: t("cancel"), style: "cancel" },
       { text: t("confirm"), onPress: () => void completeCashTrade() },
     ]);
@@ -350,15 +402,31 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setSendingMessage(true);
     try {
-      await requestWithSession((tokens, requestLocale) => sendMobileTradeMessage(tokens, requestLocale, {
+      const response = await requestWithSession((tokens, requestLocale) => sendMobileTradeMessage(tokens, requestLocale, {
         requestId,
         message: pending.message,
         clientMessageId: pending.clientMessageId,
       }));
       if (activeTradeScopeRef.current !== operationScope) return;
+      queryClient.setQueryData<MobileTradeDetailResponse>(tradeQueryKey, (current) => {
+        if (!current) return current;
+        const exists = current.trade.messages.some((item) => (
+          item.sender === response.message.sender
+          && item.createdAt === response.message.createdAt
+          && item.message === response.message.message
+        ));
+        if (exists) return current;
+        return {
+          ...current,
+          requestId: response.requestId,
+          trade: {
+            ...current.trade,
+            messages: [...current.trade.messages, response.message].slice(-100),
+          },
+        };
+      });
       pendingMessageRef.current = null;
       setDraftMessage("");
-      await refreshTrade();
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -496,9 +564,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const actionsDisabled = busyAction !== null;
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
   const isCardlessAtm = trade.paymentMethod === "Cardless ATM Withdrawal";
-  const completionKind = actions.canCompleteFaceToFace
-    ? (isCardlessAtm ? "cardless_atm" : "face_to_face")
-    : null;
+  const cashTradeKind = isCardlessAtm ? "cardless_atm" : isFaceToFace ? "face_to_face" : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -528,10 +594,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={styles.statusText}>{mobileTradeStatusLabel(trade.status, locale)}</Text>
             </View>
           </View>
-          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, completionKind)}</Text>
+          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, cashTradeKind, trade.side)}</Text>
         </View>
 
-        {!actions.canCompleteFaceToFace && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
+        {!cashTradeKind && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
           <View style={[
             styles.deadlineCard,
             visibleTimeRemaining <= 300 && styles.deadlineCardWarning,
@@ -587,12 +653,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {actions.canCompleteFaceToFace ? (
+        {cashTradeKind && !["declined", "cancelled", "completed", "review_open", "locked"].includes(trade.status) ? (
           <View style={styles.faceToFaceCard}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-              {isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle")}
+              {t("cashNoEvidenceTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{isCardlessAtm ? t("cardlessAtmNoAdditionalEvidence") : t("faceToFaceNoEvidence")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("cashNoEvidenceBody")}</Text>
           </View>
         ) : null}
 
@@ -625,30 +691,48 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               loading={busyAction === "complete-cash-trade"}
               onPress={confirmCashTradeCompletion}
             >
-              {isCardlessAtm ? t("completeCardlessAtmTrade") : t("completeFaceToFaceTrade")}
+              {t("sentUsdtComplete")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence ? (
+          {actions.canMarkUsdtSent ? (
+            <GoldButton
+              disabled={actionsDisabled}
+              loading={busyAction === "usdt_sent"}
+              onPress={() => confirmStatus("usdt_sent", t("cashUsdtSentConfirmation"))}
+            >
+              {t("confirmUsdtSent")}
+            </GoldButton>
+          ) : null}
+          {actions.canMarkPaymentSent ? (
+            <GoldButton
+              disabled={actionsDisabled}
+              loading={busyAction === "payment_sent"}
+              onPress={() => confirmStatus("payment_sent", isCardlessAtm ? t("withdrawalCodeSentConfirmation") : t("cashHandoverConfirmation"))}
+            >
+              {isCardlessAtm ? t("sentWithdrawalCode") : t("handedOverCash")}
+            </GoldButton>
+          ) : null}
+          {actions.canUploadPaymentEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-buyer" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("buyer")}>
               {trade.hasBuyerEvidence ? t("receiptUploaded") : t("uploadPaymentReceipt")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canConfirmFunds ? (
-            <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", t("fundsConfirmation"))}>
-              {t("confirmFunds")}
+          {actions.canConfirmFunds ? (
+            <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", cashTradeKind ? (isCardlessAtm ? t("atmCashReceivedConfirmation") : t("cashReceivedConfirmation")) : t("fundsConfirmation"))}>
+              {cashTradeKind ? (isCardlessAtm ? t("collectedAtmCash") : t("receivedCash")) : t("confirmFunds")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canBeginRelease ? (
+          {actions.canBeginRelease ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "usdt_release_pending"} onPress={() => confirmStatus("usdt_release_pending", t("releaseConfirmation"))}>
               {t("beginUsdtRelease")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canUploadReleaseEvidence ? (
+          {actions.canUploadReleaseEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-seller" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("seller")}>
               {trade.hasSellerEvidence ? t("releaseProofUploaded") : t("uploadReleaseProof")}
             </GoldButton>
           ) : null}
-          {!actions.canCompleteFaceToFace && actions.canConfirmReceived ? (
+          {actions.canConfirmReceived ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "completed"} onPress={() => confirmStatus("completed", t("receivedConfirmation"))}>
               {t("confirmReceived")}
             </GoldButton>
@@ -780,7 +864,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {!actions.canCompleteFaceToFace && (actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence) ? (
+        {actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence ? (
           <Text style={[styles.privacyNote, isRTL && styles.rtlText]}>◈ {t("evidencePrivacy")}</Text>
         ) : null}
 

@@ -43,6 +43,7 @@ import type {
   MobileTradeBankDetailsResponse,
   MobileTradeDetailResponse,
   MobileTradeMessageResponse,
+  MobileTradeMutationResponse,
   MobileTradeResponse,
   MobileTradesResponse,
 } from "@alpha-traders/contracts";
@@ -518,6 +519,42 @@ export function updateMobileNotificationPreferences(
   });
 }
 
+export function sendMobilePhoneVerificationCode(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  phone: string,
+) {
+  return mobileRequest<{
+    ok: true;
+    channel: "sms" | "whatsapp";
+    message: string;
+    requestId: string;
+  }>("/api/mobile/v1/settings/phone/send-code", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { phone },
+  });
+}
+
+export function verifyMobilePhoneVerificationCode(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: { phone: string; code: string },
+) {
+  return mobileRequest<{
+    ok: true;
+    phone: { verified: true; masked: string | null };
+    user: MobileMeResponse["user"];
+    requestId: string;
+  }>("/api/mobile/v1/settings/phone/verify-code", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+  });
+}
+
 export function getMobileMarketplace(
   locale: MobileLocale,
   offset = 0,
@@ -808,7 +845,7 @@ export function updateMobileTrade(
   status: string,
   safetyAcknowledged = false,
 ) {
-  return mobileRequest<MobileTradeResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
     locale,
     method: "PATCH",
     accessToken: tokens.accessToken,
@@ -821,7 +858,7 @@ export function completeMobileCashTrade(
   locale: MobileLocale,
   requestId: string,
 ) {
-  return mobileRequest<MobileTradeResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
     locale,
     method: "PATCH",
     accessToken: tokens.accessToken,

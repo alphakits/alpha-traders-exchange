@@ -41,7 +41,7 @@ type Queryable = Pool | PoolClient;
 // This index is the final object created by SCHEMA_SQL. Its presence proves
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
-const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_evidence_blobs_updated";
+const CURRENT_SCHEMA_SENTINEL = "alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -159,10 +159,10 @@ const SCHEMA_SQL = [
   )`,
   `create table if not exists alpha_exchange.commissions (
     id text primary key,
-    purchase_request_id text not null,
-    listing_id text not null,
+    purchase_request_id text,
+    listing_id text,
     seller_id text not null,
-    buyer_id text not null,
+    buyer_id text,
     payment_status text not null,
     due_at timestamptz,
     created_at timestamptz not null,
@@ -402,6 +402,9 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_mobile_push_user_active on alpha_exchange.mobile_push_subscriptions (user_id, active, updated_at desc)",
   "create index if not exists idx_alpha_exchange_mobile_push_session on alpha_exchange.mobile_push_subscriptions (session_token_hash)",
   "create index if not exists idx_alpha_exchange_mobile_push_receipts on alpha_exchange.mobile_push_deliveries (status, updated_at) where status = 'sent' and ticket_id is not null",
+  "alter table alpha_exchange.commissions alter column purchase_request_id drop not null",
+  "alter table alpha_exchange.commissions alter column listing_id drop not null",
+  "alter table alpha_exchange.commissions alter column buyer_id drop not null",
   `with flagged_alerts as (
     select
       notification.id,
@@ -477,11 +480,21 @@ const SCHEMA_SQL = [
     and exists (select 1 from repaired)`,
   "create index if not exists idx_alpha_exchange_notifications_trust_reconciliation on alpha_exchange.notifications (user_id, category, created_at desc)",
   "create index if not exists idx_alpha_exchange_evidence_blobs_updated on alpha_exchange.evidence_blobs (updated_at desc)",
+  "create index if not exists idx_alpha_exchange_commissions_seller_status on alpha_exchange.commissions (seller_id, payment_status, due_at)",
+  "create index if not exists idx_alpha_exchange_commissions_unpaid_seller on alpha_exchange.commissions (seller_id) where payment_status <> 'paid'",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
 
 type SnapshotWithVersion = AlphaExchangeDb & { __runtimeVersion?: number };
+
+export type TradeRoomRevision = {
+  id: string;
+  buyerId: string;
+  sellerId: string;
+  status: PurchaseRequest["status"];
+  updatedAt: string;
+};
 
 type RepoTable<T> = {
   name: string;
@@ -819,10 +832,10 @@ SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status,
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
   AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)`, [
         rows.map(r => r.id),
-        rows.map(r => r.purchaseRequestId),
-        rows.map(r => r.listingId),
+        rows.map(r => r.purchaseRequestId ?? null),
+        rows.map(r => r.listingId ?? null),
         rows.map(r => r.sellerId),
-        rows.map(r => r.buyerId),
+        rows.map(r => r.buyerId ?? null),
         rows.map(r => r.paymentStatus),
         rows.map(r => toTimestamp(r.dueAt)?.toISOString() ?? null),
         rows.map(r => r.createdAt),
@@ -1180,6 +1193,44 @@ function getTable(name: string) {
   const table = tableByName.get(name);
   if (!table) throw new Error(`Unknown repository table: ${name}`);
   return table;
+}
+
+type AggregatedSnapshotRow = {
+  version?: string | null;
+} & Partial<Record<SnapshotTableName, unknown>>;
+
+/**
+ * Reads every requested JSON payload collection in one PostgreSQL statement.
+ *
+ * Besides removing one network round trip per table, this is important for
+ * transaction safety: node-postgres does not support overlapping query calls
+ * on a checked-out PoolClient. The previous stale-writer recovery path issued
+ * every table SELECT through Promise.all on the same client, which can stall a
+ * trade mutation and is deprecated by pg.
+ *
+ * `tableNames` is restricted to the compile-time snapshot table allowlist, so
+ * interpolating these identifiers cannot introduce user-controlled SQL.
+ */
+function buildAggregatedSnapshotSql(tableNames: readonly SnapshotTableName[]) {
+  const selectedNames = Array.from(new Set(tableNames));
+  const payloadColumns = selectedNames.map((tableName) => (
+    `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`
+  ));
+  return `select
+    (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${payloadColumns.length ? `,\n    ${payloadColumns.join(",\n    ")}` : ""}`;
+}
+
+function snapshotFromAggregatedRow(
+  row: AggregatedSnapshotRow | undefined,
+  tableNames: readonly SnapshotTableName[],
+) {
+  return snapshotFromTableRows(tableNames.map((tableName) => {
+    const payloads = row?.[tableName];
+    return {
+      tableName,
+      rows: (Array.isArray(payloads) ? payloads : []).map((payload) => ({ payload })),
+    };
+  }));
 }
 
 async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
@@ -1925,7 +1976,16 @@ export class AlphaExchangeRepository {
         }
       })();
     }
-    await this.initPromise;
+    const currentAttempt = this.initPromise;
+    try {
+      await currentAttempt;
+    } catch (error) {
+      // A transient pool/database failure must not poison this warm serverless
+      // instance forever. Keep concurrent callers on the same attempt, then
+      // allow the next request to establish a fresh connection and recover.
+      if (this.initPromise === currentAttempt) this.initPromise = null;
+      throw error;
+    }
   }
 
   async healthCheck() {
@@ -1960,6 +2020,698 @@ export class AlphaExchangeRepository {
     return {
       marketplaceListings: fromPayloadRows(listingsResult.rows),
       purchaseRequests: fromPayloadRows(purchaseRequestsResult.rows),
+    };
+  }
+
+  /**
+   * Loads complete rows for a small, explicit set of snapshot tables plus the
+   * canonical runtime version. Critical trade mutations use this instead of
+   * paying for every unrelated exchange table before each tap.
+   */
+  async loadSelectedSnapshot(tableNames: readonly SnapshotTableName[]): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return this.loadSnapshot();
+
+    const selectedNames = Array.from(new Set(tableNames));
+    try {
+      const result = await pool.query<AggregatedSnapshotRow>(buildAggregatedSnapshotSql(selectedNames));
+      const row = result.rows[0];
+      return attachVersion(
+        snapshotFromAggregatedRow(row, selectedNames),
+        Number(row?.version ?? "0"),
+      );
+    } catch (error) {
+      logEvent("warn", {
+        event: "alpha_exchange_repository_selected_snapshot",
+        outcome: "failed",
+        reason: "selected_snapshot_fallback",
+        metadata: {
+          tableCount: selectedNames.length,
+          errorName: error instanceof Error ? error.name : typeof error,
+        },
+      });
+      // A failed targeted read must not fan back out into the substantially
+      // larger full snapshot in production. During a database incident that
+      // fallback multiplied load, kept requests open for minutes, and made
+      // every dashboard widget fail together. Local/test repositories retain
+      // the compatibility fallback used by their lightweight mocks.
+      if (isProductionSecurityRuntime()) throw error;
+      return this.loadSnapshot();
+    }
+  }
+
+  /**
+   * Load the public marketplace in one canonical statement without aggregating
+   * unrelated buyers, inactive sellers, sessions, notifications, or evidence.
+   *
+   * Candidate sellers come from active listings. Their complete listing and
+   * trade history is retained so trust and reliability ordering stays
+   * identical to a full snapshot, while the optional viewer row preserves
+   * bidirectional account-block visibility rules.
+   */
+  async loadMarketplaceListingSnapshotForViewer(viewerUserId?: string): Promise<{
+    snapshot: SnapshotWithVersion;
+    unpaidCommissionSellerIds: string[];
+  }> {
+    await this.ensureReady();
+    const viewerId = viewerUserId?.trim() || null;
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const candidateSellerIds = new Set(
+        source.marketplaceListings
+          .filter((listing) => listing.status === "active")
+          .map((listing) => listing.sellerId),
+      );
+      const relevantUserIds = new Set(candidateSellerIds);
+      if (viewerId) relevantUserIds.add(viewerId);
+      return {
+        snapshot: attachVersion({
+          ...emptySnapshotCollections(),
+          users: cloneSnapshot(source.users.filter((user) => relevantUserIds.has(user.id))),
+          sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => relevantUserIds.has(application.userId))),
+          marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => candidateSellerIds.has(listing.sellerId))),
+          purchaseRequests: cloneSnapshot(source.purchaseRequests.filter((request) => candidateSellerIds.has(request.sellerId))),
+          commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => candidateSellerIds.has(record.sellerId))),
+          auditLogs: cloneSnapshot(source.auditLogs.filter((entry) => candidateSellerIds.has(entry.targetUserId ?? ""))),
+          trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => candidateSellerIds.has(snapshot.sellerId))),
+          marketplaceEnforcementRecords: cloneSnapshot((source.marketplaceEnforcementRecords ?? []).filter((record) => candidateSellerIds.has(record.sellerId))),
+        }, getVersion(source)),
+        unpaidCommissionSellerIds: Array.from(new Set(
+          source.commissionRecords
+            .filter((record) => candidateSellerIds.has(record.sellerId) && record.paymentStatus !== "paid")
+            .map((record) => record.sellerId),
+        )),
+      };
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow & { unpaid_commission_seller_ids?: unknown }>(
+      `with candidate_seller_ids as materialized (
+         select distinct seller_id
+         from alpha_exchange.listings
+         where status = 'active'
+       )
+       select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(account.payload order by account.sort_index asc)
+           from alpha_exchange.users account
+           where account.id in (select seller_id from candidate_seller_ids)
+              or ($1::text is not null and account.id = $1)
+         ), '[]'::jsonb) as users,
+         coalesce((
+           select jsonb_agg(application.payload order by application.sort_index asc)
+           from alpha_exchange.seller_applications application
+           where application.user_id in (select seller_id from candidate_seller_ids)
+              or ($1::text is not null and application.user_id = $1)
+         ), '[]'::jsonb) as seller_applications,
+         coalesce((
+           select jsonb_agg(listing.payload order by listing.sort_index asc)
+           from alpha_exchange.listings listing
+           where listing.seller_id in (select seller_id from candidate_seller_ids)
+         ), '[]'::jsonb) as listings,
+         coalesce((
+           select jsonb_agg(request.payload order by request.sort_index asc)
+           from alpha_exchange.purchase_requests request
+           where request.seller_id in (select seller_id from candidate_seller_ids)
+         ), '[]'::jsonb) as purchase_requests,
+         coalesce((
+           select jsonb_agg(commission.payload order by commission.sort_index asc)
+           from alpha_exchange.commissions commission
+           where commission.seller_id in (select seller_id from candidate_seller_ids)
+         ), '[]'::jsonb) as commissions,
+         coalesce((
+           select jsonb_agg(blocked.seller_id order by blocked.seller_id)
+           from (
+             select distinct commission.seller_id
+             from alpha_exchange.commissions commission
+             where commission.payment_status <> 'paid'
+               and commission.seller_id in (select seller_id from candidate_seller_ids)
+           ) blocked
+         ), '[]'::jsonb) as unpaid_commission_seller_ids,
+         coalesce((
+           select jsonb_agg(entry.payload order by entry.sort_index asc)
+           from alpha_exchange.audit_logs entry
+           where entry.target_user_id in (select seller_id from candidate_seller_ids)
+         ), '[]'::jsonb) as audit_logs,
+         coalesce((
+           select jsonb_agg(snapshot.payload order by snapshot.sort_index asc)
+           from alpha_exchange.trust_snapshots snapshot
+           where snapshot.seller_id in (select seller_id from candidate_seller_ids)
+         ), '[]'::jsonb) as trust_snapshots,
+         coalesce((
+           select jsonb_agg(enforcement.payload order by enforcement.sort_index asc)
+           from alpha_exchange.marketplace_enforcement_records enforcement
+           where enforcement.seller_id in (select seller_id from candidate_seller_ids)
+         ), '[]'::jsonb) as marketplace_enforcement_records`,
+      [viewerId],
+    );
+    const row = result.rows[0];
+    const tableNames = [
+      "users",
+      "seller_applications",
+      "listings",
+      "purchase_requests",
+      "commissions",
+      "audit_logs",
+      "trust_snapshots",
+      "marketplace_enforcement_records",
+    ] as const satisfies readonly SnapshotTableName[];
+    return {
+      snapshot: attachVersion(
+        snapshotFromAggregatedRow(row, tableNames),
+        Number(row?.version ?? "0"),
+      ),
+      unpaidCommissionSellerIds: Array.isArray(row?.unpaid_commission_seller_ids)
+        ? row.unpaid_commission_seller_ids.filter((sellerId): sellerId is string => typeof sellerId === "string")
+        : [],
+    };
+  }
+
+  /** Load one account and the application row needed for legacy role repair. */
+  async loadAuthUserSnapshot(input: { userId?: string; normalizedEmail?: string }): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const userId = input.userId?.trim() || null;
+    const normalizedEmail = input.normalizedEmail?.trim().toLowerCase() || null;
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const users = source.users.filter((user) => (
+        (userId !== null && user.id === userId)
+        || (normalizedEmail !== null && user.email.trim().toLowerCase() === normalizedEmail)
+      ));
+      const ids = new Set(users.map((user) => user.id));
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        users: cloneSnapshot(users),
+        sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => ids.has(application.userId))),
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `with selected_users as materialized (
+         select id, sort_index, payload
+         from alpha_exchange.users
+         where ($1::text is not null and id = $1)
+            or ($2::text is not null and email = $2)
+       )
+       select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from selected_users), '[]'::jsonb) as users,
+         coalesce((
+           select jsonb_agg(application.payload order by application.sort_index asc)
+           from alpha_exchange.seller_applications application
+           where application.user_id in (select id from selected_users)
+         ), '[]'::jsonb) as seller_applications`,
+      [userId, normalizedEmail],
+    );
+    const row = result.rows[0];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, ["users", "seller_applications"]),
+      Number(row?.version ?? "0"),
+    );
+  }
+
+  /** Load the authenticated account profile and only that account's statistics. */
+  async loadAccountProfileSnapshotForUser(userId: string): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        users: cloneSnapshot(source.users.filter((user) => user.id === userId)),
+        sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => application.userId === userId)),
+        authSessions: cloneSnapshot(source.authSessions.filter((session) => session.userId === userId)),
+        purchaseRequests: cloneSnapshot(source.purchaseRequests.filter((request) => request.buyerId === userId || request.sellerId === userId)),
+        marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listing.sellerId === userId)),
+        commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => record.buyerId === userId || record.sellerId === userId)),
+        trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => snapshot.sellerId === userId)),
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.users where id = $1), '[]'::jsonb) as users,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.seller_applications where user_id = $1), '[]'::jsonb) as seller_applications,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.sessions where user_id = $1), '[]'::jsonb) as sessions,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.purchase_requests where buyer_id = $1 or seller_id = $1), '[]'::jsonb) as purchase_requests,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.listings where seller_id = $1), '[]'::jsonb) as listings,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.commissions where buyer_id = $1 or seller_id = $1), '[]'::jsonb) as commissions,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.trust_snapshots where seller_id = $1), '[]'::jsonb) as trust_snapshots`,
+      [userId],
+    );
+    const row = result.rows[0];
+    const tableNames = [
+      "users",
+      "seller_applications",
+      "sessions",
+      "purchase_requests",
+      "listings",
+      "commissions",
+      "trust_snapshots",
+    ] as const satisfies readonly SnapshotTableName[];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, tableNames),
+      Number(row?.version ?? "0"),
+    );
+  }
+
+  /** Load the records needed by one seller's listing and commission workspace. */
+  async loadSellerWorkspaceSnapshotForUser(sellerId: string): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        users: cloneSnapshot(source.users.filter((user) => user.id === sellerId)),
+        sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => application.userId === sellerId)),
+        marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listing.sellerId === sellerId)),
+        purchaseRequests: cloneSnapshot(source.purchaseRequests.filter((request) => request.sellerId === sellerId)),
+        commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => record.sellerId === sellerId)),
+        auditLogs: cloneSnapshot(source.auditLogs.filter((entry) => entry.targetUserId === sellerId)),
+        trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((snapshot) => snapshot.sellerId === sellerId)),
+        marketplaceEnforcementRecords: cloneSnapshot((source.marketplaceEnforcementRecords ?? []).filter((record) => record.sellerId === sellerId)),
+        marketplaceEnforcementAuditLog: cloneSnapshot((source.marketplaceEnforcementAuditLog ?? []).filter((entry) => entry.sellerId === sellerId)),
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.users where id = $1), '[]'::jsonb) as users,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.seller_applications where user_id = $1), '[]'::jsonb) as seller_applications,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.listings where seller_id = $1), '[]'::jsonb) as listings,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.purchase_requests where seller_id = $1), '[]'::jsonb) as purchase_requests,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.commissions where seller_id = $1), '[]'::jsonb) as commissions,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.audit_logs where target_user_id = $1), '[]'::jsonb) as audit_logs,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.trust_snapshots where seller_id = $1), '[]'::jsonb) as trust_snapshots,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.marketplace_enforcement_records where seller_id = $1), '[]'::jsonb) as marketplace_enforcement_records,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.marketplace_enforcement_audit_log where seller_id = $1), '[]'::jsonb) as marketplace_enforcement_audit_log`,
+      [sellerId],
+    );
+    const row = result.rows[0];
+    const tableNames = [
+      "users",
+      "seller_applications",
+      "listings",
+      "purchase_requests",
+      "commissions",
+      "audit_logs",
+      "trust_snapshots",
+      "marketplace_enforcement_records",
+      "marketplace_enforcement_audit_log",
+    ] as const satisfies readonly SnapshotTableName[];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, tableNames),
+      Number(row?.version ?? "0"),
+    );
+  }
+
+  /** Load only the newest status-matching trade candidate for one actor. */
+  async loadPurchaseRequestCandidateSnapshotForActor(input: {
+    userId: string;
+    includeAll: boolean;
+    activeStatuses: readonly PurchaseRequest["status"][];
+    includeBuyerPending: boolean;
+  }): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const activeStatuses = new Set(input.activeStatuses);
+      const purchaseRequest = source.purchaseRequests
+        .filter((request) => (
+          input.includeAll || request.buyerId === input.userId || request.sellerId === input.userId
+        ))
+        .filter((request) => (
+          activeStatuses.has(request.status)
+          || (input.includeBuyerPending && request.status === "pending" && request.buyerId === input.userId)
+        ))
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null;
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        marketplaceListings: purchaseRequest
+          ? cloneSnapshot(source.marketplaceListings.filter((listing) => listing.id === purchaseRequest.listingId))
+          : [],
+        purchaseRequests: purchaseRequest ? cloneSnapshot([purchaseRequest]) : [],
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `with candidate_request as materialized (
+         select id, listing_id, sort_index, payload
+         from alpha_exchange.purchase_requests
+         where ($2::boolean or buyer_id = $1 or seller_id = $1)
+           and (
+             status = any($3::text[])
+             or ($4::boolean and status = 'pending' and buyer_id = $1)
+           )
+         order by updated_at desc
+         limit 1
+       )
+       select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(listing.payload order by listing.sort_index asc)
+           from alpha_exchange.listings listing
+           where listing.id in (select listing_id from candidate_request)
+         ), '[]'::jsonb) as listings,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from candidate_request), '[]'::jsonb) as purchase_requests`,
+      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending],
+    );
+    const row = result.rows[0];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, ["listings", "purchase_requests"]),
+      Number(row?.version ?? "0"),
+    );
+  }
+
+  /** Load only the trade history visible to one actor, plus its evidence metadata. */
+  async loadPurchaseRequestSnapshotForActor(input: { userId: string; includeAll: boolean; requestId?: string }): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const purchaseRequests = source.purchaseRequests.filter((request) => (
+        (input.includeAll || request.buyerId === input.userId || request.sellerId === input.userId)
+        && (!input.requestId || request.id === input.requestId)
+      ));
+      const requestIds = new Set(purchaseRequests.map((request) => request.id));
+      const listingIds = new Set(purchaseRequests.map((request) => request.listingId));
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listingIds.has(listing.id))),
+        purchaseRequests: cloneSnapshot(purchaseRequests),
+        tradeEvidenceFiles: cloneSnapshot(source.tradeEvidenceFiles.filter((file) => requestIds.has(file.purchaseRequestId))),
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `with visible_requests as materialized (
+         select id, listing_id, sort_index, payload
+         from alpha_exchange.purchase_requests
+         where ($2::boolean or buyer_id = $1 or seller_id = $1)
+           and ($3::text is null or id = $3)
+       )
+       select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(listing.payload order by listing.sort_index asc)
+           from alpha_exchange.listings listing
+           where listing.id in (select listing_id from visible_requests)
+         ), '[]'::jsonb) as listings,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from visible_requests), '[]'::jsonb) as purchase_requests,
+         coalesce((
+           select jsonb_agg(evidence.payload order by evidence.sort_index asc)
+           from alpha_exchange.evidence evidence
+           where evidence.purchase_request_id in (select id from visible_requests)
+         ), '[]'::jsonb) as evidence`,
+      [input.userId, input.includeAll, input.requestId ?? null],
+    );
+    const row = result.rows[0];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, ["listings", "purchase_requests", "evidence"]),
+      Number(row?.version ?? "0"),
+    );
+  }
+
+  /**
+   * Load a notification inbox without scanning unrelated users' inboxes,
+   * activity, trades, commissions, or disputes. This query is deliberately
+   * safe to use for the five-second cross-instance SSE reconciliation loop.
+   */
+  async loadNotificationSnapshotForUser(input: { userId: string; includeActivity: boolean }): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const notifications = source.notifications.filter((notification) => notification.userId === input.userId);
+      const relatedRequestIds = new Set(notifications.map((notification) => notification.relatedRequestId).filter(Boolean));
+      const relatedTradeIds = new Set(notifications.map((notification) => notification.relatedTradeId).filter(Boolean));
+      const relatedListingIds = new Set(notifications.map((notification) => notification.relatedListingId).filter(Boolean));
+      const requests = source.purchaseRequests.filter((request) => (
+        request.buyerId === input.userId
+        || request.sellerId === input.userId
+        || relatedRequestIds.has(request.id)
+        || Boolean(request.tradeId && relatedTradeIds.has(request.tradeId))
+        || relatedListingIds.has(request.listingId)
+      ));
+      const requestIds = new Set(requests.map((request) => request.id));
+      const listings = source.marketplaceListings.filter((listing) => (
+        listing.sellerId === input.userId
+        || relatedListingIds.has(listing.id)
+        || requests.some((request) => request.listingId === listing.id)
+      ));
+      const participantIds = new Set<string>([input.userId]);
+      requests.forEach((request) => { participantIds.add(request.buyerId); participantIds.add(request.sellerId); });
+      listings.forEach((listing) => participantIds.add(listing.sellerId));
+      // Older trust alerts embedded only a seller UUID in their free-form
+      // title/message. Include that referenced account so enrichment can
+      // replace the identifier with the seller's safe public identity.
+      const legacyNotificationText = notifications.map((notification) => JSON.stringify(notification)).join("\n");
+      source.users.forEach((user) => {
+        if (legacyNotificationText.includes(user.id)) participantIds.add(user.id);
+      });
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        users: cloneSnapshot(source.users.filter((user) => participantIds.has(user.id))),
+        sellerApplications: cloneSnapshot(source.sellerApplications.filter((application) => participantIds.has(application.userId))),
+        marketplaceListings: cloneSnapshot(listings),
+        purchaseRequests: cloneSnapshot(requests),
+        commissionRecords: cloneSnapshot(source.commissionRecords.filter((record) => (
+          record.sellerId === input.userId || record.buyerId === input.userId || Boolean(record.purchaseRequestId && requestIds.has(record.purchaseRequestId))
+        ))),
+        notifications: cloneSnapshot(notifications),
+        activityLog: input.includeActivity
+          ? cloneSnapshot(source.activityLog.filter((entry) => entry.userId === input.userId))
+          : [],
+        disputes: cloneSnapshot(source.disputes.filter((dispute) => (
+          dispute.buyerId === input.userId || dispute.sellerId === input.userId || requestIds.has(dispute.purchaseRequestId)
+        ))),
+        trustSnapshots: cloneSnapshot(source.trustSnapshots.filter((entry) => participantIds.has(entry.sellerId))),
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `with recipient_notifications as materialized (
+         select sort_index, payload
+         from alpha_exchange.notifications
+         where user_id = $1
+       ), related_requests as materialized (
+         select id, listing_id, seller_id, buyer_id, sort_index, payload
+         from alpha_exchange.purchase_requests
+         where buyer_id = $1
+            or seller_id = $1
+            or id in (select payload->>'relatedRequestId' from recipient_notifications)
+            or trade_id in (select payload->>'relatedTradeId' from recipient_notifications)
+            or listing_id in (select payload->>'relatedListingId' from recipient_notifications)
+       ), related_listings as materialized (
+         select id, seller_id, sort_index, payload
+         from alpha_exchange.listings
+         where seller_id = $1
+            or id in (select payload->>'relatedListingId' from recipient_notifications)
+            or id in (select listing_id from related_requests)
+       ), participant_ids as materialized (
+         select $1::text as id
+         union select seller_id from related_requests
+         union select buyer_id from related_requests
+         union select seller_id from related_listings
+         union
+         select account.id
+         from alpha_exchange.users account
+         where exists (
+           select 1
+           from recipient_notifications notification
+           where notification.payload::text like '%' || account.id || '%'
+         )
+       )
+       select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(account.payload order by account.sort_index asc)
+           from alpha_exchange.users account
+           where account.id in (select id from participant_ids)
+         ), '[]'::jsonb) as users,
+         coalesce((
+           select jsonb_agg(application.payload order by application.sort_index asc)
+           from alpha_exchange.seller_applications application
+           where application.user_id in (select id from participant_ids)
+              or application.id in (select payload->>'relatedRequestId' from recipient_notifications)
+         ), '[]'::jsonb) as seller_applications,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from related_listings), '[]'::jsonb) as listings,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from related_requests), '[]'::jsonb) as purchase_requests,
+         coalesce((
+           select jsonb_agg(commission.payload order by commission.sort_index asc)
+           from alpha_exchange.commissions commission
+           where commission.seller_id = $1
+              or commission.buyer_id = $1
+              or commission.purchase_request_id in (select id from related_requests)
+         ), '[]'::jsonb) as commissions,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from recipient_notifications), '[]'::jsonb) as notifications,
+         case when $2::boolean then coalesce((
+           select jsonb_agg(activity.payload order by activity.sort_index asc)
+           from alpha_exchange.activity_logs activity
+           where activity.user_id = $1
+         ), '[]'::jsonb) else '[]'::jsonb end as activity_logs,
+         coalesce((
+           select jsonb_agg(dispute.payload order by dispute.sort_index asc)
+           from alpha_exchange.disputes dispute
+           where dispute.buyer_id = $1
+              or dispute.seller_id = $1
+              or dispute.purchase_request_id in (select id from related_requests)
+         ), '[]'::jsonb) as disputes,
+         coalesce((
+           select jsonb_agg(snapshot.payload order by snapshot.sort_index asc)
+           from alpha_exchange.trust_snapshots snapshot
+           where snapshot.seller_id in (select id from participant_ids)
+         ), '[]'::jsonb) as trust_snapshots`,
+      [input.userId, input.includeActivity],
+    );
+    const row = result.rows[0];
+    const tableNames = [
+      "users",
+      "seller_applications",
+      "listings",
+      "purchase_requests",
+      "commissions",
+      "notifications",
+      "activity_logs",
+      "disputes",
+      "trust_snapshots",
+    ] as const satisfies readonly SnapshotTableName[];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, tableNames),
+      Number(row?.version ?? "0"),
+    );
+  }
+
+  /**
+   * Loads the exact records needed to render one Trade Room with a single
+   * PostgreSQL round trip. The live stream calls this only when that trade's
+   * revision changed; it must never fan out through the full exchange
+   * snapshot on a per-connection timer.
+   */
+  async loadTradeRoomSnapshot(lookupCandidates: string[]): Promise<SnapshotWithVersion | null> {
+    await this.ensureReady();
+    const candidates = Array.from(new Set(lookupCandidates.map((value) => value.trim()).filter(Boolean)));
+    if (candidates.length === 0) return null;
+
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      const request = snapshot.purchaseRequests.find((candidate) => (
+        candidates.includes(candidate.id) || Boolean(candidate.tradeId && candidates.includes(candidate.tradeId))
+      ));
+      return request ? snapshot : null;
+    }
+
+    type TradeRoomSnapshotRow = {
+      request_payload: PurchaseRequest;
+      listing_payload: MarketplaceListing | null;
+      buyer_payload: AlphaExchangeUser | null;
+      seller_payload: AlphaExchangeUser | null;
+      dispute_payloads: TradeDisputeCase[] | null;
+      commission_payloads: CommissionRecord[] | null;
+      evidence_payloads: TradeEvidenceFile[] | null;
+      version: string;
+    };
+
+    const result = await pool.query<TradeRoomSnapshotRow>(
+      `select
+         request.payload as request_payload,
+         listing.payload as listing_payload,
+         buyer.payload as buyer_payload,
+         seller.payload as seller_payload,
+         coalesce((
+           select jsonb_agg(dispute.payload order by dispute.sort_index asc)
+             from alpha_exchange.disputes dispute
+            where dispute.purchase_request_id = request.id
+         ), '[]'::jsonb) as dispute_payloads,
+         coalesce((
+           select jsonb_agg(commission.payload order by commission.sort_index asc)
+             from alpha_exchange.commissions commission
+            where commission.seller_id = request.seller_id
+         ), '[]'::jsonb) as commission_payloads,
+         coalesce((
+           select jsonb_agg(evidence.payload order by evidence.sort_index asc)
+             from alpha_exchange.evidence evidence
+            where evidence.purchase_request_id = request.id
+         ), '[]'::jsonb) as evidence_payloads,
+         meta.version::text as version
+       from alpha_exchange.purchase_requests request
+       left join alpha_exchange.listings listing on listing.id = request.listing_id
+       left join alpha_exchange.users buyer on buyer.id = request.buyer_id
+       left join alpha_exchange.users seller on seller.id = request.seller_id
+       cross join alpha_exchange.runtime_meta meta
+       where request.id = any($1::text[])
+       order by case when request.id = $2 then 0 else 1 end, request.updated_at desc
+       limit 1`,
+      [candidates, candidates[0]],
+    );
+    const row = result.rows[0];
+    if (!row?.request_payload) return null;
+
+    const snapshot = emptySnapshotCollections();
+    snapshot.purchaseRequests = [row.request_payload];
+    snapshot.marketplaceListings = row.listing_payload ? [row.listing_payload] : [];
+    snapshot.users = [row.buyer_payload, row.seller_payload]
+      .filter((user): user is AlphaExchangeUser => Boolean(user))
+      .filter((user, index, users) => users.findIndex((candidate) => candidate.id === user.id) === index);
+    snapshot.disputes = Array.isArray(row.dispute_payloads) ? row.dispute_payloads : [];
+    snapshot.commissionRecords = Array.isArray(row.commission_payloads) ? row.commission_payloads : [];
+    snapshot.tradeEvidenceFiles = Array.isArray(row.evidence_payloads) ? row.evidence_payloads : [];
+    return attachVersion(snapshot, Number(row.version ?? "0"));
+  }
+
+  /** Lightweight cross-instance change detector used by Trade Room SSE. */
+  async loadTradeRoomRevision(lookupCandidates: string[]): Promise<TradeRoomRevision | null> {
+    await this.ensureReady();
+    const candidates = Array.from(new Set(lookupCandidates.map((value) => value.trim()).filter(Boolean)));
+    if (candidates.length === 0) return null;
+
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      const request = snapshot.purchaseRequests.find((candidate) => (
+        candidates.includes(candidate.id) || Boolean(candidate.tradeId && candidates.includes(candidate.tradeId))
+      ));
+      return request
+        ? {
+            id: request.id,
+            buyerId: request.buyerId,
+            sellerId: request.sellerId,
+            status: request.status,
+            updatedAt: request.updatedAt,
+          }
+        : null;
+    }
+
+    const result = await pool.query<{
+      id: string;
+      buyer_id: string;
+      seller_id: string;
+      status: PurchaseRequest["status"];
+      updated_at: string;
+    }>(
+      `select id, buyer_id, seller_id, status, updated_at::text as updated_at
+         from alpha_exchange.purchase_requests
+        where id = any($1::text[])
+        order by case when id = $2 then 0 else 1 end, updated_at desc
+        limit 1`,
+      [candidates, candidates[0]],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      buyerId: row.buyer_id,
+      sellerId: row.seller_id,
+      status: row.status,
+      updatedAt: new Date(row.updated_at).toISOString(),
     };
   }
 
@@ -2088,20 +2840,13 @@ export class AlphaExchangeRepository {
       return snapshot;
     }
     try {
-      const [meta, ...results] = await Promise.all([
-        pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
-        ...tables.map((table) => pool.query(table.selectSql)),
-      ]);
-      perf?.step(`parallel_queries(${tables.length + 1})`);
-      const snapshot = snapshotFromTableRows(
-        results.map((result, index) => ({
-          tableName: tables[index]!.name as SnapshotTableName,
-          rows: result.rows as Array<{ payload: unknown }>,
-        })),
-      );
+      const result = await pool.query<AggregatedSnapshotRow>(buildAggregatedSnapshotSql(SNAPSHOT_TABLE_NAMES));
+      perf?.step(`aggregate_query(${SNAPSHOT_TABLE_NAMES.length})`);
+      const row = result.rows[0];
+      const snapshot = snapshotFromAggregatedRow(row, SNAPSHOT_TABLE_NAMES);
       perf?.step("snapshotFromTableRows");
 
-      const version = Number(meta.rows[0]?.version ?? "0");
+      const version = Number(row?.version ?? "0");
       const withVersion = attachVersion(pruneOrphanAuthSessions(snapshot), version);
       syncMemoryFallbackSnapshot(withVersion, version);
       logRepoVersionFlow("load:db", {
@@ -2137,6 +2882,28 @@ export class AlphaExchangeRepository {
       return fallback;
     }
 
+  }
+
+  /**
+   * Lightweight authoritative lookup for the public marketplace visibility
+   * gate. Loading the full exchange snapshot here would fan out across every
+   * table on the highest-traffic unauthenticated route.
+   */
+  async loadUnpaidCommissionSellerIds(): Promise<string[]> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      return Array.from(new Set(
+        snapshot.commissionRecords
+          .filter((record) => record.paymentStatus !== "paid")
+          .map((record) => record.sellerId),
+      ));
+    }
+    const result = await pool.query<{ seller_id: string }>(
+      "select distinct seller_id from alpha_exchange.commissions where payment_status <> 'paid'",
+    );
+    return result.rows.map((row) => row.seller_id);
   }
 
   async saveSnapshot(
@@ -2309,17 +3076,15 @@ export class AlphaExchangeRepository {
               incomingPurchaseRequests: db.purchaseRequests.length,
               currentPurchaseRequests: currentRequests,
             });
-            const currentResults: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }> = [];
-            // Parallelize all 22 table reads instead of issuing them sequentially.
-            const connectedClient = client!;
-            const parallelResults = await Promise.all(
-              tables.map((table) => queryWithLogging(connectedClient, table.selectSql) as Promise<{ rows: Array<{ payload: unknown }> }>),
+            const aggregateResult = await queryWithLogging(
+              client,
+              buildAggregatedSnapshotSql(SNAPSHOT_TABLE_NAMES),
+            ) as { rows: AggregatedSnapshotRow[] };
+            perf?.step("stale_aggregate_read");
+            const latestSnapshot = attachVersion(
+              snapshotFromAggregatedRow(aggregateResult.rows[0], SNAPSHOT_TABLE_NAMES),
+              currentVersion,
             );
-            perf?.step("stale_parallel_read");
-            for (let i = 0; i < tables.length; i++) {
-              currentResults.push({ tableName: tables[i]!.name as SnapshotTableName, rows: parallelResults[i]!.rows });
-            }
-            const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
             options?.validateLatestBeforeCommit?.(cloneSnapshot(latestSnapshot));
             const incomingSnapshot = options?.rebaseOnLatest
               ? pruneOrphanAuthSessions(await options.rebaseOnLatest(cloneSnapshot(latestSnapshot)))
@@ -2823,6 +3588,12 @@ export class AlphaExchangeRepository {
       // Apply delta directly to the in-memory snapshot
       ensureMemorySeed();
       const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      if (current.commissionRecords.some((record) => (
+        record.sellerId === delta.newListing.sellerId
+        && record.paymentStatus !== "paid"
+      ))) {
+        throw new Error("Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.");
+      }
       current.marketplaceListings.push(delta.newListing);
       if (delta.newAuditLogs.length) current.auditLogs.unshift(...delta.newAuditLogs);
       if (delta.newNotifications.length) current.notifications.unshift(...delta.newNotifications);
@@ -2853,6 +3624,30 @@ export class AlphaExchangeRepository {
       perf?.step("connect");
       await client.query("begin");
       perf?.step("begin");
+
+      // Serialize this final authorization check with commission assignment and
+      // settlement. The earlier store read may come from another instance's
+      // cache, so it is not sufficient for a financial lock. A commission that
+      // commits first must prevent the listing insert; a paid commission that
+      // commits first allows it.
+      try {
+        await client.query("select pg_advisory_xact_lock(61422917)");
+      } catch {
+        // pg-mem does not implement advisory locks; local tests are
+        // single-process and use the memory branch above.
+      }
+      const blockingCommission = await client.query<{ id: string }>(
+        `select id
+           from alpha_exchange.commissions
+          where seller_id = $1
+            and payment_status <> 'paid'
+          limit 1`,
+        [delta.newListing.sellerId],
+      );
+      if (blockingCommission.rows.length > 0) {
+        throw new Error("Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.");
+      }
+      perf?.step("commission_lock_check");
 
       await client.query(
         `insert into alpha_exchange.listings
@@ -2997,10 +3792,10 @@ export class AlphaExchangeRepository {
     });
 
     try {
-      // Fire-and-forget: the listing was already committed. Awaiting this full 23-table
-      // reload here cost ~1000ms for every listing creation (pool max:2 serializes the
-      // 23 parallel queries). The cache was already updated by writeDbForListingCreation;
-      // the fallback snapshot will catch up on the next natural loadSnapshot call.
+      // Fire-and-forget: the listing was already committed. Even though the full
+      // reload is now one aggregate query, cache mirroring is not part of the
+      // user's critical path. The cache was already updated by
+      // writeDbForListingCreation and will catch up asynchronously here.
       this.loadSnapshot()
         .then((snapshot) => {
           syncMemoryFallbackSnapshot(snapshot, nextVersion || getVersion(snapshot));
@@ -3173,7 +3968,9 @@ export async function getAlphaExchangeRepository() {
     globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
   }
   const repository = await globalThis.__alphaExchangeRepositoryPromise;
-  if (typeof repository.savePurchaseRequestCreationSnapshotTargeted !== "function") {
+  if (
+    typeof repository.savePurchaseRequestCreationSnapshotTargeted !== "function"
+  ) {
     globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
     return globalThis.__alphaExchangeRepositoryPromise;
   }

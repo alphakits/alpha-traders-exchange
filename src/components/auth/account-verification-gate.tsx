@@ -107,7 +107,7 @@ export function AccountVerificationGate({
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
-      setStatus(isAr ? "تم إرسال رمز التحقق." : (payload.message ?? "Verification code sent."));
+      setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setError(isAr
@@ -176,9 +176,13 @@ export function AccountVerificationGate({
                   : "Complete verification to access Alpha Exchange"}
               </h1>
               <p className="mt-2 text-sm text-[#D1D5DB]">
-                {isAr
-                  ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
-                  : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading."}
+                {phoneVerificationEnabled
+                  ? (isAr
+                    ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
+                    : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading.")
+                  : (isAr
+                    ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة والمطلوبة للوصول إلى Alpha Exchange."
+                    : "Email verification is the only verification method enabled and required to access Alpha Exchange.")}
               </p>
             </div>
           </div>
@@ -186,7 +190,7 @@ export function AccountVerificationGate({
 
         {loading ? <p className="mt-5 text-sm text-[#9CA3AF]">{isAr ? "جاري تحميل حالة التحقق..." : "Loading verification status..."}</p> : null}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className={`mt-6 grid gap-4 ${phoneVerificationEnabled ? "md:grid-cols-2" : ""}`}>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -219,6 +223,7 @@ export function AccountVerificationGate({
             ) : null}
           </div>
 
+          {phoneVerificationEnabled ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -248,7 +253,9 @@ export function AccountVerificationGate({
               ) : (
                 <div className="mt-3 grid gap-3">
                   <p className="text-xs text-[#9CA3AF]">
-                    {isAr ? "التحقق من الهاتف اختياري ويمكنك إكماله من هنا إذا رغبت." : "Phone verification is optional; you may complete it here if you choose."}
+                    {isAr
+                      ? "التحقق من الهاتف اختياري. سيصل الرمز عبر قناة التحقق الآمنة المفعّلة حاليًا."
+                      : "Phone verification is optional. The code arrives through the currently enabled secure verification channel."}
                   </p>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input
@@ -300,6 +307,7 @@ export function AccountVerificationGate({
               </p>
             )}
           </div>
+          ) : null}
         </div>
 
         {visibleError ? <p className="mt-4 text-sm text-rose-300">{visibleError}</p> : null}

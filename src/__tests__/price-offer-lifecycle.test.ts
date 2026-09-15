@@ -8,6 +8,7 @@ vi.mock("@/lib/postgres-runtime", () => ({
 import {
   createMarketplaceListing,
   createPurchaseRequest,
+  getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
   updateMarketplaceListingForSeller,
@@ -173,6 +174,42 @@ describe("negotiated marketplace price offers", () => {
       activeTradeRequestId: created.request.id,
     });
     expect(snapshot.notifications.some((item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted" && item.message.includes("₪2.95"))).toBe(true);
+    expect(snapshot.notifications.find((item) => item.userId === SELLER_ID && item.title === "New price offer"))
+      .toMatchObject({ whatsappEvent: "new_request" });
+    expect(snapshot.notifications.find((item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted"))
+      .toMatchObject({ whatsappEvent: "request_accepted" });
+    expect(snapshot.notifications.filter((item) => item.whatsappEvent).every((item) => (
+      Boolean(item.whatsappEventAt) && /^wae-[0-9a-f-]{36}$/i.test(item.whatsappEventKey ?? "")
+    ))).toBe(true);
+
+    const acceptedNotification = snapshot.notifications.find(
+      (item) => item.userId === BUYER_ONE_ID && item.title === "Price offer accepted",
+    );
+    expect(acceptedNotification).toBeTruthy();
+    snapshot.notifications.push({
+      ...acceptedNotification!,
+      id: "whatsapp-channel-only-test",
+      state: "archived",
+      isRead: true,
+      whatsappChannelOnly: true,
+    });
+    const clientFeed = await getNotificationsForUser({
+      userId: BUYER_ONE_ID,
+      state: "archived",
+      includeActivity: false,
+    });
+    expect(clientFeed.notifications.some((item) => item.id === "whatsapp-channel-only-test")).toBe(false);
+
+    const visibleFeed = await getNotificationsForUser({
+      userId: BUYER_ONE_ID,
+      includeActivity: false,
+    });
+    const clientAcceptedNotification = visibleFeed.notifications.find((item) => item.id === acceptedNotification!.id);
+    expect(clientAcceptedNotification).toBeTruthy();
+    expect(clientAcceptedNotification).not.toHaveProperty("whatsappEvent");
+    expect(clientAcceptedNotification).not.toHaveProperty("whatsappEventAt");
+    expect(clientAcceptedNotification).not.toHaveProperty("whatsappEventKey");
+    expect(clientAcceptedNotification).not.toHaveProperty("whatsappChannelOnly");
   });
 
   it("enforces the ₪0.35 server limit and requires a genuinely lower cent price", async () => {
@@ -230,6 +267,9 @@ describe("negotiated marketplace price offers", () => {
       activeTradeRequestId: undefined,
       lockedAt: undefined,
     });
+    const cancellationAlerts = (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).notifications
+      .filter((item) => item.relatedRequestId === created.request.id && item.whatsappEvent === "trade_cancelled");
+    expect(new Set(cancellationAlerts.map((item) => item.userId))).toEqual(new Set([BUYER_ONE_ID, SELLER_ID]));
   });
 
   it("keeps the submitted offer snapshot when the seller later edits the public listing price", async () => {

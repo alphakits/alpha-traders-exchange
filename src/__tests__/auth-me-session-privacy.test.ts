@@ -115,4 +115,23 @@ describe("GET /api/auth/me session privacy", () => {
       expect(serialized).not.toContain(value);
     }
   });
+
+  it("does not synthesize a phone-verified cookie for an email-only session", async () => {
+    const setCookie = vi.fn();
+    mocks.cookies.mockResolvedValue({ set: setCookie });
+    mocks.getCurrentSessionUser.mockResolvedValue({
+      ...rawUser(),
+      verifiedPhone: undefined,
+      phoneVerifiedAt: undefined,
+    });
+    mocks.isMarketplacePhoneVerificationDisabled.mockReturnValue(false);
+    mocks.isVerified.mockReturnValue(false);
+
+    const response = await GET();
+    const payload = await response.json() as { user: { isPhotoVerified: boolean } };
+
+    expect(response.status).toBe(200);
+    expect(payload.user.isPhotoVerified).toBe(false);
+    expect(setCookie).not.toHaveBeenCalledWith("alpha_exchange_phone_verified", "1", expect.any(Object));
+  });
 });

@@ -5,7 +5,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
-  checkSharedRateLimit: vi.fn(),
+  checkRateLimit: vi.fn(),
   createPurchaseRequest: vi.fn(),
   getMyPurchaseRequests: vi.fn(),
   hasRole: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 vi.mock("@/lib/marketplace-email-events", () => ({
   prepareTradeEventEmails: mocks.prepareTradeEventEmails,
 }));
-vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/roles", () => ({ hasRole: mocks.hasRole }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
@@ -87,7 +87,7 @@ beforeEach(() => {
     accessToken: "access",
     unauthorized: null,
   });
-  mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
+  mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   mocks.hasRole.mockReturnValue(true);
   mocks.prepareTradeEventEmails.mockResolvedValue(async () => undefined);
   mocks.createPurchaseRequest.mockResolvedValue({

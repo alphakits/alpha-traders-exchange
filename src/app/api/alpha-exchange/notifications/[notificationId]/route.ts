@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   deleteNotification,
   markNotificationReadState,
+  sanitizeNotificationForClient,
   updateNotificationState,
 } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
@@ -34,7 +35,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         });
     const logicMs = Date.now() - logicStartedAt;
     const routeMs = Date.now() - routeStartedAt;
-    return NextResponse.json({ notification }, {
+    return NextResponse.json({ notification: sanitizeNotificationForClient(notification) }, {
       headers: {
         "Cache-Control": "private, no-store",
         "X-Trade-Route-Ms": String(routeMs),

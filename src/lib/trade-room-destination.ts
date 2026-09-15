@@ -1,10 +1,16 @@
 import type { PurchaseRequest } from "@/types/alpha-exchange";
+import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 export type TradeRoomActionTarget =
   | "accept-trade"
+  | "confirm-cash-payment"
   | "upload-payment-receipt"
   | "confirm-money-received"
   | "release-usdt"
+  | "confirm-usdt-sent"
+  | "complete-cash-trade"
+  // Legacy deep-link target retained for already-delivered notifications.
+  | "send-usdt-complete"
   | "upload-seller-evidence"
   | "confirm-usdt-received"
   | "review-trade"
@@ -23,18 +29,21 @@ function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: str
     return "accept-trade";
   }
   if (request.status === "accepted" && isBuyerActor(request, actorUserId)) {
-    return "upload-payment-receipt";
+    return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-cash-payment" : "upload-payment-receipt";
   }
   if (request.status === "payment_sent" && isSellerActor(request, actorUserId)) {
     return "confirm-money-received";
   }
   if (request.status === "funds_received" && isSellerActor(request, actorUserId)) {
-    return "upload-seller-evidence";
+    return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "release-usdt";
   }
   if (request.status === "usdt_release_pending" && isSellerActor(request, actorUserId)) {
-    return "upload-seller-evidence";
+    return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "upload-seller-evidence";
   }
-  if (request.status === "usdt_sent" && isBuyerActor(request, actorUserId)) {
+  if (request.status === "usdt_sent" && isCashTradePaymentMethod(request.paymentMethod) && isSellerActor(request, actorUserId)) {
+    return "complete-cash-trade";
+  }
+  if (request.status === "usdt_sent" && !isCashTradePaymentMethod(request.paymentMethod) && isBuyerActor(request, actorUserId)) {
     return "confirm-usdt-received";
   }
   if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor(request, actorUserId)) {

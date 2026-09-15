@@ -10,7 +10,11 @@ import {
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import { logEvent } from "@/lib/structured-logging";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
-import { isCardlessAtmPaymentMethod, isFaceToFacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import {
+  isCardlessAtmPaymentMethod,
+  isCashTradePaymentMethod,
+  isFaceToFacePaymentMethod,
+} from "@/lib/marketplace-payment-methods";
 
 type EmailRecipient = {
   id: string;
@@ -126,8 +130,8 @@ function tradeEmailContent(
         ...common,
         title,
         message: {
-          ar: "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات.",
-          en: "The seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can complete the trade without uploading evidence.",
+          ar: "وافق البائع على صفقة اللقاء الشخصي. بعد تسليم النقد اضغط زر التأكيد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلام النقد ستظهر له محفظتك ليؤكد إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+          en: "The seller accepted the Face-to-Face trade. After handing over the cash, use the confirmation button; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can confirm USDT sent, then complete the trade separately.",
         },
       };
     }
@@ -138,8 +142,8 @@ function tradeEmailContent(
           ? { ar: "تم قبول عرض السعر", en: "Price Offer Accepted" }
           : { ar: "تم قبول صفقة السحب دون بطاقة", en: "Cardless ATM Trade Accepted" },
         message: {
-          ar: "وافق البائع على الصفقة. أرسل إثبات الدفع أو السحب في غرفة الصفقة. بعد إرسال الإثبات لا يمكن إلغاء الصفقة، وبعد تسجيل إرسال USDT يمكن لأي من الطرفين إكمالها.",
-          en: "The seller accepted the trade. Submit the payment or withdrawal proof in the Trade Room. Cancellation is blocked after proof is submitted, and either participant can complete after USDT is marked sent.",
+          ar: "وافق البائع على الصفقة. أرسل رمز السحب واضغط زر التأكيد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده ستظهر له محفظتك ليؤكد إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+          en: "The seller accepted the trade. Send the withdrawal code and use the confirmation button; no photo is required. After the seller collects and confirms the cash, your wallet is revealed so the seller can confirm USDT sent, then complete the trade separately.",
         },
       };
     }
@@ -183,23 +187,45 @@ function tradeEmailContent(
     };
   }
   if (event === "buyer_payment_sent") {
+    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
     return {
       ...common,
-      title: { ar: "أبلغ المشتري بإرسال الدفع", en: "Buyer Marked Payment Sent" },
-      message: {
-        ar: "أرسل المشتري إثبات الدفع. تحقّق من وصول الأموال قبل المتابعة.",
-        en: "The buyer submitted payment evidence. Verify the funds before continuing.",
-      },
+      title: cardlessAtm
+        ? { ar: "رمز السحب جاهز", en: "Withdrawal Code Ready" }
+        : faceToFace
+          ? { ar: "سلّم المشتري النقد", en: "Buyer Handed Over Cash" }
+          : { ar: "أبلغ المشتري بإرسال الدفع", en: "Buyer Marked Payment Sent" },
+      message: cardlessAtm
+        ? {
+            ar: "أكد المشتري إرسال رمز السحب دون بطاقة. اسحب النقد من الصراف ثم أكد الاستلام؛ لا يلزم رفع صورة.",
+            en: "The buyer confirmed sending the cardless withdrawal code. Collect the ATM cash, then confirm receipt; no photo is required.",
+          }
+        : faceToFace
+          ? {
+              ar: "أكد المشتري تسليم النقد. أكد الاستلام فقط بعد أن يصبح النقد بحوزتك؛ لا يلزم رفع صورة.",
+              en: "The buyer confirmed handing over the cash. Confirm receipt only after the cash is in your possession; no photo is required.",
+            }
+          : {
+              ar: "أرسل المشتري إثبات الدفع. تحقّق من وصول الأموال قبل المتابعة.",
+              en: "The buyer submitted payment evidence. Verify the funds before continuing.",
+            },
     };
   }
   if (event === "seller_funds_received") {
+    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
     return {
       ...common,
       title: { ar: "أكد البائع استلام الأموال", en: "Seller Confirmed Funds Received" },
-      message: {
-        ar: "أكد البائع استلام دفعتك. أصبحت خطوة إرسال USDT متاحة للبائع.",
-        en: "The seller confirmed your payment was received. The USDT release step is now available to the seller.",
-      },
+      message: cashTrade
+        ? {
+            ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT ويؤكد الإرسال، ثم يُكمل الصفقة بزر منفصل.",
+            en: "The seller confirmed receiving the cash. Your wallet is now revealed so the seller can send USDT and confirm it, then complete the trade separately.",
+          }
+        : {
+            ar: "أكد البائع استلام دفعتك. أصبحت خطوة إرسال USDT متاحة للبائع.",
+            en: "The seller confirmed your payment was received. The USDT release step is now available to the seller.",
+          },
     };
   }
   if (event === "seller_usdt_release_started") {
@@ -213,14 +239,14 @@ function tradeEmailContent(
     };
   }
   if (event === "seller_usdt_released") {
-    const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
+    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
     return {
       ...common,
       title: { ar: "أرسل البائع USDT", en: "Seller Released USDT" },
-      message: cardlessAtm
+      message: cashTrade
         ? {
-            ar: "أكّد البائع إرسال USDT. بعد التأكد من استلام النقد وUSDT، يمكن للمشتري أو البائع إكمال الصفقة. عند الإكمال تنتقل للمراجعة وتُسجّل عمولة البائع.",
-            en: "The seller marked USDT as sent. After confirming both cash and USDT were received, either the buyer or seller can complete the trade. Completion moves it to review and records the seller commission.",
+            ar: "أكّد البائع إرسال USDT. البائع وحده يُكمل الصفقة دون رفع صورة؛ عند الإكمال تنتقل للمراجعة وتُسجّل العمولة.",
+            en: "The seller marked USDT as sent. Only the seller completes the trade, with no photo upload; completion moves it to review and records the commission.",
           }
         : {
             ar: "أكّد البائع إرسال USDT. أكّد الاستلام في غرفة الصفقة.",
@@ -260,7 +286,7 @@ export async function prepareTradeEventEmails(input: {
   ]);
   const recipientIds = input.event === "trade_completed"
     || input.event === "trade_cancelled"
-    || (input.event === "seller_usdt_released" && isCardlessAtmPaymentMethod(input.request.paymentMethod))
+    || (input.event === "seller_usdt_released" && isCashTradePaymentMethod(input.request.paymentMethod))
     ? [input.request.buyerId, input.request.sellerId]
     : input.event === "new_buy_request" || input.event === "buyer_payment_sent"
       ? [input.request.sellerId]

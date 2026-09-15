@@ -23,6 +23,7 @@ import { useAuthenticatedNotificationStream } from "@/components/notifications/u
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { forwardCompletedTradesToNative, syncNotificationCountToNative } from "@/lib/native-app-bridge";
+import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -42,6 +43,7 @@ type TradeRoomRequestPayload = {
   status: string;
   sellerId: string;
   buyerId: string;
+  paymentMethod?: string;
 };
 
 type TradeSnapshotPayload = {
@@ -49,6 +51,7 @@ type TradeSnapshotPayload = {
   currentStage?: string;
   sellerId?: string;
   buyerId?: string;
+  paymentMethod?: string;
 };
 
 function notificationIcon(notification: AlphaExchangeNotification) {
@@ -109,12 +112,14 @@ function buildTradeRoomHashForAction(action: string) {
 function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
   const isSeller = request.sellerId === actorUserId;
   const isBuyer = request.buyerId === actorUserId;
+  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
   if (request.status === "pending" && isSeller) return "accept-trade";
-  if (request.status === "accepted" && isBuyer) return "upload-payment-receipt";
+  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
   if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return "upload-seller-evidence";
-  if (request.status === "usdt_release_pending" && isSeller) return "upload-seller-evidence";
-  if (request.status === "usdt_sent" && isBuyer) return "confirm-usdt-received";
+  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
+  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
+  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
   if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
   return "open-trade";
 }
@@ -125,14 +130,18 @@ function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUs
   const sellerId = String(snapshot.sellerId ?? "").trim();
   const buyerId = String(snapshot.buyerId ?? "").trim();
   if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId }, actorUserId);
+  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot.paymentMethod }, actorUserId);
 }
 
 function inferTradeActionFromNotificationText(notification: AlphaExchangeNotification) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
   if (/new trade request/.test(text)) return "accept-trade";
+  if (/withdrawal code|handed over cash|handed the cash/.test(text)) return "confirm-money-received";
   if (/trade request accepted/.test(text)) return "upload-payment-receipt";
   if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
+  if (/buyer wallet is now revealed|send-and-complete/.test(text)) return "confirm-usdt-sent";
+  if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
+  if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
   if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
   if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
   if (/review available|trade completed/.test(text)) return "review-trade";

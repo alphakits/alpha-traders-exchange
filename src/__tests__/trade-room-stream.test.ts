@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => {
   const unsubscribe = vi.fn();
   return {
     getTradeRoomData: vi.fn(),
+    getTradeRoomRevision: vi.fn(),
     requireApiUser: vi.fn(),
     requireEmailVerificationForTrading: vi.fn(),
     subscribeRealtimeEvents: vi.fn(() => unsubscribe),
@@ -16,7 +17,10 @@ vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
   requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
 }));
-vi.mock("@/lib/alpha-exchange-store", () => ({ getTradeRoomData: mocks.getTradeRoomData }));
+vi.mock("@/lib/alpha-exchange-store", () => ({
+  getTradeRoomData: mocks.getTradeRoomData,
+  getTradeRoomRevision: mocks.getTradeRoomRevision,
+}));
 vi.mock("@/lib/realtime", () => ({ subscribeRealtimeEvents: mocks.subscribeRealtimeEvents }));
 
 import { GET } from "@/app/api/alpha-exchange/trade-room/[requestId]/stream/route";
@@ -27,7 +31,17 @@ describe("trade room SSE reconciliation", () => {
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({ user: { id: "buyer-1", role: "buyer" }, unauthorized: null });
     mocks.requireEmailVerificationForTrading.mockReturnValue(null);
-    mocks.getTradeRoomData.mockResolvedValue({ request: { id: "trade-1", status: "accepted" }, messages: [] });
+    mocks.getTradeRoomData.mockResolvedValue({
+      request: { id: "trade-1", status: "accepted", updatedAt: "2026-09-14T18:00:00.000Z" },
+      messages: [],
+    });
+    mocks.getTradeRoomRevision.mockResolvedValue({
+      id: "trade-1",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      status: "accepted",
+      updatedAt: "2026-09-14T18:00:00.000Z",
+    });
   });
 
   afterEach(() => {
@@ -87,5 +101,38 @@ describe("trade room SSE reconciliation", () => {
 
     expect(mocks.getTradeRoomData).toHaveBeenCalledTimes(1);
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks one lightweight revision each second and reloads only after this trade changes", async () => {
+    const controller = new AbortController();
+    await GET(new NextRequest("http://localhost/api/alpha-exchange/trade-room/trade-1/stream", { signal: controller.signal }), {
+      params: Promise.resolve({ requestId: "trade-1" }),
+    });
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocks.getTradeRoomRevision).toHaveBeenCalledTimes(1);
+    expect(mocks.getTradeRoomData).toHaveBeenCalledTimes(1);
+
+    mocks.getTradeRoomRevision.mockResolvedValue({
+      id: "trade-1",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      status: "payment_sent",
+      updatedAt: "2026-09-14T18:00:01.000Z",
+    });
+    mocks.getTradeRoomData.mockResolvedValue({
+      request: { id: "trade-1", status: "payment_sent", updatedAt: "2026-09-14T18:00:01.000Z" },
+      messages: [],
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(mocks.getTradeRoomRevision).toHaveBeenCalledTimes(2);
+    expect(mocks.getTradeRoomData).toHaveBeenCalledTimes(2);
+    expect(mocks.getTradeRoomData).toHaveBeenLastCalledWith(expect.objectContaining({
+      markMessagesRead: false,
+      strongConsistency: true,
+    }));
+    controller.abort();
   });
 });

@@ -32,6 +32,10 @@ const privacySections = {
       body: "Information may be shared with vendors that help operate hosting, authentication, messaging, security, storage, or support, subject to their service role. We may also preserve or disclose information when reasonably necessary to investigate abuse, protect users or the service, enforce terms, respond to lawful requests, or meet applicable law. We do not treat private identity documents as public business proof.",
     },
     {
+      title: "Optional WhatsApp notifications",
+      body: "If this option becomes available and you expressly enable it, Alpha Traders may share your verified phone number and a limited notification template with Meta to deliver request, active Trade Room, or message-waiting alerts through WhatsApp. Alerts do not include chat text, amounts, wallet addresses, bank details, or payment instructions. You can disable either alert category at any time in Settings or reply STOP to revoke WhatsApp consent.",
+    },
+    {
       title: "Retention and security",
       body: "We use reasonable technical and organizational measures intended to protect information. No internet service or storage system can guarantee absolute security. Records are retained only as reasonably needed for operations, security, disputes, enforcement, and applicable legal requirements, after which they may be deleted or de-identified.",
     },
@@ -60,6 +64,10 @@ const privacySections = {
     {
       title: "مزودو الخدمة والإفصاح القانوني",
       body: "قد نشارك المعلومات مع مزودين يساعدون في الاستضافة أو المصادقة أو المراسلة أو الأمان أو التخزين أو الدعم وفق دورهم في الخدمة. وقد نحفظ المعلومات أو نكشفها عند الحاجة المعقولة للتحقيق في إساءة أو حماية المستخدمين أو الخدمة أو تطبيق الشروط أو الاستجابة لطلب قانوني أو الوفاء بالقانون. لا نعامل وثائق الهوية الخاصة كدليل تجاري عام.",
+    },
+    {
+      title: "إشعارات WhatsApp الاختيارية",
+      body: "إذا أصبح هذا الخيار متاحًا وفعّلته بموافقة صريحة، فقد تشارك Alpha Traders رقم هاتفك الموثّق ونموذج إشعار محدودًا مع Meta لإرسال تنبيهات عن الطلبات أو غرفة التداول النشطة أو وجود رسالة بانتظارك عبر WhatsApp. لا تتضمن التنبيهات نص المحادثة أو المبالغ أو عناوين المحافظ أو تفاصيل البنك أو تعليمات الدفع. يمكنك إيقاف أي فئة من الإعدادات في أي وقت أو الرد بكلمة STOP لسحب موافقة WhatsApp.",
     },
     {
       title: "الاحتفاظ والأمان",

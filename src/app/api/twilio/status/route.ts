@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mapTwilioStatus, validateTwilioSignature } from "@/lib/notification-platform";
+import { isTwilioSendEnabled, mapTwilioStatus, validateTwilioSignature } from "@/lib/notification-platform";
 import { updateSmsDeliveryStatus } from "@/lib/alpha-exchange-store";
 import { getSiteUrl } from "@/lib/site-url";
 
 export async function POST(request: NextRequest) {
+  if (!isTwilioSendEnabled()) return new NextResponse(null, { status: 404 });
   let form: FormData;
   try {
     form = await request.formData();

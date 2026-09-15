@@ -17,6 +17,35 @@ export interface CommissionPaymentVerificationRecord {
   paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
 }
 
+export interface CommissionRecordContextInput {
+  source?: "trade" | "admin_manual";
+  issueReason?: string;
+  relatedRequestId?: string;
+  relatedTradeId?: string;
+  relatedTradeDisplayNumber?: number;
+}
+
+/**
+ * Manual commissions intentionally have no trade relationship. Resolve the
+ * optional context once so native screens never manufacture a trade link or
+ * dereference a missing request id.
+ */
+export function resolveCommissionRecordContext(record: CommissionRecordContextInput) {
+  const requestId = record.relatedRequestId?.trim() || undefined;
+  const isAdminIssued = record.source === "admin_manual";
+  const tradeReference = isAdminIssued
+    ? undefined
+    : record.relatedTradeDisplayNumber
+      ?? record.relatedTradeId?.trim()
+      ?? (requestId ? requestId.slice(-6) : undefined);
+  return {
+    isAdminIssued,
+    issueReason: record.issueReason?.trim() || undefined,
+    requestId: isAdminIssued ? undefined : requestId,
+    tradeReference,
+  };
+}
+
 /**
  * Grandfathered base-amount payments cannot safely accept a different TxID:
  * their original submitted TxID is the only durable payment-to-commission

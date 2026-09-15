@@ -18,6 +18,7 @@ import {
   isValidTronTransactionId,
   normalizeTronTransactionIdInput,
   reconcileLocallyPendingCommissionId,
+  resolveCommissionRecordContext,
   resolveCommissionPaymentVerificationUi,
   summarizeTronTransactionId,
   TRON_TRANSACTION_ID_LENGTH,
@@ -198,7 +199,7 @@ export default function SellerCommissionsScreen() {
     <NativePageShell
       authenticated
       title={isAr ? "عمولات البائع" : "Seller Commissions"}
-      subtitle={isAr ? "تسوية عمولة 1% للصفقات المكتملة." : "Settle the 1% platform commission for completed trades."}
+      subtitle={isAr ? "تسوية عمولات الصفقات والعمولات الصادرة عن الإدارة." : "Settle trade commissions and documented admin-issued commissions."}
     >
       <View style={[styles.statusCard, query.data?.status === "overdue" && styles.overdueCard]}>
         <Text style={[styles.statusTitle, isRTL && styles.rtlText]}>{query.data?.status === "clear" ? `✓ ${isAr ? "لا توجد عمولات مستحقة" : "No commission due"}` : (isAr ? "عمولة تحتاج إلى الدفع" : "Commission payment required")}</Text>
@@ -211,6 +212,8 @@ export default function SellerCommissionsScreen() {
           <Text style={[styles.title, isRTL && styles.rtlText]}>{isAr ? "اختر سجل العمولة" : "Choose commission record"}</Text>
           {query.data.payableRecords.map((record) => {
             const recordVerification = resolveCommissionPaymentVerificationUi(record, pendingCommissionId);
+            const recordContext = resolveCommissionRecordContext(record);
+            const relatedRequestId = recordContext.requestId;
             return (
               <Pressable
                 key={record.commissionId}
@@ -222,12 +225,23 @@ export default function SellerCommissionsScreen() {
                 style={[styles.option, commissionId === record.commissionId && styles.optionSelected]}
               >
                 <Text style={[styles.optionTitle, isRTL && styles.rtlText]}>{commissionId === record.commissionId ? "✓ " : ""}{formatExactTrc20CommissionAmount(record.paymentAmountDue ?? record.amountDue)}</Text>
-                <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الصفقة" : "Trade"}: #{record.relatedTradeDisplayNumber ?? record.relatedTradeId ?? record.relatedRequestId.slice(-6)}</Text>
+                {recordContext.isAdminIssued ? (
+                  <View style={styles.adminIssuedCard}>
+                    <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</Text>
+                    {recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{recordContext.issueReason}</Text> : null}
+                  </View>
+                ) : recordContext.tradeReference ? (
+                  <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الصفقة" : "Trade"}: #{recordContext.tradeReference}</Text>
+                ) : (
+                  <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "سجل عمولة مستقل" : "Standalone commission record"}</Text>
+                )}
                 {record.dueAt ? <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الاستحقاق" : "Due"}: {new Date(record.dueAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</Text> : null}
                 {recordVerification.state === "pending" ? <Text style={[styles.optionVerificationPending, isRTL && styles.rtlText]}>{isAr ? "التحقق التلقائي قيد التشغيل" : "Automatic verification pending"}</Text> : null}
                 {recordVerification.state === "failed" ? <Text style={[styles.optionVerificationFailed, isRTL && styles.rtlText]}>{isAr ? "لم تُحتسب الدفعة — يلزم TxID جديد" : "Not credited — new TxID required"}</Text> : null}
                 {recordVerification.state === "verified" ? <Text style={[styles.optionVerificationVerified, isRTL && styles.rtlText]}>{isAr ? "تم التحقق من الدفع" : "Payment verified"}</Text> : null}
-                <GoldButton onPress={() => router.push({ pathname: "/trade/[requestId]", params: { requestId: record.relatedRequestId } })} variant="ghost">{isAr ? "فتح الصفقة" : "Open trade"}</GoldButton>
+                {relatedRequestId ? (
+                  <GoldButton onPress={() => router.push({ pathname: "/trade/[requestId]", params: { requestId: relatedRequestId } })} variant="ghost">{isAr ? "فتح الصفقة" : "Open trade"}</GoldButton>
+                ) : null}
               </Pressable>
             );
           })}
@@ -241,6 +255,13 @@ export default function SellerCommissionsScreen() {
               ? (isAr ? "التحقق من دفع العمولة" : "Commission payment verification")
               : (isAr ? "دفع العمولة عبر USDT TRC20" : "Pay commission by USDT TRC20")}
           </Text>
+
+          {selectedRecord.source === "admin_manual" ? (
+            <View style={styles.adminIssuedCard}>
+              <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</Text>
+              {selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.issueReason}</Text> : null}
+            </View>
+          ) : null}
 
           {!legacyPendingForSelectedRecord ? <>
           <View style={styles.networkLockCard}>
@@ -399,6 +420,8 @@ const styles = StyleSheet.create({
   option: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   optionSelected: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF" },
   optionTitle: { color: colors.text, fontSize: typography.small, fontWeight: "900" },
+  adminIssuedCard: { backgroundColor: "rgba(216,180,74,0.08)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.sm },
+  adminIssuedTitle: { color: colors.goldBright, fontSize: typography.small, fontWeight: "900" },
   optionVerificationPending: { color: "#93C5FD", fontSize: typography.caption, fontWeight: "800" },
   optionVerificationFailed: { color: colors.danger, fontSize: typography.caption, fontWeight: "800" },
   optionVerificationVerified: { color: colors.success, fontSize: typography.caption, fontWeight: "800" },

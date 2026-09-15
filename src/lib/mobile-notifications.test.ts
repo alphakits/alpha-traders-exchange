@@ -106,4 +106,22 @@ describe("toMobileNotification destinations", () => {
       destination: { screen: "trade", requestId: "request-hourly" },
     });
   });
+
+  it("marks legacy cash completion as a seller action, never a buyer action", () => {
+    const snapshot = {
+      requestId: "request-cash",
+      currentStage: "usdt_sent",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      paymentMethod: "Cardless ATM Withdrawal",
+      counterpartyName: "Counterparty",
+      usdtAmount: "100",
+      fiatAmount: "350",
+      currency: "ILS",
+      requiredAction: "Complete the cash trade",
+    } as const;
+
+    expect(toMobileNotification(notification({ userId: "seller-1", category: "trade", tradeSnapshot: snapshot }), "en").actionRequired).toBe(true);
+    expect(toMobileNotification(notification({ userId: "buyer-1", category: "trade", tradeSnapshot: snapshot }), "en").actionRequired).toBe(false);
+  });
 });

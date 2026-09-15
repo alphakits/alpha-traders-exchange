@@ -2,7 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
@@ -80,9 +80,10 @@ export async function POST(request: NextRequest) {
       { role: user.role, sellerStatus: user.sellerStatus },
     );
   }
-  const rate = await checkSharedRateLimit({
+  const rate = checkRateLimit({
     headers: request.headers,
-    key: "exchange:purchase-request-create",
+    key: "exchange:purchase-request-create:v2",
+    identifier: user.id,
     maxRequests: 20,
     windowMs: 60_000,
   });
@@ -142,23 +143,24 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
     });
     const { request: purchase, metrics } = created;
-    try {
-      const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
-      after(deliverTradeEmails);
-    } catch (emailScheduleError) {
-      // The purchase request and in-app notification are already durable. An
-      // email preparation failure must never turn that successful commit into
-      // a misleading 4xx response that encourages the Buyer to submit again.
-      logEvent("error", {
-        event: "trade_lifecycle_email_schedule",
-        actorUserId: user.id,
-        actorRole: user.role,
-        resourceId: purchase.id,
-        outcome: "failed",
-        reason: "new_buy_request_post_commit_schedule_failed",
-        metadata: { errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError },
-      });
-    }
+    after(async () => {
+      try {
+        const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
+        await deliverTradeEmails();
+      } catch (emailScheduleError) {
+        // Recipient lookup and provider delivery are strictly post-response.
+        // A slow email system can never delay or roll back a durable request.
+        logEvent("error", {
+          event: "trade_lifecycle_email_schedule",
+          actorUserId: user.id,
+          actorRole: user.role,
+          resourceId: purchase.id,
+          outcome: "failed",
+          reason: "new_buy_request_post_commit_schedule_failed",
+          metadata: { errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError },
+        });
+      }
+    });
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     logEvent("info", {

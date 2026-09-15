@@ -34,6 +34,9 @@ export interface CommissionNetworkConfig {
  */
 export const CANONICAL_TRC20_COMMISSION_WALLET = "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8";
 
+/** Official Tether USD contract on TRON mainnet. */
+export const OFFICIAL_TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+
 export const COMMISSION_NETWORKS: CommissionNetworkConfig[] = [
   {
     id: "TRC20",

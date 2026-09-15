@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import type { CommissionWorkspaceAction } from "@/lib/dashboard-workspace";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCashTradePaymentMethod, normalizeMarketplacePaymentMethod, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
 import { containsArabicText, localizeActivityCopy } from "@/lib/notification-localization";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -352,6 +352,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     || (commissionWorkspaceAction.kind === "pay-one" ? commissionWorkspaceAction.commissionId.trim() : "");
   const selectedCommissionPayment = (sellerCommissionStatus?.payableRecords as PayableCommissionWithVerification[] | undefined)
     ?.find((record) => record.commissionId.trim() === selectedCommissionId);
+  const selectedCommissionIsAdminIssued = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "admin_manual";
+  const selectedCommissionIssueReason = selectedCommissionPayment?.issueReason?.trim()
+    || sellerCommissionStatus?.issueReason?.trim()
+    || "";
   const selectedCommissionSubmittedAt = selectedCommissionPayment?.paymentSubmittedAt
     ? new Date(selectedCommissionPayment.paymentSubmittedAt)
     : null;
@@ -463,7 +467,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription>
-                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid."}
+                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -473,6 +477,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
                     <div className="flex-1 space-y-2">
                       <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
+                      {selectedCommissionIsAdminIssued ? (
+                        <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                          <p className="font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                          {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{selectedCommissionIssueReason}</p> : null}
+                        </div>
+                      ) : null}
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
                           <span className="text-red-300">{isAr ? "المبلغ المستحق" : "Amount outstanding"}</span>
@@ -494,11 +504,18 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : sellerCommissionStatus?.status === "clear" ? (
                 <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                     <span className="font-medium">{isAr ? "لا توجد عمولة مستحقة — حسابك سليم." : "No commission due — you’re all clear."}</span>
+                  </div>
+                </div>
+              ) : (
+                <div role="status" className="rounded-2xl border border-white/15 bg-white/[0.03] p-4 text-sm text-[#D1D5DB]">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#C9A227]" />
+                    <span className="font-medium">{isAr ? "جارٍ التحقق من حالة العمولة..." : "Checking commission status..."}</span>
                   </div>
                 </div>
               )}
@@ -528,7 +545,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         onClick={() => openCommissionPayment(record.commissionId)}
                       >
                         <span>
-                          {record.relatedTradeDisplayNumber ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}` : (isAr ? "سجل العمولة" : "Commission record")}
+                          {record.relatedTradeDisplayNumber
+                            ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}`
+                            : record.source === "admin_manual"
+                              ? (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")
+                              : (isAr ? "سجل العمولة" : "Commission record")}
                         </span>
                         <span className="text-[#FDE68A]">{formatExactCommissionUsdt(record.paymentAmountDue ?? record.amountDue)}</span>
                       </Button>
@@ -555,6 +576,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
+                {selectedCommissionIsAdminIssued ? (
+                  <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+                    <p className="font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                    {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{selectedCommissionIssueReason}</p> : null}
+                  </div>
+                ) : null}
                 {!isLegacyPendingCommissionPayment ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
@@ -582,7 +609,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 ) : null}
                 {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
                   <p className="text-xs text-[#D1D5DB]">
-                    {isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد الصفقة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected trade above.`}
+                    {isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد العمولة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected commission above.`}
                   </p>
                 ) : null}
                 <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
@@ -1395,6 +1422,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               ).map((request) => {
                 const presentation = getTradeQueuePresentation(request, "seller", isAr);
                 const isExpanded = sellerExpandedTradeId === request.id;
+                const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
                 return (
                   <div id={`trade-${request.id}`} key={request.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                     <button
@@ -1464,12 +1492,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
+                        variant={isCashTrade ? "default" : "secondary"}
                         onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
                         onFocus={() => handlePrefetchTradeRoom(request.id)}
                         onClick={() => handleOpenTradeRoom(request.id)}
                       >
-                        {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
+                        {isCashTrade ? (isAr ? "متابعة الصفقة النقدية" : "Continue Cash Trade") : (isAr ? "فتح غرفة التداول" : "Open Trade Room")}
                       </Button>
                       <Button
                         type="button"
@@ -1487,30 +1515,42 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" || requestActionKey === `${request.id}:declined`} onClick={() => handleSellerRequestAction(request.id, "declined")}>
                         {requestActionKey === `${request.id}:declined` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض" : "Decline")}
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
-                        onClick={() => handleSellerRequestAction(request.id, "funds_received")}
-                      >
-                        {requestActionKey === `${request.id}:funds_received`
-                          ? (isAr ? "جارٍ التنفيذ..." : "Processing...")
-                          : normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? (isAr ? "تأكيد استلام النقد" : "Confirm Cash Collected") : (isAr ? "تأكيد استلام الأموال" : "Confirm Funds Received")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
-                        onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
-                      >
-                        {requestActionKey === `${request.id}:usdt_release_pending` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "بدء إرسال USDT" : "Start USDT Release")}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
-                        {requestActionKey === `${request.id}:usdt_sent` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تحديد USDT كمُرسل" : "Mark USDT Sent")}
-                      </Button>
+                      {!isCashTrade ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
+                            onClick={() => handleSellerRequestAction(request.id, "funds_received")}
+                          >
+                            {requestActionKey === `${request.id}:funds_received` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تأكيد استلام الأموال" : "Confirm Funds Received")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
+                            onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
+                          >
+                            {requestActionKey === `${request.id}:usdt_release_pending` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "بدء إرسال USDT" : "Start USDT Release")}
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                            {requestActionKey === `${request.id}:usdt_sent` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تحديد USDT كمُرسل" : "Mark USDT Sent")}
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
+                    {isCashTrade ? (
+                      <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                        <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
+                        <p className="mt-1">
+                          {isAr
+                            ? "تابع داخل غرفة التداول. بعد تأكيد استلام النقد ستظهر محفظة المشتري. أكّد إرسال USDT أولًا، ثم حدّد الصفقة كمكتملة بزر منفصل."
+                            : "Continue inside the Trade Room. After cash confirmation, the buyer wallet appears. Confirm USDT sent first, then mark the trade completed with a separate button."}
+                        </p>
+                      </div>
+                    ) : (
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                       <div>
                         <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
@@ -1571,6 +1611,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </div>
                       ) : null}
                     </div>
+                    )}
                     <div className="mt-4">
                       <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
                     </div>

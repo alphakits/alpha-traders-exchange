@@ -108,7 +108,7 @@ describe("Trade Room client stability helpers", () => {
     expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, true)).toBe(false);
   });
 
-  it("offers the no-evidence Face-to-Face completion command to both participants only after acceptance", () => {
+  it("guides Face-to-Face through cash, receipt, USDT confirmation, then seller-only completion", () => {
     const acceptedFaceToFace = {
       ...room({ status: "accepted" }).request,
       paymentMethod: "Face-to-Face (Meet in Person)",
@@ -118,16 +118,26 @@ describe("Trade Room client stability helpers", () => {
 
     const buyerAction = getPrimaryAction(acceptedFaceToFace, "buyer-1", false, true);
     expect(buyerAction).toMatchObject({
-      label: "Complete Face-to-Face Trade",
-      nextStatus: "completed",
-      command: "complete_cash_trade",
+      label: "I Handed Over the Cash",
+      nextStatus: "payment_sent",
     });
     expect(buyerAction).not.toHaveProperty("requiresEvidenceSide");
-    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toMatchObject({
-      label: "إكمال صفقة اللقاء الشخصي",
+    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toBeNull();
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "payment_sent" }, "seller-1", true, true)).toMatchObject({
+      label: "استلمت النقد",
+      nextStatus: "funds_received",
+    });
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "funds_received" }, "seller-1", false, true)).toMatchObject({
+      label: "Confirm USDT Sent",
+      nextStatus: "usdt_sent",
+    });
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "funds_received" }, "buyer-1", false, true)).toBeNull();
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "usdt_sent" }, "seller-1", false, true)).toMatchObject({
+      label: "Mark Trade as Completed",
       nextStatus: "completed",
       command: "complete_cash_trade",
     });
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "usdt_sent" }, "buyer-1", false, true)).toBeNull();
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "pending" }, "buyer-1", false, true)).toBeNull();
     expect(getPrimaryAction({ ...acceptedFaceToFace, paymentMethod: "Bank Transfer" }, "buyer-1", false, true)).toMatchObject({
       mode: "upload",
@@ -136,7 +146,7 @@ describe("Trade Room client stability helpers", () => {
     expect(getPrimaryAction(acceptedFaceToFace, "admin-not-in-trade", false, true)).toBeNull();
   });
 
-  it("keeps the complete cardless-withdrawal CTA sequence available in both languages", () => {
+  it("keeps the no-photo Cardless ATM sequence explicit in both languages", () => {
     const cardless = {
       ...room({ status: "accepted" }).request,
       paymentMethod: "Cardless ATM Withdrawal",
@@ -147,44 +157,42 @@ describe("Trade Room client stability helpers", () => {
     } as PurchaseRequest;
 
     expect(getPrimaryAction(cardless, "buyer-1", false, false)).toMatchObject({
-      label: "Upload Payment Receipt",
-      mode: "upload",
-      uploadSide: "buyer",
+      label: "I Sent the Withdrawal Code",
+      mode: "status",
+      nextStatus: "payment_sent",
     });
     expect(getPrimaryAction({ ...cardless, status: "payment_sent" }, "seller-1", true, false)).toMatchObject({
-      label: "تأكيد استلام الأموال",
+      label: "استلمت النقد من الصراف",
       nextStatus: "funds_received",
     });
     expect(getPrimaryAction({ ...cardless, status: "funds_received" }, "seller-1", false, false)).toMatchObject({
-      label: "Release USDT",
-      nextStatus: "usdt_release_pending",
+      label: "Confirm USDT Sent",
+      nextStatus: "usdt_sent",
     });
     expect(getPrimaryAction({ ...cardless, status: "usdt_release_pending" }, "seller-1", true, false)).toMatchObject({
       label: "تأكيد إرسال USDT",
       nextStatus: "usdt_sent",
     });
-    expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "buyer-1", false, false)).toMatchObject({
-      label: "Mark Cardless ATM Trade Completed",
-      nextStatus: "completed",
-      command: "complete_cash_trade",
-    });
+    expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "buyer-1", false, false)).toBeNull();
     expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "seller-1", true, false)).toMatchObject({
-      label: "تسجيل صفقة السحب دون بطاقة كمكتملة",
+      label: "تحديد الصفقة كمكتملة",
       nextStatus: "completed",
       command: "complete_cash_trade",
     });
   });
 
-  it("requires confirmation and keeps the Face-to-Face action on both responsive website surfaces", () => {
+  it("requires confirmation and keeps the guided cash action on both responsive website surfaces", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
     expect(source).toContain("!window.confirm(primaryAction.confirmationMessage)");
     expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(2);
     expect(source).toContain('action: action.command');
-    expect(source).toContain('isFaceToFaceTrade ? (');
+    expect(source).toContain('isCashTrade ? (');
     expect(source).toContain('No Evidence Upload Required');
-    expect(source).toContain('isSeller && request.status === "accepted" && !isFaceToFaceTrade');
-    expect(source).toContain('Meet in a safe public place and verify everything before completing the trade.');
+    expect(source).toContain('Confirming USDT sent and completing the trade are two separate seller-only actions');
+    expect(source).toContain('buyer confirmation is not required');
+    expect(source).toContain('The buyer wallet stays hidden from the seller until the seller confirms actual cash receipt.');
+    expect(source).toContain('h-auto min-h-12 w-full whitespace-normal');
   });
 
   it("keeps button-triggered file inputs out of the keyboard tab order", () => {

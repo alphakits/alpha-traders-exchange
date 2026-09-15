@@ -21,7 +21,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { getDefaultListingPaymentMethods, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { getDefaultListingPaymentMethods, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
@@ -171,6 +171,8 @@ export type SellerCommissionStatus = {
   relatedRequestId?: string;
   relatedTradeId?: string;
   relatedTradeDisplayNumber?: number;
+  source?: string;
+  issueReason?: string;
   payableRecords?: Array<{
     commissionId: string;
     amountDue: number;
@@ -184,6 +186,8 @@ export type SellerCommissionStatus = {
     relatedRequestId?: string;
     relatedTradeId?: string;
     relatedTradeDisplayNumber?: number;
+    source?: string;
+    issueReason?: string;
   }>;
 };
 
@@ -651,7 +655,7 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
     request: "تعذّر تحديث هذا الطلب الآن. حاول مرة أخرى.",
     settings: "تعذّر تحديث إعداداتك الآن. حاول مرة أخرى.",
     password: "تعذّر تحديث كلمة المرور الآن. حاول مرة أخرى.",
-    workspace: "تعذّر تحميل مساحة عمل البائع. حدّث الصفحة وحاول مرة أخرى.",
+    workspace: "تعذّر تحميل بيانات المنصة المباشرة الآن. حدّث الصفحة وحاول مرة أخرى.",
     review: "تعذّر إرسال التقييم الآن. حاول مرة أخرى.",
     evidence: "تعذّر رفع الإثبات الآن. حاول مرة أخرى.",
   } : {
@@ -661,7 +665,7 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
     request: "We could not update this request right now. Please try again.",
     settings: "We could not update your settings right now. Please try again.",
     password: "We could not update your password right now. Please try again.",
-    workspace: "We could not load your seller workspace right now. Please refresh and try again.",
+    workspace: "We could not load live Exchange data right now. Please refresh and try again.",
     review: "We could not submit the review right now. Please try again.",
     evidence: "We could not upload evidence right now. Please try again.",
   } satisfies Record<string, string>;
@@ -998,16 +1002,20 @@ export function paymentMethodTradeInstruction(method: string, actor: "buyer" | "
       : "Bank Transfer Instructions: after marking Payment Sent, wait for seller bank confirmation.";
   }
   if (normalized === "Face-to-Face (Meet in Person)") {
-    if (isAr) return "إرشادات اللقاء الشخصي: التقيا في مكان عام، واحمِ معلوماتك الخاصة، وتأكد من تحويل USDT قبل المغادرة.";
-    return "Face-to-Face Safety: meet in a public place, protect private information, and confirm USDT transfer before leaving.";
+    if (isAr) return actor === "seller"
+      ? "اللقاء الشخصي: أكّد فقط بعد استلام النقد فعليًا. ثم أكّد إرسال USDT وحدد الصفقة كمكتملة بزر منفصل. لا يلزم رفع صورة."
+      : "اللقاء الشخصي: سلّم النقد ثم أكّد ذلك من غرفة التداول. يؤكد البائع إرسال USDT ثم يُكمل الصفقة بشكل منفصل؛ لا يلزم تأكيد المشتري أو رفع صورة.";
+    return actor === "seller"
+      ? "Face-to-Face: confirm only after you physically receive the cash. Then confirm USDT sent and mark the trade completed with a separate button. No photo is required."
+      : "Face-to-Face: hand over the cash, then confirm it in the Trade Room. The seller separately confirms USDT sent and completes the trade; no buyer receipt confirmation or photo is required.";
   }
   if (normalized === "Cardless ATM Withdrawal") {
     if (isAr) return actor === "seller"
-      ? "السحب من الصراف بلا بطاقة: أكّد العملية فقط بعد استلام النقد من الصراف."
-      : "السحب من الصراف بلا بطاقة: حدّد «السحب جاهز» فقط بعد إنشاء رمز السحب من الصراف.";
+      ? "السحب بلا بطاقة: أكّد فقط بعد سحب النقد فعليًا. ثم أكّد إرسال USDT وحدد الصفقة كمكتملة بزر منفصل. لا يلزم رفع صورة."
+      : "السحب بلا بطاقة: أرسل رمز السحب للبائع ثم أكّد ذلك من غرفة التداول. يؤكد البائع إرسال USDT ثم يُكمل الصفقة؛ لا يلزم منك تأكيد الاستلام أو رفع صورة.";
     return actor === "seller"
-      ? "Cardless ATM Withdrawal: confirm only after you collect cash from the ATM."
-      : "Cardless ATM Withdrawal: mark Withdrawal Ready only after generating the ATM withdrawal code.";
+      ? "Cardless ATM: confirm only after you collect the cash. Then confirm USDT sent and mark the trade completed with a separate button. No photo is required."
+      : "Cardless ATM: send the withdrawal code to the seller, then confirm it in the Trade Room. The seller confirms USDT sent and completes the trade; no buyer receipt confirmation or photo is required.";
   }
   return isAr ? "اتبع الخط الزمني للصفقة وأكمل كل خطوة تحقق قبل المتابعة." : "Follow the trade timeline and complete each verification step before moving forward.";
 }
@@ -1389,6 +1397,7 @@ export function UsdtExchangePage({
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
   const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
+  const purchaseRequestInFlightRef = useRef(false);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
   const [purchasePriceMode, setPurchasePriceMode] = useState<"listing_price" | "buyer_offer">("listing_price");
   const [buyerOfferedPrice, setBuyerOfferedPrice] = useState("");
@@ -1643,6 +1652,8 @@ export function UsdtExchangePage({
   const deepLinkAppliedRef = useRef(false);
   const commissionPayDeepLinkHandledRef = useRef(false);
   const commissionPayIntentHandledRef = useRef<string | null>(null);
+  const commissionNotificationSignatureRef = useRef<string | null>(null);
+  const sellerWorkspaceResumeRefreshInFlightRef = useRef(false);
   const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
@@ -1694,6 +1705,25 @@ export function UsdtExchangePage({
     return response;
   }, [refreshCanonicalSession]);
 
+  const tracedReadFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await tracedFetch(label, input, init);
+        if (response.ok || response.status < 500 || attempt === 1) return response;
+      } catch (error) {
+        lastError = error;
+        if (init?.signal?.aborted || attempt === 1) throw error;
+      }
+      // A recycled serverless worker can fail one read without making the
+      // workspace unavailable. Retry quickly so existing data stays visible
+      // and a temporary 5xx never becomes a false empty dashboard. One retry
+      // avoids multiplying traffic while the database is genuinely offline.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+    }
+    throw lastError instanceof Error ? lastError : new Error("Read request failed.");
+  }, [tracedFetch]);
+
   const refreshBuyerProfileSummary = useCallback(async () => {
     if (!sessionUser || hasSellerWorkspaceAccess) {
       setBuyerProfileSummary(null);
@@ -1701,8 +1731,11 @@ export function UsdtExchangePage({
     }
 
     try {
-      const response = await tracedFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
-      if (!response.ok) return;
+      const response = await tracedReadFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
+      if (!response.ok) {
+        setWorkspaceError(safeErrorMessage("workspace", isAr));
+        return;
+      }
       const payload = (await response.json()) as {
         stats?: {
           kind?: string;
@@ -1720,9 +1753,10 @@ export function UsdtExchangePage({
         lifetimeCompletedVolumeUsdt: Number(payload.stats.lifetimeCompletedVolumeUsdt ?? 0),
       }));
     } catch {
-      // Preserve current state if the profile payload is temporarily unavailable.
+      // Preserve current state and disclose that the live summary is not ready.
+      setWorkspaceError(safeErrorMessage("workspace", isAr));
     }
-  }, [hasSellerWorkspaceAccess, sessionUser, tracedFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, sessionUser, tracedReadFetch]);
 
   useEffect(() => () => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -1731,19 +1765,23 @@ export function UsdtExchangePage({
 
   const refreshMyPurchaseRequests = useCallback(async () => {
     try {
-      const response = await tracedFetch(
+      const response = await tracedReadFetch(
         "Workspace data loading: purchase requests",
         "/api/alpha-exchange/purchase-requests",
         { cache: "no-store" },
       );
-      if (!response.ok) return false;
+      if (!response.ok) {
+        setWorkspaceError(safeErrorMessage("workspace", isAr));
+        return false;
+      }
       const payload = (await response.json()) as { requests?: PurchaseRequest[] };
       setMyRequests(payload.requests ?? []);
       return true;
     } catch {
+      setWorkspaceError(safeErrorMessage("workspace", isAr));
       return false;
     }
-  }, [tracedFetch]);
+  }, [isAr, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
     try {
@@ -1752,10 +1790,11 @@ export function UsdtExchangePage({
         : "";
       const [, myListingsRes, discordSharingRes] = await Promise.all([
         refreshMyPurchaseRequests(),
-        tracedFetch("Workspace data loading: my listings", `/api/alpha-exchange/my-listings${commissionQuery}`, { cache: "no-store" }),
-        tracedFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
+        tracedReadFetch("Workspace data loading: my listings", `/api/alpha-exchange/my-listings${commissionQuery}`, { cache: "no-store" }),
+        tracedReadFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
       ]);
       let refreshedCommissionStatus: SellerCommissionStatus | null = null;
+      let sellerWorkspaceLoadFailed = false;
       if (myListingsRes.ok) {
         const myListingsJson = (await myListingsRes.json()) as {
           listings: MarketplaceListing[];
@@ -1783,6 +1822,9 @@ export function UsdtExchangePage({
         setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
+      } else {
+        sellerWorkspaceLoadFailed = true;
+        setWorkspaceError(await readApiErrorMessage(myListingsRes, safeErrorMessage("workspace", isAr)));
       }
       if (discordSharingRes.ok) {
         setDiscordSharing(await discordSharingRes.json() as DiscordListingSharingStatus);
@@ -1796,13 +1838,13 @@ export function UsdtExchangePage({
           listings: [],
         });
       }
-      setWorkspaceError(null);
+      if (!sellerWorkspaceLoadFailed) setWorkspaceError(null);
       return refreshedCommissionStatus;
     } catch {
       setWorkspaceError(safeErrorMessage("workspace", isAr));
       return null;
     }
-  }, [isAr, refreshMyPurchaseRequests, tracedFetch]);
+  }, [isAr, refreshMyPurchaseRequests, tracedReadFetch]);
 
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
@@ -1828,6 +1870,29 @@ export function UsdtExchangePage({
     (record) => record.paymentVerificationStatus === "pending_verification",
   ) === true;
   const selectedCommissionIdForRefresh = sellerCommissionStatus?.commissionId?.trim() || undefined;
+
+  // A seller can keep this dashboard open while an administrator issues a
+  // commission. Reconcile when the page regains focus even when there was no
+  // existing debt to activate the payment-verification poller below.
+  useEffect(() => {
+    // Pending verification has its own interval and resume listeners below.
+    // Let that effect preserve the selected record without issuing a second
+    // focus/visibility refresh at the same time.
+    if (!hasSellerWorkspaceAccess || isSessionResolving || hasPendingCommissionVerification) return;
+    const refreshAfterResume = () => {
+      if (document.visibilityState !== "visible" || commissionPayOpen || sellerWorkspaceResumeRefreshInFlightRef.current) return;
+      sellerWorkspaceResumeRefreshInFlightRef.current = true;
+      void refreshSellerWorkspace().finally(() => {
+        sellerWorkspaceResumeRefreshInFlightRef.current = false;
+      });
+    };
+    window.addEventListener("focus", refreshAfterResume);
+    document.addEventListener("visibilitychange", refreshAfterResume);
+    return () => {
+      window.removeEventListener("focus", refreshAfterResume);
+      document.removeEventListener("visibilitychange", refreshAfterResume);
+    };
+  }, [commissionPayOpen, hasPendingCommissionVerification, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || !hasPendingCommissionVerification) return;
@@ -1886,14 +1951,14 @@ export function UsdtExchangePage({
   ]);
 
   const refreshDiscordSharingStatus = useCallback(async () => {
-    const response = await tracedFetch(
+    const response = await tracedReadFetch(
       "Discord sharing status refresh",
       "/api/alpha-exchange/discord-sharing",
       { cache: "no-store" },
     );
     if (!response.ok) return;
     setDiscordSharing(await response.json() as DiscordListingSharingStatus);
-  }, [tracedFetch]);
+  }, [tracedReadFetch]);
 
   const scheduleDiscordSharingRefreshes = useCallback(() => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -2085,23 +2150,17 @@ export function UsdtExchangePage({
       if (unreadOnly) params.set("unreadOnly", "1");
       params.set("includeActivity", "0");
       const notificationsStartedAt = Date.now();
-      let response: Response | null = null;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 20_000);
-        try {
-          response = await tracedFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, {
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          break;
-        } catch {
-          if (attempt === 2) throw new Error("failed");
-        } finally {
-          window.clearTimeout(timeout);
-        }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      let response: Response;
+      try {
+        response = await tracedReadFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeout);
       }
-      if (!response) throw new Error("failed");
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as {
         notifications: AlphaExchangeNotification[];
@@ -2125,18 +2184,18 @@ export function UsdtExchangePage({
     } finally {
       setNotificationsLoading(false);
     }
-  }, [isAr, notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedFetch]);
+  }, [isAr, notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedReadFetch]);
 
   const refreshNotificationPreferences = useCallback(async () => {
     try {
-      const response = await tracedFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      const response = await tracedReadFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (!response.ok) return;
       const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
       if (payload.preferences) setNotificationPreferences(payload.preferences);
     } catch {
       // Keep silent to preserve UX messaging style.
     }
-  }, [tracedFetch]);
+  }, [tracedReadFetch]);
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
     try {
@@ -2224,6 +2283,7 @@ export function UsdtExchangePage({
       try {
         const listingsRes = await listingsPromise;
         if (cancelled) return;
+        if (!listingsRes.ok) throw new Error("Marketplace listings are temporarily unavailable.");
         const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
         if (cancelled) return;
         setListings(listingsJson.listings ?? []);
@@ -2240,7 +2300,7 @@ export function UsdtExchangePage({
     async function bootstrap() {
       const workspaceInitStartedAt = Date.now();
       try {
-        const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
+        const listingsPromise = tracedReadFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
         const shellReadyAt = Date.now();
         appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
         bootstrapCompletedAtRef.current = shellReadyAt;
@@ -2262,7 +2322,7 @@ export function UsdtExchangePage({
       cancelled = true;
       controller.abort();
     };
-  }, [isAr, tracedFetch]);
+  }, [isAr, tracedReadFetch]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -2291,7 +2351,7 @@ export function UsdtExchangePage({
       void (async () => {
         try {
           const [applicationRes] = await Promise.all([
-            tracedFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
+            tracedReadFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
             hasSellerWorkspaceAccess ? refreshSellerWorkspace() : refreshMyPurchaseRequests(),
             refreshNotificationPreferences(),
           ]);
@@ -2315,7 +2375,7 @@ export function UsdtExchangePage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedReadFetch]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || isSessionResolving || deferredSellerPanelsReady) return;
@@ -2369,10 +2429,32 @@ export function UsdtExchangePage({
       if (typeof payload.unreadCount === "number" && Number.isFinite(payload.unreadCount)) {
         setNotificationUnreadCount(Math.max(0, payload.unreadCount));
       }
+
+      // A commission notification is also the cross-instance signal that the
+      // server persisted a new payable record. Previously the bell updated but
+      // an already-open seller workspace remained incorrectly "all clear".
+      const commissionSignature = payload.notifications
+        .filter((notification) => Boolean(getCommissionPaymentNotificationDestination(notification)))
+        .map((notification) => `${notification.id}:${notification.updatedAt ?? notification.createdAt}`)
+        .sort()
+        .join("|");
+      const previousCommissionSignature = commissionNotificationSignatureRef.current;
+      commissionNotificationSignatureRef.current = commissionSignature;
+      if (
+        hasSellerWorkspaceAccess
+        && commissionSignature
+        && commissionSignature !== previousCommissionSignature
+      ) {
+        void refreshSellerWorkspace(
+          commissionPayOpen && selectedCommissionIdForRefresh
+            ? { commissionId: selectedCommissionIdForRefresh }
+            : undefined,
+        );
+      }
     } catch {
       // Keep stream updates best-effort and preserve current UI state on malformed payloads.
     }
-  }, []);
+  }, [commissionPayOpen, hasSellerWorkspaceAccess, refreshSellerWorkspace, selectedCommissionIdForRefresh]);
   useAuthenticatedNotificationStream({ enabled: Boolean(sessionUser && notificationsInitialized), onNotifications: handleNotificationStream });
 
   useEffect(() => {
@@ -2882,7 +2964,9 @@ export function UsdtExchangePage({
 
   async function submitPurchaseRequest() {
     if (!selectedListing) return;
-    if (isSubmittingPurchase) return;
+    // React state updates after the current event. This synchronous ref closes
+    // the double-tap window on phones before a second handler can submit.
+    if (purchaseRequestInFlightRef.current || isSubmittingPurchase) return;
     if (listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod) && !faceToFaceSafetyAcknowledged) {
       setStatusMessage(isAr ? "وافق على إرشادات الخصوصية والأمان للقاء المباشر قبل المتابعة." : "Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
       return;
@@ -2916,6 +3000,7 @@ export function UsdtExchangePage({
     const fallbackMessage = isAr
       ? "تعذر بدء الصفقة بسبب خطأ غير متوقع. حاول مرة أخرى."
       : "We could not start this trade due to an unexpected server error.";
+    purchaseRequestInFlightRef.current = true;
     setIsSubmittingPurchase(true);
     try {
       const response = await fetch("/api/alpha-exchange/purchase-requests", {
@@ -3004,6 +3089,7 @@ export function UsdtExchangePage({
           : "Unable to reach the server right now. Check your connection and try again.");
       setStatusMessage(message);
     } finally {
+      purchaseRequestInFlightRef.current = false;
       setIsSubmittingPurchase(false);
     }
   }
@@ -3039,7 +3125,9 @@ export function UsdtExchangePage({
     && !isAdminSession,
   );
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
-  const archivedConfirmationTrade = buyerRequests.find((request) => request.status === "usdt_sent" && request.buyerConfirmationArchivedAt);
+  const archivedConfirmationTrade = buyerRequests.find((request) => request.status === "usdt_sent"
+    && !isCashTradePaymentMethod(request.paymentMethod)
+    && request.buyerConfirmationArchivedAt);
   const pendingBuyerReviewTrade = buyerRequests.find((request) => ["review_open", "locked", "completed"].includes(request.status) && !request.buyerReview);
   useEffect(() => {
     if (!sessionUser) return;
@@ -3063,7 +3151,7 @@ export function UsdtExchangePage({
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
   const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
-  const listingCreateRequiresBankAccount = listingCreateRequiresBank;
+  const listingCreateRequiresBankAccount = requiresSellerPayoutBankAccount(listingCreateSelectedMethods);
   const listingCreateSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingCreateForm.bankAccountId);
   const listingCreateBankAccountMismatch = Boolean(
     listingCreateRequiresBankAccount
@@ -3126,12 +3214,19 @@ export function UsdtExchangePage({
   const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
   const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
   const listingEditRequiresBank = requiresBankSelection(listingEditSelectedMethods);
-  const listingEditRequiresBankAccount = listingEditRequiresBank;
+  const listingEditRequiresBankAccount = requiresSellerPayoutBankAccount(listingEditSelectedMethods);
+  const listingEditSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingEditForm.bankAccountId);
+  const listingEditBankAccountMismatch = Boolean(
+    listingEditRequiresBankAccount
+    && listingEditForm.bankAccountId
+    && (!listingEditSelectedBankAccount || !isPayoutBankSupported(listingEditSelectedBanks, listingEditSelectedBankAccount.bankName)),
+  );
   const listingEditMissingRequired = !listingEditAmount
     || !listingEditPrice
     || !listingEditSelectedMethods.length
     || (listingEditRequiresBank && !listingEditSelectedBanks.length)
-    || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId);
+    || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId)
+    || listingEditBankAccountMismatch;
   const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditNeedsReason = listingEditOriginal
     ? listingEditRequiresReason(listingEditOriginal, {
@@ -3892,13 +3987,15 @@ export function UsdtExchangePage({
     if (!snapshot?.requestId || !snapshot.currentStage || !sessionUser) return null;
     const isSellerActor = snapshot.sellerId === sessionUser.id;
     const isBuyerActor = snapshot.buyerId === sessionUser.id;
-    let action: "accept-trade" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
+    const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
+    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
     if (snapshot.currentStage === "pending" && isSellerActor) action = "accept-trade";
-    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = "upload-payment-receipt";
+    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
     else if (snapshot.currentStage === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_sent" && isBuyerActor) action = "confirm-usdt-received";
+    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
+    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+    else if (snapshot.currentStage === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
+    else if (snapshot.currentStage === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
     else if ((snapshot.currentStage === "review_open" || snapshot.currentStage === "completed" || snapshot.currentStage === "locked") && isBuyerActor) action = "review-trade";
     if (action === "open-trade") return null;
     const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
@@ -3913,13 +4010,15 @@ export function UsdtExchangePage({
     if (!sessionUser) return `/trade-room/${request.id}`;
     const isSellerActor = request.sellerId === sessionUser.id;
     const isBuyerActor = request.buyerId === sessionUser.id;
-    let action: "accept-trade" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
+    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
     if (request.status === "pending" && isSellerActor) action = "accept-trade";
-    else if (request.status === "accepted" && isBuyerActor) action = "upload-payment-receipt";
+    else if (request.status === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
     else if (request.status === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (request.status === "funds_received" && isSellerActor) action = "upload-seller-evidence";
-    else if (request.status === "usdt_release_pending" && isSellerActor) action = "upload-seller-evidence";
-    else if (request.status === "usdt_sent" && isBuyerActor) action = "confirm-usdt-received";
+    else if (request.status === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
+    else if (request.status === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+    else if (request.status === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
+    else if (request.status === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
     else if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor) action = "review-trade";
     const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
       ? "evidence"
@@ -3974,8 +4073,12 @@ export function UsdtExchangePage({
   const inferTradeActionFromNotification = useCallback((notification: AlphaExchangeNotification) => {
     const text = `${notification.title} ${notification.message}`.toLowerCase();
     if (/new trade request/.test(text)) return "accept-trade";
+    if (/withdrawal code|handed over cash|handed the cash/.test(text)) return "confirm-money-received";
     if (/trade request accepted/.test(text)) return "upload-payment-receipt";
     if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
+    if (/buyer wallet is now revealed|send-and-complete/.test(text)) return "confirm-usdt-sent";
+    if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
+    if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
     if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
     if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
     if (/review available|trade completed/.test(text)) return "review-trade";
@@ -5349,6 +5452,7 @@ export function UsdtExchangePage({
               isWorkspaceWidgetsLoading,
               listingActionKey,
               listingEditAmount,
+              listingEditBankAccountMismatch,
               listingEditForm,
               listingEditGuardTone,
               listingEditNeedsReason,

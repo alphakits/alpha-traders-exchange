@@ -6,8 +6,10 @@ vi.mock("@/lib/postgres-runtime", () => ({
 }));
 
 import {
+  getAdminPrepDashboardData,
   getNotificationsForUser,
   getSellerCommissionStatus,
+  getSellerListingWorkspaceData,
   invalidateAlphaExchangeStoreCache,
   reverifyPendingCommissionPayments,
   reverifyCommissionByAdmin,
@@ -15,6 +17,10 @@ import {
   updateCommissionPaymentStatus,
 } from "@/lib/alpha-exchange-store";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
+import {
+  clearMarketplaceEmailAttempts,
+  listMarketplaceEmailAttempts,
+} from "@/lib/marketplace-email-delivery";
 
 const SELLER_ID = "commission-seller";
 const BUYER_ID = "commission-buyer";
@@ -195,6 +201,7 @@ function mockVerifiedTronPayments(expectedReceiptRequests: number) {
 describe("commission wallet payment routing", () => {
   beforeEach(() => {
     clearCommissionWalletEnvironment();
+    clearMarketplaceEmailAttempts();
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
@@ -202,12 +209,101 @@ describe("commission wallet payment routing", () => {
   });
 
   afterEach(() => {
+    clearMarketplaceEmailAttempts();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     invalidateAlphaExchangeStoreCache();
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+  });
+
+  it("sees a newly assigned commission even when this instance cached the seller as clear", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const newlyAssigned = structuredClone(db.commissionRecords[0]!);
+    db.commissionRecords = [];
+
+    // Prime the normal process-local snapshot cache before another instance
+    // (represented by the canonical memory repository) assigns the debt.
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    const status = await getSellerCommissionStatus(SELLER_ID);
+    expect(status).toMatchObject({
+      status: "pending",
+      pendingCount: 1,
+      commissionId: COMMISSION_ID,
+      payableAmountDue: 5.000001,
+    });
+  });
+
+  it("returns a coherent locked seller workspace from one strong snapshot", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const newlyAssigned = structuredClone(db.commissionRecords[0]!);
+    db.commissionRecords = [];
+
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    const workspace = await getSellerListingWorkspaceData({
+      sellerId: SELLER_ID,
+      status: "all",
+      commissionId: COMMISSION_ID,
+    });
+    expect(workspace.commissionStatus).toMatchObject({
+      status: "pending",
+      pendingCount: 1,
+      commissionId: COMMISSION_ID,
+    });
+    expect(workspace.summary).toMatchObject({
+      pendingCommissionCount: 1,
+      canCreateListing: false,
+    });
+  });
+
+  it("shows a newly committed commission in a fresh admin dashboard read", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const newlyAssigned = structuredClone(db.commissionRecords[0]!);
+    db.commissionRecords = [];
+
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    const dashboard = await getAdminPrepDashboardData();
+    expect(dashboard.commissionRecords).toContainEqual(expect.objectContaining({
+      id: COMMISSION_ID,
+      sellerId: SELLER_ID,
+      paymentStatus: "pending",
+    }));
+  });
+
+  it("settles a newly assigned commission even when this instance cached the seller as clear", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const assignedAt = new Date(Date.now() - 60_000).toISOString();
+    const newlyAssigned = {
+      ...structuredClone(db.commissionRecords[0]!),
+      paymentExpectedAmount: 5.000001,
+      paymentExpectedAmountMode: "unique_v1" as const,
+      paymentExpectedAmountAssignedAt: assignedAt,
+    };
+    db.commissionRecords = [];
+
+    await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    db.commissionRecords.push(newlyAssigned);
+
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronReceipt())));
+
+    await expect(submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network: "TRC20",
+      payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    })).resolves.toMatchObject({ verification: { verified: true } });
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+    });
   });
 
   it("records only the canonical TRC20 rail and Binance recipient", async () => {
@@ -232,6 +328,10 @@ describe("commission wallet payment routing", () => {
 
   it("does not tell a seller to pay again while an overdue TxID is awaiting verification", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       dueAt: new Date(Date.now() - 60_000).toISOString(),
@@ -258,6 +358,10 @@ describe("commission wallet payment routing", () => {
   it("verifies a solidified official USDT TRC20 transfer and unlocks the seller automatically", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     vi.stubEnv("ALPHA_EXCHANGE_TRONGRID_API_KEY", "test-trongrid-key");
     const fetchMock = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       expect(String(request)).toMatch(/walletsolidity\/gettransactioninfobyid$/);
@@ -289,6 +393,10 @@ describe("commission wallet payment routing", () => {
     });
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     expect(snapshot.purchaseRequests[0]?.timeline.some((entry) => entry.type === "commission_paid")).toBe(true);
+    expect(snapshot.notifications).toContainEqual(expect.objectContaining({
+      userId: SELLER_ID,
+      title: "Commission payment verified",
+    }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -591,6 +699,10 @@ describe("commission wallet payment routing", () => {
   it("automatically reconciles a pre-upgrade verified-but-unpaid commission", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     const submittedAt = new Date(Date.now() - 60_000).toISOString();
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
@@ -762,6 +874,10 @@ describe("commission wallet payment routing", () => {
   it("turns an automatically detected terminal mismatch into a visible replace-TxID state", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       paymentExpectedAmount: 5.000001,
@@ -957,6 +1073,10 @@ describe("commission wallet payment routing", () => {
   it("settles and unlocks an unpaid commission when admin reverification confirms it on-chain", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
       paymentNetwork: "TRC20",
@@ -1370,6 +1490,69 @@ describe("commission wallet payment routing", () => {
     });
   });
 
+  it("confirms a manual settlement, clears stale failure notes, unlocks listings, and emails the seller", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommissionRequest(db, "request-1", "listing-1");
+    db.users[0] = {
+      ...db.users[0]!,
+      preferredLocale: "en",
+      notificationPreferences: { inApp: false, email: false, sms: false },
+    };
+    db.commissionRecords[0] = {
+      ...db.commissionRecords[0],
+      displayNumber: 10,
+      paymentVerificationStatus: "failed",
+      paymentVerificationNotes: "The payment timestamp preceded the commission intent.",
+    };
+    const settlementReason = `Owner verified receipt of 5.00 USDT on TRON. TxID: ${VERIFIED_TRON_TX_A}`;
+    vi.stubEnv("RESEND_API_KEY", "test-resend-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Traders <noreply@alphatraders.co.il>");
+    const emailFetch = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      void request;
+      void init;
+      return { ok: true, status: 200 } as Response;
+    });
+    vi.stubGlobal("fetch", emailFetch);
+
+    await updateCommissionPaymentStatus({
+      commissionId: COMMISSION_ID,
+      actorUserId: "owner-1",
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      reason: settlementReason,
+    });
+
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentVerificationNotes: settlementReason,
+    });
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.notifications).toContainEqual(expect.objectContaining({
+      userId: SELLER_ID,
+      title: "Commission marked paid",
+      message: expect.stringMatching(/create, manage, and publish listings again/i),
+      actionHref: "/dashboard/seller#my-listings-section",
+      actionLabel: "Continue Managing Listings",
+    }));
+    await expect(getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" }))
+      .resolves.toMatchObject({
+        summary: { pendingCommissionCount: 0, canCreateListing: true },
+        commissionStatus: { status: "clear", pendingCount: 0 },
+      });
+    expect(listMarketplaceEmailAttempts()).toContainEqual(expect.objectContaining({
+      event: "commission_paid",
+      to: "commission-seller@example.test",
+      referenceLabel: "#CM-000010",
+    }));
+    expect(emailFetch).toHaveBeenCalledOnce();
+    const emailRequest = emailFetch.mock.calls[0]?.[1] as RequestInit;
+    const emailBody = JSON.parse(String(emailRequest.body)) as { to: string[]; subject: string; text: string };
+    expect(emailBody.to).toEqual(["commission-seller@example.test"]);
+    expect(emailBody.subject).toMatch(/Commission Payment Confirmed/);
+    expect(emailBody.text).toMatch(/create, manage, and publish listings again/i);
+  });
+
   it("commits simultaneous identical admin-paid updates exactly once", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
@@ -1388,6 +1571,7 @@ describe("commission wallet payment routing", () => {
     expect(snapshot.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "commission_paid")).toHaveLength(1);
     expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(1);
     expect(snapshot.notifications.filter((notification) => notification.title === "Commission marked paid")).toHaveLength(1);
+    expect(listMarketplaceEmailAttempts().filter((attempt) => attempt.event === "commission_paid")).toHaveLength(1);
   });
 
   it("preserves simultaneous admin-paid updates to different commissions", async () => {

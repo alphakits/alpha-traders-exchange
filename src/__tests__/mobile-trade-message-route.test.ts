@@ -5,8 +5,9 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
+  checkRateLimit: vi.fn(),
   checkSharedRateLimit: vi.fn(),
-  getTradeRoomData: vi.fn(),
+  getTradeRoomRevision: vi.fn(),
   logEvent: vi.fn(),
   postTradeRoomMessage: vi.fn(),
   prepareTradeRoomConversationEmail: vi.fn(),
@@ -19,14 +20,17 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMobileApiUser }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
-  getTradeRoomData: mocks.getTradeRoomData,
+  getTradeRoomRevision: mocks.getTradeRoomRevision,
   postTradeRoomMessage: mocks.postTradeRoomMessage,
 }));
 vi.mock("@/lib/marketplace-email-events", () => ({
   prepareTradeRoomConversationEmail: mocks.prepareTradeRoomConversationEmail,
   TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS: 120_000,
 }));
-vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: mocks.checkRateLimit,
+  checkSharedRateLimit: mocks.checkSharedRateLimit,
+}));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 
 import { POST } from "@/app/api/mobile/v1/trades/[requestId]/messages/route";
@@ -54,14 +58,6 @@ function context() {
   return { params: Promise.resolve({ requestId: "purchase-1" }) };
 }
 
-function room() {
-  return {
-    request: { id: "purchase-1", buyerId: "buyer-1", sellerId: "private-seller-id" },
-    messages: [],
-    counterpart: { buyerName: "Buyer", sellerName: "Seller" },
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireMobileApiUser.mockResolvedValue({
@@ -69,7 +65,14 @@ beforeEach(() => {
     accessToken: "access",
     unauthorized: null,
   });
-  mocks.getTradeRoomData.mockResolvedValue(room());
+  mocks.getTradeRoomRevision.mockResolvedValue({
+    id: "purchase-1",
+    buyerId: "buyer-1",
+    sellerId: "private-seller-id",
+    status: "accepted",
+    updatedAt: "2026-09-06T12:00:00.000Z",
+  });
+  mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mocks.prepareTradeRoomConversationEmail.mockResolvedValue(async () => undefined);
   mocks.postTradeRoomMessage.mockResolvedValue({

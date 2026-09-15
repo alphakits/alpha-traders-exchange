@@ -143,4 +143,20 @@ describe("API mutation origin protection", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
+
+  it("allows an email-verified seller into the workspace without a phone cookie in email-only mode", () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+    const response = middleware(new NextRequest(
+      "https://www.alphatraders.co.il/en/dashboard/seller",
+      {
+        headers: {
+          cookie: "alpha_exchange_session=session-token; alpha_exchange_verified=1",
+        },
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+  });
 });

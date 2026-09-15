@@ -16,6 +16,14 @@ const currentExactMessages = [
     "Seller confirmed the funds were received. USDT release is now unlocked.",
     "أكّد البائع استلام الأموال. أصبح إرسال USDT متاحًا الآن.",
   ],
+  [
+    "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required.",
+    "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وتأكيد الإرسال. لا يلزم رفع صورة.",
+  ],
+  [
+    "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.",
+    "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وتأكيد الإرسال. لا يلزم رفع صورة.",
+  ],
   ["Seller started the 45-minute USDT release window.", "بدأ البائع مهلة إرسال USDT ومدتها 45 دقيقة."],
   [
     "Seller marked USDT as sent. Buyer should now confirm receipt.",
@@ -26,8 +34,28 @@ const currentExactMessages = [
     "أكّد المشتري استلام USDT. اكتملت الصفقة وانتقلت إلى السجل.",
   ],
   [
-    "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.",
-    "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات.",
+    "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+    "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+  ],
+  [
+    "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+    "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+  ],
+  [
+    "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+    "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+  ],
+  [
+    "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+    "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+  ],
+  [
+    "Buyer confirmed the cardless withdrawal code was sent. Seller should collect the ATM cash, then confirm receipt.",
+    "أكد المشتري إرسال رمز السحب دون بطاقة. على البائع سحب النقد من الصراف ثم تأكيد الاستلام.",
+  ],
+  [
+    "Buyer confirmed the cash was handed over. Seller should confirm receipt before sending USDT.",
+    "أكد المشتري تسليم النقد. على البائع تأكيد الاستلام قبل إرسال USDT.",
   ],
   [
     "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.",
@@ -63,12 +91,22 @@ describe("localizeTradeRoomSystemMessage", () => {
     });
   });
 
-  it.each(currentExactMessages)("preserves current English system copy byte-for-byte for %s", (source) => {
+  it.each(currentExactMessages.filter(([source]) => !source.includes("so the seller can send USDT and complete the trade") && !source.includes("who should send USDT and complete the trade")))("preserves current English system copy byte-for-byte for %s", (source) => {
     expect(localizeTradeRoomSystemMessage(source, "en")).toMatchObject({
       text: source,
       dir: "ltr",
       matched: true,
     });
+  });
+
+  it("replaces stale persisted cash instructions with the seller-only sequence", () => {
+    const source = "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.";
+    const localized = localizeTradeRoomSystemMessage(source, "en");
+
+    expect(localized.text).toContain("the seller confirms USDT sent");
+    expect(localized.text).toContain("separate button");
+    expect(localized.text).toContain("No photo is required");
+    expect(localized.text).not.toContain("either participant");
   });
 
   it("preserves a manual-close reason, explanation, and reference as one isolated value", () => {

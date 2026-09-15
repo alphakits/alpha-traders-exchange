@@ -2,7 +2,7 @@ import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { getFirstActiveTradeForUser, getTradeReminderForUser } from "@/lib/alpha-exchange-store";
+import { getTradeHeaderStateForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
@@ -22,10 +22,15 @@ export async function SiteHeader({
    */
   sessionUser: AlphaExchangeUser | null;
 }) {
-  const t = await getTranslations({ locale, namespace: "nav" });
-  const brand = (await getTranslations({ locale }))("brand");
-  const activeTrade = sessionUser ? await getFirstActiveTradeForUser(sessionUser.id, sessionUser.role) : null;
-  const tradeReminder = sessionUser ? await getTradeReminderForUser(sessionUser.id, sessionUser.role) : null;
+  const [t, rootTranslations, tradeState] = await Promise.all([
+    getTranslations({ locale, namespace: "nav" }),
+    getTranslations({ locale }),
+    sessionUser
+      ? getTradeHeaderStateForUser(sessionUser.id, sessionUser.role)
+      : Promise.resolve({ activeTrade: null, tradeReminder: null }),
+  ]);
+  const brand = rootTranslations("brand");
+  const { activeTrade, tradeReminder } = tradeState;
   const tradeReminderDisplay = tradeReminder ? getLocalizedTradeReminderDisplay(tradeReminder, locale) : null;
   const activeTradeCounterparty = activeTrade
     ? (activeTrade.sellerId === sessionUser?.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))

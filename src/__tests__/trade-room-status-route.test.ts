@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
-  checkSharedRateLimit: vi.fn(),
+  checkRateLimit: vi.fn(),
   logEvent: vi.fn(),
   prepareTradeEventEmails: vi.fn(),
   requireApiUser: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
   requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
 }));
-vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 vi.mock("@/lib/runtime-safety", () => ({ allowsRuntimeDiagnostics: () => false }));
 vi.mock("@/lib/action-destinations", () => ({ tradeDestination: () => "/trade-room/purchase-1" }));
@@ -59,7 +59,7 @@ describe("Trade Room status route post-commit reliability", () => {
       unauthorized: null,
     });
     mocks.requireEmailVerificationForTrading.mockReturnValue(null);
-    mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
+    mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.updatePurchaseRequestStatus.mockResolvedValue({
       request: {
         id: "purchase-1",
@@ -93,11 +93,26 @@ describe("Trade Room status route post-commit reliability", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ request: { id: "purchase-1", status: "funds_received" }, statusChanged: true });
-    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledOnce();
+    expect(mocks.prepareTradeEventEmails).not.toHaveBeenCalled();
+    const postResponseTask = mocks.after.mock.calls[0]?.[0] as (() => Promise<void>) | undefined;
+    await postResponseTask?.();
     expect(mocks.logEvent).toHaveBeenCalledWith("error", expect.objectContaining({
       event: "trade_lifecycle_email_schedule",
       resourceId: "purchase-1",
       reason: "status_post_commit_schedule_failed",
+    }));
+  });
+
+  it("rate-limits Trade Room actions by authenticated user without a database call", async () => {
+    const response = await PATCH(statusRequest("funds_received"), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith(expect.objectContaining({
+      key: "exchange:purchase-request-status:v2",
+      identifier: "seller-1",
     }));
   });
 

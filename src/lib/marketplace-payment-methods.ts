@@ -7,13 +7,18 @@ export const MARKETPLACE_PAYMENT_METHODS = [
 export type MarketplacePaymentMethod = (typeof MARKETPLACE_PAYMENT_METHODS)[number];
 export const MAX_LISTING_PAYMENT_METHODS = 3;
 
-export const FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES = [
-  "accepted",
-  "payment_sent",
-  "funds_received",
-  "usdt_release_pending",
+export const CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES = [
   "usdt_sent",
 ] as const;
+
+export const CASH_TRADE_USDT_SENT_CONFIRMATION_ELIGIBLE_STATUSES = [
+  "funds_received",
+  "usdt_release_pending",
+] as const;
+
+// Kept as a source-compatible alias for older imports. Face-to-Face and
+// Cardless ATM now share the same protected, sequential cash workflow.
+export const FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES = CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES;
 
 function normalizeToken(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -66,41 +71,47 @@ export function isFaceToFacePaymentMethod(method: unknown) {
 export function isFaceToFaceCompletionAvailable(method: unknown, status: unknown) {
   return isFaceToFacePaymentMethod(method)
     && typeof status === "string"
-    && (FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
+    && (CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
 }
 
 export function isCardlessAtmPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Cardless ATM Withdrawal";
 }
 
-/**
- * Cash-based trades allow either participant to perform the final completion.
- * Face-to-Face can complete immediately after acceptance; Cardless ATM keeps
- * its guided proof and release stages before participant completion unlocks.
- */
+/** Face-to-Face and Cardless ATM use the same no-evidence cash workflow. */
 export function isCashTradePaymentMethod(method: unknown) {
   return isFaceToFacePaymentMethod(method) || isCardlessAtmPaymentMethod(method);
 }
 
 export function isCashTradeCompletionAvailable(method: unknown, status: unknown) {
-  if (typeof status !== "string") return false;
-  if (isFaceToFacePaymentMethod(method)) {
-    return (FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
-  }
-  // Cardless ATM keeps the guided proof/release flow so cancellation remains
-  // available only before any payment proof is submitted. Once the seller has
-  // marked USDT sent, either participant can perform the final confirmation.
-  return isCardlessAtmPaymentMethod(method) && status === "usdt_sent";
+  return isCashTradePaymentMethod(method)
+    && typeof status === "string"
+    && (CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
+}
+
+/** Cash trades record USDT as sent before the seller can complete the trade. */
+export function isCashTradeUsdtSentConfirmationAvailable(method: unknown, status: unknown) {
+  return isCashTradePaymentMethod(method)
+    && typeof status === "string"
+    && (CASH_TRADE_USDT_SENT_CONFIRMATION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
 }
 
 export function isBankTransferPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Bank Transfer";
 }
 
+export function requiresSellerPayoutBankAccount(rawMethods: unknown, fallbackMethod?: unknown) {
+  return resolveListingPaymentMethods(rawMethods, fallbackMethod).some(isBankTransferPaymentMethod);
+}
+
 export function requiresIsraeliBankSelection(rawMethods: unknown, fallbackMethod?: unknown) {
   return resolveListingPaymentMethods(rawMethods, fallbackMethod).some((method) =>
     isBankTransferPaymentMethod(method) || isCardlessAtmPaymentMethod(method),
   );
+}
+
+export function isBuyerEvidenceRequiredForPaymentMethod(method: unknown) {
+  return !isCashTradePaymentMethod(method);
 }
 
 function resolveSellerEvidenceRequiredMethods() {
@@ -124,5 +135,8 @@ function resolveSellerEvidenceRequiredMethods() {
 export function isSellerEvidenceRequiredForPaymentMethod(method: unknown) {
   const normalized = normalizeMarketplacePaymentMethod(method);
   if (!normalized) return false;
+  // Cash trades deliberately advance through explicit participant
+  // confirmations. Neither side should be blocked on a photo upload.
+  if (isCashTradePaymentMethod(normalized)) return false;
   return resolveSellerEvidenceRequiredMethods().has(normalized);
 }

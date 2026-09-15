@@ -10,8 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { DiscordShareAction, type DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, requiresSellerPayoutBankAccount, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { LISTING_CHANGE_REASONS } from "@/lib/listing-change-reasons";
+import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
 import { cn } from "@/lib/utils";
 import type { MarketplaceListing, PurchaseRequest, SupportedNetwork } from "@/types/alpha-exchange";
 import type { SellerBankAccount } from "@/components/sections/usdt-exchange/usdt-exchange-page";
@@ -55,6 +56,7 @@ export type SellerListingsWorkspacePortalProps = {
   isWorkspaceWidgetsLoading: boolean;
   listingActionKey: string | null;
   listingEditAmount: number;
+  listingEditBankAccountMismatch: boolean;
   listingEditForm: ListingEditForm;
   listingEditGuardTone: string;
   listingEditNeedsReason: boolean;
@@ -117,6 +119,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     isWorkspaceWidgetsLoading,
     listingActionKey,
     listingEditAmount,
+    listingEditBankAccountMismatch,
     listingEditForm,
     listingEditGuardTone,
     listingEditNeedsReason,
@@ -408,10 +411,18 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                   type="button"
                                   onClick={() => setListingEditForm((prev) => {
                                     const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
+                                    const selectedAccount = sellerBankAccounts.find((account) => account.id === prev.bankAccountId);
+                                    const nextBanks = requiresSellerPayoutBankAccount(nextMethods)
+                                      ? ensurePayoutBankIsSupported(
+                                          parseIsraeliBankSelection(prev.bankName),
+                                          selectedAccount?.bankName,
+                                          MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
+                                        )
+                                      : parseIsraeliBankSelection(prev.bankName);
                                     return {
                                       ...prev,
                                       paymentMethods: nextMethods,
-                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                                      bankName: requiresBankSelection(nextMethods) ? serializeIsraeliBankSelection(nextBanks) : "",
                                     };
                                   })}
                                   className={`rounded-xl border p-2.5 text-start transition-all duration-200 ${
@@ -480,7 +491,20 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                               <select
                                 className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
                                 value={listingEditForm.bankAccountId}
-                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, bankAccountId: event.target.value }))}
+                                onChange={(event) => setListingEditForm((prev) => {
+                                  const bankAccountId = event.target.value;
+                                  const selectedAccount = sellerBankAccounts.find((account) => account.id === bankAccountId);
+                                  const nextBanks = ensurePayoutBankIsSupported(
+                                    parseIsraeliBankSelection(prev.bankName),
+                                    selectedAccount?.bankName,
+                                    MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
+                                  );
+                                  return {
+                                    ...prev,
+                                    bankAccountId,
+                                    bankName: serializeIsraeliBankSelection(nextBanks),
+                                  };
+                                })}
                               >
                                 <option value="">{isAr ? "اختر حساباً بنكياً" : "Select bank account"}</option>
                                 {sellerBankAccounts.map((account) => (
@@ -538,6 +562,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                               {listingEditTradeRangeInvalid ? <p className="text-amber-200">{isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT."}</p> : null}
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
                               {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}
+                              {listingEditBankAccountMismatch ? <p className="text-amber-200">{isAr ? "يجب أن تشمل البنوك المدعومة بنك استلام الدفعات المحدد." : "Supported banks must include the selected payout bank."}</p> : null}
                               {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>

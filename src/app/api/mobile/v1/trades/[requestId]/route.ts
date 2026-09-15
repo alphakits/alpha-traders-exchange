@@ -1,5 +1,5 @@
 import { after, NextRequest } from "next/server";
-import { getTradeRoomData, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { getTradeRoomData, getTradeRoomRevision, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -13,11 +13,12 @@ import {
   isMobileTradeParticipant,
   mobileTradeErrorCode,
   mobileTradeErrorStatus,
+  toMobileTradeActions,
   toMobileTradeDetail,
   toMobileTradeSummary,
 } from "@/lib/mobile-trades";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
-import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import type { PurchaseRequestStatus } from "@/types/alpha-exchange";
 
@@ -94,8 +95,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const auth = await requireMobileApiUser(request, requestId, metadata);
     if (!auth.user) return auth.unauthorized;
-    const room = await participantRoom(params.requestId, auth.user.id, auth.user.role);
-    if (!room) return mobileError("TRADE_NOT_FOUND", requestId, locale, 404);
+    const revision = await getTradeRoomRevision({
+      purchaseRequestId: params.requestId,
+      actorUserId: auth.user.id,
+      actorRole: auth.user.role,
+    });
+    if (revision.buyerId !== auth.user.id && revision.sellerId !== auth.user.id) {
+      return mobileError("TRADE_NOT_FOUND", requestId, locale, 404);
+    }
 
     const body = await readMobileJsonBody(request);
     const action = String(body?.action ?? "").trim();
@@ -108,9 +115,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
 
-    const rate = await checkSharedRateLimit({
+    const rate = checkRateLimit({
       headers: request.headers,
-      key: "mobile:trade:status",
+      key: "mobile:trade:status:v2",
       identifier: auth.user.id,
       maxRequests: 40,
       windowMs: 60_000,
@@ -149,29 +156,34 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const emailEvent = updated.statusChanged ? tradeEmailEventForStatus(nextStatus) : null;
     if (emailEvent || updated.additionallyDeclinedRequests?.length) {
-      try {
-        const deliveries = await Promise.all([
-          ...(updated.additionallyDeclinedRequests ?? []).map((declinedRequest) =>
-            prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
-          ),
-          ...(emailEvent
-            ? [prepareTradeEventEmails({ event: emailEvent, request: updated.request })]
-            : []),
-        ]);
-        after(() => Promise.allSettled(deliveries.map((deliver) => deliver())));
-      } catch (emailError) {
-        logEvent("error", {
-          event: "mobile_trade_email_schedule",
-          actorUserId: auth.user.id,
-          resourceId: params.requestId,
-          outcome: "failed",
-          reason: "status_post_commit_schedule_failed",
-          metadata: { errorType: emailError instanceof Error ? emailError.name : typeof emailError },
-        });
-      }
+      after(async () => {
+        try {
+          const deliveries = await Promise.all([
+            ...(updated.additionallyDeclinedRequests ?? []).map((declinedRequest) =>
+              prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
+            ),
+            ...(emailEvent
+              ? [prepareTradeEventEmails({ event: emailEvent, request: updated.request })]
+              : []),
+          ]);
+          await Promise.allSettled(deliveries.map((deliver) => deliver()));
+        } catch (emailError) {
+          logEvent("error", {
+            event: "mobile_trade_email_schedule",
+            actorUserId: auth.user.id,
+            resourceId: params.requestId,
+            outcome: "failed",
+            reason: "status_post_commit_schedule_failed",
+            metadata: { errorType: emailError instanceof Error ? emailError.name : typeof emailError },
+          });
+        }
+      });
     }
 
-    return mobileJson({ trade: toMobileTradeSummary(updated.request, auth.user.id) }, requestId);
+    return mobileJson({
+      trade: toMobileTradeSummary(updated.request, auth.user.id),
+      actions: toMobileTradeActions(updated.request, auth.user.id),
+    }, requestId);
   } catch (error) {
     const code = mobileTradeErrorCode(error);
     if (code) return mobileError(code, requestId, locale, mobileTradeErrorStatus(code));

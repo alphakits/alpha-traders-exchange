@@ -1,6 +1,6 @@
 import type { AppLocale } from "@/i18n/routing";
 
-export const PUBLIC_TRUST_LAST_UPDATED = "2026-08-27";
+export const PUBLIC_TRUST_LAST_UPDATED = "2026-09-12";
 
 export type PublicTrustFaq = {
   id: string;

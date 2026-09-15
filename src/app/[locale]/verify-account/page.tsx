@@ -13,8 +13,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale: locale as "ar" | "en",
     title: isAr ? "تأكيد الحساب" : "Verify your account",
     description: isAr
-      ? "أكمل التحقق من البريد الإلكتروني للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري."
-      : "Complete email verification to access Alpha Exchange. Phone verification is optional.",
+      ? "أكمل التحقق من البريد الإلكتروني للوصول إلى Alpha Exchange. التحقق من الهاتف متوقف."
+      : "Complete email verification to access Alpha Exchange. Phone verification is off.",
     path: "/verify-account",
   });
 }
