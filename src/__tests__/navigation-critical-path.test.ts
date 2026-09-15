@@ -9,12 +9,16 @@ function source(path: string) {
 }
 
 describe("authenticated navigation critical path", () => {
-  it("deduplicates the server session shared by a layout and its page", () => {
+  it("keeps session resolution direct and sequences locale loading before auth", () => {
     const auth = source("src/lib/auth.ts");
     const layout = source("src/app/[locale]/layout.tsx");
 
-    expect(auth).toContain("export const getCurrentSessionUser = cache(resolveCurrentSessionUser)");
-    expect(layout).toContain("const [messages, sessionUser] = await Promise.all([");
+    expect(auth).toContain("export async function getCurrentSessionUser()");
+    expect(auth).not.toContain("cache(resolveCurrentSessionUser)");
+    expect(layout).toContain("const messages = await getMessages();");
+    expect(layout).toContain("const sessionUser = await getCurrentSessionUser();");
+    expect(layout.indexOf("const messages = await getMessages();"))
+      .toBeLessThan(layout.indexOf("const sessionUser = await getCurrentSessionUser();"));
   });
 
   it("loads one scoped trade snapshot for the global authenticated header", () => {
