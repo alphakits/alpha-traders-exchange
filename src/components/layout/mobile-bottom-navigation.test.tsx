@@ -3,7 +3,16 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
 
-const navigationState = vi.hoisted(() => ({ pathname: "/dashboard", authenticated: true }));
+const navigationState = vi.hoisted(() => ({
+  pathname: "/dashboard",
+  search: "",
+  authenticated: true,
+  role: "buyer",
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(navigationState.search),
+}));
 
 vi.mock("@/i18n/navigation", () => ({
   usePathname: () => navigationState.pathname,
@@ -13,13 +22,19 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 vi.mock("@/components/auth/canonical-session-provider", () => ({
-  useCanonicalSession: () => ({ user: navigationState.authenticated ? { id: "user-1" } : null }),
+  useCanonicalSession: () => ({
+    user: navigationState.authenticated
+      ? { id: "user-1", role: navigationState.role, roles: [navigationState.role] }
+      : null,
+  }),
 }));
 
 describe("MobileBottomNavigation", () => {
   beforeEach(() => {
     navigationState.pathname = "/dashboard";
+    navigationState.search = "";
     navigationState.authenticated = true;
+    navigationState.role = "buyer";
   });
 
   it("renders five clear English destinations with phone-sized targets", () => {
@@ -48,6 +63,18 @@ describe("MobileBottomNavigation", () => {
       "حسابي",
     ]);
     expect(screen.getByRole("link", { name: "السوق" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("sends owners directly to purchase requests and keeps Trades selected", () => {
+    navigationState.role = "owner";
+    navigationState.pathname = "/en/admin/alpha-exchange";
+    navigationState.search = "section=purchase-requests";
+    render(<MobileBottomNavigation locale="en" />);
+
+    const trades = screen.getByRole("link", { name: "Trades" });
+    expect(trades.getAttribute("href")).toBe("/admin/alpha-exchange?section=purchase-requests");
+    expect(trades.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBeNull();
   });
 
   it("stays hidden for signed-out visitors and focused active trade rooms", () => {
