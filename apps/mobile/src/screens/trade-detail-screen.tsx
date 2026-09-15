@@ -13,12 +13,18 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as Crypto from "expo-crypto";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MobileTradeDetail, MobileTradeStatus } from "@alpha-traders/contracts";
+import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import type {
+  MobileTradeDetail,
+  MobileTradeDetailResponse,
+  MobileTradeMutationResponse,
+  MobileTradesResponse,
+  MobileTradeStatus,
+} from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   completeMobileCashTrade,
@@ -139,6 +145,7 @@ function RatingSelector({
 
 export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
@@ -156,15 +163,22 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [visibleTimeRemaining, setVisibleTimeRemaining] = useState<number | null>(null);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
   const tradeScope = `${user?.id ?? "anonymous"}:${requestId}`;
+  const tradeQueryKey = ["mobile-trade", user?.id ?? "anonymous", requestId, locale] as const;
   const activeTradeScopeRef = useRef(tradeScope);
   activeTradeScopeRef.current = tradeScope;
   const query = useQuery({
     enabled: Boolean(requestId && user),
-    queryKey: ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
+    queryKey: tradeQueryKey,
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileTrade(tokens, requestLocale, requestId, signal)),
-    refetchInterval: 5_000,
-    staleTime: 2_000,
+    refetchInterval: (activeQuery) => {
+      if (!isFocused) return false;
+      const current = activeQuery.state.data as MobileTradeDetailResponse | undefined;
+      if (current?.trade.status === "declined" || current?.trade.status === "cancelled") return false;
+      if (current && ["completed", "review_open", "locked"].includes(current.trade.status)) return 5_000;
+      return 2_000;
+    },
+    staleTime: 1_000,
   });
   const serverTimeRemaining = query.data?.trade?.status === "usdt_release_pending"
     ? query.data.trade.timeRemainingSeconds
@@ -200,6 +214,33 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }, [query, queryClient]);
 
+  function applyTradeMutation(response: MobileTradeMutationResponse) {
+    queryClient.setQueryData<MobileTradeDetailResponse>(tradeQueryKey, (current) => current ? {
+      ...current,
+      requestId: response.requestId,
+      trade: {
+        ...current.trade,
+        ...response.trade,
+        actions: response.actions,
+      },
+    } : current);
+    queryClient.setQueriesData<InfiniteData<MobileTradesResponse>>(
+      { queryKey: ["mobile-trades"] },
+      (current) => current ? {
+        ...current,
+        pages: current.pages.map((page) => ({
+          ...page,
+          trades: page.trades.map((trade) => trade.id === response.trade.id ? response.trade : trade),
+        })),
+      } : current,
+    );
+    // The write response is authoritative for status and next actions. Refresh
+    // the larger timeline/chat projection in the background without holding
+    // the user's button in a loading state.
+    void query.refetch();
+    void queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] });
+  }
+
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
     else router.replace("/(tabs)/trades");
@@ -211,10 +252,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setBusyAction(status);
     try {
-      await requestWithSession((tokens, requestLocale) =>
+      const response = await requestWithSession((tokens, requestLocale) =>
         updateMobileTrade(tokens, requestLocale, requestId, status, safetyAcknowledged));
       if (activeTradeScopeRef.current !== operationScope) return;
-      await refreshTrade();
+      applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -243,14 +284,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setBusyAction("complete-cash-trade");
     try {
-      await requestWithSession((tokens, requestLocale) =>
+      const response = await requestWithSession((tokens, requestLocale) =>
         completeMobileCashTrade(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
       setNotice(query.data?.trade.paymentMethod === "Cardless ATM Withdrawal" ? t("cardlessAtmCompleted") : t("faceToFaceCompleted"));
-      await Promise.all([
-        refreshTrade(),
-        queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
-      ]);
+      applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -364,15 +402,31 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setSendingMessage(true);
     try {
-      await requestWithSession((tokens, requestLocale) => sendMobileTradeMessage(tokens, requestLocale, {
+      const response = await requestWithSession((tokens, requestLocale) => sendMobileTradeMessage(tokens, requestLocale, {
         requestId,
         message: pending.message,
         clientMessageId: pending.clientMessageId,
       }));
       if (activeTradeScopeRef.current !== operationScope) return;
+      queryClient.setQueryData<MobileTradeDetailResponse>(tradeQueryKey, (current) => {
+        if (!current) return current;
+        const exists = current.trade.messages.some((item) => (
+          item.sender === response.message.sender
+          && item.createdAt === response.message.createdAt
+          && item.message === response.message.message
+        ));
+        if (exists) return current;
+        return {
+          ...current,
+          requestId: response.requestId,
+          trade: {
+            ...current.trade,
+            messages: [...current.trade.messages, response.message].slice(-100),
+          },
+        };
+      });
       pendingMessageRef.current = null;
       setDraftMessage("");
-      await refreshTrade();
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));

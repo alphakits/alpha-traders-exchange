@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getWalletAddressValidationError } from "@alpha-traders/contracts";
+import { getWalletAddressValidationError, type MobileTradeDetailResponse } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileTrade,
@@ -61,7 +61,7 @@ export function TradeFormScreen({
     queryKey: ["mobile-marketplace-listing", user?.id ?? "public", listingId, locale],
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileMarketplaceListing(listingId, requestLocale, signal, tokens)),
-    staleTime: 5_000,
+    staleTime: 0,
   });
   const listing = market.data?.listings[0];
   const [amount, setAmount] = useState("");
@@ -145,11 +145,12 @@ export function TradeFormScreen({
   }, [router]);
 
   async function submit() {
-    if (!listing || !formIsValid) {
+    if (!user || !listing || !formIsValid) {
       setError(t("invalidTradeForm"));
       return;
     }
     const operationScope = activeFormScopeRef.current;
+    const submittingUserId = user.id;
     setError(null);
     setIsSubmitting(true);
     try {
@@ -165,8 +166,45 @@ export function TradeFormScreen({
         safetyAcknowledged,
       }));
       if (activeFormScopeRef.current !== operationScope) return;
-      await queryClient.invalidateQueries({ queryKey: ["mobile-trades"] });
-      if (activeFormScopeRef.current !== operationScope) return;
+      const tradeQueryKey = ["mobile-trade", submittingUserId, response.trade.id, locale] as const;
+      const initialDetail: MobileTradeDetailResponse = {
+        requestId: response.requestId,
+        trade: {
+          ...response.trade,
+          counterpartyDisplayName: listing.seller.displayName,
+          receivingWalletAddress: walletAddress.trim(),
+          timeline: [{
+            type: mode === "offer" ? "price_offer_submitted" : "request_submitted",
+            createdAt: response.trade.createdAt,
+          }],
+          messages: [],
+          hasBuyerEvidence: false,
+          hasSellerEvidence: false,
+          deadlineAt: null,
+          timeRemainingSeconds: null,
+          hasOpenDispute: false,
+          actions: {
+            canAccept: false,
+            canDecline: false,
+            canCancel: true,
+            canViewBankDetails: false,
+            canMarkPaymentSent: false,
+            canUploadPaymentEvidence: false,
+            canConfirmFunds: false,
+            canBeginRelease: false,
+            canMarkUsdtSent: false,
+            canUploadReleaseEvidence: false,
+            canConfirmReceived: false,
+            canCompleteFaceToFace: false,
+            canOpenDispute: false,
+            canSubmitReview: false,
+            canRespondToReview: false,
+          },
+        },
+      };
+      queryClient.setQueryData(tradeQueryKey, initialDetail);
+      void queryClient.invalidateQueries({ queryKey: tradeQueryKey, refetchType: "none" });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-trades"] });
       router.replace({ pathname: "/trade/[requestId]", params: { requestId: response.trade.id } });
     } catch (caught) {
       if (activeFormScopeRef.current === operationScope) {

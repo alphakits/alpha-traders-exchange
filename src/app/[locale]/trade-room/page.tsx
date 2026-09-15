@@ -49,11 +49,11 @@ export default async function TradeRoomLandingPage({
     if (actionableTrade) {
       redirect(`/${locale}${buildTradeRoomDestination(actionableTrade, user.id)}`);
     }
-  }
-
-  const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
-  if (activeTrade) {
-    redirect(`/${locale}/trade-room/${activeTrade.id}`);
+  } else {
+    const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
+    if (activeTrade) {
+      redirect(`/${locale}/trade-room/${activeTrade.id}`);
+    }
   }
 
   // Redirect directly to the final role destination when no active trade exists.

@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { MobileTradeSummary } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
@@ -79,6 +79,7 @@ function TradeCard({ trade, onPress, usdIlsRate }: { trade: MobileTradeSummary; 
 
 export function TradesScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const usdIlsRate = useUsdDisplayRate();
@@ -91,7 +92,7 @@ export function TradesScreen() {
     placeholderData: (previous) => previous,
     getNextPageParam: (lastPage, allPages) =>
       nextPageOffset(lastPage.pagination, allPages.length),
-    refetchInterval: 10_000,
+    refetchInterval: isFocused ? 10_000 : false,
     staleTime: 15_000,
   });
   const trades = useMemo(
@@ -106,7 +107,11 @@ export function TradesScreen() {
     <FlatList
       contentContainerStyle={styles.content}
       data={trades}
+      initialNumToRender={6}
       keyExtractor={(item) => item.id}
+      maxToRenderPerBatch={6}
+      updateCellsBatchingPeriod={32}
+      windowSize={7}
       refreshControl={<RefreshControl onRefresh={() => void query.refetch()} refreshing={query.isRefetching} tintColor={colors.gold} />}
       renderItem={({ item }) => <TradeCard onPress={() => openTrade(item)} trade={item} usdIlsRate={usdIlsRate} />}
       ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}

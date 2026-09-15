@@ -2331,18 +2331,80 @@ export class AlphaExchangeRepository {
     );
   }
 
+  /** Load only the newest status-matching trade candidate for one actor. */
+  async loadPurchaseRequestCandidateSnapshotForActor(input: {
+    userId: string;
+    includeAll: boolean;
+    activeStatuses: readonly PurchaseRequest["status"][];
+    includeBuyerPending: boolean;
+  }): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const activeStatuses = new Set(input.activeStatuses);
+      const purchaseRequest = source.purchaseRequests
+        .filter((request) => (
+          input.includeAll || request.buyerId === input.userId || request.sellerId === input.userId
+        ))
+        .filter((request) => (
+          activeStatuses.has(request.status)
+          || (input.includeBuyerPending && request.status === "pending" && request.buyerId === input.userId)
+        ))
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null;
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        marketplaceListings: purchaseRequest
+          ? cloneSnapshot(source.marketplaceListings.filter((listing) => listing.id === purchaseRequest.listingId))
+          : [],
+        purchaseRequests: purchaseRequest ? cloneSnapshot([purchaseRequest]) : [],
+      }, getVersion(source));
+    }
+
+    const result = await pool.query<AggregatedSnapshotRow>(
+      `with candidate_request as materialized (
+         select id, listing_id, sort_index, payload
+         from alpha_exchange.purchase_requests
+         where ($2::boolean or buyer_id = $1 or seller_id = $1)
+           and (
+             status = any($3::text[])
+             or ($4::boolean and status = 'pending' and buyer_id = $1)
+           )
+         order by updated_at desc
+         limit 1
+       )
+       select
+         (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(listing.payload order by listing.sort_index asc)
+           from alpha_exchange.listings listing
+           where listing.id in (select listing_id from candidate_request)
+         ), '[]'::jsonb) as listings,
+         coalesce((select jsonb_agg(payload order by sort_index asc) from candidate_request), '[]'::jsonb) as purchase_requests`,
+      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending],
+    );
+    const row = result.rows[0];
+    return attachVersion(
+      snapshotFromAggregatedRow(row, ["listings", "purchase_requests"]),
+      Number(row?.version ?? "0"),
+    );
+  }
+
   /** Load only the trade history visible to one actor, plus its evidence metadata. */
-  async loadPurchaseRequestSnapshotForActor(input: { userId: string; includeAll: boolean }): Promise<SnapshotWithVersion> {
+  async loadPurchaseRequestSnapshotForActor(input: { userId: string; includeAll: boolean; requestId?: string }): Promise<SnapshotWithVersion> {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       const source = getLatestAvailableFallbackSnapshot();
       const purchaseRequests = source.purchaseRequests.filter((request) => (
-        input.includeAll || request.buyerId === input.userId || request.sellerId === input.userId
+        (input.includeAll || request.buyerId === input.userId || request.sellerId === input.userId)
+        && (!input.requestId || request.id === input.requestId)
       ));
       const requestIds = new Set(purchaseRequests.map((request) => request.id));
+      const listingIds = new Set(purchaseRequests.map((request) => request.listingId));
       return attachVersion({
         ...emptySnapshotCollections(),
+        marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listingIds.has(listing.id))),
         purchaseRequests: cloneSnapshot(purchaseRequests),
         tradeEvidenceFiles: cloneSnapshot(source.tradeEvidenceFiles.filter((file) => requestIds.has(file.purchaseRequestId))),
       }, getVersion(source));
@@ -2350,23 +2412,29 @@ export class AlphaExchangeRepository {
 
     const result = await pool.query<AggregatedSnapshotRow>(
       `with visible_requests as materialized (
-         select id, sort_index, payload
+         select id, listing_id, sort_index, payload
          from alpha_exchange.purchase_requests
-         where $2::boolean or buyer_id = $1 or seller_id = $1
+         where ($2::boolean or buyer_id = $1 or seller_id = $1)
+           and ($3::text is null or id = $3)
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(listing.payload order by listing.sort_index asc)
+           from alpha_exchange.listings listing
+           where listing.id in (select listing_id from visible_requests)
+         ), '[]'::jsonb) as listings,
          coalesce((select jsonb_agg(payload order by sort_index asc) from visible_requests), '[]'::jsonb) as purchase_requests,
          coalesce((
            select jsonb_agg(evidence.payload order by evidence.sort_index asc)
            from alpha_exchange.evidence evidence
            where evidence.purchase_request_id in (select id from visible_requests)
          ), '[]'::jsonb) as evidence`,
-      [input.userId, input.includeAll],
+      [input.userId, input.includeAll, input.requestId ?? null],
     );
     const row = result.rows[0];
     return attachVersion(
-      snapshotFromAggregatedRow(row, ["purchase_requests", "evidence"]),
+      snapshotFromAggregatedRow(row, ["listings", "purchase_requests", "evidence"]),
       Number(row?.version ?? "0"),
     );
   }
