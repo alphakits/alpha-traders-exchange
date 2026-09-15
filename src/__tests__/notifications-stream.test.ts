@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const unsubscribe = vi.fn();
   return {
     getNotificationsForUser: vi.fn(),
+    getNotificationRevisionForUser: vi.fn(),
     requireApiUser: vi.fn(),
     subscribeRealtimeEvents: vi.fn(() => unsubscribe),
     unsubscribe,
@@ -16,6 +17,7 @@ vi.mock("@/lib/api-auth", () => ({
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getNotificationsForUser: mocks.getNotificationsForUser,
+  getNotificationRevisionForUser: mocks.getNotificationRevisionForUser,
 }));
 
 vi.mock("@/lib/realtime", () => ({
@@ -25,7 +27,7 @@ vi.mock("@/lib/realtime", () => ({
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/alpha-exchange/notifications/stream/route";
 
-const emptySnapshot = { notifications: [], unreadCount: 0 };
+const emptySnapshot = { notifications: [], unreadCount: 0, revision: "0:0:" };
 
 describe("notification SSE reconciliation", () => {
   beforeEach(() => {
@@ -33,6 +35,7 @@ describe("notification SSE reconciliation", () => {
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({ user: { id: "buyer-1", role: "buyer" }, unauthorized: null });
     mocks.getNotificationsForUser.mockResolvedValue(emptySnapshot);
+    mocks.getNotificationRevisionForUser.mockResolvedValue(emptySnapshot.revision);
   });
 
   afterEach(() => {
@@ -53,7 +56,7 @@ describe("notification SSE reconciliation", () => {
     await GET(new NextRequest("http://localhost/api/alpha-exchange/notifications/stream", { signal: controller.signal }));
     expect(mocks.getNotificationsForUser).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.getNotificationsForUser).toHaveBeenCalledTimes(1);
 
     resolveFirstRead?.(emptySnapshot);
@@ -72,7 +75,7 @@ describe("notification SSE reconciliation", () => {
     expect(mocks.getNotificationsForUser).toHaveBeenCalledTimes(1);
 
     controller.abort();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(60_000);
 
     expect(mocks.getNotificationsForUser).toHaveBeenCalledTimes(1);
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1);
@@ -85,10 +88,12 @@ describe("notification SSE reconciliation", () => {
         { id: "notification-two", state: "read", createdAt: "2026-09-05T09:00:00.000Z", updatedAt: "2026-09-05T09:00:00.000Z" },
       ],
       unreadCount: 0,
+      revision: "2:0:2026-09-05T10:00:00.000Z",
     };
     const afterDelete = {
       notifications: [first.notifications[0]],
       unreadCount: 0,
+      revision: "1:0:2026-09-05T10:00:00.000Z",
     };
     mocks.getNotificationsForUser
       .mockReset()
@@ -101,13 +106,30 @@ describe("notification SSE reconciliation", () => {
     const initialChunk = await reader.read();
     expect(new TextDecoder().decode(initialChunk.value)).toContain("notification-two");
 
-    await vi.advanceTimersByTimeAsync(5_000);
-    const updatedChunk = await reader.read();
-    const updatedText = new TextDecoder().decode(updatedChunk.value);
+    mocks.getNotificationRevisionForUser.mockResolvedValue(afterDelete.revision);
+    await vi.advanceTimersByTimeAsync(30_000);
+    let updatedText = "";
+    for (let index = 0; index < 4 && !updatedText.includes("notification-one"); index += 1) {
+      const updatedChunk = await reader.read();
+      updatedText += new TextDecoder().decode(updatedChunk.value);
+    }
     expect(updatedText).toContain("notification-one");
     expect(updatedText).not.toContain("notification-two");
 
     controller.abort();
     await reader.cancel();
+  });
+
+  it("skips the enriched snapshot while the recipient revision is unchanged", async () => {
+    const controller = new AbortController();
+
+    await GET(new NextRequest("http://localhost/api/alpha-exchange/notifications/stream", { signal: controller.signal }));
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(90_000);
+
+    expect(mocks.getNotificationRevisionForUser).toHaveBeenCalledTimes(3);
+    expect(mocks.getNotificationsForUser).toHaveBeenCalledTimes(1);
+
+    controller.abort();
   });
 });

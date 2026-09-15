@@ -553,6 +553,17 @@ const ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS = [
   ["private_beta_invites", "private_beta_invite_uses", "beta_feedback", "beta_announcements"],
 ] as const satisfies readonly (readonly SnapshotTableName[])[];
 
+// The admin API only renders a recent operational window for these append-only
+// collections. Bound them in PostgreSQL so the dashboard does not aggregate and
+// transfer an ever-growing history merely to discard it in application code.
+const ADMIN_DASHBOARD_TABLE_LIMITS: Partial<Record<SnapshotTableName, number>> = {
+  notifications: 250,
+  audit_logs: 250,
+  trust_score_history: 250,
+  activity_logs: 250,
+  marketplace_enforcement_audit_log: 250,
+};
+
 function shouldLogRepoVersionFlow() {
   return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
 }
@@ -1225,11 +1236,29 @@ type AggregatedSnapshotRow = {
  * `tableNames` is restricted to the compile-time snapshot table allowlist, so
  * interpolating these identifiers cannot introduce user-controlled SQL.
  */
-function buildAggregatedSnapshotSql(tableNames: readonly SnapshotTableName[]) {
+function buildAggregatedSnapshotSql(
+  tableNames: readonly SnapshotTableName[],
+  tableLimits: Partial<Record<SnapshotTableName, number>> = {},
+) {
   const selectedNames = Array.from(new Set(tableNames));
-  const payloadColumns = selectedNames.map((tableName) => (
-    `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`
-  ));
+  const payloadColumns = selectedNames.map((tableName) => {
+    const requestedLimit = tableLimits[tableName];
+    const limit = typeof requestedLimit === "number" && Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+      ? requestedLimit
+      : null;
+    if (limit) {
+      return `coalesce((
+        select jsonb_agg(bounded.payload order by bounded.sort_index asc)
+        from (
+          select payload, sort_index
+          from alpha_exchange.${tableName}
+          order by sort_index asc
+          limit ${limit}
+        ) bounded
+      ), '[]'::jsonb) as "${tableName}"`;
+    }
+    return `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`;
+  });
   return `select
     (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${payloadColumns.length ? `,\n    ${payloadColumns.join(",\n    ")}` : ""}`;
 }
@@ -2533,7 +2562,7 @@ export class AlphaExchangeRepository {
   /**
    * Load a notification inbox without scanning unrelated users' inboxes,
    * activity, trades, commissions, or disputes. This query is deliberately
-   * safe to use for the five-second cross-instance SSE reconciliation loop.
+   * scoped to a single recipient.
    */
   async loadNotificationSnapshotForUser(input: { userId: string; includeActivity: boolean }): Promise<SnapshotWithVersion> {
     await this.ensureReady();
@@ -2680,6 +2709,44 @@ export class AlphaExchangeRepository {
       snapshotFromAggregatedRow(row, tableNames),
       Number(row?.version ?? "0"),
     );
+  }
+
+  /**
+   * Return a cheap recipient-scoped token for cross-instance notification
+   * reconciliation. The SSE loop compares this before loading the enriched
+   * notification snapshot, avoiding repeated joins while nothing changed.
+   */
+  async loadNotificationRevisionForUser(userId: string): Promise<string> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const notifications = getLatestAvailableFallbackSnapshot().notifications
+        .filter((notification) => notification.userId === userId);
+      const unreadCount = notifications.filter((notification) => notification.isRead === false).length;
+      const latestUpdatedAt = notifications.reduce((latest, notification) => {
+        const candidate = notification.updatedAt ?? notification.createdAt;
+        return candidate > latest ? candidate : latest;
+      }, "");
+      return `${notifications.length}:${unreadCount}:${latestUpdatedAt}`;
+    }
+
+    const result = await queryReadWithRetry<{
+      total: string;
+      unread_count: string;
+      latest_updated_at: string | null;
+    }>(
+      pool,
+      `select
+         count(*)::text as total,
+         count(*) filter (where is_read = false)::text as unread_count,
+         max(coalesce(nullif(payload->>'updatedAt', ''), nullif(payload->>'createdAt', ''), created_at::text)) as latest_updated_at
+       from alpha_exchange.notifications
+       where user_id = $1`,
+      [userId],
+      "notification_revision",
+    );
+    const row = result.rows[0];
+    return `${row?.total ?? "0"}:${row?.unread_count ?? "0"}:${row?.latest_updated_at ?? ""}`;
   }
 
   /**
@@ -2939,7 +3006,9 @@ export class AlphaExchangeRepository {
         for (let index = 0; index < ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS.length; index += 1) {
           groupIndex = index;
           const group = ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS[index];
-          const result = await client.query<AggregatedSnapshotRow>(buildAggregatedSnapshotSql(group));
+          const result = await client.query<AggregatedSnapshotRow>(
+            buildAggregatedSnapshotSql(group, ADMIN_DASHBOARD_TABLE_LIMITS),
+          );
           const row = result.rows[0];
           if (row) Object.assign(aggregateRow, row);
         }

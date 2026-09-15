@@ -429,6 +429,13 @@ describe("AlphaExchangeRepository", () => {
       expect(sql).not.toContain("alpha_exchange.seller_settings");
       expect(sql).not.toContain("alpha_exchange.trades");
     }
+    const combinedAggregateSql = aggregateQueries.join("\n");
+    for (const tableName of ["notifications", "audit_logs", "trust_score_history", "activity_logs", "marketplace_enforcement_audit_log"]) {
+      const boundedTablePattern = new RegExp(`from alpha_exchange\\.${tableName}\\s+order by sort_index asc\\s+limit 250`);
+      expect(combinedAggregateSql).toMatch(boundedTablePattern);
+    }
+    expect(aggregateQueries.find((sql) => sql.includes('as "users"'))).not.toContain("limit 250");
+    expect(aggregateQueries.find((sql) => sql.includes('as "listings"'))).not.toContain("limit 250");
     expect(snapshot.users).toEqual([{ id: "owner-1", role: "owner" }]);
     expect(snapshot.marketplaceListings).toEqual([{ id: "listing-1", status: "active" }]);
     expect(snapshot.notifications).toEqual([{ id: "notification-1", userId: "owner-1" }]);

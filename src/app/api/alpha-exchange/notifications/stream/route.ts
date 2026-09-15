@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
-import { getNotificationsForUser } from "@/lib/alpha-exchange-store";
+import { getNotificationRevisionForUser, getNotificationsForUser } from "@/lib/alpha-exchange-store";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Trade Room conversation alerts are recipient-critical. Keep the existing
-// notification SSE reconciliation responsive across separate server instances
-// while the in-process subscription continues to handle the local hot path.
-const CROSS_INSTANCE_RECONCILIATION_MS = 5_000;
+// Local events remain immediate. Across instances, poll a cheap recipient
+// revision before loading the enriched snapshot so idle browser tabs do not
+// continuously run the heaviest notification query.
+const CROSS_INSTANCE_RECONCILIATION_MS = 30_000;
 
 function isNotificationEventForUser(event: RealtimeEvent, userId: string) {
   if (event.type === "notification.created" || event.type === "notification.updated") {
@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let lastSignature = "";
+      let lastRevision = "";
       let closed = false;
       let snapshotInFlight = false;
       let snapshotQueued = false;
@@ -96,6 +97,7 @@ export async function GET(request: NextRequest) {
             strongConsistency: true,
           });
           if (closed) return;
+          lastRevision = snapshot.revision;
           const signature = `${snapshot.unreadCount}:${snapshot.notifications
             .map((notification) => [
               notification.id,
@@ -119,6 +121,19 @@ export async function GET(request: NextRequest) {
         }
       };
 
+      const reconcileAcrossInstances = async () => {
+        if (closed) return;
+        try {
+          const revision = await getNotificationRevisionForUser(user.id);
+          if (closed || revision === lastRevision) return;
+          await sendSnapshot();
+        } catch (error) {
+          if (closed) return;
+          const message = error instanceof Error ? error.message : "notification_reconciliation_failed";
+          safeEnqueue(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
+        }
+      };
+
       void sendSnapshot();
       unsubscribe = subscribeRealtimeEvents((event) => {
         if (!isNotificationEventForUser(event, user.id)) return;
@@ -127,7 +142,7 @@ export async function GET(request: NextRequest) {
       // Keep the established SSE snapshot reconciliation path for cases where
       // the local event bus cannot span a server instance or a client reconnects.
       poll = setInterval(() => {
-        void sendSnapshot();
+        void reconcileAcrossInstances();
       }, CROSS_INSTANCE_RECONCILIATION_MS);
       keepAlive = setInterval(() => {
         safeEnqueue(": keepalive\n\n");
