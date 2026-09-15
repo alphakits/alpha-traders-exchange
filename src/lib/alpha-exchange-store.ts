@@ -3813,6 +3813,49 @@ const PURCHASE_REQUEST_FAST_READ_TABLES = ["users", "seller_applications", "list
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const AUTH_USER_READ_TABLES = ["users", "seller_applications"] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_READ_TABLES = ["purchase_requests", "evidence"] as const satisfies readonly SnapshotTableName[];
+const MARKETPLACE_LISTING_READ_TABLES = [
+  "users",
+  "seller_applications",
+  "listings",
+  "purchase_requests",
+  "commissions",
+  "audit_logs",
+  "trust_snapshots",
+  "marketplace_enforcement_records",
+] as const satisfies readonly SnapshotTableName[];
+const ACCOUNT_PROFILE_READ_TABLES = [
+  "users",
+  "seller_applications",
+  "sessions",
+  "purchase_requests",
+  "listings",
+  "commissions",
+  "trust_snapshots",
+] as const satisfies readonly SnapshotTableName[];
+const SELLER_WORKSPACE_READ_TABLES = [
+  "users",
+  "seller_applications",
+  "listings",
+  "purchase_requests",
+  "commissions",
+  "audit_logs",
+  "trust_snapshots",
+  "marketplace_enforcement_records",
+  "marketplace_enforcement_audit_log",
+] as const satisfies readonly SnapshotTableName[];
+const NOTIFICATION_READ_TABLES = [
+  "users",
+  "seller_applications",
+  "listings",
+  "purchase_requests",
+  "commissions",
+  "notifications",
+  "activity_logs",
+  "disputes",
+  "trust_snapshots",
+] as const satisfies readonly SnapshotTableName[];
 const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 const SELLER_REPORT_TABLES = ["seller_reports", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
@@ -3901,6 +3944,120 @@ async function readDbForCriticalTradeMutation(tableNames: readonly SnapshotTable
   const normalized = normalizeDb(partial);
   ensureDisplayNumbers(normalized);
   return { db: normalized, fromFullCache: false };
+}
+
+/**
+ * Read-only routes should never pay for the complete Exchange snapshot. Apart
+ * from reducing latency, keeping each request to its declared table set stops
+ * unrelated traffic (notifications, profiles, listings and trade history)
+ * from contending on the same large aggregate query during a cold start.
+ */
+async function readDbForSelectedTables(
+  tableNames: readonly SnapshotTableName[],
+  options?: { preferWarmFullCache?: boolean },
+) {
+  if (options?.preferWarmFullCache && dbCache && Date.now() - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
+    return structuredClone(dbCache.value);
+  }
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadSelectedSnapshot !== "function") {
+    // Compatibility for local/test repository doubles created before targeted
+    // reads were introduced. Production repositories always implement it.
+    return readDb({ skipMaintenance: true });
+  }
+  const parsed = await repository.loadSelectedSnapshot(tableNames);
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
+}
+
+async function readDbForMarketplaceListings(viewerUserId?: string) {
+  if (dbCache && Date.now() - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
+    return {
+      db: structuredClone(dbCache.value),
+      canonicalCommissionBlockedSellerIds: null as string[] | null,
+    };
+  }
+  // Development-only tester seeding needs the complete user/application set.
+  // Production never enables this path.
+  if (isDevelopmentTesterSeedEnabled()) {
+    return {
+      db: await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true }),
+      canonicalCommissionBlockedSellerIds: null as string[] | null,
+    };
+  }
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadMarketplaceListingSnapshotForViewer !== "function") {
+    return {
+      db: await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true }),
+      canonicalCommissionBlockedSellerIds: null as string[] | null,
+    };
+  }
+  const loaded = await repository.loadMarketplaceListingSnapshotForViewer(viewerUserId);
+  const normalized = normalizeDb(loaded.snapshot);
+  ensureDisplayNumbers(normalized);
+  return {
+    db: normalized,
+    canonicalCommissionBlockedSellerIds: loaded.unpaidCommissionSellerIds,
+  };
+}
+
+async function readDbForAuthUser(input: { userId?: string; normalizedEmail?: string }) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadAuthUserSnapshot !== "function") {
+    return readDbForSelectedTables(AUTH_USER_READ_TABLES);
+  }
+  const parsed = await repository.loadAuthUserSnapshot(input);
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
+}
+
+async function readDbForPurchaseRequestActor(userId: string, role: UserRole) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadPurchaseRequestSnapshotForActor !== "function") {
+    return readDbForSelectedTables(PURCHASE_REQUEST_READ_TABLES);
+  }
+  const parsed = await repository.loadPurchaseRequestSnapshotForActor({
+    userId,
+    includeAll: role === "admin" || role === "owner",
+  });
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
+}
+
+async function readDbForAccountProfile(userId: string) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadAccountProfileSnapshotForUser !== "function") {
+    return readDbForSelectedTables(ACCOUNT_PROFILE_READ_TABLES);
+  }
+  const parsed = await repository.loadAccountProfileSnapshotForUser(userId);
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
+}
+
+async function readDbForSellerWorkspace(sellerId: string) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadSellerWorkspaceSnapshotForUser !== "function") {
+    return readDbForSelectedTables(SELLER_WORKSPACE_READ_TABLES);
+  }
+  const parsed = await repository.loadSellerWorkspaceSnapshotForUser(sellerId);
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
+}
+
+async function readDbForNotificationUser(userId: string, includeActivity: boolean) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadNotificationSnapshotForUser !== "function") {
+    return readDbForSelectedTables(NOTIFICATION_READ_TABLES);
+  }
+  const parsed = await repository.loadNotificationSnapshotForUser({ userId, includeActivity });
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
 }
 
 /**
@@ -6453,14 +6610,14 @@ export async function updateOwnerMarketplaceComplianceRecoveryWallet(input: {
 }
 
 export async function findUserByEmail(email: string) {
-  const db = await readDb({ skipMaintenance: true });
   const normalized = normalizeEmail(email);
+  const db = await readDbForAuthUser({ normalizedEmail: normalized });
   return db.users.find((user) => normalizeEmail(user.email) === normalized) ?? null;
 }
 
 export async function findUsersByEmail(email: string) {
-  const db = await readDb({ skipMaintenance: true });
   const normalized = normalizeEmail(email);
+  const db = await readDbForAuthUser({ normalizedEmail: normalized });
   return db.users.filter((user) => normalizeEmail(user.email) === normalized);
 }
 
@@ -6552,7 +6709,7 @@ export async function getCommissionResetTraceByEmail(email: string) {
 }
 
 export async function findUserById(userId: string) {
-  const db = await readDb({ skipMaintenance: true });
+  const db = await readDbForAuthUser({ userId });
   return db.users.find((user) => user.id === userId) ?? null;
 }
 
@@ -6568,7 +6725,7 @@ export function isUserInteractionBlocked(db: AlphaExchangeDb, firstUserId: strin
 }
 
 export async function getUserBlockStatus(input: { actorUserId: string; targetUserId: string }) {
-  const db = await readDb({ skipMaintenance: true });
+  const db = await readDbForSelectedTables(AUTH_USER_READ_TABLES);
   const actor = db.users.find((user) => user.id === input.actorUserId);
   if (!actor) throw new Error("User not found.");
   const target = db.users.find((user) => user.id === input.targetUserId);
@@ -6800,7 +6957,7 @@ export async function createSellerApplication(input: {
 }
 
 export async function getSellerApplicationByUserId(userId: string, dbInput?: AlphaExchangeDb) {
-  const db = dbInput ?? await readDb();
+  const db = dbInput ?? await readDbForAuthUser({ userId });
   return db.sellerApplications.find((item) => item.userId === userId) ?? null;
 }
 
@@ -7707,7 +7864,17 @@ export async function getMarketplaceListings(
   options?: { requireCanonicalCommissionLocks?: boolean },
 ) {
   const isPublicFeed = !status || status === "all" || status === "active";
-  const db = dbInput ?? await readDb();
+  let canonicalCommissionBlockedSellerIds: string[] | null = null;
+  let db: AlphaExchangeDb;
+  if (dbInput) {
+    db = dbInput;
+  } else if (isPublicFeed) {
+    const marketplaceSnapshot = await readDbForMarketplaceListings(viewerUserId);
+    db = marketplaceSnapshot.db;
+    canonicalCommissionBlockedSellerIds = marketplaceSnapshot.canonicalCommissionBlockedSellerIds;
+  } else {
+    db = await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true });
+  }
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
@@ -7722,7 +7889,8 @@ export async function getMarketplaceListings(
     && (!dbInput || options?.requireCanonicalCommissionLocks === true);
   const sellersBlockedByCommission = new Set(
     requiresCanonicalCommissionLocks
-      ? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
+      ? canonicalCommissionBlockedSellerIds
+        ?? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
       : cachedCommissionBlockedSellerIds,
   );
   const sellersBlockedByEnforcement = new Set(
@@ -9173,7 +9341,17 @@ export async function getSellerListingWorkspaceData(input: {
   status?: string;
   commissionId?: string;
 }) {
-  const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  let db = await readDbForSellerWorkspace(input.sellerId);
+  const requiresCanonicalCommissionMaintenance = db.commissionRecords.some((record) => (
+    normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== record.paymentStatus
+    || (record.paymentStatus !== "paid" && record.paymentVerificationStatus === "verified")
+  )) || ensureCommissionPaymentExpectedAmounts(structuredClone(db));
+  // New commissions already carry a durable exact payment intent. Only legacy
+  // or newly-overdue rows need the full canonical maintenance transaction;
+  // ordinary seller dashboard reads stay actor-scoped and side-effect free.
+  if (requiresCanonicalCommissionMaintenance) {
+    db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  }
   const [listings, summary, commissionStatus] = await Promise.all([
     getMyMarketplaceListings(input.sellerId, input.status, db),
     getSellerListingWorkspaceSummary(input.sellerId, db),
@@ -9650,7 +9828,29 @@ export async function createPurchaseRequest(input: {
 }
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
-  const db = dbInput ?? await readDb();
+  let db = dbInput ?? await readDbForPurchaseRequestActor(userId, role);
+  if (!dbInput) {
+    const nowMs = Date.now();
+    const timeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
+    const dueBankTransferCompletions = db.purchaseRequests.filter((request) => {
+      if (request.status !== "usdt_sent" || request.completedAt || !request.usdtSentAt) return false;
+      if (isCashTradePaymentMethod(request.paymentMethod)) return false;
+      const sentAtMs = new Date(request.usdtSentAt).getTime();
+      return Number.isFinite(sentAtMs) && sentAtMs > 0 && sentAtMs + timeoutMs <= nowMs;
+    });
+    for (const request of dueBankTransferCompletions) {
+      const completion = await updatePurchaseRequestStatus({
+        requestId: request.id,
+        actorUserId: SYSTEM_ACTOR_USER_ID,
+        actorRole: "admin",
+        nextStatus: "completed",
+      });
+      await completion.deferredTrustWrite?.();
+    }
+    if (dueBankTransferCompletions.length > 0) {
+      db = await readDbForPurchaseRequestActor(userId, role);
+    }
+  }
   if (role === "admin" || role === "owner") {
     return db.purchaseRequests.map((request) =>
       sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
@@ -10927,7 +11127,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   profile: AccountProfileSummary;
   stats: SellerAccountStats | BuyerAccountStats;
 }> {
-  const db = await readDb();
+  const db = await readDbForAccountProfile(userId);
   const user = db.users.find((row) => row.id === userId);
   if (!user) throw new Error("User not found.");
 
@@ -15501,7 +15701,7 @@ export async function getNotificationsForUser(input: {
   /** Used by SSE reconciliation when another server instance may have written. */
   strongConsistency?: boolean;
 }) {
-  const db = await readDb({ bypassCache: input.strongConsistency === true });
+  const db = await readDbForNotificationUser(input.userId, input.includeActivity !== false);
 
   // Build the display-number lookup ONCE for the entire function so that every
   // enrichNotification call below shares it rather than rebuilding it per call.
