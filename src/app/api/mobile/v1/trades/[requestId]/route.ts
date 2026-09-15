@@ -13,6 +13,7 @@ import {
   isMobileTradeParticipant,
   mobileTradeErrorCode,
   mobileTradeErrorStatus,
+  toMobileTradeActions,
   toMobileTradeDetail,
   toMobileTradeSummary,
 } from "@/lib/mobile-trades";
@@ -179,7 +180,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       });
     }
 
-    return mobileJson({ trade: toMobileTradeSummary(updated.request, auth.user.id) }, requestId);
+    return mobileJson({
+      trade: toMobileTradeSummary(updated.request, auth.user.id),
+      actions: toMobileTradeActions(updated.request, auth.user.id),
+    }, requestId);
   } catch (error) {
     const code = mobileTradeErrorCode(error);
     if (code) return mobileError(code, requestId, locale, mobileTradeErrorStatus(code));

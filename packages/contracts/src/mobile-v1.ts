@@ -996,6 +996,14 @@ export interface MobileTradeResponse {
   requestId: string;
 }
 
+/**
+ * Authoritative result of a lifecycle write. The compact summary updates list
+ * caches while server-derived actions let the active room advance immediately.
+ */
+export interface MobileTradeMutationResponse extends MobileTradeResponse {
+  actions: MobileTradeDetail["actions"];
+}
+
 export interface MobileTradeDetailResponse {
   trade: MobileTradeDetail;
   requestId: string;

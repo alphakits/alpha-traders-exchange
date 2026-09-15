@@ -116,9 +116,13 @@ async function currentNativeTokens(locale: MobileLocale): Promise<MobileAuthToke
 }
 
 async function createInitialSource(): Promise<{ locale: MobileLocale; source: WebsiteSource }> {
-  const locale = await resolvedLocale();
-  const savedUrl = trustedWebsiteResumeUrl(await AsyncStorage.getItem(RESUME_URL_KEY), locale);
-  const migrationComplete = await AsyncStorage.getItem(SESSION_MIGRATED_KEY) === "1";
+  const [locale, storedResumeUrl, storedMigrationState] = await Promise.all([
+    resolvedLocale(),
+    AsyncStorage.getItem(RESUME_URL_KEY),
+    AsyncStorage.getItem(SESSION_MIGRATED_KEY),
+  ]);
+  const savedUrl = trustedWebsiteResumeUrl(storedResumeUrl, locale);
+  const migrationComplete = storedMigrationState === "1";
   if (migrationComplete) return { locale, source: { uri: savedUrl } };
 
   const tokens = await currentNativeTokens(locale);
@@ -253,14 +257,17 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, []);
 
   useEffect(() => {
-    if (readiness.status === "checking") return;
-    if (readiness.status === "update_required") {
-      setIsLoading(false);
-      reportNativeReady();
-      return;
-    }
+    // Begin the website request while the signed runtime policy is checked.
+    // The native loading overlay remains above it until the policy resolves,
+    // so an unsupported build can never become interactive.
     void prepare();
-  }, [prepare, readiness.status, reportNativeReady]);
+  }, [prepare]);
+
+  useEffect(() => {
+    if (readiness.status !== "update_required") return;
+    setIsLoading(false);
+    reportNativeReady();
+  }, [readiness.status, reportNativeReady]);
 
   const sendMessageToWebsite = useCallback((message: unknown) => {
     try {
@@ -705,14 +712,14 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         </View>
       ) : null}
 
-      {isLoading && !loadFailed ? (
+      {readiness.status === "checking" || (isLoading && !loadFailed) ? (
         <View accessibilityLabel={locale === "ar" ? "جارٍ تحميل Alpha Traders" : "Loading Alpha Traders"} accessibilityRole="progressbar" style={styles.loadingOverlay}>
           <Image accessible={false} alt="" source={brandLogo} style={styles.loadingLogo} />
           <ActivityIndicator color="#D4AF37" size="large" />
         </View>
       ) : null}
 
-      {loadFailed ? (
+      {loadFailed && readiness.status !== "checking" ? (
         <View accessibilityRole="alert" style={styles.errorOverlay}>
           <Image accessibilityLabel="Alpha Traders Academy & Exchange" alt="Alpha Traders Academy & Exchange" source={brandLogo} style={styles.errorLogo} />
           <Text style={styles.errorTitle}>{labels.errorTitle}</Text>
@@ -845,6 +852,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
+    zIndex: 50,
   },
   loadingLogo: {
     borderColor: "rgba(212, 175, 55, 0.62)",

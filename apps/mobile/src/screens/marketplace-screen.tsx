@@ -9,8 +9,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useIsFocused, useRouter } from "expo-router";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   MobileMarketplaceFilters,
   MobileMarketplaceListing,
@@ -83,6 +83,8 @@ function FilterChipGroup<T extends string>({
 
 export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean }) {
   const router = useRouter();
+  const isFocused = useIsFocused();
+  const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const usdIlsRate = useUsdDisplayRate();
@@ -119,7 +121,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
     getNextPageParam: (lastPage, allPages) =>
       nextPageOffset(lastPage.pagination, allPages.length),
     staleTime: 20_000,
-    refetchInterval: 30_000,
+    refetchInterval: isFocused ? 30_000 : false,
   });
   const listings = useMemo(
     () => mergeUniquePages(query.data?.pages.map((page) => page.listings) ?? []),
@@ -162,6 +164,21 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
     ...(facets?.paymentMethods ?? []),
   ]));
 
+  const seedTradeListing = useCallback((listing: MobileMarketplaceListing) => {
+    if (!user) return;
+    const firstPage = query.data?.pages[0];
+    if (!firstPage) return;
+    const listingQueryKey = ["mobile-marketplace-listing", user.id, listing.id, locale] as const;
+    queryClient.setQueryData(listingQueryKey, {
+      listings: [listing],
+      total: 1,
+      facets: firstPage.facets,
+      pagination: { limit: 1, offset: 0, nextOffset: null },
+      requestId: firstPage.requestId,
+    });
+    void queryClient.invalidateQueries({ queryKey: listingQueryKey, refetchType: "none" });
+  }, [locale, query.data?.pages, queryClient, user]);
+
   const openTradeAction = useCallback((listing: MobileMarketplaceListing, mode: "buy" | "offer") => {
     if (!user) {
       router.push({
@@ -170,11 +187,12 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
       });
       return;
     }
+    seedTradeListing(listing);
     router.push({
       pathname: "/trade/new/[listingId]",
       params: { listingId: listing.id, mode },
     });
-  }, [router, user]);
+  }, [router, seedTradeListing, user]);
 
   const openSeller = useCallback((listing: MobileMarketplaceListing) => {
     router.push({
@@ -188,7 +206,11 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
       <FlatList
         contentContainerStyle={styles.content}
         data={listings}
+        initialNumToRender={2}
         keyExtractor={(item) => item.id}
+        maxToRenderPerBatch={2}
+        updateCellsBatchingPeriod={32}
+        windowSize={5}
         refreshControl={(
           <RefreshControl
             onRefresh={() => void query.refetch()}

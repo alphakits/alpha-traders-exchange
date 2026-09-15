@@ -256,6 +256,7 @@ Set this in the **Production** environment so metadata, canonical URLs, `robots.
 Optional environment variables:
 
 - `NEXT_PUBLIC_FOUNDER_VIDEO_URL` — **Required in production.** The Supabase Storage public URL for the founder introduction video. Vercel does not pull Git LFS objects, so the video must be uploaded to Supabase Storage separately.
+- `NEXT_PUBLIC_LESSON_VIDEO_BASE_URL` — Optional course-video base override. By default it is derived from the founder video directory or the public Supabase `course-videos` bucket.
 - `AUTH_COOKIE_SECURE=true`
 - `ADMIN_ACCESS_KEY`
 - `ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD`
@@ -278,18 +279,29 @@ Example for buyer OTP verify key (`auth:buyer-otp-verify`):
 
 The founder introduction video is stored in Git via Git LFS but Vercel does not fetch LFS objects during deployment. The video must be hosted on Supabase Storage:
 
-1. Open Supabase Dashboard → Storage → **admin-media** bucket (already public)
-2. Create folder `founder/` inside the bucket
-3. Upload `public/files/founder/alpha-traders-founder-introduction.mp4` into that folder
-4. The public URL will be:
+1. Open Supabase Dashboard → Storage → **course-videos** bucket (public)
+2. Upload `public/files/founder/alpha-traders-founder-introduction.mp4` into the bucket root
+3. The public URL will be:
    ```
-   https://<project-ref>.supabase.co/storage/v1/object/public/admin-media/founder/alpha-traders-founder-introduction.mp4
+   https://<project-ref>.supabase.co/storage/v1/object/public/course-videos/alpha-traders-founder-introduction.mp4
    ```
-5. In Vercel → Settings → Environment Variables, add:
+4. In Vercel → Settings → Environment Variables, add:
    ```
-   NEXT_PUBLIC_FOUNDER_VIDEO_URL = https://<project-ref>.supabase.co/storage/v1/object/public/admin-media/founder/alpha-traders-founder-introduction.mp4
+   NEXT_PUBLIC_FOUNDER_VIDEO_URL = https://<project-ref>.supabase.co/storage/v1/object/public/course-videos/alpha-traders-founder-introduction.mp4
    ```
-6. Redeploy for the change to take effect.
+5. Redeploy for the change to take effect.
+
+#### Course videos — Supabase Storage upload (one-time setup)
+
+The provided course videos are also stored through Git LFS and excluded from
+Vercel deployments. Upload the `public/files/course/lesson-*.mp4` files to the
+public `course-videos` bucket root. The app derives that bucket URL from the
+configured founder video or `NEXT_PUBLIC_SUPABASE_URL`; set the override only
+when the lessons live elsewhere:
+
+```text
+NEXT_PUBLIC_LESSON_VIDEO_BASE_URL=https://<project-ref>.supabase.co/storage/v1/object/public/course-videos
+```
 
 Never set in production:
 

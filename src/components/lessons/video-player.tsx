@@ -72,6 +72,7 @@ export function VideoPlayer({
   const lastSyncedRef = useRef(0);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const hasVideoSource = Boolean(resolvedVideoUrl.trim());
   const isSelfHosted = asset.videoProvider === "self-hosted" || asset.videoProvider === "supabase" || asset.videoProvider === "cloudflare-r2";
 
@@ -84,15 +85,19 @@ export function VideoPlayer({
   }, [initialTimeSeconds, isSelfHosted]);
 
   useEffect(() => {
-    if (isSelfHosted || !hasVideoSource) return;
-    setIsLoading(true);
+    setIsLoading(hasVideoSource);
     setHasError(false);
+  }, [embedUrl, hasVideoSource, reloadKey]);
+
+  useEffect(() => {
+    if (!hasVideoSource || !isLoading || hasError) return;
     const timer = window.setTimeout(() => {
       setHasError(true);
       setIsLoading(false);
-    }, 12000);
+      onVideoError?.();
+    }, isSelfHosted ? 20000 : 12000);
     return () => window.clearTimeout(timer);
-  }, [embedUrl, hasVideoSource, isSelfHosted]);
+  }, [embedUrl, hasError, hasVideoSource, isLoading, isSelfHosted, onVideoError, reloadKey]);
 
   if (!hasVideoSource) {
     return (
@@ -123,14 +128,21 @@ export function VideoPlayer({
             <p className="text-sm text-[#D1D5DB]">
               {isAr ? "تعذر تحميل الفيديو داخل الصفحة." : "This video could not be loaded inside the lesson."}
             </p>
-            <a
-              href={resolvedVideoUrl}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                setHasError(false);
+                setIsLoading(true);
+                if (isSelfHosted) {
+                  videoRef.current?.load();
+                } else {
+                  setReloadKey((value) => value + 1);
+                }
+              }}
               className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm text-white hover:border-[#C9A227] hover:text-[#C9A227]"
             >
-              {isAr ? "فتح المصدر مباشرة" : "Open Source Directly"}
-            </a>
+              {isAr ? "إعادة المحاولة" : "Retry video"}
+            </button>
           </div>
         </div>
       ) : null}
@@ -149,6 +161,10 @@ export function VideoPlayer({
             onVideoPlay();
           }}
           onWaiting={() => setIsLoading(true)}
+          onLoadedMetadata={() => {
+            setIsLoading(false);
+            setHasError(false);
+          }}
           onLoadedData={() => {
             setIsLoading(false);
             setHasError(false);
@@ -171,10 +187,11 @@ export function VideoPlayer({
             onVideoTimeUpdate(seconds);
           }}
         >
-          <source src={resolvedVideoUrl} />
+          <source src={resolvedVideoUrl} type="video/mp4" />
         </video>
       ) : (
         <iframe
+          key={`${embedUrl}-${reloadKey}`}
           title={title}
           src={embedUrl}
           loading="lazy"

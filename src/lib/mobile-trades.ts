@@ -59,6 +59,60 @@ export function toMobileTradeMessage(
   };
 }
 
+type MobileTradeActionContext = {
+  canOpenDispute: boolean;
+  hasOpenDispute: boolean;
+};
+
+export function toMobileTradeActions(
+  request: PurchaseRequest,
+  userId: string,
+  context: MobileTradeActionContext = { canOpenDispute: false, hasOpenDispute: false },
+): MobileTradeDetail["actions"] {
+  const isBuyer = request.buyerId === userId;
+  const isSeller = request.sellerId === userId;
+  const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  return {
+    canAccept: isSeller && request.status === "pending",
+    canDecline: isSeller && request.status === "pending",
+    canCancel: isBuyer
+      && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt)),
+    canViewBankDetails: isBuyer
+      && Boolean(request.sellerBankAccountId)
+      && isBankTransferPaymentMethod(request.paymentMethod)
+      && !["pending", "declined", "cancelled"].includes(request.status),
+    canMarkPaymentSent: isBuyer
+      && isCashTrade
+      && request.status === "accepted",
+    canUploadPaymentEvidence: isBuyer
+      && request.status === "accepted"
+      && !isCashTrade,
+    canConfirmFunds: isSeller
+      && request.status === "payment_sent",
+    canBeginRelease: isSeller
+      && request.status === "funds_received"
+      && !isCashTrade,
+    canMarkUsdtSent: isSeller
+      && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status),
+    canUploadReleaseEvidence: isSeller
+      && request.status === "usdt_release_pending"
+      && !isCashTrade,
+    canConfirmReceived: isBuyer
+      && request.status === "usdt_sent"
+      && !isCashTrade,
+    canCompleteFaceToFace: isSeller
+      && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
+    canOpenDispute: isBuyer && context.canOpenDispute && !context.hasOpenDispute,
+    canSubmitReview: isBuyer
+      && ["review_open", "completed", "locked"].includes(request.status)
+      && !request.buyerReview,
+    canRespondToReview: isSeller
+      && Boolean(request.buyerReview)
+      && request.buyerReview?.hidden !== true
+      && !request.sellerResponse,
+  };
+}
+
 export function toMobileTradeDetail(
   room: TradeRoomData,
   userId: string,
@@ -67,8 +121,6 @@ export function toMobileTradeDetail(
   const request = room.request;
   const side = request.buyerId === userId ? "buyer" : "seller";
   const isBuyer = side === "buyer";
-  const isSeller = side === "seller";
-  const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   const buyerReview = request.buyerReview
     ? {
         rating: request.buyerReview.rating,
@@ -99,45 +151,10 @@ export function toMobileTradeDetail(
     timeRemainingSeconds: room.timeRemainingSeconds,
     hasOpenDispute: room.hasOpenDispute,
     ...(buyerReview ? { buyerReview } : {}),
-    actions: {
-      canAccept: isSeller && request.status === "pending",
-      canDecline: isSeller && request.status === "pending",
-      canCancel: isBuyer
-        && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt)),
-      canViewBankDetails: isBuyer
-        && Boolean(request.sellerBankAccountId)
-        && isBankTransferPaymentMethod(request.paymentMethod)
-        && !["pending", "declined", "cancelled"].includes(request.status),
-      canMarkPaymentSent: isBuyer
-        && isCashTrade
-        && request.status === "accepted",
-      canUploadPaymentEvidence: isBuyer
-        && request.status === "accepted"
-        && !isCashTrade,
-      canConfirmFunds: isSeller
-        && request.status === "payment_sent",
-      canBeginRelease: isSeller
-        && request.status === "funds_received"
-        && !isCashTrade,
-      canMarkUsdtSent: isSeller
-        && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status),
-      canUploadReleaseEvidence: isSeller
-        && request.status === "usdt_release_pending"
-        && !isCashTrade,
-      canConfirmReceived: isBuyer
-        && request.status === "usdt_sent"
-        && !isCashTrade,
-      canCompleteFaceToFace: isSeller
-        && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
-      canOpenDispute: isBuyer && room.canOpenDispute && !room.hasOpenDispute,
-      canSubmitReview: isBuyer
-        && ["review_open", "completed", "locked"].includes(request.status)
-        && !request.buyerReview,
-      canRespondToReview: isSeller
-        && Boolean(request.buyerReview)
-        && request.buyerReview?.hidden !== true
-        && !request.sellerResponse,
-    },
+    actions: toMobileTradeActions(request, userId, {
+      canOpenDispute: room.canOpenDispute,
+      hasOpenDispute: room.hasOpenDispute,
+    }),
   };
 }
 
