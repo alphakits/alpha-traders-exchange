@@ -655,7 +655,7 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
     request: "تعذّر تحديث هذا الطلب الآن. حاول مرة أخرى.",
     settings: "تعذّر تحديث إعداداتك الآن. حاول مرة أخرى.",
     password: "تعذّر تحديث كلمة المرور الآن. حاول مرة أخرى.",
-    workspace: "تعذّر تحميل مساحة عمل البائع. حدّث الصفحة وحاول مرة أخرى.",
+    workspace: "تعذّر تحميل بيانات المنصة المباشرة الآن. حدّث الصفحة وحاول مرة أخرى.",
     review: "تعذّر إرسال التقييم الآن. حاول مرة أخرى.",
     evidence: "تعذّر رفع الإثبات الآن. حاول مرة أخرى.",
   } : {
@@ -665,7 +665,7 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
     request: "We could not update this request right now. Please try again.",
     settings: "We could not update your settings right now. Please try again.",
     password: "We could not update your password right now. Please try again.",
-    workspace: "We could not load your seller workspace right now. Please refresh and try again.",
+    workspace: "We could not load live Exchange data right now. Please refresh and try again.",
     review: "We could not submit the review right now. Please try again.",
     evidence: "We could not upload evidence right now. Please try again.",
   } satisfies Record<string, string>;
@@ -1705,6 +1705,25 @@ export function UsdtExchangePage({
     return response;
   }, [refreshCanonicalSession]);
 
+  const tracedReadFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await tracedFetch(label, input, init);
+        if (response.ok || response.status < 500 || attempt === 1) return response;
+      } catch (error) {
+        lastError = error;
+        if (init?.signal?.aborted || attempt === 1) throw error;
+      }
+      // A recycled serverless worker can fail one read without making the
+      // workspace unavailable. Retry quickly so existing data stays visible
+      // and a temporary 5xx never becomes a false empty dashboard. One retry
+      // avoids multiplying traffic while the database is genuinely offline.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+    }
+    throw lastError instanceof Error ? lastError : new Error("Read request failed.");
+  }, [tracedFetch]);
+
   const refreshBuyerProfileSummary = useCallback(async () => {
     if (!sessionUser || hasSellerWorkspaceAccess) {
       setBuyerProfileSummary(null);
@@ -1712,8 +1731,11 @@ export function UsdtExchangePage({
     }
 
     try {
-      const response = await tracedFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
-      if (!response.ok) return;
+      const response = await tracedReadFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
+      if (!response.ok) {
+        setWorkspaceError(safeErrorMessage("workspace", isAr));
+        return;
+      }
       const payload = (await response.json()) as {
         stats?: {
           kind?: string;
@@ -1731,9 +1753,10 @@ export function UsdtExchangePage({
         lifetimeCompletedVolumeUsdt: Number(payload.stats.lifetimeCompletedVolumeUsdt ?? 0),
       }));
     } catch {
-      // Preserve current state if the profile payload is temporarily unavailable.
+      // Preserve current state and disclose that the live summary is not ready.
+      setWorkspaceError(safeErrorMessage("workspace", isAr));
     }
-  }, [hasSellerWorkspaceAccess, sessionUser, tracedFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, sessionUser, tracedReadFetch]);
 
   useEffect(() => () => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -1742,19 +1765,23 @@ export function UsdtExchangePage({
 
   const refreshMyPurchaseRequests = useCallback(async () => {
     try {
-      const response = await tracedFetch(
+      const response = await tracedReadFetch(
         "Workspace data loading: purchase requests",
         "/api/alpha-exchange/purchase-requests",
         { cache: "no-store" },
       );
-      if (!response.ok) return false;
+      if (!response.ok) {
+        setWorkspaceError(safeErrorMessage("workspace", isAr));
+        return false;
+      }
       const payload = (await response.json()) as { requests?: PurchaseRequest[] };
       setMyRequests(payload.requests ?? []);
       return true;
     } catch {
+      setWorkspaceError(safeErrorMessage("workspace", isAr));
       return false;
     }
-  }, [tracedFetch]);
+  }, [isAr, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
     try {
@@ -1763,8 +1790,8 @@ export function UsdtExchangePage({
         : "";
       const [, myListingsRes, discordSharingRes] = await Promise.all([
         refreshMyPurchaseRequests(),
-        tracedFetch("Workspace data loading: my listings", `/api/alpha-exchange/my-listings${commissionQuery}`, { cache: "no-store" }),
-        tracedFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
+        tracedReadFetch("Workspace data loading: my listings", `/api/alpha-exchange/my-listings${commissionQuery}`, { cache: "no-store" }),
+        tracedReadFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
       ]);
       let refreshedCommissionStatus: SellerCommissionStatus | null = null;
       let sellerWorkspaceLoadFailed = false;
@@ -1817,7 +1844,7 @@ export function UsdtExchangePage({
       setWorkspaceError(safeErrorMessage("workspace", isAr));
       return null;
     }
-  }, [isAr, refreshMyPurchaseRequests, tracedFetch]);
+  }, [isAr, refreshMyPurchaseRequests, tracedReadFetch]);
 
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
@@ -1924,14 +1951,14 @@ export function UsdtExchangePage({
   ]);
 
   const refreshDiscordSharingStatus = useCallback(async () => {
-    const response = await tracedFetch(
+    const response = await tracedReadFetch(
       "Discord sharing status refresh",
       "/api/alpha-exchange/discord-sharing",
       { cache: "no-store" },
     );
     if (!response.ok) return;
     setDiscordSharing(await response.json() as DiscordListingSharingStatus);
-  }, [tracedFetch]);
+  }, [tracedReadFetch]);
 
   const scheduleDiscordSharingRefreshes = useCallback(() => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -2123,23 +2150,17 @@ export function UsdtExchangePage({
       if (unreadOnly) params.set("unreadOnly", "1");
       params.set("includeActivity", "0");
       const notificationsStartedAt = Date.now();
-      let response: Response | null = null;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 20_000);
-        try {
-          response = await tracedFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, {
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          break;
-        } catch {
-          if (attempt === 2) throw new Error("failed");
-        } finally {
-          window.clearTimeout(timeout);
-        }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      let response: Response;
+      try {
+        response = await tracedReadFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeout);
       }
-      if (!response) throw new Error("failed");
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as {
         notifications: AlphaExchangeNotification[];
@@ -2163,18 +2184,18 @@ export function UsdtExchangePage({
     } finally {
       setNotificationsLoading(false);
     }
-  }, [isAr, notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedFetch]);
+  }, [isAr, notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedReadFetch]);
 
   const refreshNotificationPreferences = useCallback(async () => {
     try {
-      const response = await tracedFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      const response = await tracedReadFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (!response.ok) return;
       const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
       if (payload.preferences) setNotificationPreferences(payload.preferences);
     } catch {
       // Keep silent to preserve UX messaging style.
     }
-  }, [tracedFetch]);
+  }, [tracedReadFetch]);
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
     try {
@@ -2262,6 +2283,7 @@ export function UsdtExchangePage({
       try {
         const listingsRes = await listingsPromise;
         if (cancelled) return;
+        if (!listingsRes.ok) throw new Error("Marketplace listings are temporarily unavailable.");
         const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
         if (cancelled) return;
         setListings(listingsJson.listings ?? []);
@@ -2278,7 +2300,7 @@ export function UsdtExchangePage({
     async function bootstrap() {
       const workspaceInitStartedAt = Date.now();
       try {
-        const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
+        const listingsPromise = tracedReadFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
         const shellReadyAt = Date.now();
         appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
         bootstrapCompletedAtRef.current = shellReadyAt;
@@ -2300,7 +2322,7 @@ export function UsdtExchangePage({
       cancelled = true;
       controller.abort();
     };
-  }, [isAr, tracedFetch]);
+  }, [isAr, tracedReadFetch]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -2329,7 +2351,7 @@ export function UsdtExchangePage({
       void (async () => {
         try {
           const [applicationRes] = await Promise.all([
-            tracedFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
+            tracedReadFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
             hasSellerWorkspaceAccess ? refreshSellerWorkspace() : refreshMyPurchaseRequests(),
             refreshNotificationPreferences(),
           ]);
@@ -2353,7 +2375,7 @@ export function UsdtExchangePage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedReadFetch]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || isSessionResolving || deferredSellerPanelsReady) return;

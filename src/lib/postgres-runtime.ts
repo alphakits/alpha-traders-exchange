@@ -97,6 +97,11 @@ export function getRuntimePostgresPool() {
       max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,
+      // Never let a stalled database operation occupy a serverless function
+      // (and one of the five local pool slots) for minutes. Normal targeted
+      // Exchange reads and writes complete far below these ceilings.
+      statement_timeout: 10_000,
+      query_timeout: 12_000,
     });
 
     // Surface misconfigured connection strings early in production logs.

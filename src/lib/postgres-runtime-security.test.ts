@@ -57,6 +57,10 @@ describe("PostgreSQL runtime TLS", () => {
         rejectUnauthorized: true,
         ca: "test-provider-ca",
       },
+      max: 5,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 10_000,
+      query_timeout: 12_000,
     }));
   });
 
