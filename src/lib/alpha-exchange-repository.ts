@@ -1195,6 +1195,44 @@ function getTable(name: string) {
   return table;
 }
 
+type AggregatedSnapshotRow = {
+  version?: string | null;
+} & Partial<Record<SnapshotTableName, unknown>>;
+
+/**
+ * Reads every requested JSON payload collection in one PostgreSQL statement.
+ *
+ * Besides removing one network round trip per table, this is important for
+ * transaction safety: node-postgres does not support overlapping query calls
+ * on a checked-out PoolClient. The previous stale-writer recovery path issued
+ * every table SELECT through Promise.all on the same client, which can stall a
+ * trade mutation and is deprecated by pg.
+ *
+ * `tableNames` is restricted to the compile-time snapshot table allowlist, so
+ * interpolating these identifiers cannot introduce user-controlled SQL.
+ */
+function buildAggregatedSnapshotSql(tableNames: readonly SnapshotTableName[]) {
+  const selectedNames = Array.from(new Set(tableNames));
+  const payloadColumns = selectedNames.map((tableName) => (
+    `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`
+  ));
+  return `select
+    (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${payloadColumns.length ? `,\n    ${payloadColumns.join(",\n    ")}` : ""}`;
+}
+
+function snapshotFromAggregatedRow(
+  row: AggregatedSnapshotRow | undefined,
+  tableNames: readonly SnapshotTableName[],
+) {
+  return snapshotFromTableRows(tableNames.map((tableName) => {
+    const payloads = row?.[tableName];
+    return {
+      tableName,
+      rows: (Array.isArray(payloads) ? payloads : []).map((payload) => ({ payload })),
+    };
+  }));
+}
+
 async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
   await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
 SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
@@ -1988,22 +2026,11 @@ export class AlphaExchangeRepository {
 
     const selectedNames = Array.from(new Set(tableNames));
     try {
-      const [versionResult, ...tableResults] = await Promise.all([
-        pool.query<{ version: string }>(
-          "select version::text as version from alpha_exchange.runtime_meta where singleton = true",
-        ),
-        ...selectedNames.map((tableName) => {
-          const table = getTable(tableName);
-          return pool.query<{ payload: unknown }>(table.selectSql);
-        }),
-      ]);
-      const rows = selectedNames.map((tableName, index) => ({
-        tableName,
-        rows: tableResults[index]?.rows ?? [],
-      }));
+      const result = await pool.query<AggregatedSnapshotRow>(buildAggregatedSnapshotSql(selectedNames));
+      const row = result.rows[0];
       return attachVersion(
-        snapshotFromTableRows(rows),
-        Number(versionResult.rows[0]?.version ?? "0"),
+        snapshotFromAggregatedRow(row, selectedNames),
+        Number(row?.version ?? "0"),
       );
     } catch (error) {
       logEvent("warn", {
@@ -2270,20 +2297,13 @@ export class AlphaExchangeRepository {
       return snapshot;
     }
     try {
-      const [meta, ...results] = await Promise.all([
-        pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
-        ...tables.map((table) => pool.query(table.selectSql)),
-      ]);
-      perf?.step(`parallel_queries(${tables.length + 1})`);
-      const snapshot = snapshotFromTableRows(
-        results.map((result, index) => ({
-          tableName: tables[index]!.name as SnapshotTableName,
-          rows: result.rows as Array<{ payload: unknown }>,
-        })),
-      );
+      const result = await pool.query<AggregatedSnapshotRow>(buildAggregatedSnapshotSql(SNAPSHOT_TABLE_NAMES));
+      perf?.step(`aggregate_query(${SNAPSHOT_TABLE_NAMES.length})`);
+      const row = result.rows[0];
+      const snapshot = snapshotFromAggregatedRow(row, SNAPSHOT_TABLE_NAMES);
       perf?.step("snapshotFromTableRows");
 
-      const version = Number(meta.rows[0]?.version ?? "0");
+      const version = Number(row?.version ?? "0");
       const withVersion = attachVersion(pruneOrphanAuthSessions(snapshot), version);
       syncMemoryFallbackSnapshot(withVersion, version);
       logRepoVersionFlow("load:db", {
@@ -2513,17 +2533,15 @@ export class AlphaExchangeRepository {
               incomingPurchaseRequests: db.purchaseRequests.length,
               currentPurchaseRequests: currentRequests,
             });
-            const currentResults: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }> = [];
-            // Parallelize all 22 table reads instead of issuing them sequentially.
-            const connectedClient = client!;
-            const parallelResults = await Promise.all(
-              tables.map((table) => queryWithLogging(connectedClient, table.selectSql) as Promise<{ rows: Array<{ payload: unknown }> }>),
+            const aggregateResult = await queryWithLogging(
+              client,
+              buildAggregatedSnapshotSql(SNAPSHOT_TABLE_NAMES),
+            ) as { rows: AggregatedSnapshotRow[] };
+            perf?.step("stale_aggregate_read");
+            const latestSnapshot = attachVersion(
+              snapshotFromAggregatedRow(aggregateResult.rows[0], SNAPSHOT_TABLE_NAMES),
+              currentVersion,
             );
-            perf?.step("stale_parallel_read");
-            for (let i = 0; i < tables.length; i++) {
-              currentResults.push({ tableName: tables[i]!.name as SnapshotTableName, rows: parallelResults[i]!.rows });
-            }
-            const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
             options?.validateLatestBeforeCommit?.(cloneSnapshot(latestSnapshot));
             const incomingSnapshot = options?.rebaseOnLatest
               ? pruneOrphanAuthSessions(await options.rebaseOnLatest(cloneSnapshot(latestSnapshot)))
@@ -3231,10 +3249,10 @@ export class AlphaExchangeRepository {
     });
 
     try {
-      // Fire-and-forget: the listing was already committed. Awaiting this full 23-table
-      // reload here cost ~1000ms for every listing creation (pool max:2 serializes the
-      // 23 parallel queries). The cache was already updated by writeDbForListingCreation;
-      // the fallback snapshot will catch up on the next natural loadSnapshot call.
+      // Fire-and-forget: the listing was already committed. Even though the full
+      // reload is now one aggregate query, cache mirroring is not part of the
+      // user's critical path. The cache was already updated by
+      // writeDbForListingCreation and will catch up asynchronously here.
       this.loadSnapshot()
         .then((snapshot) => {
           syncMemoryFallbackSnapshot(snapshot, nextVersion || getVersion(snapshot));

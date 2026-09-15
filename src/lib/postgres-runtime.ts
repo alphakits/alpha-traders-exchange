@@ -90,12 +90,10 @@ export function getRuntimePostgresPool() {
             rejectUnauthorized: true,
             ...(ca ? { ca } : {}),
           },
-      // Tuned from measured production-like load, not an arbitrary default:
-      // - Workload: auth/login + listing/trade flows repeatedly trigger cold snapshot reads.
-      // - Pattern: loadSnapshot performs 23 independent SELECTs.
-      // - Evidence: max:2 forced ~12 serialized batches (~0.9-1.3s loadSnapshot time).
-      // - Result: max:5 reduced this to ~5 batches (~0.35-0.45s), removing ~0.8s contention.
-      // Keep at 5 unless new profiling data proves a better trade-off with pooler pressure.
+      // Keep enough connections for concurrent user actions and deferred work.
+      // Full and critical snapshot reads now use one aggregate SQL statement,
+      // so they no longer consume one pool checkout per snapshot table.
+      // Keep at 5 unless new production profiling supports another value.
       max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,

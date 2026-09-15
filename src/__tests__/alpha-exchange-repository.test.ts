@@ -218,11 +218,15 @@ describe("AlphaExchangeRepository", () => {
     const query = vi.fn((queryText: string) => {
       if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
       if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
-      if (queryText.includes("runtime_meta")) return Promise.resolve({ rows: [{ version: "17" }] });
-      if (queryText.includes("from alpha_exchange.purchase_requests")) {
-        return Promise.resolve({ rows: [{ payload: { id: "purchase-1", status: "accepted" } }] });
+      if (queryText.includes('as "purchase_requests"') && queryText.includes('as "notifications"')) {
+        return Promise.resolve({
+          rows: [{
+            version: "17",
+            purchase_requests: [{ id: "purchase-1", status: "accepted" }],
+            notifications: [],
+          }],
+        });
       }
-      if (queryText.includes("from alpha_exchange.notifications")) return Promise.resolve({ rows: [] });
       throw new Error(`Unexpected full-table query: ${queryText}`);
     });
     const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
@@ -233,8 +237,9 @@ describe("AlphaExchangeRepository", () => {
     expect(snapshot.purchaseRequests).toEqual([{ id: "purchase-1", status: "accepted" }]);
     expect(snapshot.users).toEqual([]);
     expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(17);
-    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("select payload from alpha_exchange."));
-    expect(selectedQueries).toHaveLength(2);
+    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("jsonb_agg(payload order by sort_index asc)"));
+    expect(selectedQueries).toHaveLength(1);
+    expect(String(selectedQueries[0]?.[0])).not.toContain('as "users"');
   });
 
   it("stores db:// compliance evidence in PostgreSQL instead of the deployment filesystem", async () => {
@@ -304,14 +309,14 @@ describe("AlphaExchangeRepository", () => {
         if (failLoads) {
           return Promise.reject(new Error("timeout exceeded when trying to connect"));
         }
-        if (queryText.includes("select version::text as version from alpha_exchange.runtime_meta")) {
-          return Promise.resolve({ rows: [{ version: "7" }] });
-        }
-        if (queryText.includes("from alpha_exchange.users")) {
-          return Promise.resolve({ rows: [{ payload: { id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" } }] });
-        }
-        if (queryText.includes("from alpha_exchange.listings")) {
-          return Promise.resolve({ rows: [{ payload: listing }] });
+        if (queryText.includes("jsonb_agg(payload order by sort_index asc)")) {
+          return Promise.resolve({
+            rows: [{
+              version: "7",
+              users: [{ id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" }],
+              listings: [listing],
+            }],
+          });
         }
         return Promise.resolve({ rows: [] });
       }),
@@ -356,14 +361,14 @@ describe("AlphaExchangeRepository", () => {
     };
     const successPool = {
       query: vi.fn((queryText: string) => {
-        if (queryText.includes("select version::text as version from alpha_exchange.runtime_meta")) {
-          return Promise.resolve({ rows: [{ version: "9" }] });
-        }
-        if (queryText.includes("from alpha_exchange.users")) {
-          return Promise.resolve({ rows: [{ payload: { id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" } }] });
-        }
-        if (queryText.includes("from alpha_exchange.listings")) {
-          return Promise.resolve({ rows: [{ payload: listing }] });
+        if (queryText.includes("jsonb_agg(payload order by sort_index asc)")) {
+          return Promise.resolve({
+            rows: [{
+              version: "9",
+              users: [{ id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" }],
+              listings: [listing],
+            }],
+          });
         }
         return Promise.resolve({ rows: [] });
       }),
@@ -550,6 +555,65 @@ describe("AlphaExchangeRepository", () => {
     expect(fullUsersDelete).toBeUndefined();
     const scopedUsersDelete = client.query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("delete from alpha_exchange.users where not"));
     expect(scopedUsersDelete).toBeDefined();
+  });
+
+  it("recovers a stale trade write with one aggregate query on the checked-out client", async () => {
+    const canonicalRequest = {
+      id: "request-canonical",
+      status: "accepted",
+      listingId: "listing-1",
+      sellerId: "seller-1",
+      buyerId: "buyer-1",
+      createdAt: "2026-09-15T00:00:00.000Z",
+      updatedAt: "2026-09-15T00:00:01.000Z",
+    };
+    const client = {
+      query: vi.fn((sql: string) => {
+        if (typeof sql === "string" && sql.includes("jsonb_agg(payload order by sort_index asc)")) {
+          return Promise.resolve({
+            rows: [{ version: "2", purchase_requests: [canonicalRequest] }],
+          });
+        }
+        if (typeof sql === "string" && sql.includes("select version::text as version from alpha_exchange.runtime_meta")) {
+          return Promise.resolve({ rows: [{ version: "2" }] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValue(client),
+      on: vi.fn(),
+    } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+    const staleSnapshot = {
+      ...createEmptyDb(),
+      purchaseRequests: [{
+        ...canonicalRequest,
+        id: "request-incoming",
+        status: "pending",
+        updatedAt: "2026-09-15T00:00:02.000Z",
+      }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb;
+
+    await repository.saveSnapshot(staleSnapshot, {
+      skipReadyCheck: true,
+      selectedTables: ["purchase_requests"],
+    });
+
+    const aggregateQueries = client.query.mock.calls.filter(([sql]) => (
+      typeof sql === "string" && sql.includes("jsonb_agg(payload order by sort_index asc)")
+    ));
+    expect(aggregateQueries).toHaveLength(1);
+    expect(client.query.mock.calls.some(([sql]) => (
+      typeof sql === "string" && sql.trimStart().startsWith("select payload from alpha_exchange.")
+    ))).toBe(false);
+    expect(staleSnapshot.purchaseRequests.map((request) => request.id).sort()).toEqual([
+      "request-canonical",
+      "request-incoming",
+    ]);
   });
 
   it("switches to the in-memory snapshot after initialization fails so later writes do not hit the database", async () => {
