@@ -4081,6 +4081,24 @@ async function readDbForNotificationUser(userId: string, includeActivity: boolea
   return normalized;
 }
 
+function notificationRevision(notifications: readonly AlphaExchangeNotification[]) {
+  const unreadCount = notifications.filter((notification) => notification.isRead === false).length;
+  const latestUpdatedAt = notifications.reduce((latest, notification) => {
+    const candidate = notification.updatedAt ?? notification.createdAt;
+    return candidate > latest ? candidate : latest;
+  }, "");
+  return `${notifications.length}:${unreadCount}:${latestUpdatedAt}`;
+}
+
+export async function getNotificationRevisionForUser(userId: string) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadNotificationRevisionForUser === "function") {
+    return repository.loadNotificationRevisionForUser(userId);
+  }
+  const db = await readDbForNotificationUser(userId, false);
+  return notificationRevision(db.notifications.filter((notification) => notification.userId === userId));
+}
+
 /**
  * Legacy commission rows predate exact memo-less TRC20 payment intents. The
  * first authenticated read allocates and commits those intents before any
@@ -15772,6 +15790,7 @@ export async function getNotificationsForUser(input: {
   strongConsistency?: boolean;
 }) {
   const db = await readDbForNotificationUser(input.userId, input.includeActivity !== false);
+  const recipientNotifications = db.notifications.filter((notification) => notification.userId === input.userId);
 
   // Build the display-number lookup ONCE for the entire function so that every
   // enrichNotification call below shares it rather than rebuilding it per call.
@@ -15824,6 +15843,7 @@ export async function getNotificationsForUser(input: {
     total: sortedNotifications.length,
     unreadCount,
     activity,
+    revision: notificationRevision(recipientNotifications),
   };
 }
 
