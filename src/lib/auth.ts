@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { cookies } from "next/headers";
-import { createAuthSession, deleteSessionByToken, findUserByEmail, findUserById, getSessionByToken } from "@/lib/alpha-exchange-store";
+import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedUserBySessionToken } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
 export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME };
@@ -89,14 +89,8 @@ export async function getCurrentSessionUser() {
   if (!token) {
     return null;
   }
-  const session = await getSessionByToken(token);
-  if (!session) {
-    return null;
-  }
-  const user = await findUserById(session.userId);
-  if (!user) {
-    return null;
-  }
+  const user = await getAuthenticatedUserBySessionToken(token);
+  if (!user) return null;
   // Email verification is enforced at login and at every buyer-facing trading
   // route. Silently deleting sessions here causes a race: if a DB write is
   // stale, the user is kicked out mid-session with no feedback.

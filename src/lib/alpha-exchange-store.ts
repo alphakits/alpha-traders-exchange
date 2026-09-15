@@ -6824,6 +6824,30 @@ export async function getSessionByToken(token: string) {
   return session;
 }
 
+export async function getAuthenticatedUserBySessionToken(token: string) {
+  const hashed = hashToken(token);
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadAuthenticatedSessionSnapshot !== "function") {
+    // Compatibility for local/test repository doubles created before the
+    // combined session lookup was introduced.
+    const session = await getSessionByToken(token);
+    return session ? findUserById(session.userId) : null;
+  }
+
+  const parsed = await repository.loadAuthenticatedSessionSnapshot(hashed);
+  const db = normalizeDb(parsed);
+  ensureDisplayNumbers(db);
+  const session = db.authSessions.find((candidate) => candidate.token === hashed);
+  if (!session) return null;
+  if (new Date(session.expiresAt) < new Date()) {
+    await repository.deleteAuthSession(hashed);
+    const cachedSessions = dbCache?.value.authSessions ?? [];
+    syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
+    return null;
+  }
+  return db.users.find((user) => user.id === session.userId) ?? null;
+}
+
 export async function deleteSessionByToken(token: string) {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
@@ -16811,7 +16835,12 @@ export async function getAdminPrepDashboardData() {
   // from canonical persistence. A cached snapshot from another warm instance
   // can otherwise make a successfully issued commission disappear for the
   // cache window and invite an accidental duplicate charge.
-  const db = await readDb({ bypassCache: true });
+  const repository = await getAlphaExchangeRepository();
+  const parsed = typeof repository.loadAdminDashboardSnapshot === "function"
+    ? await repository.loadAdminDashboardSnapshot()
+    : await repository.loadSnapshot();
+  const db = normalizeDb(parsed);
+  ensureDisplayNumbers(db);
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
