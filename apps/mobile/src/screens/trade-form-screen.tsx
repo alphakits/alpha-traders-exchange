@@ -145,11 +145,12 @@ export function TradeFormScreen({
   }, [router]);
 
   async function submit() {
-    if (!listing || !formIsValid) {
+    if (!user || !listing || !formIsValid) {
       setError(t("invalidTradeForm"));
       return;
     }
     const operationScope = activeFormScopeRef.current;
+    const submittingUserId = user.id;
     setError(null);
     setIsSubmitting(true);
     try {
@@ -165,7 +166,7 @@ export function TradeFormScreen({
         safetyAcknowledged,
       }));
       if (activeFormScopeRef.current !== operationScope) return;
-      const tradeQueryKey = ["mobile-trade", user.id, response.trade.id, locale] as const;
+      const tradeQueryKey = ["mobile-trade", submittingUserId, response.trade.id, locale] as const;
       const initialDetail: MobileTradeDetailResponse = {
         requestId: response.requestId,
         trade: {

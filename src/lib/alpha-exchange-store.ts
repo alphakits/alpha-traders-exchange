@@ -1,6 +1,7 @@
-                  import { appendFileSync, mkdirSync } from "fs";
+import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
@@ -3814,7 +3815,8 @@ const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly Snapsho
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const AUTH_USER_READ_TABLES = ["users", "seller_applications"] as const satisfies readonly SnapshotTableName[];
-const PURCHASE_REQUEST_READ_TABLES = ["purchase_requests", "evidence"] as const satisfies readonly SnapshotTableName[];
+const SMS_DELIVERY_READ_TABLES = ["sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_READ_TABLES = ["listings", "purchase_requests", "evidence"] as const satisfies readonly SnapshotTableName[];
 const MARKETPLACE_LISTING_READ_TABLES = [
   "users",
   "seller_applications",
@@ -4013,7 +4015,7 @@ async function readDbForAuthUser(input: { userId?: string; normalizedEmail?: str
   return normalized;
 }
 
-async function readDbForPurchaseRequestActor(userId: string, role: UserRole) {
+async function readDbForPurchaseRequestActor(userId: string, role: UserRole, requestId?: string) {
   const repository = await getAlphaExchangeRepository();
   if (typeof repository.loadPurchaseRequestSnapshotForActor !== "function") {
     return readDbForSelectedTables(PURCHASE_REQUEST_READ_TABLES);
@@ -4021,6 +4023,28 @@ async function readDbForPurchaseRequestActor(userId: string, role: UserRole) {
   const parsed = await repository.loadPurchaseRequestSnapshotForActor({
     userId,
     includeAll: role === "admin" || role === "owner",
+    requestId,
+  });
+  const normalized = normalizeDb(parsed);
+  ensureDisplayNumbers(normalized);
+  return normalized;
+}
+
+async function readDbForTradeCandidate(
+  userId: string,
+  role: UserRole,
+  activeStatuses: readonly PurchaseRequestStatus[],
+  includeBuyerPending: boolean,
+) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadPurchaseRequestCandidateSnapshotForActor !== "function") {
+    return readDbForPurchaseRequestActor(userId, role);
+  }
+  const parsed = await repository.loadPurchaseRequestCandidateSnapshotForActor({
+    userId,
+    includeAll: role === "admin" || role === "owner",
+    activeStatuses,
+    includeBuyerPending,
   });
   const normalized = normalizeDb(parsed);
   ensureDisplayNumbers(normalized);
@@ -10042,22 +10066,26 @@ function projectPurchaseRequestForActor(db: AlphaExchangeDb, request: PurchaseRe
 }
 
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
-  const db = await readDb();
+  const { activeTrade } = await getTradeHeaderStateForUser(userId, role);
+  return activeTrade;
+}
+
+function findFirstActiveTradeForUser(db: AlphaExchangeDb, userId: string, role: UserRole) {
   // Include "pending" only when the user is the buyer waiting for seller acceptance —
   // sellers and admins must not be locked into the trade room by an unaccepted request.
-  const activeTrades = filterTradesForUser(db, userId, role)
+  return filterTradesForUser(db, userId, role)
     .filter((request) =>
       isActiveTradeStatus(request.status) ||
       (request.status === "pending" && request.buyerId === userId),
     )
-    .sort(sortTradesByUpdatedAtDesc);
-  return activeTrades[0] ? projectPurchaseRequestForActor(db, activeTrades[0], userId, role) : null;
+    .sort(sortTradesByUpdatedAtDesc)[0] ?? null;
 }
 
-export async function getTradeReminderForUser(userId: string, role: UserRole): Promise<AlphaExchangeTradeReminder | null> {
-  const db = await readDb();
-  const trade = await getFirstActiveTradeForUser(userId, role);
-  if (!trade) return null;
+function buildTradeReminderForUser(
+  db: AlphaExchangeDb,
+  trade: PurchaseRequest,
+  userId: string,
+): AlphaExchangeTradeReminder | null {
   const isBuyer = trade.buyerId === userId;
   const isSeller = trade.sellerId === userId;
   if (!isBuyer && !isSeller) return null;
@@ -10121,8 +10149,29 @@ export async function getTradeReminderForUser(userId: string, role: UserRole): P
   return null;
 }
 
+/**
+ * Header state is intentionally loaded as one actor-scoped snapshot. This is
+ * on every authenticated navigation, so a full Exchange snapshot (or two
+ * sequential snapshots) creates visible page stalls as the database grows.
+ */
+async function resolveTradeHeaderStateForUser(userId: string, role: UserRole) {
+  const db = await readDbForTradeCandidate(userId, role, ACTIVE_TRADE_STATUSES, true);
+  const trade = findFirstActiveTradeForUser(db, userId, role);
+  return {
+    activeTrade: trade ? projectPurchaseRequestForActor(db, trade, userId, role) : null,
+    tradeReminder: trade ? buildTradeReminderForUser(db, trade, userId) : null,
+  };
+}
+
+export const getTradeHeaderStateForUser = cache(resolveTradeHeaderStateForUser);
+
+export async function getTradeReminderForUser(userId: string, role: UserRole): Promise<AlphaExchangeTradeReminder | null> {
+  const { tradeReminder } = await getTradeHeaderStateForUser(userId, role);
+  return tradeReminder;
+}
+
 export async function getFirstActionableTradeForUser(userId: string, role: UserRole) {
-  const db = await readDb();
+  const db = await readDbForTradeCandidate(userId, role, ACTIONABLE_TRADE_STATUSES, false);
   const actionableTrades = filterTradesForUser(db, userId, role)
     .filter((request) => isActionableTradeStatus(request.status))
     .sort(sortTradesByUpdatedAtDesc);
@@ -10136,7 +10185,7 @@ export async function getTradeRoomRequestForUserById(input: {
 }) {
   const requestId = String(input.requestId ?? "").trim();
   if (!requestId) return null;
-  const db = await readDb();
+  const db = await readDbForPurchaseRequestActor(input.userId, input.role, requestId);
   const request = db.purchaseRequests.find((item) => item.id === requestId);
   if (!request) return null;
   const visibleTrades = filterTradesForUser(db, input.userId, input.role);
@@ -10151,7 +10200,7 @@ export async function resolveTradeRoomRequestForNotification(input: {
   notificationId: string;
   includePendingFallback?: boolean;
 }) {
-  const db = await readDb();
+  const db = await readDbForNotificationUser(input.userId, false);
   const notification = db.notifications.find((item) => item.id === input.notificationId && item.userId === input.userId);
   if (!notification) {
     return {
@@ -15978,7 +16027,7 @@ export function toAdminSmsDelivery(delivery: SmsDeliveryRecord) {
 }
 
 export async function getSmsDeliveriesForAdmin() {
-  const db = await readDb();
+  const db = await readDbForSelectedTables(SMS_DELIVERY_READ_TABLES, { preferWarmFullCache: true });
   return (db.smsDeliveries ?? [])
     .map(toAdminSmsDelivery)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))

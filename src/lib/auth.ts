@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto";
 import { promisify } from "util";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createAuthSession, deleteSessionByToken, findUserByEmail, findUserById, getSessionByToken } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
@@ -84,7 +85,7 @@ export async function clearUserSession(token: string | null | undefined) {
   }
 }
 
-export async function getCurrentSessionUser() {
+async function resolveCurrentSessionUser() {
   const token = await getCurrentSessionToken();
   if (!token) {
     return null;
@@ -102,3 +103,10 @@ export async function getCurrentSessionUser() {
   // stale, the user is kicked out mid-session with no feedback.
   return user;
 }
+
+/**
+ * A locale layout and its page frequently need the same authoritative user.
+ * React's request-scoped cache keeps those callers on one session/user lookup
+ * without allowing an authenticated result to leak into another request.
+ */
+export const getCurrentSessionUser = cache(resolveCurrentSessionUser);
