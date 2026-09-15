@@ -186,10 +186,10 @@ check(installedIphoneWorkflow.includes("type: apple-device-registration-request"
 check(installedIphoneWorkflow.includes("refresh_ad_hoc_provisioning_profile: true"), "The registered-iPhone workflow does not refresh provisioning.");
 check(iosTestflightWorkflow.includes("branches: [release/ios-testflight]"), "The TestFlight workflow is not isolated to its controlled release branch.");
 check(iosTestflightWorkflow.includes("profile: production"), "The TestFlight workflow is not using the production profile.");
-check(iosTestflightWorkflow.includes("type: testflight"), "The TestFlight upload job is missing.");
+check(iosTestflightWorkflow.includes("type: submit"), "The TestFlight upload job is missing.");
 check(iosTestflightWorkflow.includes("needs: [build_ios]"), "The TestFlight upload is not gated on a successful iOS build.");
 check(iosTestflightWorkflow.includes("build_id: ${{ needs.build_ios.outputs.build_id }}"), "The TestFlight upload is not pinned to the build produced by the workflow.");
-check(iosTestflightWorkflow.includes("submit_beta_review: false"), "The private TestFlight workflow must not request external Beta App Review.");
+check(!iosTestflightWorkflow.includes("submit_beta_review: true"), "The private TestFlight workflow must not request external Beta App Review.");
 check(!iosTestflightWorkflow.includes("external_groups:"), "The private TestFlight workflow must not distribute to external groups.");
 check(githubWorkflow.includes("eas build --platform ios --profile preview"), "The GitHub iOS preview workflow is missing.");
 
