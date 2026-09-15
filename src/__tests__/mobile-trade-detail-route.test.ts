@@ -245,6 +245,10 @@ describe("mobile trade detail route", () => {
     });
 
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: { id: "purchase-1", status: "cancelled" },
+      actions: { canCancel: false, canMarkPaymentSent: false },
+    });
     expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
       requestId: "purchase-1",
       actorUserId: "buyer-1",
@@ -284,6 +288,10 @@ describe("mobile trade detail route", () => {
     });
 
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: { status: "review_open" },
+      actions: { canCompleteFaceToFace: false, canCancel: false },
+    });
     expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
       requestId: "purchase-1",
       actorUserId: "private-seller-id",

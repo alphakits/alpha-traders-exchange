@@ -43,6 +43,7 @@ import type {
   MobileTradeBankDetailsResponse,
   MobileTradeDetailResponse,
   MobileTradeMessageResponse,
+  MobileTradeMutationResponse,
   MobileTradeResponse,
   MobileTradesResponse,
 } from "@alpha-traders/contracts";
@@ -844,7 +845,7 @@ export function updateMobileTrade(
   status: string,
   safetyAcknowledged = false,
 ) {
-  return mobileRequest<MobileTradeResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
     locale,
     method: "PATCH",
     accessToken: tokens.accessToken,
@@ -857,7 +858,7 @@ export function completeMobileCashTrade(
   locale: MobileLocale,
   requestId: string,
 ) {
-  return mobileRequest<MobileTradeResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
     locale,
     method: "PATCH",
     accessToken: tokens.accessToken,

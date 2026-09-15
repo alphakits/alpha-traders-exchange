@@ -20,6 +20,7 @@ import {
   getPublicMarketSnapshot,
 } from "../api/mobile-api";
 import { nextPageOffset } from "../query/paged-data";
+import { mobileQueryRetryDelay, shouldRetryMobileQuery } from "../query/mobile-query-retry";
 
 function NativeQueryBoundary({ children }: PropsWithChildren) {
   const queryClient = useQueryClient();
@@ -100,7 +101,8 @@ export function AppProviders({ children }: PropsWithChildren) {
     defaultOptions: {
       queries: {
         gcTime: 30 * 60_000,
-        retry: 1,
+        retry: shouldRetryMobileQuery,
+        retryDelay: mobileQueryRetryDelay,
         refetchOnReconnect: true,
         refetchOnWindowFocus: true,
       },
