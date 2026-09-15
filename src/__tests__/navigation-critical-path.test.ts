@@ -12,9 +12,13 @@ describe("authenticated navigation critical path", () => {
   it("keeps session resolution direct and sequences locale loading before auth", () => {
     const auth = source("src/lib/auth.ts");
     const layout = source("src/app/[locale]/layout.tsx");
+    const start = auth.indexOf("export async function getCurrentSessionUser");
+    const sessionFunction = auth.slice(start);
 
     expect(auth).toContain("export async function getCurrentSessionUser()");
     expect(auth).not.toContain("cache(resolveCurrentSessionUser)");
+    expect(sessionFunction).toContain("getAuthenticatedUserBySessionToken(token)");
+    expect(sessionFunction).not.toContain("getSessionByToken(token)");
     expect(layout).toContain("const messages = await getMessages();");
     expect(layout).toContain("const sessionUser = await getCurrentSessionUser();");
     expect(layout.indexOf("const messages = await getMessages();"))
@@ -56,5 +60,15 @@ describe("authenticated navigation critical path", () => {
 
     expect(smsFunction).toContain("readDbForSelectedTables(SMS_DELIVERY_READ_TABLES");
     expect(smsFunction).not.toContain("readDb()");
+  });
+
+  it("keeps the owner dashboard off the monolithic full-snapshot read", () => {
+    const store = source("src/lib/alpha-exchange-store.ts");
+    const start = store.indexOf("export async function getAdminPrepDashboardData");
+    const end = store.indexOf("export async function getOwnerPendingListingsDashboardData", start);
+    const adminPrepFunction = store.slice(start, end);
+
+    expect(adminPrepFunction).toContain("loadAdminDashboardSnapshot");
+    expect(adminPrepFunction).not.toContain("readDb({ bypassCache: true })");
   });
 });
