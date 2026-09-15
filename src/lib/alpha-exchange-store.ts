@@ -4004,15 +4004,12 @@ async function readDbForMarketplaceListings(viewerUserId?: string) {
   };
 }
 
-async function readDbForAuthUser(input: { userId?: string; normalizedEmail?: string }) {
-  const repository = await getAlphaExchangeRepository();
-  if (typeof repository.loadAuthUserSnapshot !== "function") {
-    return readDbForSelectedTables(AUTH_USER_READ_TABLES);
-  }
-  const parsed = await repository.loadAuthUserSnapshot(input);
-  const normalized = normalizeDb(parsed);
-  ensureDisplayNumbers(normalized);
-  return normalized;
+async function readDbForAuthUser() {
+  // Authentication is a global availability boundary: a failure here takes
+  // every signed-in route offline before its own error handling can render.
+  // Keep this read to the two small auth collections, but use the established
+  // aggregate snapshot query instead of the newer per-account SQL path.
+  return readDbForSelectedTables(AUTH_USER_READ_TABLES);
 }
 
 async function readDbForPurchaseRequestActor(userId: string, role: UserRole, requestId?: string) {
@@ -6635,13 +6632,13 @@ export async function updateOwnerMarketplaceComplianceRecoveryWallet(input: {
 
 export async function findUserByEmail(email: string) {
   const normalized = normalizeEmail(email);
-  const db = await readDbForAuthUser({ normalizedEmail: normalized });
+  const db = await readDbForAuthUser();
   return db.users.find((user) => normalizeEmail(user.email) === normalized) ?? null;
 }
 
 export async function findUsersByEmail(email: string) {
   const normalized = normalizeEmail(email);
-  const db = await readDbForAuthUser({ normalizedEmail: normalized });
+  const db = await readDbForAuthUser();
   return db.users.filter((user) => normalizeEmail(user.email) === normalized);
 }
 
@@ -6733,7 +6730,7 @@ export async function getCommissionResetTraceByEmail(email: string) {
 }
 
 export async function findUserById(userId: string) {
-  const db = await readDbForAuthUser({ userId });
+  const db = await readDbForAuthUser();
   return db.users.find((user) => user.id === userId) ?? null;
 }
 
@@ -6981,7 +6978,7 @@ export async function createSellerApplication(input: {
 }
 
 export async function getSellerApplicationByUserId(userId: string, dbInput?: AlphaExchangeDb) {
-  const db = dbInput ?? await readDbForAuthUser({ userId });
+  const db = dbInput ?? await readDbForAuthUser();
   return db.sellerApplications.find((item) => item.userId === userId) ?? null;
 }
 

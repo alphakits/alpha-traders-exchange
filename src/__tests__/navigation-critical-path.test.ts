@@ -21,6 +21,16 @@ describe("authenticated navigation critical path", () => {
       .toBeLessThan(layout.indexOf("const sessionUser = await getCurrentSessionUser();"));
   });
 
+  it("keeps authenticated user lookup on the stable two-table snapshot path", () => {
+    const store = source("src/lib/alpha-exchange-store.ts");
+    const start = store.indexOf("async function readDbForAuthUser");
+    const end = store.indexOf("async function readDbForPurchaseRequestActor", start);
+    const authReadFunction = store.slice(start, end);
+
+    expect(authReadFunction).toContain("return readDbForSelectedTables(AUTH_USER_READ_TABLES)");
+    expect(authReadFunction).not.toContain("loadAuthUserSnapshot");
+  });
+
   it("loads one scoped trade snapshot for the global authenticated header", () => {
     const header = source("src/components/layout/site-header.tsx");
     const store = source("src/lib/alpha-exchange-store.ts");
