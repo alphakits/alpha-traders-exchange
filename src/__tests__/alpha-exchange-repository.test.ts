@@ -147,6 +147,62 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("from alpha_exchange.listings order by"))).toBe(false);
   });
 
+  it("loads the public marketplace and commission locks in one seller-scoped query", async () => {
+    const seller = {
+      id: "seller-1",
+      email: "seller@example.test",
+      fullName: "Seller",
+      sellerStatus: "approved_seller",
+    };
+    const viewer = { id: "buyer-1", email: "buyer@example.test", fullName: "Buyer" };
+    const activeListing = { id: "listing-active", sellerId: "seller-1", status: "active" };
+    const closedListing = { id: "listing-closed", sellerId: "seller-1", status: "closed" };
+    const commission = { id: "commission-1", sellerId: "seller-1", paymentStatus: "pending" };
+    const query = vi.fn((queryText: string, values?: unknown[]) => {
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      if (queryText.includes("with candidate_seller_ids as materialized")) {
+        expect(values).toEqual(["buyer-1"]);
+        expect(queryText).toContain("where status = 'active'");
+        expect(queryText).toContain("request.seller_id in (select seller_id from candidate_seller_ids)");
+        expect(queryText).toContain("commission.seller_id in (select seller_id from candidate_seller_ids)");
+        expect(queryText).toContain("commission.payment_status <> 'paid'");
+        expect(queryText).toContain("entry.target_user_id in (select seller_id from candidate_seller_ids)");
+        expect(queryText).not.toContain("alpha_exchange.sessions");
+        expect(queryText).not.toContain("alpha_exchange.notifications");
+        return Promise.resolve({
+          rows: [{
+            version: "33",
+            users: [seller, viewer],
+            seller_applications: [],
+            listings: [activeListing, closedListing],
+            purchase_requests: [],
+            commissions: [commission],
+            unpaid_commission_seller_ids: ["seller-1"],
+            audit_logs: [],
+            trust_snapshots: [],
+            marketplace_enforcement_records: [],
+          }],
+        });
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    const loaded = await repository.loadMarketplaceListingSnapshotForViewer(" buyer-1 ");
+    const snapshot = loaded.snapshot;
+
+    expect(snapshot.users).toEqual([seller, viewer]);
+    expect(snapshot.marketplaceListings).toEqual([activeListing, closedListing]);
+    expect(snapshot.commissionRecords).toEqual([commission]);
+    expect(snapshot.notifications).toEqual([]);
+    expect(loaded.unpaidCommissionSellerIds).toEqual(["seller-1"]);
+    expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(33);
+    expect(query.mock.calls.filter(([sql]) => String(sql).includes("with candidate_seller_ids as materialized"))).toHaveLength(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("select distinct seller_id from alpha_exchange.commissions"))).toBe(false);
+  });
+
   it("loads one Trade Room snapshot and revision without a full-table fan-out", async () => {
     const requestPayload = {
       id: "purchase-1",

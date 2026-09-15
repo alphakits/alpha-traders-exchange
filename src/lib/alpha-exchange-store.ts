@@ -3971,6 +3971,37 @@ async function readDbForSelectedTables(
   return normalized;
 }
 
+async function readDbForMarketplaceListings(viewerUserId?: string) {
+  if (dbCache && Date.now() - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
+    return {
+      db: structuredClone(dbCache.value),
+      canonicalCommissionBlockedSellerIds: null as string[] | null,
+    };
+  }
+  // Development-only tester seeding needs the complete user/application set.
+  // Production never enables this path.
+  if (isDevelopmentTesterSeedEnabled()) {
+    return {
+      db: await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true }),
+      canonicalCommissionBlockedSellerIds: null as string[] | null,
+    };
+  }
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadMarketplaceListingSnapshotForViewer !== "function") {
+    return {
+      db: await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true }),
+      canonicalCommissionBlockedSellerIds: null as string[] | null,
+    };
+  }
+  const loaded = await repository.loadMarketplaceListingSnapshotForViewer(viewerUserId);
+  const normalized = normalizeDb(loaded.snapshot);
+  ensureDisplayNumbers(normalized);
+  return {
+    db: normalized,
+    canonicalCommissionBlockedSellerIds: loaded.unpaidCommissionSellerIds,
+  };
+}
+
 async function readDbForAuthUser(input: { userId?: string; normalizedEmail?: string }) {
   const repository = await getAlphaExchangeRepository();
   if (typeof repository.loadAuthUserSnapshot !== "function") {
@@ -7833,10 +7864,17 @@ export async function getMarketplaceListings(
   options?: { requireCanonicalCommissionLocks?: boolean },
 ) {
   const isPublicFeed = !status || status === "all" || status === "active";
-  const db = dbInput ?? await readDbForSelectedTables(
-    MARKETPLACE_LISTING_READ_TABLES,
-    { preferWarmFullCache: true },
-  );
+  let canonicalCommissionBlockedSellerIds: string[] | null = null;
+  let db: AlphaExchangeDb;
+  if (dbInput) {
+    db = dbInput;
+  } else if (isPublicFeed) {
+    const marketplaceSnapshot = await readDbForMarketplaceListings(viewerUserId);
+    db = marketplaceSnapshot.db;
+    canonicalCommissionBlockedSellerIds = marketplaceSnapshot.canonicalCommissionBlockedSellerIds;
+  } else {
+    db = await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true });
+  }
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
@@ -7851,7 +7889,8 @@ export async function getMarketplaceListings(
     && (!dbInput || options?.requireCanonicalCommissionLocks === true);
   const sellersBlockedByCommission = new Set(
     requiresCanonicalCommissionLocks
-      ? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
+      ? canonicalCommissionBlockedSellerIds
+        ?? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
       : cachedCommissionBlockedSellerIds,
   );
   const sellersBlockedByEnforcement = new Set(
