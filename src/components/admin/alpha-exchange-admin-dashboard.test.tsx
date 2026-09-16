@@ -142,6 +142,18 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it("keeps the core dashboard available when the optional SMS feed fails", async () => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes("sms-deliveries")) throw new Error("SMS feed unavailable");
+      return Response.json(adminPayload());
+    });
+
+    render(<AlphaExchangeAdminDashboard />);
+
+    expect(await screen.findByRole("heading", { name: "Marketplace Listings" })).toBeTruthy();
+    expect(screen.queryByText("We could not load dashboard data right now. Please refresh and try again.")).toBeNull();
+  });
+
   it("renders the mobile owner listing destination in Arabic without English fallback copy", async () => {
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });

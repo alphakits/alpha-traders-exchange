@@ -76,21 +76,22 @@ describe("hourly trade action reminder cron", () => {
     expect(mocks.runTradeActionReminders).toHaveBeenCalledTimes(1);
   });
 
-  it("checks every five minutes while each trade remains limited to one reminder per hour", () => {
+  it("runs from Dublin and staggers five-minute cron checks", () => {
     const config = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8"));
 
+    expect(config.regions).toEqual(["dub1"]);
     expect(config.crons).toEqual([
       {
         path: "/api/cron/trade-action-reminders",
-        schedule: "*/5 * * * *",
+        schedule: "1-59/5 * * * *",
       },
       {
         path: "/api/cron/commission-payment-verification",
-        schedule: "*/5 * * * *",
+        schedule: "2-59/5 * * * *",
       },
       {
         path: "/api/cron/whatsapp-delivery",
-        schedule: "*/5 * * * *",
+        schedule: "3-59/5 * * * *",
       },
     ]);
   });

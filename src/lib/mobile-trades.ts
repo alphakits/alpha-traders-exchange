@@ -113,6 +113,13 @@ export function toMobileTradeActions(
   };
 }
 
+export function canExposeBuyerWalletToMobileParticipant(request: PurchaseRequest, userId: string) {
+  if (request.buyerId === userId) return true;
+  if (request.sellerId !== userId) return false;
+  if (!isCashTradePaymentMethod(request.paymentMethod)) return true;
+  return ["funds_received", "usdt_release_pending", "usdt_sent", "review_open", "completed", "locked"].includes(request.status);
+}
+
 export function toMobileTradeDetail(
   room: TradeRoomData,
   userId: string,
@@ -139,7 +146,9 @@ export function toMobileTradeDetail(
   return {
     ...toMobileTradeSummary(request, userId),
     counterpartyDisplayName: isBuyer ? room.counterpart.sellerName : room.counterpart.buyerName,
-    receivingWalletAddress: request.buyerReceivingWalletAddress,
+    receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
+      ? request.buyerReceivingWalletAddress
+      : undefined,
     timeline: (request.timeline ?? []).map((entry) => ({
       type: entry.type,
       createdAt: entry.createdAt,

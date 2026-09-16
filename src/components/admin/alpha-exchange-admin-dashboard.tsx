@@ -643,14 +643,19 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (!options.silent) setLoading(true);
     setError(null);
     try {
-      const [response, smsResponse] = await Promise.all([
+      const [response, smsDeliveries] = await Promise.all([
         fetch("/api/alpha-exchange/admin-prep", { cache: "no-store" }),
-        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store" }),
+        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store" })
+          .then(async (smsResponse) => {
+            if (!smsResponse.ok) return [];
+            const smsPayload = (await smsResponse.json()) as { deliveries?: AdminSmsDelivery[] };
+            return smsPayload.deliveries ?? [];
+          })
+          .catch(() => [] as AdminSmsDelivery[]),
       ]);
       const payload = (await response.json()) as Omit<AdminPayload, "smsDeliveries"> & { error?: string };
-      const smsPayload = (await smsResponse.json()) as { deliveries?: AdminSmsDelivery[]; error?: string };
-      if (!response.ok || !smsResponse.ok) throw new Error(safeAdminError("load", locale));
-      setData({ ...payload, smsDeliveries: smsPayload.deliveries ?? [] });
+      if (!response.ok) throw new Error(safeAdminError("load", locale));
+      setData({ ...payload, smsDeliveries });
     } catch (requestError) {
       setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
     } finally {

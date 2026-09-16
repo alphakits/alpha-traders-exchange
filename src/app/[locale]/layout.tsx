@@ -48,11 +48,9 @@ export default async function LocaleLayout({
     notFound();
   }
 
+  const messages = await getMessages();
   const appLocale = locale as AppLocale;
-  const [messages, sessionUser] = await Promise.all([
-    getMessages(),
-    getCurrentSessionUser(),
-  ]);
+  const sessionUser = await getCurrentSessionUser();
 
   return (
     <NextIntlClientProvider messages={messages}>

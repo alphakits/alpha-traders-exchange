@@ -79,6 +79,7 @@ describe("AlphaExchangeRepository", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     delete process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK;
+    vi.unstubAllEnvs();
   });
 
   it("skips runtime DDL when the current schema sentinel exists", async () => {
@@ -103,6 +104,25 @@ describe("AlphaExchangeRepository", () => {
       ["alpha_exchange.idx_alpha_exchange_commissions_unpaid_seller"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
+  });
+
+  it("avoids the local seed count during production bootstrap", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    const query = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) {
+        return Promise.resolve({ rows: [{ ready: true }] });
+      }
+      throw new Error(`Unexpected production bootstrap query: ${queryText}`);
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    await repository.ensureReady();
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("count(*)::text"))).toBe(false);
   });
 
   it("retains safe runtime bootstrap when the schema sentinel is missing", async () => {
@@ -296,6 +316,134 @@ describe("AlphaExchangeRepository", () => {
     const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("jsonb_agg(payload order by sort_index asc)"));
     expect(selectedQueries).toHaveLength(1);
     expect(String(selectedQueries[0]?.[0])).not.toContain('as "users"');
+  });
+
+  it("retries one transient selected-snapshot read with a fresh pool checkout", async () => {
+    let selectedAttempts = 0;
+    const query = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      if (queryText.includes('as "users"')) {
+        selectedAttempts += 1;
+        if (selectedAttempts === 1) return Promise.reject(new Error("Query read timeout"));
+        return Promise.resolve({ rows: [{ version: "18", users: [{ id: "user-1" }] }] });
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    const snapshot = await repository.loadSelectedSnapshot(["users"]);
+
+    expect(snapshot.users).toEqual([{ id: "user-1" }]);
+    expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(18);
+    expect(selectedAttempts).toBe(2);
+  });
+
+  it("resolves an authenticated session, account, and seller role context in one query", async () => {
+    const session = {
+      token: "hashed-session-token",
+      userId: "user-1",
+      createdAt: "2026-09-15T12:00:00.000Z",
+      expiresAt: "2026-09-16T12:00:00.000Z",
+    };
+    const user = { id: "user-1", email: "reviewer@example.test", fullName: "Reviewer" };
+    const application = { id: "application-1", userId: "user-1", status: "approved" };
+    const query = vi.fn((queryText: string, values?: unknown[]) => {
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      if (queryText.includes("with matched_session as materialized")) {
+        expect(values).toEqual(["hashed-session-token"]);
+        expect(queryText).toContain("where token_hash = $1");
+        expect(queryText).not.toContain('as "password_reset_tokens"');
+        return Promise.resolve({
+          rows: [{
+            version: "19",
+            sessions: [session],
+            users: [user],
+            seller_applications: [application],
+          }],
+        });
+      }
+      throw new Error(`Unexpected query: ${queryText}`);
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    const snapshot = await repository.loadAuthenticatedSessionSnapshot("hashed-session-token");
+
+    expect(snapshot.authSessions).toEqual([session]);
+    expect(snapshot.users).toEqual([user]);
+    expect(snapshot.sellerApplications).toEqual([application]);
+    expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(19);
+    expect(query.mock.calls.filter(([sql]) => String(sql).includes("with matched_session as materialized"))).toHaveLength(1);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('as "sessions"'))).toBe(false);
+  });
+
+  it("loads the owner dashboard in bounded groups on one consistent connection", async () => {
+    const payloads: Record<string, unknown[]> = {
+      users: [{ id: "owner-1", role: "owner" }],
+      listings: [{ id: "listing-1", status: "active" }],
+      notifications: [{ id: "notification-1", userId: "owner-1" }],
+      audit_logs: [{ id: "audit-1", action: "review" }],
+      activity_logs: [{ id: "activity-1", userId: "owner-1" }],
+      private_beta_invites: [{ id: "invite-1", code: "TEST" }],
+    };
+    const clientQuery = vi.fn((queryText: string) => {
+      if (/^(begin|commit|rollback)/i.test(queryText.trim())) return Promise.resolve({ rows: [] });
+      if (queryText.includes("runtime_meta")) {
+        const row: Record<string, unknown> = { version: "57" };
+        for (const match of queryText.matchAll(/as "([^"]+)"/g)) {
+          row[match[1]] = payloads[match[1]] ?? [];
+        }
+        return Promise.resolve({ rows: [row] });
+      }
+      throw new Error(`Unexpected client query: ${queryText}`);
+    });
+    const release = vi.fn();
+    const client = { query: clientQuery, release };
+    const poolQuery = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });
+      if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
+      throw new Error(`Unexpected pool query: ${queryText}`);
+    });
+    const pool = {
+      query: poolQuery,
+      connect: vi.fn().mockResolvedValue(client),
+      on: vi.fn(),
+    } as unknown as Pool;
+    const repository = new AlphaExchangeRepository(pool);
+
+    const snapshot = await repository.loadAdminDashboardSnapshot();
+
+    const aggregateQueries = clientQuery.mock.calls
+      .map(([sql]) => String(sql))
+      .filter((sql) => sql.includes("runtime_meta"));
+    expect(aggregateQueries).toHaveLength(6);
+    for (const sql of aggregateQueries) {
+      expect(sql).not.toContain("alpha_exchange.sessions");
+      expect(sql).not.toContain("alpha_exchange.password_reset_tokens");
+      expect(sql).not.toContain("alpha_exchange.sms_deliveries");
+      expect(sql).not.toContain("alpha_exchange.admin_announcement_runs");
+      expect(sql).not.toContain("alpha_exchange.seller_profiles");
+      expect(sql).not.toContain("alpha_exchange.seller_settings");
+      expect(sql).not.toContain("alpha_exchange.trades");
+    }
+    const combinedAggregateSql = aggregateQueries.join("\n");
+    for (const tableName of ["notifications", "audit_logs", "trust_score_history", "activity_logs", "marketplace_enforcement_audit_log"]) {
+      const boundedTablePattern = new RegExp(`from alpha_exchange\\.${tableName}\\s+order by sort_index asc\\s+limit 250`);
+      expect(combinedAggregateSql).toMatch(boundedTablePattern);
+    }
+    expect(aggregateQueries.find((sql) => sql.includes('as "users"'))).not.toContain("limit 250");
+    expect(aggregateQueries.find((sql) => sql.includes('as "listings"'))).not.toContain("limit 250");
+    expect(snapshot.users).toEqual([{ id: "owner-1", role: "owner" }]);
+    expect(snapshot.marketplaceListings).toEqual([{ id: "listing-1", status: "active" }]);
+    expect(snapshot.notifications).toEqual([{ id: "notification-1", userId: "owner-1" }]);
+    expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(57);
+    expect(clientQuery).toHaveBeenNthCalledWith(1, "begin transaction isolation level repeatable read read only");
+    expect(clientQuery).toHaveBeenLastCalledWith("commit");
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalledWith(true);
   });
 
   it("loads dashboard account, trade-history, and notification data with actor-scoped queries", async () => {

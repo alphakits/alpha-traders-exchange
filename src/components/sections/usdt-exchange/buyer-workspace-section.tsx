@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
+import { useEffect, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from "react";
 import { HandCoins } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { LogoutButton } from "@/components/auth/logout-button";
@@ -120,6 +120,21 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     toNumber,
     tradeStatusLabel,
   } = props;
+
+  // This section is code-split, so the browser can attempt native hash
+  // scrolling before the target exists. Scroll after this chunk mounts to make
+  // the buyer Trades tab deterministic on both the website and mobile app.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("section") !== "trade-history") return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [BUYER_TRADE_HISTORY_SECTION_ID]);
 
   return (
 <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] xl:items-start">

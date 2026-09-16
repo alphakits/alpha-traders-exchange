@@ -1,3 +1,4 @@
+import { attachDatabasePool } from "@vercel/functions";
 import { Pool } from "pg";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
@@ -95,7 +96,10 @@ export function getRuntimePostgresPool() {
       // so they no longer consume one pool checkout per snapshot table.
       // Keep at 5 unless new production profiling supports another value.
       max: 5,
-      idleTimeoutMillis: 10_000,
+      // Vercel's pool lifecycle helper waits for idle clients to close before
+      // Fluid compute suspends an invocation. Keep this at the recommended
+      // five seconds so a frozen worker cannot retain stale TCP connections.
+      idleTimeoutMillis: 5_000,
       connectionTimeoutMillis: 5_000,
       // Never let a stalled database operation occupy a serverless function
       // (and one of the five local pool slots) for minutes. Normal targeted
@@ -103,6 +107,8 @@ export function getRuntimePostgresPool() {
       statement_timeout: 10_000,
       query_timeout: 12_000,
     });
+
+    attachDatabasePool(pool);
 
     // Surface misconfigured connection strings early in production logs.
     pool.on("error", (err) => {
