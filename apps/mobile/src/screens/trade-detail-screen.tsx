@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   RefreshControl,
@@ -47,6 +48,11 @@ import {
   mobileTradeStatusLabel,
 } from "../trades/trade-labels";
 import { formatTradeCountdown } from "../trades/trade-countdown";
+import {
+  mobileTradeGuidanceTarget,
+  shouldGuideMobileTradeStatus,
+  type MobileTradeGuidanceTarget,
+} from "../trades/trade-detail-guidance";
 import { formatCurrencyAmountAsUsd, formatUsdt } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -160,8 +166,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewResponse, setReviewResponse] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [visibleTimeRemaining, setVisibleTimeRemaining] = useState<number | null>(null);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const guidanceOffsetsRef = useRef<Partial<Record<MobileTradeGuidanceTarget, number>>>({});
+  const pendingGuidanceTargetRef = useRef<MobileTradeGuidanceTarget | null>(null);
+  const previousGuidedStatusRef = useRef<MobileTradeStatus | null>(null);
+  const guidanceFrameRef = useRef<number | null>(null);
   const tradeScope = `${user?.id ?? "anonymous"}:${requestId}`;
   const tradeQueryKey = ["mobile-trade", user?.id ?? "anonymous", requestId, locale] as const;
   const activeTradeScopeRef = useRef(tradeScope);
@@ -195,8 +207,20 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setReviewComment("");
     setReviewResponse("");
     setSendingMessage(false);
+    setIsManualRefreshing(false);
     pendingMessageRef.current = null;
+    pendingGuidanceTargetRef.current = null;
+    previousGuidedStatusRef.current = null;
+    guidanceOffsetsRef.current = {};
+    if (guidanceFrameRef.current !== null) {
+      cancelAnimationFrame(guidanceFrameRef.current);
+      guidanceFrameRef.current = null;
+    }
   }, [tradeScope]);
+
+  useEffect(() => () => {
+    if (guidanceFrameRef.current !== null) cancelAnimationFrame(guidanceFrameRef.current);
+  }, []);
 
   useEffect(() => {
     setVisibleTimeRemaining(serverTimeRemaining);
@@ -213,6 +237,45 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
     ]);
   }, [query, queryClient]);
+
+  const refreshTradeManually = useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refreshTrade();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  }, [refreshTrade]);
+
+  const scrollToGuidanceTarget = useCallback((target: MobileTradeGuidanceTarget) => {
+    pendingGuidanceTargetRef.current = target;
+    if (guidanceFrameRef.current !== null) cancelAnimationFrame(guidanceFrameRef.current);
+    guidanceFrameRef.current = requestAnimationFrame(() => {
+      guidanceFrameRef.current = null;
+      if (pendingGuidanceTargetRef.current !== target) return;
+      const offset = guidanceOffsetsRef.current[target];
+      if (typeof offset !== "number") return;
+      scrollViewRef.current?.scrollTo({
+        animated: true,
+        y: Math.max(0, offset - spacing.sm),
+      });
+      pendingGuidanceTargetRef.current = null;
+    });
+  }, []);
+
+  const recordGuidanceLayout = useCallback((target: MobileTradeGuidanceTarget, event: LayoutChangeEvent) => {
+    guidanceOffsetsRef.current[target] = event.nativeEvent.layout.y;
+    if (pendingGuidanceTargetRef.current === target) scrollToGuidanceTarget(target);
+  }, [scrollToGuidanceTarget]);
+
+  useEffect(() => {
+    const nextTrade = query.data?.trade;
+    if (!nextTrade) return;
+    const previousStatus = previousGuidedStatusRef.current;
+    previousGuidedStatusRef.current = nextTrade.status;
+    if (!shouldGuideMobileTradeStatus(previousStatus, nextTrade.status)) return;
+    scrollToGuidanceTarget(mobileTradeGuidanceTarget(nextTrade));
+  }, [query.data?.trade, scrollToGuidanceTarget]);
 
   function applyTradeMutation(response: MobileTradeMutationResponse) {
     queryClient.setQueryData<MobileTradeDetailResponse>(tradeQueryKey, (current) => current ? {
@@ -573,7 +636,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           contentContainerStyle={styles.content}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl onRefresh={() => void refreshTrade()} refreshing={query.isRefetching} tintColor={colors.gold} />}
+          ref={scrollViewRef}
+          refreshControl={<RefreshControl onRefresh={() => void refreshTradeManually()} refreshing={isManualRefreshing} tintColor={colors.gold} />}
         >
         <View style={[styles.topRow, isRTL && styles.rowReverse]}>
           <Pressable accessibilityRole="button" onPress={goBack} style={styles.backButton}>
@@ -582,7 +646,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           <Text style={styles.screenLabel}>{t("tradeRoom")}</Text>
         </View>
 
-        <View style={styles.heroCard}>
+        <View collapsable={false} onLayout={(event) => recordGuidanceLayout("hero", event)} style={styles.heroCard}>
           <View style={[styles.heroTop, isRTL && styles.rowReverse]}>
             <View style={styles.heroIdentity}>
               <Text accessibilityRole="header" style={[styles.tradeNumber, isRTL && styles.rtlText]}>
@@ -628,7 +692,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         </View>
 
         {trade.receivingWalletAddress ? (
-          <View style={styles.section}>
+          <View collapsable={false} onLayout={(event) => recordGuidanceLayout("wallet", event)} style={styles.section}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("receivingWalletLabel")} · {trade.network}</Text>
             <Text selectable style={[styles.wallet, isRTL && styles.rtlText]}>{trade.receivingWalletAddress}</Text>
           </View>
@@ -662,7 +726,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        <View style={styles.actions}>
+        <View collapsable={false} onLayout={(event) => recordGuidanceLayout("actions", event)} style={styles.actions}>
           {actions.canAccept ? (
             <GoldButton
               disabled={actionsDisabled}
@@ -783,7 +847,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         {actions.canSubmitReview ? (
-          <View style={styles.section}>
+          <View collapsable={false} onLayout={(event) => recordGuidanceLayout("review", event)} style={styles.section}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
               {t("reviewTitle")}
             </Text>
@@ -818,7 +882,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         {trade.buyerReview ? (
-          <View style={styles.section}>
+          <View
+            collapsable={false}
+            onLayout={actions.canRespondToReview ? (event) => recordGuidanceLayout("review", event) : undefined}
+            style={styles.section}
+          >
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
               {trade.side === "buyer" ? t("yourReview") : t("reviewTitle")}
             </Text>

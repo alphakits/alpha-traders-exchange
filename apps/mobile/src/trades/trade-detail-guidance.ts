@@ -24,6 +24,14 @@ export function hasImmediateMobileTradeAction(actions: TradeActionFlags) {
 
 export function mobileTradeGuidanceTarget(trade: Pick<MobileTradeDetail, "actions" | "receivingWalletAddress" | "side" | "status">): MobileTradeGuidanceTarget {
   if (trade.actions.canSubmitReview || trade.actions.canRespondToReview) return "review";
+  if (
+    trade.side === "seller"
+    && trade.receivingWalletAddress
+    && trade.actions.canMarkUsdtSent
+    && ["funds_received", "usdt_release_pending"].includes(trade.status)
+  ) {
+    return "wallet";
+  }
   if (hasImmediateMobileTradeAction(trade.actions)) return "actions";
   if (trade.side === "seller" && trade.receivingWalletAddress && ["funds_received", "usdt_release_pending"].includes(trade.status)) return "wallet";
   return "hero";
