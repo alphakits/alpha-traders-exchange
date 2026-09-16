@@ -38,16 +38,30 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   const isAdminOwner = user.role === "owner"
     || user.role === "admin"
     || (user.roles ?? []).some((role) => role === "owner" || role === "admin");
+  const isSellerWorkspaceUser = user.role === "approved_seller"
+    || (user.roles ?? []).includes("approved_seller")
+    || user.sellerStatus === "approved_seller"
+    || user.sellerStatus === "suspended";
   const isOwnerPurchaseRequests = isAdminOwner
     && pathname === "/admin/alpha-exchange"
     && section === "purchase-requests";
+  const isBuyerTradeHistory = !isAdminOwner
+    && !isSellerWorkspaceUser
+    && pathname === "/usdt-exchange"
+    && section === "trade-history";
+  const isTradesDestination = isOwnerPurchaseRequests || isBuyerTradeHistory;
+  const tradesHref = isAdminOwner
+    ? "/admin/alpha-exchange?section=purchase-requests"
+    : isSellerWorkspaceUser
+      ? "/trade-room"
+      : "/usdt-exchange?section=trade-history#my-trade-requests-section";
 
   const destinations: MobileDestination[] = [
     {
       href: "/dashboard",
       label: isAr ? "الرئيسية" : "Home",
       icon: House,
-      isActive: (current) => !isOwnerPurchaseRequests && (
+      isActive: (current) => !isTradesDestination && (
         current === "/dashboard"
         || current.startsWith("/dashboard/")
         || current === "/admin"
@@ -58,13 +72,17 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       href: "/usdt-exchange",
       label: isAr ? "السوق" : "Market",
       icon: Store,
-      isActive: (current) => current === "/usdt-exchange" || current.startsWith("/usdt-exchange/") || current.startsWith("/exchange/"),
+      isActive: (current) => !isBuyerTradeHistory && (
+        current === "/usdt-exchange"
+        || current.startsWith("/usdt-exchange/")
+        || current.startsWith("/exchange/")
+      ),
     },
     {
-      href: isAdminOwner ? "/admin/alpha-exchange?section=purchase-requests" : "/trade-room",
+      href: tradesHref,
       label: isAr ? "الصفقات" : "Trades",
       icon: Handshake,
-      isActive: (current) => isOwnerPurchaseRequests || current === "/trade-room" || current.startsWith("/trade-room/"),
+      isActive: (current) => isTradesDestination || current === "/trade-room" || current.startsWith("/trade-room/"),
     },
     {
       href: "/notifications",
