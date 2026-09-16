@@ -10,6 +10,21 @@ import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 import { getLocalizedTradeReminderDisplay } from "@/lib/trade-reminder-localization";
 
+async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
+  if (!sessionUser) {
+    return { activeTrade: null, tradeReminder: null };
+  }
+
+  try {
+    return await getTradeHeaderStateForUser(sessionUser.id, sessionUser.role);
+  } catch {
+    // Trade reminders are helpful navigation hints, but a temporary database
+    // read failure must never take every authenticated page offline.
+    console.error("[site-header] Noncritical trade state could not be loaded.");
+    return { activeTrade: null, tradeReminder: null };
+  }
+}
+
 export async function SiteHeader({
   locale,
   sessionUser,
@@ -25,9 +40,7 @@ export async function SiteHeader({
   const [t, rootTranslations, tradeState] = await Promise.all([
     getTranslations({ locale, namespace: "nav" }),
     getTranslations({ locale }),
-    sessionUser
-      ? getTradeHeaderStateForUser(sessionUser.id, sessionUser.role)
-      : Promise.resolve({ activeTrade: null, tradeReminder: null }),
+    getNonBlockingTradeHeaderState(sessionUser),
   ]);
   const brand = rootTranslations("brand");
   const { activeTrade, tradeReminder } = tradeState;

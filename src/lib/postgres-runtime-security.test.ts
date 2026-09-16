@@ -3,13 +3,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  attachDatabasePool: vi.fn(),
+  pool: { on: vi.fn() },
   poolConstructor: vi.fn(),
+}));
+
+vi.mock("@vercel/functions", () => ({
+  attachDatabasePool: mocks.attachDatabasePool,
 }));
 
 vi.mock("pg", () => ({
   Pool: function PoolMock(config: unknown) {
     mocks.poolConstructor(config);
-    return { on: () => undefined };
+    return mocks.pool;
   },
 }));
 
@@ -58,10 +64,12 @@ describe("PostgreSQL runtime TLS", () => {
         ca: "test-provider-ca",
       },
       max: 5,
+      idleTimeoutMillis: 5_000,
       connectionTimeoutMillis: 5_000,
       statement_timeout: 10_000,
       query_timeout: 12_000,
     }));
+    expect(mocks.attachDatabasePool).toHaveBeenCalledWith(mocks.pool);
   });
 
   it.each(["0", "no-verify"])(

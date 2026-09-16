@@ -1,17 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["dub1"],
   "crons": [
     {
       "path": "/api/cron/trade-action-reminders",
-      "schedule": "*/5 * * * *"
+      "schedule": "1-59/5 * * * *"
     },
     {
       "path": "/api/cron/commission-payment-verification",
-      "schedule": "*/5 * * * *"
+      "schedule": "2-59/5 * * * *"
     },
     {
       "path": "/api/cron/whatsapp-delivery",
-      "schedule": "*/5 * * * *"
+      "schedule": "3-59/5 * * * *"
     }
   ]
 }

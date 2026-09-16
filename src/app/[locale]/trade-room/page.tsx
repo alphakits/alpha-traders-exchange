@@ -64,5 +64,5 @@ export default async function TradeRoomLandingPage({
   if (hasRole(user, "approved_seller")) {
     redirect(`/${locale}/dashboard/seller`);
   }
-  redirect(`/${locale}/usdt-exchange#my-trade-requests-section`);
+  redirect(`/${locale}/usdt-exchange?section=trade-history#my-trade-requests-section`);
 }

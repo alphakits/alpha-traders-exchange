@@ -4004,15 +4004,12 @@ async function readDbForMarketplaceListings(viewerUserId?: string) {
   };
 }
 
-async function readDbForAuthUser(input: { userId?: string; normalizedEmail?: string }) {
-  const repository = await getAlphaExchangeRepository();
-  if (typeof repository.loadAuthUserSnapshot !== "function") {
-    return readDbForSelectedTables(AUTH_USER_READ_TABLES);
-  }
-  const parsed = await repository.loadAuthUserSnapshot(input);
-  const normalized = normalizeDb(parsed);
-  ensureDisplayNumbers(normalized);
-  return normalized;
+async function readDbForAuthUser() {
+  // Authentication is a global availability boundary: a failure here takes
+  // every signed-in route offline before its own error handling can render.
+  // Keep this read to the two small auth collections, but use the established
+  // aggregate snapshot query instead of the newer per-account SQL path.
+  return readDbForSelectedTables(AUTH_USER_READ_TABLES);
 }
 
 async function readDbForPurchaseRequestActor(userId: string, role: UserRole, requestId?: string) {
@@ -4082,6 +4079,24 @@ async function readDbForNotificationUser(userId: string, includeActivity: boolea
   const normalized = normalizeDb(parsed);
   ensureDisplayNumbers(normalized);
   return normalized;
+}
+
+function notificationRevision(notifications: readonly AlphaExchangeNotification[]) {
+  const unreadCount = notifications.filter((notification) => notification.isRead === false).length;
+  const latestUpdatedAt = notifications.reduce((latest, notification) => {
+    const candidate = notification.updatedAt ?? notification.createdAt;
+    return candidate > latest ? candidate : latest;
+  }, "");
+  return `${notifications.length}:${unreadCount}:${latestUpdatedAt}`;
+}
+
+export async function getNotificationRevisionForUser(userId: string) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadNotificationRevisionForUser === "function") {
+    return repository.loadNotificationRevisionForUser(userId);
+  }
+  const db = await readDbForNotificationUser(userId, false);
+  return notificationRevision(db.notifications.filter((notification) => notification.userId === userId));
 }
 
 /**
@@ -6635,13 +6650,13 @@ export async function updateOwnerMarketplaceComplianceRecoveryWallet(input: {
 
 export async function findUserByEmail(email: string) {
   const normalized = normalizeEmail(email);
-  const db = await readDbForAuthUser({ normalizedEmail: normalized });
+  const db = await readDbForAuthUser();
   return db.users.find((user) => normalizeEmail(user.email) === normalized) ?? null;
 }
 
 export async function findUsersByEmail(email: string) {
   const normalized = normalizeEmail(email);
-  const db = await readDbForAuthUser({ normalizedEmail: normalized });
+  const db = await readDbForAuthUser();
   return db.users.filter((user) => normalizeEmail(user.email) === normalized);
 }
 
@@ -6733,7 +6748,7 @@ export async function getCommissionResetTraceByEmail(email: string) {
 }
 
 export async function findUserById(userId: string) {
-  const db = await readDbForAuthUser({ userId });
+  const db = await readDbForAuthUser();
   return db.users.find((user) => user.id === userId) ?? null;
 }
 
@@ -6825,6 +6840,30 @@ export async function getSessionByToken(token: string) {
     return null;
   }
   return session;
+}
+
+export async function getAuthenticatedUserBySessionToken(token: string) {
+  const hashed = hashToken(token);
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.loadAuthenticatedSessionSnapshot !== "function") {
+    // Compatibility for local/test repository doubles created before the
+    // combined session lookup was introduced.
+    const session = await getSessionByToken(token);
+    return session ? findUserById(session.userId) : null;
+  }
+
+  const parsed = await repository.loadAuthenticatedSessionSnapshot(hashed);
+  const db = normalizeDb(parsed);
+  ensureDisplayNumbers(db);
+  const session = db.authSessions.find((candidate) => candidate.token === hashed);
+  if (!session) return null;
+  if (new Date(session.expiresAt) < new Date()) {
+    await repository.deleteAuthSession(hashed);
+    const cachedSessions = dbCache?.value.authSessions ?? [];
+    syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
+    return null;
+  }
+  return db.users.find((user) => user.id === session.userId) ?? null;
 }
 
 export async function deleteSessionByToken(token: string) {
@@ -6981,7 +7020,7 @@ export async function createSellerApplication(input: {
 }
 
 export async function getSellerApplicationByUserId(userId: string, dbInput?: AlphaExchangeDb) {
-  const db = dbInput ?? await readDbForAuthUser({ userId });
+  const db = dbInput ?? await readDbForAuthUser();
   return db.sellerApplications.find((item) => item.userId === userId) ?? null;
 }
 
@@ -15751,6 +15790,7 @@ export async function getNotificationsForUser(input: {
   strongConsistency?: boolean;
 }) {
   const db = await readDbForNotificationUser(input.userId, input.includeActivity !== false);
+  const recipientNotifications = db.notifications.filter((notification) => notification.userId === input.userId);
 
   // Build the display-number lookup ONCE for the entire function so that every
   // enrichNotification call below shares it rather than rebuilding it per call.
@@ -15803,6 +15843,7 @@ export async function getNotificationsForUser(input: {
     total: sortedNotifications.length,
     unreadCount,
     activity,
+    revision: notificationRevision(recipientNotifications),
   };
 }
 
@@ -16814,7 +16855,12 @@ export async function getAdminPrepDashboardData() {
   // from canonical persistence. A cached snapshot from another warm instance
   // can otherwise make a successfully issued commission disappear for the
   // cache window and invite an accidental duplicate charge.
-  const db = await readDb({ bypassCache: true });
+  const repository = await getAlphaExchangeRepository();
+  const parsed = typeof repository.loadAdminDashboardSnapshot === "function"
+    ? await repository.loadAdminDashboardSnapshot()
+    : await repository.loadSnapshot();
+  const db = normalizeDb(parsed);
+  ensureDisplayNumbers(db);
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });

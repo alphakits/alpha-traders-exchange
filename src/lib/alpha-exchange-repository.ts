@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import path from "path";
 import { tmpdir } from "os";
@@ -538,6 +538,31 @@ const SNAPSHOT_TABLE_NAMES = [
 ] as const;
 
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
+
+// The owner dashboard needs broad operational visibility, but it does not need
+// authentication secrets, password-reset state, delivery queues, or the three
+// denormalized compatibility tables that are discarded by snapshot mapping.
+// Keeping the large append-only collections in separate groups prevents one
+// oversized jsonb_agg statement from monopolizing the pooler until timeout.
+const ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS = [
+  ["users", "seller_applications", "trust_snapshots"],
+  ["listings", "purchase_requests", "commissions", "evidence", "disputes"],
+  ["notifications", "seller_reports"],
+  ["audit_logs", "trust_score_history"],
+  ["activity_logs", "marketplace_enforcement_records", "marketplace_enforcement_audit_log"],
+  ["private_beta_invites", "private_beta_invite_uses", "beta_feedback", "beta_announcements"],
+] as const satisfies readonly (readonly SnapshotTableName[])[];
+
+// The admin API only renders a recent operational window for these append-only
+// collections. Bound them in PostgreSQL so the dashboard does not aggregate and
+// transfer an ever-growing history merely to discard it in application code.
+const ADMIN_DASHBOARD_TABLE_LIMITS: Partial<Record<SnapshotTableName, number>> = {
+  notifications: 250,
+  audit_logs: 250,
+  trust_score_history: 250,
+  activity_logs: 250,
+  marketplace_enforcement_audit_log: 250,
+};
 
 function shouldLogRepoVersionFlow() {
   return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
@@ -1211,11 +1236,29 @@ type AggregatedSnapshotRow = {
  * `tableNames` is restricted to the compile-time snapshot table allowlist, so
  * interpolating these identifiers cannot introduce user-controlled SQL.
  */
-function buildAggregatedSnapshotSql(tableNames: readonly SnapshotTableName[]) {
+function buildAggregatedSnapshotSql(
+  tableNames: readonly SnapshotTableName[],
+  tableLimits: Partial<Record<SnapshotTableName, number>> = {},
+) {
   const selectedNames = Array.from(new Set(tableNames));
-  const payloadColumns = selectedNames.map((tableName) => (
-    `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`
-  ));
+  const payloadColumns = selectedNames.map((tableName) => {
+    const requestedLimit = tableLimits[tableName];
+    const limit = typeof requestedLimit === "number" && Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+      ? requestedLimit
+      : null;
+    if (limit) {
+      return `coalesce((
+        select jsonb_agg(bounded.payload order by bounded.sort_index asc)
+        from (
+          select payload, sort_index
+          from alpha_exchange.${tableName}
+          order by sort_index asc
+          limit ${limit}
+        ) bounded
+      ), '[]'::jsonb) as "${tableName}"`;
+    }
+    return `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`;
+  });
   return `select
     (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${payloadColumns.length ? `,\n    ${payloadColumns.join(",\n    ")}` : ""}`;
 }
@@ -1792,10 +1835,12 @@ async function runSchema(target: Queryable) {
   );
 }
 
-async function isCurrentSchemaReady(target: Queryable) {
-  const result = await target.query<{ ready: boolean }>(
+async function isCurrentSchemaReady(target: Pool) {
+  const result = await queryReadWithRetry<{ ready: boolean }>(
+    target,
     "select to_regclass($1) is not null as ready",
     [CURRENT_SCHEMA_SENTINEL],
+    "schema_sentinel",
   );
   return result.rows[0]?.ready === true;
 }
@@ -1922,6 +1967,61 @@ async function queryWithLogging(client: PoolClient, queryText: string, values?: 
   }
 }
 
+function databaseErrorMetadata(error: unknown) {
+  const code = typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;
+  const message = error instanceof Error ? error.message : "";
+  const timeoutKind = /query read timeout/i.test(message)
+    ? "query_read_timeout"
+    : /timeout exceeded when trying to connect/i.test(message)
+      ? "pool_checkout_timeout"
+      : code === "57014"
+        ? "statement_timeout"
+        : undefined;
+  return {
+    errorName: error instanceof Error ? error.name : typeof error,
+    ...(code ? { errorCode: code } : {}),
+    ...(timeoutKind ? { timeoutKind } : {}),
+  };
+}
+
+function isTransientReadError(error: unknown) {
+  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  if (typeof code === "string" && ["08000", "08003", "08006", "57P01", "57P02", "57P03"].includes(code)) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : "";
+  return /query read timeout|timeout exceeded when trying to connect|connection terminated|connection closed|ECONNRESET|EPIPE|ETIMEDOUT/i.test(message);
+}
+
+async function queryReadWithRetry<T extends QueryResultRow>(
+  target: Queryable,
+  queryText: string,
+  values: unknown[] | undefined,
+  operation: string,
+): Promise<QueryResult<T>> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await target.query<T>(queryText, values);
+    } catch (error) {
+      if (attempt > 0 || !isTransientReadError(error)) throw error;
+      logEvent("warn", {
+        event: "alpha_exchange_repository_read_retry",
+        outcome: "failed",
+        reason: "transient_database_read_failure",
+        metadata: {
+          operation,
+          attempt: attempt + 1,
+          ...databaseErrorMetadata(error),
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+    }
+  }
+  throw new Error("Database read retry exhausted.");
+}
+
 export class AlphaExchangeRepository {
   private readonly pool: Pool | null;
   private usesMemoryFallback: boolean;
@@ -1946,14 +2046,26 @@ export class AlphaExchangeRepository {
           ensureMemorySeed();
           return;
         }
+        let initializationPhase = "schema_sentinel";
         try {
           if (!(await isCurrentSchemaReady(pool))) {
+            initializationPhase = "schema_migration";
             await runSchema(pool);
           }
-          const usersCount = await pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
-          const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
-          if (shouldSeed) {
-            await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
+          // Production is never seeded from the bundled fixture. Avoid paying
+          // for an extra full-table count on every cold serverless instance.
+          if (process.env.NODE_ENV !== "production") {
+            initializationPhase = "local_seed_check";
+            const usersCount = await queryReadWithRetry<{ count: string }>(
+              pool,
+              "select count(*)::text as count from alpha_exchange.users",
+              undefined,
+              "local_seed_check",
+            );
+            if (usersCount.rows[0]?.count === "0") {
+              initializationPhase = "local_seed_write";
+              await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
+            }
           }
         } catch (error) {
           if (isProductionSecurityRuntime()) {
@@ -1961,7 +2073,10 @@ export class AlphaExchangeRepository {
               event: "alpha_exchange_repository_initialize",
               outcome: "failed",
               reason: "durable_persistence_unavailable",
-              metadata: { errorName: error instanceof Error ? error.name : "unknown" },
+              metadata: {
+                phase: initializationPhase,
+                ...databaseErrorMetadata(error),
+              },
             });
             throw new Error("Durable Alpha Exchange persistence is unavailable.");
           }
@@ -2035,7 +2150,12 @@ export class AlphaExchangeRepository {
 
     const selectedNames = Array.from(new Set(tableNames));
     try {
-      const result = await pool.query<AggregatedSnapshotRow>(buildAggregatedSnapshotSql(selectedNames));
+      const result = await queryReadWithRetry<AggregatedSnapshotRow>(
+        pool,
+        buildAggregatedSnapshotSql(selectedNames),
+        undefined,
+        `selected_snapshot_${selectedNames.length}`,
+      );
       const row = result.rows[0];
       return attachVersion(
         snapshotFromAggregatedRow(row, selectedNames),
@@ -2442,7 +2562,7 @@ export class AlphaExchangeRepository {
   /**
    * Load a notification inbox without scanning unrelated users' inboxes,
    * activity, trades, commissions, or disputes. This query is deliberately
-   * safe to use for the five-second cross-instance SSE reconciliation loop.
+   * scoped to a single recipient.
    */
   async loadNotificationSnapshotForUser(input: { userId: string; includeActivity: boolean }): Promise<SnapshotWithVersion> {
     await this.ensureReady();
@@ -2496,7 +2616,8 @@ export class AlphaExchangeRepository {
       }, getVersion(source));
     }
 
-    const result = await pool.query<AggregatedSnapshotRow>(
+    const result = await queryReadWithRetry<AggregatedSnapshotRow>(
+      pool,
       `with recipient_notifications as materialized (
          select sort_index, payload
          from alpha_exchange.notifications
@@ -2570,6 +2691,7 @@ export class AlphaExchangeRepository {
            where snapshot.seller_id in (select id from participant_ids)
          ), '[]'::jsonb) as trust_snapshots`,
       [input.userId, input.includeActivity],
+      "notification_snapshot",
     );
     const row = result.rows[0];
     const tableNames = [
@@ -2587,6 +2709,44 @@ export class AlphaExchangeRepository {
       snapshotFromAggregatedRow(row, tableNames),
       Number(row?.version ?? "0"),
     );
+  }
+
+  /**
+   * Return a cheap recipient-scoped token for cross-instance notification
+   * reconciliation. The SSE loop compares this before loading the enriched
+   * notification snapshot, avoiding repeated joins while nothing changed.
+   */
+  async loadNotificationRevisionForUser(userId: string): Promise<string> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const notifications = getLatestAvailableFallbackSnapshot().notifications
+        .filter((notification) => notification.userId === userId);
+      const unreadCount = notifications.filter((notification) => notification.isRead === false).length;
+      const latestUpdatedAt = notifications.reduce((latest, notification) => {
+        const candidate = notification.updatedAt ?? notification.createdAt;
+        return candidate > latest ? candidate : latest;
+      }, "");
+      return `${notifications.length}:${unreadCount}:${latestUpdatedAt}`;
+    }
+
+    const result = await queryReadWithRetry<{
+      total: string;
+      unread_count: string;
+      latest_updated_at: string | null;
+    }>(
+      pool,
+      `select
+         count(*)::text as total,
+         count(*) filter (where is_read = false)::text as unread_count,
+         max(coalesce(nullif(payload->>'updatedAt', ''), nullif(payload->>'createdAt', ''), created_at::text)) as latest_updated_at
+       from alpha_exchange.notifications
+       where user_id = $1`,
+      [userId],
+      "notification_revision",
+    );
+    const row = result.rows[0];
+    return `${row?.total ?? "0"}:${row?.unread_count ?? "0"}:${row?.latest_updated_at ?? ""}`;
   }
 
   /**
@@ -2822,6 +2982,87 @@ export class AlphaExchangeRepository {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Load the broad owner dashboard snapshot in bounded statements while one
+   * read-only repeatable-read transaction retains a single pooler backend.
+   * This preserves a coherent dashboard view without the former 26-table
+   * aggregate that repeatedly crossed the production read timeout.
+   */
+  async loadAdminDashboardSnapshot(): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return this.loadSnapshot();
+
+    const selectedNames = ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS.flat();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let client: PoolClient | null = null;
+      let groupIndex = -1;
+      try {
+        client = await pool.connect();
+        await client.query("begin transaction isolation level repeatable read read only");
+        const aggregateRow: AggregatedSnapshotRow = {};
+        for (let index = 0; index < ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS.length; index += 1) {
+          groupIndex = index;
+          const group = ADMIN_DASHBOARD_SNAPSHOT_TABLE_GROUPS[index];
+          const result = await client.query<AggregatedSnapshotRow>(
+            buildAggregatedSnapshotSql(group, ADMIN_DASHBOARD_TABLE_LIMITS),
+          );
+          const row = result.rows[0];
+          if (row) Object.assign(aggregateRow, row);
+        }
+        await client.query("commit");
+        client.release();
+        client = null;
+        return attachVersion(
+          snapshotFromAggregatedRow(aggregateRow, selectedNames),
+          Number(aggregateRow.version ?? "0"),
+        );
+      } catch (error) {
+        if (client) {
+          // Query-read timeouts may leave a response pending on the socket.
+          // Destroy that checkout instead of queuing ROLLBACK behind it.
+          if (!(error instanceof Error && /query read timeout/i.test(error.message))) {
+            try { await client.query("rollback"); } catch { /* release(true) below discards the client */ }
+          }
+          client.release(true);
+          client = null;
+        }
+        if (attempt === 0 && isTransientReadError(error)) {
+          logEvent("warn", {
+            event: "alpha_exchange_repository_read_retry",
+            outcome: "failed",
+            reason: "transient_database_read_failure",
+            metadata: {
+              operation: "admin_dashboard_snapshot",
+              groupIndex,
+              attempt: attempt + 1,
+              ...databaseErrorMetadata(error),
+            },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          continue;
+        }
+        if (isProductionSecurityRuntime()) {
+          logEvent("error", {
+            event: "alpha_exchange_repository_admin_dashboard_load",
+            outcome: "failed",
+            reason: "durable_persistence_unavailable",
+            metadata: { groupIndex, ...databaseErrorMetadata(error) },
+          });
+          throw new Error("Durable Alpha Exchange persistence is unavailable.");
+        }
+        logEvent("warn", {
+          event: "alpha_exchange_repository_admin_dashboard_load",
+          outcome: "failed",
+          reason: "local_memory_fallback_enabled",
+          metadata: { groupIndex, ...databaseErrorMetadata(error) },
+        });
+        return getLatestAvailableFallbackSnapshot();
+      }
+    }
+    throw new Error("Admin dashboard snapshot retry exhausted.");
   }
 
   async loadSnapshot(): Promise<SnapshotWithVersion> {
@@ -3392,9 +3633,11 @@ export class AlphaExchangeRepository {
     }
 
     try {
-      const result = await pool.query<{ payload: AuthSession }>(
+      const result = await queryReadWithRetry<{ payload: AuthSession }>(
+        pool,
         "select payload from alpha_exchange.sessions where token_hash = $1 limit 1",
         [tokenHash],
+        "auth_session",
       );
       return result.rows[0]?.payload ?? null;
     } catch (error) {
@@ -3403,7 +3646,7 @@ export class AlphaExchangeRepository {
           event: "alpha_exchange_repository_session_read",
           outcome: "failed",
           reason: "durable_persistence_unavailable",
-          metadata: { errorName: error instanceof Error ? error.name : "unknown" },
+          metadata: databaseErrorMetadata(error),
         });
         throw new Error("Durable session storage is unavailable.");
       }
@@ -3414,6 +3657,89 @@ export class AlphaExchangeRepository {
         metadata: { errorName: error instanceof Error ? error.name : typeof error },
       });
       return getLatestAvailableFallbackSnapshot().authSessions.find((item) => item.token === tokenHash) ?? null;
+    }
+  }
+
+  /**
+   * Resolve the session, account, and legacy seller-application role context in
+   * one indexed read. The previous web-auth path performed a session query and
+   * then aggregated every user and application, multiplying pooler latency on
+   * every page render and `/api/auth/me` refresh.
+   */
+  async loadAuthenticatedSessionSnapshot(tokenHash: string): Promise<SnapshotWithVersion> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const source = getLatestAvailableFallbackSnapshot();
+      const session = source.authSessions.find((candidate) => candidate.token === tokenHash);
+      const userId = session?.userId;
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        authSessions: session ? cloneSnapshot([session]) : [],
+        users: userId ? cloneSnapshot(source.users.filter((user) => user.id === userId)) : [],
+        sellerApplications: userId
+          ? cloneSnapshot(source.sellerApplications.filter((application) => application.userId === userId))
+          : [],
+      }, getVersion(source));
+    }
+
+    try {
+      const result = await queryReadWithRetry<AggregatedSnapshotRow>(
+        pool,
+        `with matched_session as materialized (
+           select user_id, sort_index, payload
+           from alpha_exchange.sessions
+           where token_hash = $1
+           limit 1
+         )
+         select
+           (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+           coalesce((select jsonb_agg(payload order by sort_index asc) from matched_session), '[]'::jsonb) as sessions,
+           coalesce((
+             select jsonb_agg(account.payload order by account.sort_index asc)
+             from alpha_exchange.users account
+             where account.id in (select user_id from matched_session)
+           ), '[]'::jsonb) as users,
+           coalesce((
+             select jsonb_agg(application.payload order by application.sort_index asc)
+             from alpha_exchange.seller_applications application
+             where application.user_id in (select user_id from matched_session)
+           ), '[]'::jsonb) as seller_applications`,
+        [tokenHash],
+        "authenticated_session",
+      );
+      const row = result.rows[0];
+      return attachVersion(
+        snapshotFromAggregatedRow(row, ["sessions", "users", "seller_applications"]),
+        Number(row?.version ?? "0"),
+      );
+    } catch (error) {
+      if (isProductionSecurityRuntime()) {
+        logEvent("error", {
+          event: "alpha_exchange_repository_session_user_read",
+          outcome: "failed",
+          reason: "durable_persistence_unavailable",
+          metadata: databaseErrorMetadata(error),
+        });
+        throw new Error("Durable session storage is unavailable.");
+      }
+      logEvent("warn", {
+        event: "alpha_exchange_repository_session_user_read",
+        outcome: "failed",
+        reason: "local_cached_session_fallback",
+        metadata: databaseErrorMetadata(error),
+      });
+      const source = getLatestAvailableFallbackSnapshot();
+      const session = source.authSessions.find((candidate) => candidate.token === tokenHash);
+      const userId = session?.userId;
+      return attachVersion({
+        ...emptySnapshotCollections(),
+        authSessions: session ? cloneSnapshot([session]) : [],
+        users: userId ? cloneSnapshot(source.users.filter((user) => user.id === userId)) : [],
+        sellerApplications: userId
+          ? cloneSnapshot(source.sellerApplications.filter((application) => application.userId === userId))
+          : [],
+      }, getVersion(source));
     }
   }
 
