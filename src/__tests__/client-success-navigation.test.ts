@@ -35,6 +35,35 @@ describe("client success navigation", () => {
     expect(document.activeElement).toBe(result);
   });
 
+  it("guides a same-room trade transition to the next required action instead of the transient result", async () => {
+    window.history.replaceState({}, "", "/en/trade-room/purchase-123");
+    const router = { push: vi.fn() } as unknown as { push: ReturnType<typeof vi.fn> };
+    const result = document.createElement("div");
+    result.id = "trade-action-result";
+    const resultScroll = vi.fn();
+    Object.defineProperty(result, "scrollIntoView", { value: resultScroll });
+    document.body.append(result);
+    const action = document.createElement("div");
+    action.id = "action-required";
+    action.tabIndex = -1;
+    const actionScroll = vi.fn();
+    Object.defineProperty(action, "scrollIntoView", { value: actionScroll });
+    document.body.append(action);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    navigateOrRevealResult(router as unknown as AppRouterInstance, "/trade-room/purchase-123?action=confirm-money-received#action-required", "trade-action-result");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#action-required");
+    expect(resultScroll).not.toHaveBeenCalled();
+    expect(actionScroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(document.activeElement).toBe(action);
+  });
+
   it("navigates when the canonical result belongs to another context", () => {
     const router = { push: vi.fn() } as unknown as { push: ReturnType<typeof vi.fn> };
 
