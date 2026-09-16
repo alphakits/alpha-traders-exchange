@@ -18,9 +18,23 @@ describe("native Trade Room guidance", () => {
     expect(mobileTradeGuidanceTarget({ side: "seller", status: "payment_sent", actions: actions({ canConfirmFunds: true }) })).toBe("actions");
   });
 
-  it("guides the seller to the wallet only after cash confirmation", () => {
-    expect(mobileTradeGuidanceTarget({ side: "seller", status: "funds_received", receivingWalletAddress: "TWallet", actions: actions() })).toBe("wallet");
+  it("guides the seller to the newly revealed wallet before the cash-trade send action", () => {
+    expect(mobileTradeGuidanceTarget({
+      side: "seller",
+      status: "funds_received",
+      receivingWalletAddress: "TWallet",
+      actions: actions({ canMarkUsdtSent: true }),
+    })).toBe("wallet");
     expect(mobileTradeGuidanceTarget({ side: "seller", status: "payment_sent", receivingWalletAddress: undefined, actions: actions() })).toBe("hero");
+  });
+
+  it("keeps non-cash release guidance on its required lifecycle control", () => {
+    expect(mobileTradeGuidanceTarget({
+      side: "seller",
+      status: "funds_received",
+      receivingWalletAddress: "TWallet",
+      actions: actions({ canBeginRelease: true }),
+    })).toBe("actions");
   });
 
   it("guides review when feedback becomes required", () => {
