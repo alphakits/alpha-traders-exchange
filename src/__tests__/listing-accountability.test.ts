@@ -62,6 +62,18 @@ function createUser(id: string, email: string, role: "owner" | "approved_seller"
     sellerPrestigeRank: "bronze",
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `bank-${id}-hapoalim`,
+      sellerId: id,
+      accountHolderName: id,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "1234567890",
+      accountLast4: "7890",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
   };
 }
 

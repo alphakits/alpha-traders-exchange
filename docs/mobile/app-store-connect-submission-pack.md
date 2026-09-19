@@ -18,6 +18,11 @@ Use `docs/mobile/full-exchange-app-review-evidence.md` as the evidence dossier.
 Use `docs/mobile/app-review-response-playbook.md` for every Apple information
 request or review objection; it separates verified answers from legal and
 account-holder questions that must be escalated.
+For the 2026-09-19 Guideline 2.1 information request on version `1.2.0` build
+`7`, use `docs/mobile/app-review-information-request-2026-09-19.md`. Its
+machine-checked Review Notes replace the incomplete two-paragraph notes from
+the rejected submission and must be completed without bracketed placeholders
+before resubmission.
 Create the controlled evidence/case record from
 `docs/mobile/app-review-private-record-template.md`; never populate the
 repository template with credentials, identity documents, or user data.

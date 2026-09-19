@@ -13,7 +13,7 @@ import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alp
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork, type TradeDisputeCase } from "@/types/alpha-exchange";
 import type { PremiumSellerProfileData } from "@/types/alpha-exchange";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
@@ -81,6 +81,7 @@ type AdminPayload = {
   approvedSellers: AdminSeller[];
   listings: MarketplaceListing[];
   purchaseRequests: PurchaseRequest[];
+  disputes: TradeDisputeCase[];
   commissionRecords: CommissionRecord[];
   auditLogs: AuditLogEntry[];
   notifications: AlphaExchangeNotification[];
@@ -463,7 +464,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       request_submitted: "تم إرسال طلب الشراء", price_offer_submitted: "تم إرسال عرض السعر", request_accepted: "وافق البائع على الطلب", price_offer_accepted: "وافق البائع على عرض السعر", payment_sent: "أكد المشتري إرسال الدفعة",
       seller_confirmed_funds: "أكد البائع استلام الدفعة", usdt_release_started: "بدأ البائع إرسال USDT", usdt_sent: "أكد البائع إرسال USDT",
       trade_completed: "اكتملت الصفقة بنجاح", trade_timed_out: "انتهت مهلة الصفقة", trade_locked: "تم إغلاق الصفقة",
-      review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",
+      review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", dispute_resolved: "تم حل نزاع الصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",
       commission_paid: "تم دفع عمولة الصفقة", buyer_evidence_uploaded: "رفع المشتري إثبات الدفع", seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT",
       request_declined: "رفض البائع الطلب", price_offer_declined: "رفض البائع عرض السعر", request_cancelled: "تم إلغاء الطلب", buyer_confirmed_receipt: "أكد المشتري استلام USDT",
       buyer_confirmation_overdue: "تأخر تأكيد المشتري", trade_closed_manually: "تم إغلاق الصفقة يدويًا",
@@ -1017,6 +1018,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     [data?.purchaseRequests],
   );
 
+  const selectedOpenDispute = useMemo(
+    () => selectedRequest
+      ? (data?.disputes ?? []).find((dispute) => dispute.purchaseRequestId === selectedRequest.id && dispute.status === "open") ?? null
+      : null,
+    [data?.disputes, selectedRequest],
+  );
+
   const betaFeedbackRows = useMemo(() => {
     const items = (data?.privateBeta.feedback ?? []).filter((entry) => (betaFeedbackStatusFilter === "all" ? true : entry.status === betaFeedbackStatusFilter));
     return items.slice(0, 20);
@@ -1302,6 +1310,24 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     const p = await r.json() as { error?: string };
     pushToast(r.ok ? t("Trade cancelled.", "تم إلغاء الصفقة.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
     if (r.ok) { setSelectedRequest(null); await fetchData(); }
+  }
+
+  async function handleResolveDispute(disputeId: string) {
+    const resolutionNotes = window.prompt(t(
+      "Resolution notes (required):",
+      "ملاحظات حل النزاع (مطلوبة):",
+    ));
+    if (!resolutionNotes?.trim()) return;
+    const response = await fetch(`/api/alpha-exchange/admin/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolutionNotes: resolutionNotes.trim() }),
+    });
+    const payload = await response.json() as { error?: string };
+    pushToast(response.ok
+      ? t("Dispute resolved. Trade actions are available again.", "تم حل النزاع وأصبحت إجراءات الصفقة متاحة مجددًا.")
+      : (isArabic ? safeAdminError("action", locale) : payload.error ?? "Error"));
+    if (response.ok) await fetchData();
   }
 
   async function handleUnlockReview(requestId: string) {
@@ -4318,14 +4344,28 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   <p className="mt-2">{selectedRequest.sellerResponse.message}</p>
                 </div>
               ) : null}
+              {selectedOpenDispute ? (
+                <div className="mt-4 rounded-xl border border-red-500/35 bg-red-500/10 p-4 text-sm text-red-100">
+                  <p className="font-semibold">{t("Open dispute — trade actions paused", "نزاع مفتوح — إجراءات الصفقة متوقفة")}</p>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">{selectedOpenDispute.reason}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-3 border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
+                    onClick={() => void handleResolveDispute(selectedOpenDispute.id)}
+                  >
+                    {t("Resolve Dispute", "حل النزاع")}
+                  </Button>
+                </div>
+              ) : null}
               {selectedRequest.status !== "completed" && selectedRequest.status !== "cancelled" && selectedRequest.status !== "declined" ? (
                 <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
                   <p className="mb-3 text-sm font-medium text-amber-300">{t("Admin Actions", "إجراءات الإدارة")}</p>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
+                    <Button type="button" size="sm" disabled={Boolean(selectedOpenDispute)} onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
                       {t("Force Complete", "إكمال إجباري")}
                     </Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
+                    <Button type="button" size="sm" variant="secondary" disabled={Boolean(selectedOpenDispute)} onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
                       {t("Force Cancel", "إلغاء إجباري")}
                     </Button>
                     <Button type="button" size="sm" variant="secondary" onClick={() => void handleUnlockReview(selectedRequest.id)}>

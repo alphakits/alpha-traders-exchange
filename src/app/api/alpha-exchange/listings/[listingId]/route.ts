@@ -8,6 +8,8 @@ import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListi
 import { listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
+import { normalizeListingPrice } from "@/lib/price-offer";
+import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "@/lib/trade-amount";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -81,8 +83,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         },
       });
     }
-    const availableAmount = body.availableAmount !== undefined ? String(body.availableAmount).trim() : undefined;
-    const price = body.price !== undefined ? String(body.price).trim() : undefined;
+    const rawAvailableAmount = body.availableAmount !== undefined ? String(body.availableAmount).trim() : undefined;
+    const availableAmount = rawAvailableAmount !== undefined ? (canonicalizeTradeAmount(rawAvailableAmount) ?? "") : undefined;
+    const rawPrice = body.price !== undefined ? String(body.price).trim() : undefined;
+    const price = rawPrice !== undefined ? (normalizeListingPrice(rawPrice) ?? "") : undefined;
     const responseTime = body.responseTime !== undefined ? String(body.responseTime).trim() : undefined;
     const currency = body.currency !== undefined ? String(body.currency).trim() : undefined;
     const resolvedPaymentMethods = body.paymentMethods !== undefined || body.paymentMethod !== undefined
@@ -92,8 +96,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const paymentMethod = paymentMethods?.[0];
     const bankAccountId = body.bankAccountId !== undefined ? String(body.bankAccountId).trim() : undefined;
     const bankSelection = body.bankName !== undefined ? parseIsraeliBankSelection(String(body.bankName ?? "")) : undefined;
-    const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
-    const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
+    const rawMinimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
+    const rawMaximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
+    const minimumTrade = rawMinimumTrade !== undefined ? (canonicalizeNonNegativeTradeAmount(rawMinimumTrade) ?? "") : undefined;
+    const maximumTrade = rawMaximumTrade !== undefined ? (canonicalizeTradeAmount(rawMaximumTrade) ?? "") : undefined;
     const expiresAt = body.expiresAt !== undefined ? String(body.expiresAt).trim() : undefined;
     const expirationHours = body.expirationHours !== undefined ? Number(body.expirationHours) : undefined;
     const notes = body.notes !== undefined ? String(body.notes).trim() : undefined;
@@ -105,10 +111,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const effectiveMinimumTrade = minimumTrade ?? existingListing?.minimumTrade ?? "0";
     const effectiveMaximumTrade = maximumTrade ?? existingListing?.maximumTrade ?? effectiveAvailableAmount;
 
-    if (availableAmount !== undefined && (!availableAmount || toNumber(availableAmount) <= 0)) {
-      return NextResponse.json({ error: "Available amount must be greater than zero." }, { status: 400 });
+    if (availableAmount !== undefined && !availableAmount) {
+      return NextResponse.json({ error: "Available amount must be a valid positive USDT amount with no more than six decimal places." }, { status: 400 });
     }
-    if (price !== undefined && (!price || toNumber(price) <= 0)) {
+    if (rawPrice !== undefined && (!rawPrice || !price)) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
     const marketRate = await fetchUsdIlsMarketRate();
@@ -144,10 +150,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: `Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.` }, { status: 400 });
       }
     }
-    if (minimumTrade !== undefined && toNumber(minimumTrade) < 0) {
-      return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
+    if (minimumTrade !== undefined && !minimumTrade) {
+      return NextResponse.json({ error: "Minimum trade must be a valid non-negative USDT amount with no more than six decimal places." }, { status: 400 });
     }
-    if (effectiveMaximumTrade !== undefined && toNumber(effectiveMaximumTrade) <= 0) {
+    if (maximumTrade !== undefined && !maximumTrade) {
       return NextResponse.json({ error: "Maximum trade must be greater than zero." }, { status: 400 });
     }
     if (effectiveMaximumTrade !== undefined && toNumber(effectiveMaximumTrade) < toNumber(effectiveMinimumTrade)) {

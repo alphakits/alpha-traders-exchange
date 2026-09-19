@@ -28,7 +28,6 @@ type PurchaseListingDialogProps = {
   isSellerProfileLoading: boolean;
   selectedAmount: number;
   selectedPrice: number;
-  commission: number;
   estimatedTotal: number;
   isOwnerViewer: boolean;
   isOwnerProfileActionLoading: boolean;
@@ -69,7 +68,6 @@ type PurchaseListingDialogProps = {
   ) => void;
   onOwnerSuspendSeller: (sellerId: string) => void;
   formatIls: (value: number) => string;
-  formatIntegerForInput: (value: string | number | null | undefined) => string;
   localizedAuditAction: (action: AuditAction | string, isAr: boolean) => string;
   paymentMethodEmoji: (method: string) => string;
   paymentMethodLabel: (method: string, isAr?: boolean) => string;
@@ -98,7 +96,6 @@ export function PurchaseListingDialog({
   isSellerProfileLoading,
   selectedAmount,
   selectedPrice,
-  commission,
   estimatedTotal,
   isOwnerViewer,
   isOwnerProfileActionLoading,
@@ -135,7 +132,6 @@ export function PurchaseListingDialog({
   onOwnerSellerProfileState,
   onOwnerSuspendSeller,
   formatIls,
-  formatIntegerForInput,
   localizedAuditAction,
   paymentMethodEmoji,
   paymentMethodLabel,
@@ -226,7 +222,7 @@ export function PurchaseListingDialog({
               <div className="rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-emerald-500/10 via-black/50 to-[#C9A227]/12 p-3">
                 <div className={`flex items-end justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className={isAr ? "text-right" : ""}>
-                    <p className="text-2xl font-bold leading-none text-white">{selectedAmount.toLocaleString("en-IL")}</p>
+                    <p className="text-2xl font-bold leading-none text-white">{selectedAmount.toLocaleString("en-IL", { maximumFractionDigits: 6 })}</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">{isAr ? "USDT متاح" : "USDT Available"}</p>
                   </div>
                   <div className={isAr ? "text-left" : "text-right"}>
@@ -236,7 +232,7 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                  {isAr ? "العمولة (1%)" : "Commission (1%)"}: <span className="text-white">{formatIls(commission)}</span> · {isAr ? "الإجمالي التقديري" : "Estimated total"}: <span className="text-[#C9A227]">{formatIls(estimatedTotal)}</span>
+                  {isAr ? "دفعة المشتري المقدّرة" : "Estimated buyer payment"}: <span className="text-[#C9A227]">{formatIls(estimatedTotal)}</span> · {isAr ? "عمولة المنصة 1% يدفعها البائع بعد اكتمال الصفقة" : "The seller pays the 1% platform commission after completion"}
                 </p>
               </div>
 
@@ -299,8 +295,8 @@ export function PurchaseListingDialog({
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{isAr ? "كمية USDT" : "USDT Amount"} <span className="text-red-300">*</span></label>
-                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="numeric" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(formatIntegerForInput(event.target.value))} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
-                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT</p>
+                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
+                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} - {selectedMaxTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</p>
                   </div>
                   {priceMode === "buyer_offer" ? (
                     <div className="space-y-2 md:col-span-3">
@@ -338,7 +334,7 @@ export function PurchaseListingDialog({
                     <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">{isAr ? "عنوان محفظة الاستلام" : "Receiving Wallet Address"} <span className="text-red-300">*</span></label>
                     <Input id="buyer-receiving-wallet" dir="ltr" required autoComplete="off" spellCheck={false} placeholder={isAr ? `عنوان محفظة ${listing.network}` : `${listing.network} wallet address`} value={buyerInfo.receivingWalletAddress} onChange={(event) => onBuyerWalletChange(event.target.value)} className={`text-left font-mono ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}`} aria-describedby="buyer-wallet-guidance" aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined} />
                     <p id="buyer-wallet-guidance" className={`text-xs ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
-                      {buyerInfo.receivingWalletAddress && buyerWalletValidationError ? buyerWalletValidationError : isAr ? `أدخل العنوان الذي تريد استلام USDT عليه عبر شبكة ${listing.network}. سيبقى مخفياً عن البائع حتى تحدد أن الدفع تم إرساله.` : `Enter the address where you want to receive USDT on ${listing.network}. It stays hidden from the seller until you mark payment as sent.`}
+                      {buyerInfo.receivingWalletAddress && buyerWalletValidationError ? buyerWalletValidationError : isAr ? `أدخل العنوان الذي تريد استلام USDT عليه عبر شبكة ${listing.network}. سيبقى مخفياً عن البائع حتى يؤكد استلام الدفع.` : `Enter the address where you want to receive USDT on ${listing.network}. It stays hidden from the seller until the seller confirms receiving payment.`}
                     </p>
                   </div>
                 </div>

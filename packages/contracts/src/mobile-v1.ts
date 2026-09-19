@@ -895,6 +895,7 @@ export type MobileTradeTimelineEvent =
   | "trade_locked"
   | "review_unlocked"
   | "dispute_opened"
+  | "dispute_resolved"
   | "commission_recorded"
   | "commission_paid"
   | "buyer_evidence_uploaded"

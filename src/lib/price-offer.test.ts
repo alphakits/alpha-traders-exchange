@@ -22,6 +22,27 @@ describe("buyer price offers", () => {
     });
   });
 
+  it("normalizes decimal comma and Arabic numeric keyboards", () => {
+    expect(normalizePriceOfferInput("3,23")).toBe("3.23");
+    expect(normalizePriceOfferInput("٣٫٢٣")).toBe("3.23");
+  });
+
+  it("calculates the exact production offer range from the legacy three-decimal listing price", () => {
+    expect(getPriceOfferBounds("3.263")).toEqual({
+      listingPrice: "3.26",
+      minimumPrice: "2.91",
+      maximumDiscount: "0.35",
+    });
+    expect(validatePriceOffer("3.263", "3.23")).toEqual({
+      ok: true,
+      listingPrice: "3.26",
+      offeredPrice: "3.23",
+      discount: "0.03",
+    });
+    expect(getPriceOfferBounds("₪3.263 ILS")).toMatchObject({ listingPrice: "3.26" });
+    expect(getPriceOfferBounds("3.266")).toMatchObject({ listingPrice: "3.27", minimumPrice: "2.92" });
+  });
+
   it("accepts any cent price inside the range and rejects both boundaries outside it", () => {
     expect(validatePriceOffer("3.30", "3.29")).toMatchObject({ ok: true, discount: "0.01" });
     expect(validatePriceOffer("3.30", "3.30")).toMatchObject({ ok: false, code: "PRICE_OFFER_NOT_LOWER" });

@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type {
   MobileApiErrorCode,
@@ -178,7 +177,7 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
 
 export function createMobileRequestId(request: NextRequest) {
   const supplied = request.headers.get("x-request-id")?.trim() ?? "";
-  return /^[A-Za-z0-9._:-]{8,64}$/.test(supplied) ? supplied : randomUUID();
+  return /^[A-Za-z0-9._:-]{8,64}$/.test(supplied) ? supplied : crypto.randomUUID();
 }
 
 export function resolveMobileLocale(request: NextRequest): MobileLocale {

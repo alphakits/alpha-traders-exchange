@@ -246,7 +246,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
           {listing.actions.canMakeOffer ? (
             <Pressable accessibilityRole="button" onPress={onOffer} style={({ pressed }) => [styles.offerButton, pressed && styles.pressed]}>
               <Text style={styles.offerLabel}>◇ {t("makeOffer")}</Text>
-              <Text style={styles.offerCaption}>{copy("Up to", "حتى")} {formatUsd(0.35 / usdIlsRate, 2)} {copy("lower", "أقل")}</Text>
+              <Text style={styles.offerCaption}>{copy("Up to", "حتى")} {formatUsd(0.35 / usdIlsRate, 4)} {copy("lower", "أقل")}</Text>
             </Pressable>
           ) : null}
         </View>

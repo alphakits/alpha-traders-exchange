@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { authenticateMobileCredentials } from "@/lib/mobile-credentials";
 import { mobileAuthService, hashMobileSecret } from "@/lib/mobile-auth";
+import { MobileAccountDisabledError, MobileAccountUnavailableError } from "@/lib/mobile-auth-store";
 import {
   createMobileRequestId,
   mobileClientVersionError,
@@ -93,6 +94,12 @@ export async function POST(request: NextRequest) {
       tokens: issued.tokens,
     }, requestId);
   } catch (error) {
+    if (error instanceof MobileAccountDisabledError) {
+      return mobileError("ACCOUNT_DISABLED", requestId, locale, 403);
+    }
+    if (error instanceof MobileAccountUnavailableError) {
+      return mobileError("SESSION_REVOKED", requestId, locale, 401);
+    }
     logEvent("error", {
       event: "mobile_auth_login",
       outcome: "failed",

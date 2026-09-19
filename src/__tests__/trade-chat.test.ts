@@ -397,6 +397,61 @@ describe("Trade Room participant communication", () => {
     expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
   });
 
+  it("blocks obfuscated Cardless ATM codes from ordinary chat for both participants", async () => {
+    const saved = snapshot();
+    saved.purchaseRequests[0]!.paymentMethod = "Cardless ATM";
+    saved.purchaseRequests[0]!.status = "payment_sent";
+    globalThis.__alphaExchangeMemorySnapshot = saved as never;
+    invalidateAlphaExchangeStoreCache();
+
+    for (const message of [
+      "12 34 56",
+      "123-456",
+      "١٢٣٤٥٦",
+      "۱۲۳۴۵۶",
+      "１２３４５６",
+      "12\u200B34\u206056",
+    ]) {
+      await expect(postTradeRoomMessage({
+        purchaseRequestId: "trade-1",
+        actorUserId: BUYER_ID,
+        message,
+      })).rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+    }
+
+    await expect(postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: SELLER_ID,
+      message: "Code received: 987-654",
+    })).rejects.toMatchObject({ code: "cardless-code-chat-blocked" });
+
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+  });
+
+  it("blocks chat photos for both participants in every cash-trade method", async () => {
+    for (const paymentMethod of ["Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]) {
+      const saved = snapshot();
+      saved.purchaseRequests[0]!.paymentMethod = paymentMethod;
+      saved.purchaseRequests[0]!.status = "payment_sent";
+      globalThis.__alphaExchangeMemorySnapshot = saved as never;
+      invalidateAlphaExchangeStoreCache();
+
+      for (const actorUserId of [BUYER_ID, SELLER_ID]) {
+        await expect(postTradeRoomMessage({
+          purchaseRequestId: "trade-1",
+          actorUserId,
+          message: "Photo",
+          imageUrl: `data:image/png;base64,${TINY_PNG_BASE64}`,
+          imageMimeType: "image/png",
+        })).rejects.toMatchObject({ code: "cash-trade-chat-image-blocked" });
+      }
+    }
+
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+  });
+
   it("replaces user-supplied Trade Room attachment names and refuses external contact URLs", async () => {
     const posted = await postTradeRoomMessage({
       purchaseRequestId: "trade-1",

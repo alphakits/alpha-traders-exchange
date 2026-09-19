@@ -23,7 +23,21 @@ export type MobileDeviceSessionRecord = {
 
 export type MobileRefreshRotationResult =
   | { status: "rotated"; session: MobileDeviceSessionRecord }
-  | { status: "invalid" | "expired" | "revoked" | "reused" | "device_mismatch" };
+  | { status: "invalid" | "expired" | "revoked" | "reused" | "device_mismatch" | "account_disabled" };
+
+export class MobileAccountDisabledError extends Error {
+  constructor() {
+    super("This account is disabled.");
+    this.name = "MobileAccountDisabledError";
+  }
+}
+
+export class MobileAccountUnavailableError extends Error {
+  constructor() {
+    super("This account is unavailable.");
+    this.name = "MobileAccountUnavailableError";
+  }
+}
 
 export interface MobileDeviceSessionStore {
   createOrReplace(session: MobileDeviceSessionRecord): Promise<MobileDeviceSessionRecord>;
@@ -110,6 +124,23 @@ export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStor
     const client = await pool.connect();
     try {
       await client.query("begin");
+      // Serialize account disablement with token issuance. The account-state
+      // write uses the same advisory lock through the snapshot repository, so
+      // either this session is created first and then revoked, or issuance sees
+      // the disabled account and fails without writing a token.
+      await client.query("select pg_advisory_xact_lock(61422917)");
+      const account = await client.query<{ disabled: boolean; email_verified: boolean }>(
+        `select
+           case when lower(coalesce(payload->>'disabled', 'false')) = 'true' then true else false end as disabled,
+           case when lower(coalesce(payload->>'emailVerified', 'false')) = 'true' then true else false end as email_verified
+         from alpha_exchange.users
+         where id = $1
+         limit 1`,
+        [session.userId],
+      );
+      if (!account.rows[0]) throw new MobileAccountUnavailableError();
+      if (account.rows[0].disabled) throw new MobileAccountDisabledError();
+      if (!account.rows[0].email_verified) throw new MobileAccountUnavailableError();
       const result = await client.query<MobileSessionRow>(
         `insert into alpha_exchange.mobile_device_sessions (
            id, user_id, device_id_hash, access_token_hash, refresh_token_hash,
@@ -193,6 +224,10 @@ export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStor
     const client = await pool.connect();
     try {
       await client.query("begin");
+      // Account disablement, token issuance, and token rotation share one lock.
+      // This closes the window where a refresh could rotate immediately after
+      // the admin revocation pass.
+      await client.query("select pg_advisory_xact_lock(61422917)");
       let result = await client.query<MobileSessionRow>(
         "select * from alpha_exchange.mobile_device_sessions where refresh_token_hash = $1 for update",
         [input.refreshTokenHash],
@@ -232,6 +267,33 @@ export class PostgresMobileDeviceSessionStore implements MobileDeviceSessionStor
       if (row.device_id_hash !== input.deviceIdHash) {
         await client.query("commit");
         return { status: "device_mismatch" };
+      }
+      const account = await client.query<{ disabled: boolean }>(
+        `select case when lower(coalesce(payload->>'disabled', 'false')) = 'true' then true else false end as disabled
+         from alpha_exchange.users
+         where id = $1
+         limit 1`,
+        [row.user_id],
+      );
+      if (!account.rows[0]) {
+        await client.query(
+          `update alpha_exchange.mobile_device_sessions
+              set revoked_at = coalesce(revoked_at, $2), revoke_reason = 'account_unavailable', updated_at = $2
+            where user_id = $1 and revoked_at is null`,
+          [row.user_id, input.now],
+        );
+        await client.query("commit");
+        return { status: "revoked" };
+      }
+      if (account.rows[0].disabled) {
+        await client.query(
+          `update alpha_exchange.mobile_device_sessions
+              set revoked_at = coalesce(revoked_at, $2), revoke_reason = 'account_disabled', updated_at = $2
+            where user_id = $1 and revoked_at is null`,
+          [row.user_id, input.now],
+        );
+        await client.query("commit");
+        return { status: "account_disabled" };
       }
       if (new Date(row.refresh_expires_at).getTime() <= new Date(input.now).getTime()) {
         await client.query(

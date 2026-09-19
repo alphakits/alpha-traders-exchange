@@ -25,6 +25,7 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
   const now = new Date().toISOString();
   const roles: UserRole[] = role === "owner" ? ["owner", "admin"] : [role];
   const sellerStatus: SellerStatus = role === "approved_seller" ? "approved_seller" : "buyer";
+  const accountNumber = "1000000001";
   return {
     id,
     fullName: id,
@@ -62,6 +63,18 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `seller-bank-${id}-hapoalim`,
+      sellerId: id,
+      accountHolderName: "Offer Seller",
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber,
+      accountLast4: accountNumber.slice(-4),
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
   };
 }
 
@@ -218,6 +231,24 @@ describe("negotiated marketplace price offers", () => {
       await expect(submitOffer(listing.id, BUYER_ONE_ID, offeredPrice)).rejects.toMatchObject({ code });
     }
     expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).purchaseRequests).toHaveLength(0);
+  });
+
+  it("opens a correctly priced request from the exact legacy production listing value", async () => {
+    const listing = await createLiveListing();
+    const persistedListing = (globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).marketplaceListings
+      .find((item) => item.id === listing.id)!;
+    persistedListing.price = "3.263";
+
+    const created = await submitOffer(listing.id, BUYER_ONE_ID, "3.23");
+
+    expect(created.request).toMatchObject({
+      status: "pending",
+      priceMode: "buyer_offer",
+      listingPriceAtRequest: "3.26",
+      pricePerUsdt: "3.23",
+      priceOfferDiscount: "0.03",
+      fiatAmount: "3230.00",
+    });
   });
 
   it("keeps Buy Now behavior unchanged at the listing price", async () => {

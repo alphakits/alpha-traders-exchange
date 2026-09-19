@@ -102,6 +102,7 @@ const submissionPack = readText("docs/mobile/app-store-connect-submission-pack.m
 const googlePlaySubmissionPack = readText("docs/mobile/google-play-submission-pack.md");
 const fullExchangeEvidence = readText("docs/mobile/full-exchange-app-review-evidence.md");
 const responsePlaybook = readText("docs/mobile/app-review-response-playbook.md");
+const informationRequestResponse = readText("docs/mobile/app-review-information-request-2026-09-19.md");
 const privateRecordTemplate = readText("docs/mobile/app-review-private-record-template.md");
 const economicCalendarPlan = readText("docs/mobile/economic-calendar-post-release-plan.md");
 const runbook = readText("docs/mobile/private-beta-release-runbook.md");
@@ -110,6 +111,7 @@ const reviewSurfaceScript = readText("scripts/verify-mobile-review-surface.mjs")
 const reviewRehearsal = readText("src/__tests__/app-review-rehearsal.test.ts");
 const scaleRehearsal = readText("src/__tests__/marketplace-concurrency-scale.test.ts");
 const releaseSafetyGate = readText("scripts/release-safety-gate.mjs");
+const committedExchangeSeed = readJson("data/alpha-exchange-db.json");
 const supportPage = readText("src/app/[locale]/support/page.tsx");
 const userSafetyActions = readText("src/components/account/user-safety-actions.tsx");
 const userBlockRoute = readText("src/app/api/alpha-exchange/user-blocks/[userId]/route.ts");
@@ -118,6 +120,9 @@ const tradeRoomPage = readText("src/components/sections/trade-room/trade-room-pa
 const tradeRoomActions = readText("src/lib/trade-room-actions.ts");
 
 check(appConfig.name === "Alpha Traders", "The iOS display name must remain Alpha Traders.");
+check(Object.keys(committedExchangeSeed).length > 0, "The committed Exchange seed schema is empty or unreadable.");
+check(Object.values(committedExchangeSeed).every((value) => Array.isArray(value)), "The committed Exchange seed may contain collections only.");
+check(Object.values(committedExchangeSeed).every((value) => Array.isArray(value) && value.length === 0), "The committed Exchange seed must not contain users, credentials, sessions, or runtime data.");
 check(rootPackage.scripts?.["mobile:store-readiness"] === "node scripts/verify-mobile-store-readiness.mjs", "The source-readiness command is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:store-readiness:submission"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=all", "The combined iOS/Android submission gate is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:store-readiness:submission:ios"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=ios", "The iOS submission gate is not wired into the root package.");
@@ -314,6 +319,40 @@ check(responsePlaybook.includes("government-issued identity documents") && respo
 check(responsePlaybook.includes("citizenship or residence alone is not authorization"), "The identity and territory-authorization boundary is missing.");
 check(responsePlaybook.includes("Do not upload seller identity documents") && responsePlaybook.includes("Do not improvise a legal conclusion"), "The App Review response playbook is missing its evidence-safety stop rules.");
 check(responsePlaybook.includes("https://developer.apple.com/app-store/review/guidelines/") && responsePlaybook.includes("manage-app-privacy") && responsePlaybook.includes("CELEX:32023R1114"), "The App Review response playbook is missing its official Apple/EU sources.");
+check(informationRequestResponse.includes("0a2470dc-4f2a-4c7e-8d4f-1b0a8d46cbe2"), "The active App Review information-request package is missing the rejected submission ID.");
+check(informationRequestResponse.includes("| Build rejected | `7` |") && informationRequestResponse.includes("2.1.0 Performance: App Completeness"), "The active App Review information-request package does not identify the rejected build and guideline.");
+for (const requestedEvidence of [
+  "Physical-device demonstration",
+  "Purpose, audience, problem, and value",
+  "Setup and feature access",
+  "External services",
+  "Regional differences",
+  "Regulated service / protected content authorization",
+]) {
+  check(informationRequestResponse.includes(requestedEvidence), `The App Review information-request package does not cover ${requestedEvidence}.`);
+}
+check(informationRequestResponse.includes("Buyer account") && informationRequestResponse.includes("Approved Seller account"), "The App Review information-request package must provide both reviewer roles.");
+check(informationRequestResponse.includes("Vercel") && informationRequestResponse.includes("Supabase") && informationRequestResponse.includes("Expo") && informationRequestResponse.includes("Resend") && informationRequestResponse.includes("TRON/TronGrid"), "The App Review information-request package is missing core external-service disclosures.");
+check(informationRequestResponse.includes("Israel storefront only") && informationRequestResponse.includes("English and Arabic have the same features"), "The App Review information-request package is missing the regional behavior disclosure.");
+check(informationRequestResponse.includes("must not be described as a cryptocurrency licence"), "The App Review information-request package must distinguish entity registration from cryptocurrency permission.");
+check(informationRequestResponse.includes("Guideline 3.1.5(iii)") && informationRequestResponse.includes("Guideline 5.1.1(ix)"), "The App Review information-request package is missing Apple's cryptocurrency and submitting-entity rules.");
+check(informationRequestResponse.includes("https://developer.apple.com/app-store/review/guidelines/") && informationRequestResponse.includes("reply-to-app-review-messages"), "The App Review information-request package is missing its official Apple policy and response sources.");
+check(informationRequestResponse.includes("old exposed reviewer password is rotated"), "The App Review resubmission gate must require reviewer-password rotation.");
+check(informationRequestResponse.includes("App Store Connect no longer") && informationRequestResponse.includes("zero screenshots"), "The App Review resubmission gate must block the zero-screenshot state shown in the rejected submission.");
+check(informationRequestResponse.includes("### Operational-evidence boundary"), "The App Review information-request package is missing its operational-evidence boundary.");
+check(informationRequestResponse.includes("A cash photo, a commission-payment screen, or") && informationRequestResponse.includes("does not independently establish the trade amount"), "The App Review package must prohibit unsupported real-trade claims.");
+check(informationRequestResponse.includes("independently confirmed on-chain") && informationRequestResponse.includes("Pending") && informationRequestResponse.includes("Evidence Missing"), "The App Review package must reject pending screenshots and unverified transfer receipts as completion evidence.");
+check(informationRequestResponse.includes("state the exact discrepancy") && informationRequestResponse.includes("exact total") && informationRequestResponse.includes("reconciles to the delivered amount"), "The App Review package must require exact settlement-amount reconciliation.");
+check(informationRequestResponse.includes("never expose a customer or seller") && informationRequestResponse.includes("no real transaction is used as Apple's review fixture"), "The App Review package must keep real users and transactions out of the review fixture.");
+check(informationRequestResponse.includes("raw seller identity document") && informationRequestResponse.includes("privacy/legal"), "The App Review package must protect seller identity evidence from unnecessary disclosure.");
+const reviewNotesMatch = informationRequestResponse.match(/<!-- APP_REVIEW_NOTES_START -->([\s\S]*?)<!-- APP_REVIEW_NOTES_END -->/);
+check(Boolean(reviewNotesMatch), "The App Review Notes markers are missing from the information-request package.");
+if (reviewNotesMatch) {
+  const reviewNotes = reviewNotesMatch[1].trim();
+  check([...reviewNotes].length <= 4_000, `The App Review Notes exceed Apple's 4,000-character limit (${[...reviewNotes].length} characters).`);
+  check(reviewNotes.includes("REVIEW ACCESS — NO REAL FUNDS REQUIRED"), "The App Review Notes do not provide a safe non-financial reviewer path.");
+  check(!/roflxd123/i.test(reviewNotes), "The previously exposed reviewer password must never be stored in the response package.");
+}
 check(privateRecordTemplate.includes("## Release identity") && privateRecordTemplate.includes("## Gate register"), "The private App Review release-record template is incomplete.");
 check(privateRecordTemplate.includes("Exact legal name from selected government ID") && privateRecordTemplate.includes("Identity-document and legal-name consistency reconciled"), "The private release record is missing identity reconciliation.");
 check(privateRecordTemplate.includes("## Apple correspondence log") && privateRecordTemplate.includes("## Attachment release check"), "The private App Review case and attachment controls are missing.");

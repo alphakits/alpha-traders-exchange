@@ -392,14 +392,33 @@ describe("full Exchange App Review rehearsal", () => {
       actorUserId: BUYER_ID,
       actorRole: "buyer",
       nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913",
+      clientOperationId: "abcdef0123456789abcdef0123456789",
     });
     expect(buyerConfirmation.request).toMatchObject({ status: "payment_sent", buyerEvidence: undefined });
+    const persistedWithProtectedCode = snapshot().purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(JSON.stringify(persistedWithProtectedCode)).not.toContain("482913");
+    expect(persistedWithProtectedCode?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ credentialKind: "cardless_code", confidential: true }),
+    ]));
+    const sellerRoomWithProtectedCode = await getTradeRoomData({
+      purchaseRequestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      markMessagesRead: false,
+    });
+    expect(sellerRoomWithProtectedCode.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: "Cardless withdrawal code: 482913" }),
+    ]));
     await updatePurchaseRequestStatus({
       requestId: created.request.id,
       actorUserId: SELLER_ID,
       actorRole: "approved_seller",
       nextStatus: "funds_received",
     });
+    const persistedAfterCashCollection = snapshot().purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(JSON.stringify(persistedAfterCashCollection)).not.toContain("482913");
+    expect(JSON.stringify(persistedAfterCashCollection)).not.toContain("cardless:v1:");
     const sellerRoomAfterCash = await getTradeRoomData({
       purchaseRequestId: created.request.id,
       actorUserId: SELLER_ID,
@@ -407,6 +426,7 @@ describe("full Exchange App Review rehearsal", () => {
       markMessagesRead: false,
     });
     expect(sellerRoomAfterCash.request.buyerReceivingWalletAddress).toBe(REVIEW_WALLET);
+    expect(JSON.stringify(sellerRoomAfterCash.messages)).not.toContain("482913");
     const usdtSent = await updatePurchaseRequestStatus({
       requestId: created.request.id,
       actorUserId: SELLER_ID,

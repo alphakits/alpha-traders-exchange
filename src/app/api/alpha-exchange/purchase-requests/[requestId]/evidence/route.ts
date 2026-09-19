@@ -10,6 +10,18 @@ type RouteContext = {
   params: Promise<{ requestId: string }>;
 };
 
+const PRIVATE_NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Pragma: "no-cache",
+};
+
+function withPrivateNoStoreHeaders<T extends Response>(response: T): T {
+  for (const [name, value] of Object.entries(PRIVATE_NO_STORE_HEADERS)) {
+    response.headers.set(name, value);
+  }
+  return response;
+}
+
 function normalizeBase64Payload(value: string) {
   const trimmed = String(value ?? "").trim();
   const marker = ";base64,";
@@ -27,9 +39,9 @@ function normalizeBase64Payload(value: string) {
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
-  if (!user) return unauthorized;
+  if (!user) return withPrivateNoStoreHeaders(unauthorized);
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
-  if (emailVerificationRequired) return emailVerificationRequired;
+  if (emailVerificationRequired) return withPrivateNoStoreHeaders(emailVerificationRequired);
   try {
     const { requestId } = await context.params;
     const trade = await getTradeEvidenceForRequest({
@@ -37,17 +49,20 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
     });
-    return NextResponse.json({ request: trade });
+    return NextResponse.json({ request: trade }, { headers: PRIVATE_NO_STORE_HEADERS });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to load trade evidence." }, { status: 400 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to load trade evidence." },
+      { status: 400, headers: PRIVATE_NO_STORE_HEADERS },
+    );
   }
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
-  if (!user) return unauthorized;
+  if (!user) return withPrivateNoStoreHeaders(unauthorized);
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
-  if (emailVerificationRequired) return emailVerificationRequired;
+  if (emailVerificationRequired) return withPrivateNoStoreHeaders(emailVerificationRequired);
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-upload",
@@ -55,7 +70,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many evidence uploads. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+    return NextResponse.json(
+      { error: "Too many evidence uploads. Please try again shortly." },
+      {
+        status: 429,
+        headers: {
+          ...PRIVATE_NO_STORE_HEADERS,
+          "Retry-After": String(rate.retryAfterSeconds),
+        },
+      },
+    );
   }
   const routeStartedAt = Date.now();
   try {
@@ -63,14 +87,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const body = await request.json();
     const side = String(body.side ?? "").trim();
     if (side !== "buyer" && side !== "seller") {
-      return NextResponse.json({ error: "Evidence side must be buyer or seller." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Evidence side must be buyer or seller." },
+        { status: 400, headers: PRIVATE_NO_STORE_HEADERS },
+      );
     }
     const fileName = String(body.fileName ?? "").trim();
     const suppliedMimeType = String(body.mimeType ?? "").trim().toLowerCase();
     const suppliedSize = Number(body.sizeBytes ?? 0);
     const payload = normalizeBase64Payload(String(body.fileData ?? body.contentBase64 ?? ""));
     if (!payload.contentBase64) {
-      return NextResponse.json({ error: "Evidence file payload is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Evidence file payload is required." },
+        { status: 400, headers: PRIVATE_NO_STORE_HEADERS },
+      );
     }
     const uploaded = await uploadTradeEvidence({
       purchaseRequestId: requestId,
@@ -128,6 +158,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { request: uploaded.request, metrics: uploaded.metrics },
       {
         headers: {
+          ...PRIVATE_NO_STORE_HEADERS,
           "X-Trade-Evidence-Read-Ms": String(uploaded.metrics.dbReadMs),
           "X-Trade-Evidence-Validation-Ms": String(uploaded.metrics.validationMs),
           "X-Trade-Evidence-Storage-Ms": String(uploaded.metrics.storageMs),
@@ -139,6 +170,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     );
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to upload evidence." }, { status: 400 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to upload evidence." },
+      { status: 400, headers: PRIVATE_NO_STORE_HEADERS },
+    );
   }
 }

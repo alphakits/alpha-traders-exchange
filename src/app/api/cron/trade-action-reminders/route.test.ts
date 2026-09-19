@@ -79,6 +79,7 @@ describe("hourly trade action reminder cron", () => {
   it("runs from Dublin and staggers five-minute cron checks", () => {
     const config = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8"));
 
+    expect(config.fluid).toBe(true);
     expect(config.regions).toEqual(["dub1"]);
     expect(config.crons).toEqual([
       {

@@ -48,9 +48,13 @@ export default async function LocaleLayout({
     notFound();
   }
 
-  const messages = await getMessages();
   const appLocale = locale as AppLocale;
-  const sessionUser = await getCurrentSessionUser();
+  // Translation and session resolution are independent. Starting both here
+  // removes a serial database round trip from every authenticated navigation.
+  const [messages, sessionUser] = await Promise.all([
+    getMessages(),
+    getCurrentSessionUser(),
+  ]);
 
   return (
     <NextIntlClientProvider messages={messages}>

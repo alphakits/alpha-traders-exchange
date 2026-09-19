@@ -62,6 +62,9 @@ export async function POST(request: NextRequest) {
       });
       return mobileError("REFRESH_TOKEN_REUSED", requestId, locale, 401);
     }
+    if (rotation.status === "account_disabled") {
+      return mobileError("ACCOUNT_DISABLED", requestId, locale, 403);
+    }
     const code = rotation.status === "expired"
       ? "SESSION_EXPIRED"
       : rotation.status === "revoked"

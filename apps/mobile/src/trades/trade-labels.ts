@@ -32,6 +32,7 @@ const eventLabels: Record<MobileTradeTimelineEvent, Record<MobileLocale, string>
   trade_locked: { en: "Trade moved to review", ar: "تم نقل الصفقة للمراجعة" },
   review_unlocked: { en: "Review is available", ar: "أصبح التقييم متاحًا" },
   dispute_opened: { en: "A dispute was opened", ar: "تم فتح نزاع" },
+  dispute_resolved: { en: "Dispute resolved; trade resumed", ar: "تم حل النزاع واستؤنفت الصفقة" },
   commission_recorded: { en: "Commission recorded", ar: "تم تسجيل العمولة" },
   commission_paid: { en: "Commission paid", ar: "تم دفع العمولة" },
   buyer_evidence_uploaded: { en: "Payment receipt uploaded", ar: "تم رفع إثبات الدفع" },

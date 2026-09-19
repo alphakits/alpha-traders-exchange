@@ -9,7 +9,7 @@ function source(path: string) {
 }
 
 describe("authenticated navigation critical path", () => {
-  it("keeps session resolution direct and sequences locale loading before auth", () => {
+  it("coalesces duplicate session reads and resolves locale messages in parallel", () => {
     const auth = source("src/lib/auth.ts");
     const layout = source("src/app/[locale]/layout.tsx");
     const start = auth.indexOf("export async function getCurrentSessionUser");
@@ -17,12 +17,14 @@ describe("authenticated navigation critical path", () => {
 
     expect(auth).toContain("export async function getCurrentSessionUser()");
     expect(auth).not.toContain("cache(resolveCurrentSessionUser)");
-    expect(sessionFunction).toContain("getAuthenticatedUserBySessionToken(token)");
+    expect(auth).toContain("const getSessionUserForRequest = cache(async (token: string, includeDisabled: boolean)");
+    expect(auth).toContain("getAuthenticatedUserBySessionToken(");
+    expect(sessionFunction).toContain("getSessionUserForRequest(token, false)");
     expect(sessionFunction).not.toContain("getSessionByToken(token)");
-    expect(layout).toContain("const messages = await getMessages();");
-    expect(layout).toContain("const sessionUser = await getCurrentSessionUser();");
-    expect(layout.indexOf("const messages = await getMessages();"))
-      .toBeLessThan(layout.indexOf("const sessionUser = await getCurrentSessionUser();"));
+    expect(sessionFunction).toContain("getSessionUserForRequest(token, true)");
+    expect(layout).toContain("const [messages, sessionUser] = await Promise.all([");
+    expect(layout).toContain("getMessages(),");
+    expect(layout).toContain("getCurrentSessionUser(),");
   });
 
   it("keeps authenticated user lookup on the stable two-table snapshot path", () => {
