@@ -11475,6 +11475,7 @@ export async function postTradeRoomMessage(input: {
 
     const nextMessage: TradeChatMessage = {
       id: messageId,
+      clientMessageId,
       purchaseRequestId: canonicalRequest.id,
       kind: "user",
       senderUserId: input.actorUserId,

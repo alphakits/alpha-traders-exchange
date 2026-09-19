@@ -279,6 +279,10 @@ describe("Trade Room participant communication", () => {
     expect(first.created).toBe(true);
     expect(replay.created).toBe(false);
     expect(replay.message.id).toBe(first.message.id);
+    expect(first.message.clientMessageId).toBe(input.clientMessageId);
+    expect(replay.message.clientMessageId).toBe(input.clientMessageId);
+    const roomBeforeAcknowledgement = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, actorRole: "buyer" });
+    expect(roomBeforeAcknowledgement.messages[0]?.clientMessageId).toBe(input.clientMessageId);
     expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
     expect(snapshot().notifications).toHaveLength(1);
     expect(mocks.publishRealtimeEvent.mock.calls.map(([event]) => event.type)).toEqual([

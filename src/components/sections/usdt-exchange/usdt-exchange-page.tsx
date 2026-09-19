@@ -113,6 +113,98 @@ const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
 export const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
 
+function focusWorkspaceSection(sectionId: string) {
+  if (typeof document === "undefined") return false;
+  const invocationTarget = document.activeElement;
+  let trackedTarget = document.getElementById(sectionId);
+  let hasScrolledToTarget = false;
+  let pendingAnimationFrame: number | null = null;
+  let stopped = false;
+  let observer: MutationObserver | null = null;
+  const timeoutIds: number[] = [];
+
+  const stopRestoringFocus = () => {
+    if (stopped) return;
+    stopped = true;
+    observer?.disconnect();
+    if (pendingAnimationFrame !== null) window.cancelAnimationFrame(pendingAnimationFrame);
+    for (const timeoutId of timeoutIds) window.clearTimeout(timeoutId);
+    document.removeEventListener("pointerdown", stopRestoringFocus, true);
+    document.removeEventListener("keydown", stopRestoringFocus, true);
+    document.removeEventListener("focusin", restoreUnexpectedFocus, true);
+  };
+
+  const restoreFocusAfterRender = () => {
+    if (stopped) return;
+    const target = document.getElementById(sectionId);
+    if (!target) return;
+    if (!hasScrolledToTarget) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      hasScrolledToTarget = true;
+    }
+    const activeElement = document.activeElement;
+    if (activeElement && target.contains(activeElement)) {
+      trackedTarget = target;
+      return;
+    }
+    const focusCanBeRestored = !activeElement
+      || activeElement === document.body
+      || activeElement === document.documentElement
+      || activeElement === invocationTarget
+      || activeElement === trackedTarget
+      || !activeElement.isConnected;
+    if (!focusCanBeRestored) return;
+    target.focus({ preventScroll: true });
+    trackedTarget = target;
+  };
+
+  const scheduleFocusRestore = () => {
+    if (stopped || pendingAnimationFrame !== null) return;
+    pendingAnimationFrame = window.requestAnimationFrame(() => {
+      pendingAnimationFrame = null;
+      restoreFocusAfterRender();
+    });
+  };
+
+  function restoreUnexpectedFocus(event: FocusEvent) {
+    const target = document.getElementById(sectionId);
+    if (!target || (event.target instanceof Node && target.contains(event.target))) return;
+    scheduleFocusRestore();
+  }
+
+  observer = new MutationObserver(() => {
+    const target = document.getElementById(sectionId);
+    const activeElement = document.activeElement;
+    if (
+      target !== trackedTarget
+      || !trackedTarget?.isConnected
+      || !activeElement
+      || activeElement === document.body
+      || activeElement === document.documentElement
+    ) {
+      scheduleFocusRestore();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  document.addEventListener("focusin", restoreUnexpectedFocus, true);
+  // Register user-intent cancellation after the activation event that invoked
+  // this helper has finished propagating. Otherwise the same Enter key can
+  // cancel focus restoration before an async workspace render completes.
+  timeoutIds.push(window.setTimeout(() => {
+    if (stopped) return;
+    document.addEventListener("pointerdown", stopRestoringFocus, true);
+    document.addEventListener("keydown", stopRestoringFocus, true);
+  }, 100));
+  restoreFocusAfterRender();
+  scheduleFocusRestore();
+  for (const delayMs of [100, 250, 500, 1_000, 2_000, 4_000]) {
+    timeoutIds.push(window.setTimeout(restoreFocusAfterRender, delayMs));
+  }
+  timeoutIds.push(window.setTimeout(stopRestoringFocus, 8_000));
+  return true;
+}
+
 export const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
   { id: "leumi", name: "Bank Leumi", code: "בנק לאומי", brandPrimary: "#2458A6", brandSecondary: "#1D4B8F", accent: "#93C5FD" },
@@ -1664,7 +1756,6 @@ export function UsdtExchangePage({
   const commissionPayIntentHandledRef = useRef<string | null>(null);
   const commissionNotificationSignatureRef = useRef<string | null>(null);
   const sellerWorkspaceResumeRefreshInFlightRef = useRef(false);
-  const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
   const renderCompleteRecordedRef = useRef(false);
@@ -2522,37 +2613,11 @@ export function UsdtExchangePage({
   }, []);
 
   const scrollToMyListingsSection = useCallback(() => {
-    if (typeof document === "undefined") return false;
-    const target = document.getElementById("my-listings-section");
-    if (!target) return false;
-    target.focus({ preventScroll: true });
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.getElementById("my-listings-section")?.focus({ preventScroll: true });
-      });
-    });
-    window.setTimeout(() => {
-      document.getElementById("my-listings-section")?.focus({ preventScroll: true });
-    }, 250);
-    return true;
+    return focusWorkspaceSection("my-listings-section");
   }, []);
 
   const scrollToBuyerTradeHistorySection = useCallback(() => {
-    if (typeof document === "undefined") return false;
-    const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
-    if (!target) return false;
-    target.focus({ preventScroll: true });
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID)?.focus({ preventScroll: true });
-      });
-    });
-    window.setTimeout(() => {
-      document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID)?.focus({ preventScroll: true });
-    }, 250);
-    return true;
+    return focusWorkspaceSection(BUYER_TRADE_HISTORY_SECTION_ID);
   }, []);
 
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
@@ -3608,28 +3673,9 @@ export function UsdtExchangePage({
   const unreadNotificationsTotal = notificationUnreadCount ?? notifications.filter((item) => !item.isRead).length;
   const latestOpenBuyerTrade = recentBuyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
   const latestOpenSellerTrade = recentSellerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
-  const latestSellerInProgressTrade = recentSellerRequests.find((request) => ["accepted", "payment_sent", "funds_received", "usdt_release_pending"].includes(request.status));
-  useEffect(() => {
-    if (!sessionUser || !isApprovedSeller) return;
-    if (typeof window === "undefined") return;
-    if (!window.location.pathname.endsWith("/usdt-exchange")) return;
-    // An explicit commission deep link must win over the convenience redirect
-    // to an unrelated active trade. The commission flow clears its query only
-    // after canonical seller status reaches a terminal state, then retains the
-    // handled ref for this page instance.
-    if (
-      new URLSearchParams(window.location.search).get("commission") === "pay"
-      || commissionPayDeepLinkHandledRef.current
-    ) return;
-    const tradeId = latestSellerInProgressTrade?.id;
-    if (!tradeId) {
-      sellerActiveTradeRedirectedRef.current = null;
-      return;
-    }
-    if (sellerActiveTradeRedirectedRef.current === tradeId) return;
-    sellerActiveTradeRedirectedRef.current = tradeId;
-    handleOpenTradeRoom(tradeId);
-  }, [handleOpenTradeRoom, isApprovedSeller, latestSellerInProgressTrade?.id, sessionUser]);
+  // Existing trades remain available through the workspace's Continue Trade
+  // action. Background refreshes must never replace an intentional marketplace
+  // visit or interrupt a notification click with a generic Trade Room redirect.
   const commissionWorkspaceAction = getCommissionWorkspaceAction(sellerCommissionStatus);
   const standardCommissionDueActive = isSellerWorkspaceUser && commissionWorkspaceAction.kind !== "none";
   const marketplaceComplianceActive = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
@@ -3810,20 +3856,7 @@ export function UsdtExchangePage({
           : `${openTradeCount.toLocaleString("en-IL")} active trade${openTradeCount === 1 ? "" : "s"}`,
         stat: `${sellerRequests.length.toLocaleString("en-IL")}`,
         onClick: () => {
-          const target = document.getElementById("purchase-requests-section");
-          if (target) {
-            target.scrollIntoView({ behavior: "smooth", block: "start" });
-            target.focus({ preventScroll: true });
-            window.requestAnimationFrame(() => {
-              window.requestAnimationFrame(() => {
-                document.getElementById("purchase-requests-section")?.focus({ preventScroll: true });
-              });
-            });
-            window.setTimeout(() => {
-              document.getElementById("purchase-requests-section")?.focus({ preventScroll: true });
-            }, 250);
-            return;
-          }
+          if (focusWorkspaceSection("purchase-requests-section")) return;
           router.push("/dashboard/seller#purchase-requests-section");
         },
         icon: HandCoins,
@@ -3904,7 +3937,7 @@ export function UsdtExchangePage({
         stat: `${totalBuyerRequests.toLocaleString("en-IL")}`,
         onClick: () => {
           if (scrollToBuyerTradeHistorySection()) return;
-          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+          router.push(`/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
         icon: HandCoins,
         tone: "blue",
@@ -4036,7 +4069,7 @@ export function UsdtExchangePage({
         label: isAr ? "طلبات صفقاتي" : "My Trade Requests",
         onClick: () => {
           if (scrollToBuyerTradeHistorySection()) return;
-          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+          router.push(`/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
       },
     ];

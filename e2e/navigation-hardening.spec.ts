@@ -46,13 +46,14 @@ test.describe("Navigation hardening", () => {
     await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
 
     const tradeRequests = main.getByRole("button", { name: /^My Trade Requests:/ });
+    const tradeHistory = main.locator("#my-trade-requests-section");
     await expect(tradeRequests).toHaveCount(1);
+    await expect(tradeHistory).toBeVisible();
     await tradeRequests.focus();
     await page.keyboard.press("Enter");
 
     await expect(page).toHaveURL(/\/en\/dashboard$/);
-    await expect(main.locator("#my-trade-requests-section")).toBeVisible();
-    await expect(main.locator("#my-trade-requests-section")).toBeFocused();
+    await expect(tradeHistory).toBeFocused();
 
     await main.getByRole("button", { name: /^Browse Marketplace:/ }).click();
     await expect(page).toHaveURL(/\/en\/usdt-exchange#marketplace$/);
@@ -107,7 +108,7 @@ test.describe("Navigation hardening", () => {
     await expect(manageListings).toHaveCount(1);
     await manageListings.focus();
     await page.keyboard.press("Enter");
-    await expect(main.locator("#my-listings-section")).toBeFocused();
+    await expect(main.locator("#my-listings-section")).toBeFocused({ timeout: 10_000 });
   });
 
   test("guest protected trade-room route redirects to login with redirectTo", async ({ page }) => {

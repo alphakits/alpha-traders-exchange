@@ -1248,7 +1248,14 @@ export function mergeTradeRoomSnapshotPreservingOptimisticMessages(
 
   let messages = [...(incomingRoom.messages ?? [])];
   for (const optimisticMessage of optimisticMessages) {
-    if (!messages.some((message) => message.id === optimisticMessage.id)) {
+    const alreadyConfirmed = messages.some((message) => (
+      message.id === optimisticMessage.id
+      || (Boolean(optimisticMessage.clientMessageId)
+        && message.clientMessageId === optimisticMessage.clientMessageId
+        && message.senderUserId === optimisticMessage.senderUserId
+        && message.purchaseRequestId === optimisticMessage.purchaseRequestId)
+    ));
+    if (!alreadyConfirmed) {
       messages = mergeTradeRoomMessages(messages, optimisticMessage);
     }
   }
@@ -1269,9 +1276,10 @@ export function getTradeRoomReconnectDelayMs(attempt: number) {
 
 export function revealTradeRoomDeepLinkTarget(target: HTMLElement) {
   const header = document.querySelector<HTMLElement>("header");
-  const headerHeight = header?.getBoundingClientRect().height ?? 0;
-  const absoluteTop = window.scrollY + target.getBoundingClientRect().top;
-  window.scrollTo({ top: Math.max(0, absoluteTop - headerHeight - 16), behavior: "auto" });
+  const headerBottom = Math.max(0, header?.getBoundingClientRect().bottom ?? 0);
+  const targetTop = target.getBoundingClientRect().top;
+  const desiredTop = headerBottom + 16;
+  window.scrollTo({ top: Math.max(0, window.scrollY + targetTop - desiredTop), behavior: "auto" });
   target.focus({ preventScroll: true });
 }
 
@@ -1553,15 +1561,19 @@ function TradeRoomPageSession({
     setStepPulse(false);
   }, [room?.request]);
 
+  const deepLinkRequestId = room?.request.id ?? null;
+  const deepLinkRequestStatus = room?.request.status ?? null;
+
   useLayoutEffect(() => {
-    const currentRequest = room?.request;
-    if (!currentRequest) return;
+    // SSE can deliver the request while the initial fetch still shows the
+    // loading skeleton. Wait for the real section refs, then handle the link.
+    if (isLoading || !deepLinkRequestId || !deepLinkRequestStatus) return;
     const action = searchParams.get("action")?.trim() || null;
     const hash = typeof window !== "undefined" ? window.location.hash : null;
     const target = resolveDeepLinkTarget(action, hash);
     if (!target) return;
 
-    const marker = `${currentRequest.id}:${action ?? ""}:${hash ?? ""}`;
+    const marker = `${deepLinkRequestId}:${deepLinkRequestStatus}:${action ?? ""}:${hash ?? ""}`;
     if (lastDeepLinkHandledRef.current === marker) return;
 
     const ref = target === "status-banner"
@@ -1577,8 +1589,41 @@ function TradeRoomPageSession({
     if (!resolvedRef) return;
     lastDeepLinkHandledRef.current = marker;
 
-    revealTradeRoomDeepLinkTarget(resolvedRef);
-  }, [room?.request, searchParams]);
+    let stopped = false;
+    const timeoutIds: number[] = [];
+    const reveal = () => {
+      if (stopped || !resolvedRef.isConnected) return;
+      revealTradeRoomDeepLinkTarget(resolvedRef);
+    };
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      for (const timeoutId of timeoutIds) window.clearTimeout(timeoutId);
+      window.removeEventListener("pointerdown", stop, true);
+      window.removeEventListener("keydown", stop, true);
+      window.removeEventListener("wheel", stop, true);
+      window.removeEventListener("touchstart", stop, true);
+    };
+
+    reveal();
+    // Auth/session banners and status-specific controls can settle just after
+    // the first layout. Re-measure briefly so the requested section remains
+    // visible below the real sticky header, while yielding immediately to any
+    // user navigation or scrolling intent.
+    for (const delayMs of [50, 150, 400, 800]) {
+      timeoutIds.push(window.setTimeout(reveal, delayMs));
+    }
+    timeoutIds.push(window.setTimeout(() => {
+      if (stopped) return;
+      window.addEventListener("pointerdown", stop, true);
+      window.addEventListener("keydown", stop, true);
+      window.addEventListener("wheel", stop, true);
+      window.addEventListener("touchstart", stop, true);
+    }, 0));
+    timeoutIds.push(window.setTimeout(stop, 1_200));
+
+    return stop;
+  }, [deepLinkRequestId, deepLinkRequestStatus, isLoading, searchParams]);
 
   // Measure T4→T5: SSE received → UI rendered (useLayoutEffect fires synchronously after DOM paint).
   useLayoutEffect(() => {
@@ -2231,7 +2276,8 @@ function TradeRoomPageSession({
     const clientMessageId = pendingAttempt.clientMessageId;
     // Optimistically append the message so it appears instantly for the sender.
     const optimisticMsg: TradeChatMessage = {
-      id: `optimistic-msg-${Date.now()}`,
+      id: `optimistic-msg-${clientMessageId}`,
+      clientMessageId,
       purchaseRequestId: currentRoom.request.id,
       kind: "user",
       senderUserId: actor.id,

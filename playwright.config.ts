@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { E2E_BASE_URL, E2E_PORT } from "./e2e/support/base-url";
+import { E2E_BASE_URL, E2E_CRON_SECRET, E2E_PORT } from "./e2e/support/base-url";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -28,6 +28,7 @@ export default defineConfig({
       ALPHA_E2E_TEST_SUPPORT: "1",
       ALPHA_E2E_LOOPBACK_ONLY: "1",
       ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
+      CRON_SECRET: E2E_CRON_SECRET,
     },
   },
   projects: [

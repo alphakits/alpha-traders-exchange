@@ -544,6 +544,8 @@ export interface TradeEvidenceFile {
 
 export interface TradeChatMessage {
   id: string;
+  /** Opaque send-attempt ID for matching a live snapshot before POST acknowledgement. */
+  clientMessageId?: string;
   purchaseRequestId: string;
   kind: "user" | "system";
   senderUserId: string;

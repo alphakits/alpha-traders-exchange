@@ -423,7 +423,7 @@ async function openNotificationAndNavigate(input: {
     expect(panelGeometry.bottom).toBeLessThanOrEqual(panelGeometry.viewportHeight);
     expect(panelGeometry.listOverflowY).toBe("auto");
 
-    const actionLabelMatcher = /Continue Trade|Open Trade Room|Open/i;
+    const actionLabelMatcher = /Continue Trade|Open Trade Room|Leave Review|ترك تقييم|Open/i;
     await expect(panel).toBeVisible({ timeout: 20_000 });
     const titleElement = panel.locator("p.text-sm.font-medium.text-white, p.text-sm.font-medium.text-slate-100").filter({ hasText: title }).first();
     await expect(titleElement).toBeVisible({ timeout: 20_000 });
@@ -465,12 +465,18 @@ async function openNotificationAndNavigate(input: {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
 
-    const sectionTop = await section.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return rect.top;
-    });
-    expect(sectionTop, "target section should not be hidden under sticky header").toBeGreaterThanOrEqual(0);
-    expect(sectionTop, "target section should be near viewport top for direct focus").toBeLessThanOrEqual(180);
+    await expect.poll(async () => section.evaluate((element) => {
+      const sectionTop = element.getBoundingClientRect().top;
+      const headerBottom = document.querySelector<HTMLElement>("header")?.getBoundingClientRect().bottom ?? 0;
+      return {
+        clearsHeader: sectionTop >= Math.max(0, headerBottom - 1),
+        nearHeader: sectionTop <= Math.max(180, headerBottom + 24),
+      };
+    }), {
+      message: `target section should settle directly below the real sticky header (${expectedAction}, ${viewport.width}px)`,
+      timeout: 5_000,
+    }).toEqual({ clearsHeader: true, nearHeader: true });
+    await expect(section).toBeFocused({ timeout: 5_000 });
 
     const actionButton = page.getByRole("button", { name: localizedTradeActionMatcher(expectedAction) }).first();
     await expect(actionButton).toBeVisible({ timeout: 20_000 });
@@ -593,8 +599,9 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
     viewport,
   });
 
+  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
-  await expect(page.getByText(/Waiting for Buyer Payment|بانتظار دفع المشتري/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Waiting for Buyer Confirmation|بانتظار تأكيد المشتري/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);
@@ -767,6 +774,9 @@ test("action transition matrix: destination query/hash + focused section + CTA a
 
     const email = item.actor === "seller" ? sellerEmail : buyerEmail;
     const password = item.actor === "seller" ? sellerPassword : buyerPassword;
+    // Stop the previous Trade Room's authenticated fetches/SSE before changing
+    // actors so a stale 401 cannot overwrite the newly established session.
+    await page.goto("about:blank");
     await logout(page.request);
     await login(page.request, email, password);
 
@@ -830,8 +840,9 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 
     await login(sellerPage.request, sellerEmail, sellerPassword);
     await sellerPage.goto(`/en/trade-room/${requestId}`);
+    sellerPage.once("dialog", (dialog) => dialog.accept());
     await sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click();
-    await expect(sellerPage.getByText(/Waiting for Buyer Payment/i).first()).toBeVisible({ timeout: 20_000 });
+    await expect(sellerPage.getByText(/Waiting for Buyer Confirmation/i).first()).toBeVisible({ timeout: 20_000 });
 
     await buyerPage.goto(`/en/trade-room/${requestId}`);
     const buyerChatForm = buyerPage.locator("#chat form");
@@ -945,6 +956,8 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 
     // Use the actual bell action—not a synthetic href—to prove conversation
     // notifications retain their precise chat destination after the panel closes.
+    // An existing active trade must not redirect the seller away while they
+    // browse the marketplace and select a notification.
     await sellerPage.goto("/en/usdt-exchange", { waitUntil: "domcontentloaded", timeout: 20_000 });
     await sellerPage.locator('button[aria-label="Notifications"]').first().click();
     const notificationPanel = sellerPage.getByTestId("notification-panel");
@@ -956,7 +969,7 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
         && url.searchParams.get("action") === "open-trade"
         && url.hash === "#chat"
       ), { timeout: 20_000 }),
-      reminderCard.getByRole("button", { name: "Continue Trade" }).click(),
+      reminderCard.getByRole("button", { name: "Open Trade Room", exact: true }).click(),
     ]);
     await expect(sellerPage.locator("#chat")).toBeVisible({ timeout: 20_000 });
     await expect(sellerPage.getByText("Buyer sent a reminder to continue this Trade Room.")).toHaveCount(1);
