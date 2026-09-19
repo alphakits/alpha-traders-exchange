@@ -49,7 +49,20 @@ function mkUser(id: string, name: string, o: Record<string, unknown>) {
     preferredNetworks: ["TRC20"], preferredPaymentMethods: ["Bank Transfer"], profilePhotoUrl: "",
     languages: ["English"], bio: "PV seller", country: "Israel", createdAt: now, updatedAt: now,
     emailVerified: true, emailVerifiedAt: now, verifiedPhone: "+972500000000", phoneVerifiedAt: now,
-    isProfileHidden: false, sellerPrestigeRank: "bronze", ...o,
+    isProfileHidden: false, sellerPrestigeRank: "bronze",
+    sellerBankAccounts: [{
+      id: `bank-${id}`,
+      sellerId: id,
+      accountHolderName: name,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "9000000000",
+      accountLast4: "0000",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }],
+    ...o,
   };
 }
 function mkListing(id: string, sellerId: string, name: string, amount: string, expiresInMs: number) {
@@ -57,6 +70,7 @@ function mkListing(id: string, sellerId: string, name: string, amount: string, e
   return {
     id, sellerId, sellerDisplayName: name, photos: [], originalAmount: amount, availableAmount: amount,
     price: "3.60", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"],
+    bankAccountId: `bank-${sellerId}`,
     bankName: "Bank Hapoalim", minimumTrade: "100", maximumTrade: amount, expiresAt: iso(expiresInMs),
     sellerDescription: "PV listing.", responseTime: "5 min", status: "active", approvalStatus: "approved",
     createdAt: now, updatedAt: now,

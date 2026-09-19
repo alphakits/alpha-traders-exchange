@@ -131,6 +131,20 @@ async function upsertQaUser(db: AlphaExchangeDb, input: {
     buyerDisplayName: input.fullName,
     onboardingSelection: "buyer" as const,
     onboardingCompletedAt: now,
+    ...(input.role === "approved_seller" || input.role === "owner" ? {
+      sellerBankAccounts: [{
+        id: `bank-${input.id}`,
+        sellerId: input.id,
+        accountHolderName: input.fullName,
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000111",
+        accountLast4: "0111",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
+    } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -263,6 +277,7 @@ test.describe("listing publication notification regression", () => {
         currency: "ILS",
         network: "TRC20",
         paymentMethods: ["Bank Transfer"],
+        bankAccountId: `bank-${QA_USER_IDS.seller}`,
         bankName: "Bank Hapoalim",
         minimumTrade: "50",
         maximumTrade: "550",

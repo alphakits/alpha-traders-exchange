@@ -108,6 +108,7 @@ function sellerListing(id: string, sellerId: string, now: string) {
     network: "TRC20",
     paymentMethod: "Bank Transfer",
     paymentMethods: ["Bank Transfer"],
+    bankAccountId: `bank-${sellerId}`,
     bankName: "Bank Hapoalim",
     minimumTrade: "100",
     maximumTrade: "1000",
@@ -137,7 +138,26 @@ export async function provisionQaWorld(request: APIRequestContext): Promise<QaWo
   const sellerPassword = `Qa!${randomBytes(18).toString("base64url")}`;
 
   const admin = { ...baseUser(adminId, adminEmail, await hashPassword(adminPassword), now), role: "admin", roles: ["admin"], sellerStatus: "buyer", fullName: "QA Admin" };
-  const seller = { ...baseUser(sellerId, sellerEmail, await hashPassword(sellerPassword), now), role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", fullName: "QA Seller", sellerPrestigeRank: "bronze" };
+  const seller = {
+    ...baseUser(sellerId, sellerEmail, await hashPassword(sellerPassword), now),
+    role: "approved_seller",
+    roles: ["approved_seller"],
+    sellerStatus: "approved_seller",
+    fullName: "QA Seller",
+    sellerPrestigeRank: "bronze",
+    sellerBankAccounts: [{
+      id: `bank-${sellerId}`,
+      sellerId,
+      accountHolderName: "QA Seller",
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "9000000001",
+      accountLast4: "0001",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }],
+  };
 
   db.users = [...(Array.isArray(db.users) ? db.users : []), admin, seller];
   db.marketplaceListings = [

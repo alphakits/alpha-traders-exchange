@@ -34,14 +34,14 @@ test.afterAll(async () => {
 });
 
 test.describe("Navigation hardening", () => {
-  test("buyer Workspace Summary replaces Quick Actions and routes cards to canonical destinations", async ({ page }) => {
+  test("buyer workspace replaces Quick Actions and routes cards to canonical destinations", async ({ page }) => {
     test.skip(!buyerFixture, "Buyer fixture not available");
 
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
     await page.goto("/en/dashboard");
 
     const main = page.getByRole("main");
-    await expect(main.getByText("Workspace Summary").first()).toBeVisible();
+    await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
 
@@ -66,7 +66,7 @@ test.describe("Navigation hardening", () => {
 
     await expect(page).not.toHaveURL(/\/en\/dashboard$/);
     await expect(page).toHaveURL(
-      /\/en\/(trade-room\/[\w-]+|usdt-exchange#my-trade-requests-section)$/,
+      /\/en\/(trade-room\/[\w-]+|usdt-exchange\?section=trade-history#my-trade-requests-section)$/,
       { timeout: 20_000 },
     );
   });
@@ -79,7 +79,7 @@ test.describe("Navigation hardening", () => {
     await page.reload({ waitUntil: "commit" });
 
     await expect(page).toHaveURL(/\/en\/dashboard$/);
-    await expect(page.getByRole("main").getByText("Workspace Summary").first()).toBeVisible();
+    await expect(page.getByRole("main").getByText("Your workspace", { exact: true }).first()).toBeVisible();
   });
 
   test("seller refresh keeps the approved workspace stable", async ({ page }) => {
@@ -89,7 +89,7 @@ test.describe("Navigation hardening", () => {
     await page.goto("/en/dashboard/seller");
     const main = page.getByRole("main");
     await expect(main.getByText(/seller status/i).first()).toBeVisible();
-    await expect(main.getByText("Workspace Summary").first()).toBeVisible();
+    await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /Seller Dashboard/i })).toHaveCount(0);
 

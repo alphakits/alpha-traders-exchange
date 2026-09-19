@@ -116,6 +116,12 @@ const supportPage = readText("src/app/[locale]/support/page.tsx");
 const userSafetyActions = readText("src/components/account/user-safety-actions.tsx");
 const userBlockRoute = readText("src/app/api/alpha-exchange/user-blocks/[userId]/route.ts");
 const exchangeStore = readText("src/lib/alpha-exchange-store.ts");
+const sellerApprovalVerification = readText("src/lib/seller-approval-verification.ts");
+const sellerApprovalRoute = readText("src/app/api/alpha-exchange/admin/seller-applications/[applicationId]/approve/route.ts");
+const mobileAdminOverviewRoute = readText("src/app/api/mobile/v1/admin/overview/route.ts");
+const adminExchangeDashboard = readText("src/components/admin/alpha-exchange-admin-dashboard.tsx");
+const notificationBell = readText("src/components/notifications/notification-bell.tsx");
+const notificationsPage = readText("src/components/notifications/notifications-page.tsx");
 const tradeRoomPage = readText("src/components/sections/trade-room/trade-room-page.tsx");
 const tradeRoomActions = readText("src/lib/trade-room-actions.ts");
 
@@ -315,6 +321,32 @@ check(fullExchangeEvidence.includes("Legal entity providing the regulated servic
 check(fullExchangeEvidence.includes("Fictional App Review scenario"), "The safe reviewer scenario is missing.");
 check(fullExchangeEvidence.includes("Established operating-history evidence"), "The established Exchange operating-history evidence plan is missing.");
 check(fullExchangeEvidence.includes("WhatsApp member list") && fullExchangeEvidence.includes("seller identity document"), "The seller/community identity-evidence privacy rule is missing.");
+check(fullExchangeEvidence.includes("## Approved-seller admission evidence") && fullExchangeEvidence.includes("live-video identity match"), "The approved-seller admission evidence boundary is missing.");
+check(
+  sellerApprovalVerification.includes("identityDocumentReviewed: true")
+    && sellerApprovalVerification.includes("liveIdentityVideoReviewed: true")
+    && sellerApprovalVerification.includes("contactOwnershipConfirmed: true")
+    && sellerApprovalVerification.includes("marketplaceRulesAccepted: true"),
+  "The approved-seller identity checklist is incomplete.",
+);
+check(
+  sellerApprovalRoute.includes("isSellerApprovalChecklistComplete")
+    && mobileAdminOverviewRoute.includes("isSellerApprovalChecklistComplete")
+    && exchangeStore.includes("createSellerApprovalVerification"),
+  "A seller-approval API or persistence path can bypass the identity checklist.",
+);
+check(
+  adminExchangeDashboard.includes("Raw identity documents must remain outside the Exchange record")
+    && adminExchangeDashboard.includes("COMPLETE_SELLER_APPROVAL_CHECKLIST"),
+  "The owner seller-approval action is missing its explicit identity attestation.",
+);
+check(
+  !notificationBell.includes("handleSellerApplicationDecision")
+    && !notificationsPage.includes("handleSellerApplicationDecision")
+    && !notificationBell.includes("/admin/seller-applications/")
+    && !notificationsPage.includes("/admin/seller-applications/"),
+  "A notification surface can bypass the full seller identity-review screen.",
+);
 check(responsePlaybook.includes("## Response rules"), "The App Review response rules are missing.");
 check(responsePlaybook.includes("## Question-and-evidence matrix"), "The App Review question-and-evidence matrix is missing.");
 check(responsePlaybook.includes("## Stop and escalate"), "The App Review legal escalation boundary is missing.");

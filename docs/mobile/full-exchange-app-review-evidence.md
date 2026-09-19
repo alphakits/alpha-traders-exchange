@@ -41,6 +41,7 @@ The following source evidence must point to the exact release commit:
 | Native push | `apps/mobile/src/notifications/native-notifications.ts`, one-time cold-start routing in `apps/mobile/src/web/push-navigation-recovery.ts`, the native-web bridge, push subscription route, delivery service, and receipt handling |
 | Trade evidence | Native camera/photo permission text is limited to active-trade receipts; microphone access is disabled |
 | Safety | `src/components/account/user-safety-actions.tsx`, the user-block API, report form, dispute flow, contact filtering, and moderation controls |
+| Seller admission | `src/lib/seller-approval-verification.ts`, the owner approval APIs, and the admin dashboard require a four-part government-ID/live-video/contact/rules attestation before a pending applicant receives the Approved Seller role; the record stores reviewer/time/method, not raw identity media |
 | Release control | The isolated `npm run mobile:review-rehearsal`, ten-trade `npm run mobile:scale-rehearsal`, `scripts/verify-mobile-store-readiness.mjs`, the deployed-surface `npm run mobile:review-surface` preflight, and the full `npm run verify:release` gate |
 
 ## Established operating-history evidence
@@ -69,6 +70,22 @@ Once verified, the reviewer narrative may state:
 Operating history supports product maturity and the reason for the safety
 architecture. It does not by itself prove legal-entity status, regulatory
 permission, or Apple approval.
+
+## Approved-seller admission evidence
+
+A new production approval must stop unless an authorized owner or administrator expressly
+attests to all four operating checks: government-issued identity-document
+review, live-video identity match, application-contact ownership, and
+marketplace-rules acceptance. The server, not the browser, adds the approving
+user ID, UTC time, and verification method to the application and audit trail.
+Raw identity documents and videos do not belong in the Exchange application
+record, Git, analytics, ordinary logs, screenshots, or App Review Notes.
+
+This is a manual identity-control record, not a claim that Alpha Traders runs a
+licensed KYC, AML, or sanctions-screening program. State those separate
+compliance controls only after the responsible owner and qualified counsel have
+documented exactly what operates, who performs it, its retention, and its
+territorial basis.
 
 ## Fictional App Review scenario
 

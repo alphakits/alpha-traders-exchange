@@ -28,6 +28,7 @@ import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
 import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { createSellerApprovalVerification, type SellerApprovalChecklist } from "@/lib/seller-approval-verification";
 import {
   sendMarketplaceEmail,
   type MarketplaceEmailEvent,
@@ -7219,16 +7220,29 @@ export async function getAllSellerApplicationsForAdmin(dbInput?: AlphaExchangeDb
   return db.sellerApplications;
 }
 
-export async function approveSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
+export async function approveSellerApplicationByAdmin(
+  applicationId: string,
+  adminUserId: string,
+  reason: string | undefined,
+  verificationChecklist: SellerApprovalChecklist,
+) {
   const db = await readDb();
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
   const application = db.sellerApplications[applicationIndex];
+  if (application.status !== "pending") throw new Error("Seller application is no longer pending review.");
+  const verifiedAt = nowIso();
+  const verification = createSellerApprovalVerification(
+    verificationChecklist,
+    adminUserId,
+    verifiedAt,
+  );
   db.sellerApplications[applicationIndex] = {
     ...application,
     status: "approved",
-    updatedAt: nowIso(),
+    verification,
+    updatedAt: verifiedAt,
   };
 
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
@@ -7254,6 +7268,14 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
     targetUserId: application.userId,
     details: `Approved seller application ${application.id}`,
     reason: reason?.trim() || undefined,
+    newValue: {
+      verificationMethod: verification.method,
+      identityDocumentReviewed: true,
+      liveIdentityVideoReviewed: true,
+      contactOwnershipConfirmed: true,
+      marketplaceRulesAccepted: true,
+      verifiedAt: verification.verifiedAt,
+    },
   });
   pushNotification(db, {
     userId: application.userId,

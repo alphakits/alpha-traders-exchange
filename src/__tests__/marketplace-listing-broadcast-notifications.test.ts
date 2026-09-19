@@ -41,6 +41,7 @@ import {
 } from "@/lib/alpha-exchange-store";
 import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination } from "@/lib/action-destinations";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
+import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
 
 const OWNER_ID = "owner-1";
 const LISTING_CREATOR_ID = "seller-creator";
@@ -274,7 +275,12 @@ describe("marketplace listing publication broadcasts", () => {
       actionPath: sellerApplicationReviewDestination(application.id),
     }));
 
-    await approveSellerApplicationByAdmin(application.id, OWNER_ID, "Verified from owner notification");
+    await approveSellerApplicationByAdmin(
+      application.id,
+      OWNER_ID,
+      "Verified from owner notification",
+      COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    );
     expect((await findUserById(BUYER_ID))?.preferredPaymentMethods).toContain("Cardless ATM Withdrawal");
 
     const activeNotifications = await getNotificationsForUser({ userId: OWNER_ID });

@@ -814,7 +814,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
 
   await seller.page.goto("/en/dashboard/seller");
   const main = seller.page.getByRole("main");
-  await expect(main.getByText("Workspace Summary").first()).toBeVisible({ timeout: 60_000 });
+  await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
   await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
   await expect(main.getByRole("button", { name: /^My Listings:/ })).toContainText("3");
   await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toContainText("3");

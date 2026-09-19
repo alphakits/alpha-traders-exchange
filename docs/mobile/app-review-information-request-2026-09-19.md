@@ -147,7 +147,7 @@ Support: support@alphatraders.co.il. The production backend and reviewer fixture
 | Israel permission/legal analysis | Exact P2P USDT model, commissions, direct settlement, territory, issuing authority or qualified legal conclusion, date, and validity | `[required]` |
 | Content-rights statement | Owner authorization for every Academy course/video/document included in the build | `[required]` |
 | Redacted operational sample | Canonical Trade Room export with immutable reference, timestamps, payment method, lifecycle, completion state, and commission reconciliation; no direct identifiers, bank data, wallet address, chat, location, or evidence media | `[optional support; never a legal substitute]` |
-| Redacted seller-approval process | Application, manual decision, listing authorization, monitoring, suspension, and appeal stages using a fictional or permanently redacted example; no raw seller identity document | `[optional support]` |
+| Redacted seller-approval process | Application; government-ID review; live-video identity match; contact-ownership confirmation; marketplace-rules acceptance; server-recorded reviewer/time/method attestation; listing authorization; monitoring; suspension; and appeal stages using a fictional or permanently redacted example. Include no raw seller identity document or video. | `[optional support]` |
 | Optional architecture summary | Direct-settlement diagram and list of providers, with no secrets or customer data | `[recommended]` |
 
 ### Operational-evidence boundary

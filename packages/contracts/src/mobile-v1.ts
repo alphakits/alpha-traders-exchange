@@ -726,7 +726,19 @@ export type MobileAdminReviewRequest =
   | {
       target: "seller_application";
       id: string;
-      decision: "approve" | "reject";
+      decision: "approve";
+      reason: string;
+      verification: {
+        identityDocumentReviewed: true;
+        liveIdentityVideoReviewed: true;
+        contactOwnershipConfirmed: true;
+        marketplaceRulesAccepted: true;
+      };
+    }
+  | {
+      target: "seller_application";
+      id: string;
+      decision: "reject";
       reason: string;
     };
 

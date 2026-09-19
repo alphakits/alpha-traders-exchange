@@ -9,6 +9,7 @@ let buyerFixture: BuyerFixture | undefined;
 let originalBuyerRecord: Record<string, unknown> | null = null;
 const sellerId = `seller-e2e-${randomUUID()}`;
 const listingId = `listing-e2e-${randomUUID()}`;
+const sellerBankAccountId = `bank-${sellerId}`;
 const sellerPrivateEmail = "e2e-modal-seller-private@example.test";
 
 async function readRuntimeDb(request: APIRequestContext) {
@@ -54,6 +55,18 @@ async function seedSellerAndListing(request: APIRequestContext) {
       onlineStatus: "online",
       availabilityStatus: "available",
       isProfileHidden: false,
+      sellerBankAccounts: [{
+        id: sellerBankAccountId,
+        sellerId,
+        accountHolderName: "E2E Modal Seller",
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000055",
+        accountLast4: "0055",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
     },
   ];
   const listings = Array.isArray(db.marketplaceListings) ? db.marketplaceListings : [];
@@ -71,6 +84,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
       network: "TRC20",
       paymentMethod: "Bank Transfer",
       paymentMethods: ["Bank Transfer"],
+      bankAccountId: sellerBankAccountId,
       bankName: "Bank Hapoalim",
       minimumTrade: "100",
       maximumTrade: "1000",

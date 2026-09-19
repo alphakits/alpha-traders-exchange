@@ -6,6 +6,12 @@ import { E2E_BASE_URL } from "./support/base-url";
 
 const scrypt = promisify(scryptCallback);
 const SUPPORT_HEADERS = { "content-type": "application/json", "x-alpha-test-support": "enabled" };
+const COMPLETE_SELLER_APPROVAL_CHECKLIST = {
+  identityDocumentReviewed: true,
+  liveIdentityVideoReviewed: true,
+  contactOwnershipConfirmed: true,
+  marketplaceRulesAccepted: true,
+} as const;
 const BUYER = {
   id: "e2e-new-buyer-seller-application",
   email: "e2e-new-buyer-seller-application@example.test",
@@ -192,7 +198,7 @@ test("buyer without phone verification can submit and retain a pending seller ap
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
 });
 
-test("manual admin approval is required before the applicant becomes a seller", async () => {
+test("manual admin approval requires a complete identity attestation before the applicant becomes a seller", async () => {
   const buyerApi = await request.newContext({ baseURL: E2E_BASE_URL });
   const state = await readState(buyerApi);
   const application = state.sellerApplications.find((item) => item.userId === BUYER.id);
@@ -201,8 +207,15 @@ test("manual admin approval is required before the applicant becomes a seller", 
 
   const adminApi = await request.newContext({ baseURL: E2E_BASE_URL });
   await login(adminApi, ADMIN);
+  const incompleteApproval = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application!.id)}/approve`, {
+    data: { reason: "E2E incomplete manual approval" },
+  });
+  expect(incompleteApproval.status()).toBe(400);
   const approval = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application!.id)}/approve`, {
-    data: { reason: "E2E manual approval" },
+    data: {
+      reason: "E2E manual approval",
+      verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    },
   });
   expect(approval.ok(), await approval.text()).toBeTruthy();
   await adminApi.dispose();
@@ -212,6 +225,11 @@ test("manual admin approval is required before the applicant becomes a seller", 
   const approvedUser = approvedState.users.find((user) => user.id === BUYER.id);
   const approvedApplication = approvedState.sellerApplications.find((item) => item.userId === BUYER.id);
   expect(approvedApplication?.status).toBe("approved");
+  expect(approvedApplication?.verification).toMatchObject({
+    method: "manual_authorized_reviewer_v1",
+    verifiedByUserId: expect.any(String),
+    ...COMPLETE_SELLER_APPROVAL_CHECKLIST,
+  });
   expect(approvedUser?.sellerStatus).toBe("approved_seller");
   expect(approvedUser?.roles).toEqual(expect.arrayContaining(["buyer", "approved_seller"]));
   expect(approvedUser?.roles).not.toContain("pending_seller_approval");

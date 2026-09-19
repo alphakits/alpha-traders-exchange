@@ -247,7 +247,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard",
-        readyLocator: page.getByRole("main").getByText("Workspace Summary").first(),
+        readyLocator: page.getByRole("main").getByText("Your workspace", { exact: true }).first(),
         viewport,
         disallowPathnames: ["/login"],
         maxCls: 1.5,
@@ -433,7 +433,7 @@ test.describe("Final hardening audit", () => {
       await page.goto("/en/dashboard");
 
       const main = page.getByRole("main");
-      await expect(main.getByText("Workspace Summary").first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
       await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
@@ -448,7 +448,7 @@ test.describe("Final hardening audit", () => {
       await page.goto("/en/dashboard/seller");
 
       const main = page.getByRole("main");
-      await expect(main.getByText("Workspace Summary").first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
