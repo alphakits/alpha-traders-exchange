@@ -1,0 +1,3 @@
+[lfs]
+	fetchexclude = public/files/**
+	skipdownloaderrors = true
