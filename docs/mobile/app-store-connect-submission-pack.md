@@ -311,7 +311,10 @@ Alpha Traders brand.
 4. Merge the exact approved release commit and deploy the matching backend.
 5. Run `npm ci`, `npm run mobile:review-rehearsal`,
    `npm run mobile:scale-rehearsal`,
-   `npm run verify:release`, and `npm run mobile:verify`.
+   `npm run verify:release:full`, and `npm run mobile:verify`. The full release
+   command must complete all 148 Chromium flows on the exact release commit;
+   archive the immutable workflow run URL and browser report. A job that stops
+   before checkout or before the test command is **blocked**, not passed.
 6. Run `npm run mobile:review-surface` against production and archive its
    timestamped output with the deployment identifier.
 7. Create the signed iOS production build and upload it to TestFlight.
@@ -325,7 +328,9 @@ Alpha Traders brand.
     gate for that controlled shell session and run
     `npm run mobile:store-readiness:submission:ios`. Use the combined
     `npm run mobile:store-readiness:submission` only when the Android handoff is
-    also ready from the same exact commit.
+    also ready from the same exact commit. Never set
+    `ALPHA_BROWSER_RELIABILITY_APPROVED=1` until the archived 148-flow result
+    identifies and passes that exact commit.
 13. Submit the exact tested build; keep the backend and review accounts live.
 14. Release only the behavior Apple reviewed. Submit later material features,
     including the economic calendar, with accurate update notes and access for

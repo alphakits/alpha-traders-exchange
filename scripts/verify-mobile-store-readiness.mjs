@@ -327,6 +327,7 @@ check(fullExchangeEvidence.includes("Fictional App Review scenario"), "The safe 
 check(fullExchangeEvidence.includes("Established operating-history evidence"), "The established Exchange operating-history evidence plan is missing.");
 check(fullExchangeEvidence.includes("WhatsApp member list") && fullExchangeEvidence.includes("seller identity document"), "The seller/community identity-evidence privacy rule is missing.");
 check(fullExchangeEvidence.includes("## Approved-seller admission evidence") && fullExchangeEvidence.includes("live-video identity match"), "The approved-seller admission evidence boundary is missing.");
+check(fullExchangeEvidence.includes("148-flow Chromium") && fullExchangeEvidence.includes("exact release commit"), "The independent browser reliability evidence gate is missing.");
 check(
   sellerApprovalVerification.includes("identityDocumentReviewed: true")
     && sellerApprovalVerification.includes("liveIdentityVideoReviewed: true")
@@ -412,6 +413,7 @@ check(informationRequestResponse.includes("independently confirmed on-chain") &&
 check(informationRequestResponse.includes("state the exact discrepancy") && informationRequestResponse.includes("exact total") && informationRequestResponse.includes("reconciles to the delivered amount"), "The App Review package must require exact settlement-amount reconciliation.");
 check(informationRequestResponse.includes("never expose a customer or seller") && informationRequestResponse.includes("no real transaction is used as Apple's review fixture"), "The App Review package must keep real users and transactions out of the review fixture.");
 check(informationRequestResponse.includes("raw seller identity document") && informationRequestResponse.includes("privacy/legal"), "The App Review package must protect seller identity evidence from unnecessary disclosure.");
+check(informationRequestResponse.includes("148-flow Chromium") && informationRequestResponse.includes("passes against the exact replacement") && informationRequestResponse.includes("immutable workflow run URL"), "The App Review resubmission gate must require independent browser reliability evidence for the exact replacement commit.");
 const reviewNotesMatch = informationRequestResponse.match(/<!-- APP_REVIEW_NOTES_START -->([\s\S]*?)<!-- APP_REVIEW_NOTES_END -->/);
 check(Boolean(reviewNotesMatch), "The App Review Notes markers are missing from the information-request package.");
 if (reviewNotesMatch) {
@@ -424,6 +426,7 @@ check(privateRecordTemplate.includes("## Release identity") && privateRecordTemp
 check(privateRecordTemplate.includes("Exact legal name from selected government ID") && privateRecordTemplate.includes("Identity-document and legal-name consistency reconciled"), "The private release record is missing identity reconciliation.");
 check(privateRecordTemplate.includes("## Apple correspondence log") && privateRecordTemplate.includes("## Attachment release check"), "The private App Review case and attachment controls are missing.");
 check(privateRecordTemplate.includes("Never populate this repository"), "The private release-record template does not prohibit committing sensitive evidence.");
+check(privateRecordTemplate.includes("148-flow browser reliability suite") && privateRecordTemplate.includes("workflow run URL"), "The private release record is missing the independent browser reliability proof.");
 check(economicCalendarPlan.includes("Do not scrape Forex Factory"), "The economic-calendar data rights rule is missing.");
 check(economicCalendarPlan.includes("not part of the first release"), "The economic-calendar release boundary is missing.");
 check(economicCalendarPlan.toLowerCase().includes("market-event notifications are optional"), "The economic-calendar notification consent rule is missing.");
@@ -435,6 +438,7 @@ check(reviewDryRun.includes("must not reopen either notification"), "The signed-
 check(reviewDryRun.includes("rapidly press two competing lifecycle controls"), "The signed-device dry run is missing rapid competing-action protection.");
 check(reviewDryRun.includes("## Automated rehearsal boundary"), "The local reviewer-rehearsal boundary is not documented.");
 check(reviewDryRun.includes("/api/admin/setup-test-accounts") && reviewDryRun.includes("/api/testing"), "The reviewer-account guide does not prohibit production test/setup routes.");
+check(reviewDryRun.includes("npm run verify:release:full") && reviewDryRun.includes("148-flow Chromium"), "The signed-device dry run must require the full independent browser suite on the exact release commit.");
 
 if (failures.length > 0) {
   console.error(`\nMobile store source readiness failed (${failures.length} issue${failures.length === 1 ? "" : "s"}):\n`);
@@ -444,6 +448,9 @@ if (failures.length > 0) {
 
 console.log(`\nMobile store source readiness passed (${passed} checks).`);
 
+const commonSubmissionConfirmations = [
+  ["ALPHA_BROWSER_RELIABILITY_APPROVED", "the 148-flow Chromium suite passed on the exact release commit and its report/run URL is archived"],
+];
 const appleSubmissionConfirmations = [
   ["ALPHA_APPLE_MEMBERSHIP_ACTIVE", "Apple Developer Program enrollment is active"],
   ["ALPHA_APPLE_FULL_EXCHANGE_SCOPE_APPROVED", "the exact reviewed build, metadata, screenshots, and notes disclose the complete Exchange"],
@@ -472,10 +479,10 @@ const googlePlaySubmissionConfirmations = [
   ["ALPHA_GOOGLE_PLAY_ROLLOUT_READY", "testers, release countries, managed publishing, monitoring owner, and staged-rollout stop conditions are approved"],
 ];
 const submissionConfirmations = submissionPlatform === "ios"
-  ? appleSubmissionConfirmations
+  ? [...commonSubmissionConfirmations, ...appleSubmissionConfirmations]
   : submissionPlatform === "android"
-    ? googlePlaySubmissionConfirmations
-    : [...appleSubmissionConfirmations, ...googlePlaySubmissionConfirmations];
+    ? [...commonSubmissionConfirmations, ...googlePlaySubmissionConfirmations]
+    : [...commonSubmissionConfirmations, ...appleSubmissionConfirmations, ...googlePlaySubmissionConfirmations];
 const missingConfirmations = submissionConfirmations.filter(([name]) => process.env[name] !== "1");
 
 if (!submissionMode) {

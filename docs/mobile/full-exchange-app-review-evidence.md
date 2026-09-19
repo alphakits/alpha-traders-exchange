@@ -23,7 +23,7 @@ has approved the product or that a particular licence is held.
 
 | Review area | Alpha Traders evidence | Submission gate |
 | --- | --- | --- |
-| Guideline 2.1 — completeness | Signed build, live backend, two fictional reviewer accounts, seeded listing and Trade Room, full bilingual walkthrough | Reviewer completes both sides without real money, USDT, phone, bank, or identity data |
+| Guideline 2.1 — completeness | Signed build, live backend, two fictional reviewer accounts, seeded listing and Trade Room, full bilingual walkthrough, and an independent 148-flow Chromium run | Browser run passes on the exact release commit and reviewer completes both sides without real money, USDT, phone, bank, or identity data |
 | Guideline 2.3 — accurate metadata | English and Arabic listing copy explicitly describe the USDT marketplace and full Trade Room | Screenshots, description, review notes, and installed behavior match |
 | Guideline 3.1.5(iii) — cryptocurrency exchanges | Country-by-country licence/permission package and backend territory enforcement | Written responsible-owner and qualified-counsel sign-off before any storefront is enabled |
 | Guideline 4.2 — minimum functionality | Native lock-screen push, badge sync, safe notification routing, app-switcher privacy masking, camera/photo evidence, offline recovery, mandatory updates, secure session migration, and system review prompt | Record these functions working in the signed build; do not rely only on screenshots of web pages |
@@ -42,7 +42,13 @@ The following source evidence must point to the exact release commit:
 | Trade evidence | Native camera/photo permission text is limited to active-trade receipts; microphone access is disabled |
 | Safety | `src/components/account/user-safety-actions.tsx`, the user-block API, report form, dispute flow, contact filtering, and moderation controls |
 | Seller admission | `src/lib/seller-approval-verification.ts`, the owner approval APIs, and the admin dashboard require a four-part government-ID/live-video/contact/rules attestation before a pending applicant receives the Approved Seller role; the record stores reviewer/time/method, not raw identity media |
-| Release control | The isolated `npm run mobile:review-rehearsal`, ten-trade `npm run mobile:scale-rehearsal`, `scripts/verify-mobile-store-readiness.mjs`, the deployed-surface `npm run mobile:review-surface` preflight, and the full `npm run verify:release` gate |
+| Release control | The isolated `npm run mobile:review-rehearsal`, ten-trade `npm run mobile:scale-rehearsal`, `scripts/verify-mobile-store-readiness.mjs`, the deployed-surface `npm run mobile:review-surface` preflight, and the full `npm run verify:release:full` gate |
+
+The final release proof must use `npm run verify:release:full` or the equivalent
+EAS/GitHub workflow so the 148-flow Chromium suite actually executes on the
+exact release commit. A workflow terminated by billing, quota, checkout, or
+browser-install infrastructure is **blocked**, not passed, even when all local
+source gates succeeded.
 
 ## Established operating-history evidence
 
@@ -195,6 +201,8 @@ Before submission, preserve a private release record containing:
 
 - exact Git commit, build number, EAS build URL, TestFlight build, and backend
   deployment identifier;
+- successful 148-flow browser reliability run URL, exact commit, report,
+  artifact locator, and UTC timestamp;
 - Apple membership/team type and the resolved Account Holder spelling;
 - evidence supporting any submitted claims about four-plus years of operation,
   the existing community, seller vetting, and aggregate activity;

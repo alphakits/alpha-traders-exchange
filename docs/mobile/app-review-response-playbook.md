@@ -13,10 +13,11 @@ Do not put the underlying private documents or credentials in this repository.
 Start from `docs/mobile/app-review-private-record-template.md`, but populate only
 an approved access-controlled copy outside Git.
 
-| Evidence area | Current status on 2026-09-08 | Release consequence |
+| Evidence area | Current status on 2026-09-19 | Release consequence |
 | --- | --- | --- |
-| Full Exchange source behavior | Locally verified by automated gates | Rerun on the exact release commit |
+| Full Exchange source behavior | 292 test files / 1,887 tests and the 12-stage local release gate passed on the hardened source tree | Rerun on the exact release commit |
 | Ten-trade concurrent lifecycle | Locally verified with fictional in-memory data | Regression evidence only; not a production-capacity claim |
+| Independent 148-flow browser reliability | Blocked before tests: GitHub Actions account/billing lock and exhausted EAS CI/CD minutes | Do not merge, deploy, sign, or resubmit until a run passes on the exact release commit and its report is archived |
 | Apple Developer membership and identity | Enrollment pending | No signed submission until Apple activates the team and resolves the name record |
 | Account Holder identity and residence | Pending reconciliation in the controlled private record; no personal details belong in this repository | Supports enrollment evidence only; it is not a cryptocurrency-service permission |
 | Submitting legal entity | Pending owner/legal confirmation | Submission blocked |

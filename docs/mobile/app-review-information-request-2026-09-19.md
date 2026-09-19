@@ -46,7 +46,7 @@ Official sources:
 
 | Request | Required response evidence |
 | --- | --- |
-| 1. Physical-device demonstration | One continuous recording of the exact signed replacement build on a physical iPhone. Show launch, buyer access, approved-seller access, Exchange, a seeded non-financial Trade Room, safety controls, native push/deep link, privacy mask, support, and account deletion. |
+| 1. Physical-device demonstration | One continuous recording of the exact signed replacement build on a physical iPhone running the latest publicly released iOS supported by the build. Begin by showing the device model, iOS version, app version, and build number; then show launch, buyer access, approved-seller access, Exchange, a seeded non-financial Trade Room, safety controls, native push/deep link, privacy mask, support, and account deletion. |
 | 2. Purpose, audience, problem, and value | Use the product explanation below. Target audience is adults 18+ in Israel who use Arabic or English trading education and a structured direct-settlement P2P USDT workflow. |
 | 3. Setup and feature access | Keep two fictional accounts live: a verified Buyer and an Approved Seller. Put credentials only in App Store Connect. Seed a clearly named review listing and non-financial Trade Room; Apple must not register, provide identity data, transfer fiat, or send USDT. |
 | 4. External services | Disclose Vercel, Supabase, Expo Push, Resend, TRON/TronGrid, and the bounded Academy media providers actually active in production. Reconcile optional Discord, Twilio, or Meta services against production before sending. |
@@ -142,7 +142,7 @@ Support: support@alphatraders.co.il. The production backend and reviewer fixture
 
 | Attachment | Must show | Status |
 | --- | --- | --- |
-| Physical-iPhone recording | Exact replacement build number; continuous Buyer and Approved Seller journey; no edits that hide a failure; no real user or financial data | `[required]` |
+| Physical-iPhone recording | Device model; current iOS version; exact app version and replacement build number; continuous Buyer and Approved Seller journey; no edits that hide a failure; no real user or financial data | `[required]` |
 | Submitting-entity record | Exact legal provider name matching the Apple team and submission | `[required]` |
 | Israel permission/legal analysis | Exact P2P USDT model, commissions, direct settlement, territory, issuing authority or qualified legal conclusion, date, and validity | `[required]` |
 | Content-rights statement | Owner authorization for every Academy course/video/document included in the build | `[required]` |
@@ -183,6 +183,8 @@ Do not select **Resubmit to App Review** until all of these are true:
   deployment are recorded;
 - the exact build passes the source gate, public preflight, and English/Arabic
   physical-iPhone journey;
+- the 148-flow Chromium reliability suite passes against the exact replacement
+  commit, and the immutable workflow run URL plus report/artifact are archived;
 - the Buyer and Approved Seller credentials work without owner intervention;
 - the marked listing and non-financial Trade Room are visible to both roles;
 - the physical-iPhone recording is attached and contains no sensitive data;
