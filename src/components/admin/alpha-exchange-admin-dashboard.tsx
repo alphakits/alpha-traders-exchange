@@ -58,6 +58,7 @@ type AdminSeller = {
   role: "guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner";
   roles?: Array<"guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner">;
   sellerStatus: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
+  sellerApprovalVerified: boolean;
   availabilityStatus?: SellerAvailabilityStatus;
   lifetimeCompletedVolumeUsdt?: number;
   sellerPrestigeRank?: SellerLevel;
@@ -1485,7 +1486,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleChangeUserRole(userId: string, currentRole: string) {
-    const newRole = window.prompt(t(`Change role for user (current: ${currentRole})\nOptions: buyer, approved_seller, admin, owner`, `تغيير دور المستخدم (الحالي: ${currentRole})\nالخيارات: buyer, approved_seller, admin, owner`));
+    const newRole = window.prompt(t(`Change role for user (current: ${currentRole})\nOptions: guest, student, buyer, admin\nSeller access must use the verified application workflow.`, `تغيير دور المستخدم (الحالي: ${currentRole})\nالخيارات: guest, student, buyer, admin\nيجب منح صلاحية البائع عبر مسار الطلب والتحقق.`));
     if (!newRole) return;
     if (!window.confirm(t(`Change this user's role from ${currentRole} to ${newRole.trim()}?`, `هل تريد تغيير دور المستخدم من ${currentRole} إلى ${newRole.trim()}؟`))) return;
     const reason = window.prompt(t("Reason for role change:", "سبب تغيير الدور:"));
@@ -2027,6 +2028,33 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       >
                                         {t("Approve", "قبول")}
                                       </Button>
+                                      {application.status === "approved" && !application.verification ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          onClick={() => {
+                                            if (!window.confirm(t(
+                                              "Record the prior seller verification only if you personally confirm that the government identity document, live identity video, contact ownership, and marketplace-rules acceptance were all reviewed. Raw identity documents must stay outside the Exchange record. Continue?",
+                                              "سجّل التحقق السابق من البائع فقط إذا كنت تؤكد شخصيًا مراجعة وثيقة الهوية الحكومية وفيديو الهوية المباشر وملكية وسيلة التواصل والموافقة على قواعد السوق. يجب أن تبقى وثائق الهوية الأصلية خارج سجل المنصة. هل تريد المتابعة؟",
+                                            ))) return;
+                                            const reason = requestReason(
+                                              t("Reason for recording this prior verification:", "سبب تسجيل هذا التحقق السابق:"),
+                                              t("Existing approved seller verification reconciled", "تمت مطابقة تحقق البائع المعتمد الحالي"),
+                                            );
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/verification`, {
+                                              method: "POST",
+                                              headers: { "content-type": "application/json" },
+                                              body: JSON.stringify({
+                                                reason,
+                                                verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
+                                              }),
+                                            }), t("Seller verification recorded.", "تم تسجيل تحقق البائع."));
+                                          }}
+                                        >
+                                          {t("Record Verification", "تسجيل التحقق")}
+                                        </Button>
+                                      ) : null}
                                       <Button
                                         type="button"
                                         size="sm"
@@ -2110,7 +2138,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                               [
                                                 (seller.roles ?? []).includes("owner") ? "owner" : null,
                                                 (seller.roles ?? []).includes("admin") || seller.role === "admin" ? "administrator" : null,
-                                                seller.sellerStatus === "approved_seller" || (seller.roles ?? []).includes("approved_seller") ? "approved_seller" : null,
+                                                seller.sellerApprovalVerified && (seller.sellerStatus === "approved_seller" || (seller.roles ?? []).includes("approved_seller")) ? "approved_seller" : null,
                                                 seller.sellerStatus === "pending_seller_approval" || (seller.roles ?? []).includes("pending_seller_approval") ? "pending_seller" : null,
                                                 (seller.roles ?? []).includes("buyer") || seller.role === "buyer" ? "buyer" : null,
                                                 (seller.roles ?? []).includes("student") ? "student" : null,
@@ -2136,7 +2164,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">{t("Suspended", "موقوف")}</span>
                                       ) : (
                                         <div className="flex flex-wrap gap-2">
-                                          <RoleBadge variant="approved_seller" locale={locale} />
+                                          {seller.sellerApprovalVerified ? (
+                                            <RoleBadge variant="approved_seller" locale={locale} />
+                                          ) : (
+                                            <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 text-xs text-amber-200">
+                                              {t("Legacy approved status", "حالة اعتماد قديمة")}
+                                            </span>
+                                          )}
+                                          {!seller.sellerApprovalVerified ? (
+                                            <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 text-xs text-amber-200">
+                                              {t("Verification record required", "سجل التحقق مطلوب")}
+                                            </span>
+                                          ) : null}
                                           <span className={`rounded-full px-2.5 py-1 text-xs ${isOnVacation ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300"}`}>
                                             {isOnVacation ? t("Vacation", "إجازة") : seller.availabilityStatus === "away" ? t("Away", "غير متاح مؤقتًا") : t("Available", "متاح")}
                                           </span>
@@ -2155,7 +2194,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             {t("Suspend", "إيقاف")}
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" onClick={() => {
+                                          <Button type="button" size="sm" disabled={!seller.sellerApprovalVerified} onClick={() => {
                                             if (!window.confirm(t("Reactivate this seller?", "هل تريد إعادة تفعيل هذا البائع؟"))) return;
                                             const reason = requestReason(t("Reason for reactivating this seller:", "سبب إعادة تفعيل البائع:"), t("Seller reactivated", "تمت إعادة تفعيل البائع"));
                                             if (!reason) return;

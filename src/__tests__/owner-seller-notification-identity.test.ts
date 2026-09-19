@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -38,6 +39,9 @@ function user(input: {
     role: input.role,
     roles: input.roles,
     sellerStatus: input.sellerStatus,
+    sellerApprovalVerification: input.sellerStatus === "approved_seller"
+      ? createTestSellerApprovalVerification(now)
+      : undefined,
     emailVerified: true,
     emailVerifiedAt: now,
     notificationPreferences: { inApp: true, email: false, sms: false },

@@ -118,6 +118,11 @@ const userBlockRoute = readText("src/app/api/alpha-exchange/user-blocks/[userId]
 const exchangeStore = readText("src/lib/alpha-exchange-store.ts");
 const sellerApprovalVerification = readText("src/lib/seller-approval-verification.ts");
 const sellerApprovalRoute = readText("src/app/api/alpha-exchange/admin/seller-applications/[applicationId]/approve/route.ts");
+const sellerVerificationReconciliationRoute = readText("src/app/api/alpha-exchange/admin/seller-applications/[applicationId]/verification/route.ts");
+const sellerRoles = readText("src/lib/roles.ts");
+const genericRoleRoute = readText("src/app/api/alpha-exchange/admin/users/[userId]/role/route.ts");
+const verifiedSellerAuthorizationMigration = readText("supabase/migrations/20260919130000_verified_seller_authorization.sql");
+const discordSellerAuthorizationSql = readText("src/lib/discord/seller-authorization-sql.ts");
 const mobileAdminOverviewRoute = readText("src/app/api/mobile/v1/admin/overview/route.ts");
 const adminExchangeDashboard = readText("src/components/admin/alpha-exchange-admin-dashboard.tsx");
 const notificationBell = readText("src/components/notifications/notification-bell.tsx");
@@ -334,6 +339,32 @@ check(
     && mobileAdminOverviewRoute.includes("isSellerApprovalChecklistComplete")
     && exchangeStore.includes("createSellerApprovalVerification"),
   "A seller-approval API or persistence path can bypass the identity checklist.",
+);
+check(
+  sellerRoles.includes("role !== \"approved_seller\" || sellerApprovalVerified")
+    && sellerRoles.includes("isSellerApprovalVerificationComplete(user.sellerApprovalVerification)")
+    && exchangeStore.includes("hasSellerOperationalAccess(user)"),
+  "A legacy Approved Seller marker can still grant seller authorization without the attestation.",
+);
+check(
+  sellerVerificationReconciliationRoute.includes("requireApiAdmin")
+    && sellerVerificationReconciliationRoute.includes("isSellerApprovalChecklistComplete")
+    && sellerVerificationReconciliationRoute.includes("recordApprovedSellerVerificationByAdmin"),
+  "The legacy seller-verification reconciliation path is missing an authenticated complete-checklist gate.",
+);
+check(
+  !genericRoleRoute.includes('"approved_seller"')
+    && !genericRoleRoute.includes('"pending_seller_approval"')
+    && !genericRoleRoute.includes('"owner"'),
+  "Generic role management can bypass seller verification or assign owner access.",
+);
+check(
+  verifiedSellerAuthorizationMigration.includes("after update of seller_status, payload")
+    && verifiedSellerAuthorizationMigration.includes("verification_policy_migration")
+    && verifiedSellerAuthorizationMigration.includes("liveIdentityVideoReviewed")
+    && discordSellerAuthorizationSql.includes("sellerApprovalVerification")
+    && discordSellerAuthorizationSql.includes("else 'none'"),
+  "Discord seller authorization is not fail-closed for legacy or incomplete verification records.",
 );
 check(
   adminExchangeDashboard.includes("Raw identity documents must remain outside the Exchange record")

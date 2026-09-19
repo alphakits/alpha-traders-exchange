@@ -4,6 +4,7 @@ import { useRouter, type Href } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import logo from "../../../../public/images/brand/alpha-traders-logo-512.png";
 import { useAuth } from "../auth/auth-context";
+import { canUseSellerTools } from "../auth/seller-access";
 import { useLocale } from "../i18n/locale-context";
 
 type FooterLink = { en: string; ar: string; href: Href };
@@ -16,9 +17,7 @@ export function NativeSiteFooter() {
   const [openSection, setOpenSection] = useState<string | null>(null);
   const isAr = locale === "ar";
   const isAuthenticated = status === "authenticated";
-  const canSell = Boolean(user?.sellerStatus === "approved_seller" || user?.roles.some((role) => (
-    role === "approved_seller" || role === "admin" || role === "owner"
-  )));
+  const canSell = canUseSellerTools(user);
   const academyHref: Href = isAuthenticated ? "/(tabs)/academy" : "/(public)/login?destination=academy";
   const marketHref: Href = isAuthenticated ? "/(tabs)/market" : "/(public)/marketplace";
   const profileHref: Href = isAuthenticated ? "/(tabs)/profile" : "/(public)/login";

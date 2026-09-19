@@ -11,6 +11,11 @@ import {
 } from "@/lib/discord/listing-sync-worker";
 import type { DiscordListingPublisher } from "@/lib/discord/listing-publisher";
 import type { Pool } from "pg";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
+
+const verifiedSeller = {
+  sellerApprovalVerification: createTestSellerApprovalVerification(),
+};
 
 describe("Discord listing authoritative snapshot", () => {
   it("uses measured trust data, real presence, and a safe seller image", () => {
@@ -24,6 +29,7 @@ describe("Discord listing authoritative snapshot", () => {
         paymentMethods: ["Bank Transfer"],
       },
       seller: {
+        ...verifiedSeller,
         fullName: "Private Legal Name",
         buyerDisplayName: "Seller Alpha",
         profilePhotoUrl: "https://cdn.example.com/avatar.png",
@@ -72,6 +78,7 @@ describe("Discord listing authoritative snapshot", () => {
         paymentMethod: "Face-to-Face (Meet in Person)",
       },
       seller: {
+        ...verifiedSeller,
         profilePhotoUrl: "data:image/png;base64,unsafe",
         onlineStatus: "offline",
       },
@@ -100,6 +107,7 @@ describe("Discord listing authoritative snapshot", () => {
         paymentMethods: ["Bank Transfer"],
       },
       seller: {
+        ...verifiedSeller,
         fullName: "Private Legal Name",
       },
       trust: null,
@@ -122,6 +130,7 @@ describe("Discord listing authoritative snapshot", () => {
         paymentMethods: ["Bank Transfer"],
       },
       seller: {
+        ...verifiedSeller,
         buyerDisplayName: "Seller Privacy",
         onlineStatus: "online",
         showLastActive: false,
@@ -165,6 +174,7 @@ describe("Discord listing authoritative snapshot", () => {
         ],
       },
       seller: {
+        ...verifiedSeller,
         fullName: "Private Legal Name",
         buyerDisplayName: "public@example.com",
         profilePhotoUrl: "https://cdn.example.com/seller@example.com/avatar.png",
@@ -193,7 +203,7 @@ describe("Discord listing lifecycle decisions", () => {
       availableAmount: "100",
     },
     sellerStatus: "approved_seller",
-    userPayload: {},
+    userPayload: verifiedSeller,
     identityLinked: true,
   };
   const now = new Date("2026-08-08T00:00:00.000Z").getTime();
@@ -335,6 +345,13 @@ describe("Discord listing lifecycle decisions", () => {
     expect(determineDiscordListingLifecycle({
       ...active,
       userPayload: { isProfileHidden: true },
+    }, now)).toBe("delete");
+  });
+
+  it("deletes Discord visibility when the seller approval attestation is absent", () => {
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      userPayload: {},
     }, now)).toBe("delete");
   });
 

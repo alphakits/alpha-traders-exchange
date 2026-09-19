@@ -92,6 +92,7 @@ describe("Discord onboarding content", () => {
       pool: {
         query: vi.fn(async () => result([{
           seller_status: "approved_seller",
+          seller_approval_verified: true,
           availability_status: "vacation",
           active_listings: 1,
         }])),

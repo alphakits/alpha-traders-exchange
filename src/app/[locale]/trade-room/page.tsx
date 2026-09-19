@@ -4,6 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser, getFirstActionableTradeForUser, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -61,7 +62,7 @@ export default async function TradeRoomLandingPage({
   if (hasRole(user, "owner") || hasRole(user, "admin")) {
     redirect(`/${locale}/admin/alpha-exchange?section=purchase-requests`);
   }
-  if (hasRole(user, "approved_seller")) {
+  if (user.sellerStatus === "approved_seller" && isSellerApprovalVerificationComplete(user.sellerApprovalVerification)) {
     redirect(`/${locale}/dashboard/seller`);
   }
   redirect(`/${locale}/usdt-exchange?section=trade-history#my-trade-requests-section`);

@@ -3,6 +3,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { buildPageMetadata } from "@/lib/seo";
 import { MarketplaceCompliancePaymentPage } from "@/components/sections/seller/marketplace-compliance-payment-page";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,9 @@ export default async function SellerCompliancePaymentRoute({ params }: { params:
   // Enforcement can remain active while the seller is suspended. Keep the
   // recovery payment page aligned with the authenticated seller-workspace API
   // so a restricted seller is not trapped behind a dashboard redirect.
-  if (!hasRole(user, "approved_seller") && user.sellerStatus !== "suspended") {
+  const isVerifiedApprovedSeller = user.sellerStatus === "approved_seller"
+    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  if (!isVerifiedApprovedSeller && user.sellerStatus !== "suspended") {
     redirect(`/${locale}/dashboard`);
   }
 

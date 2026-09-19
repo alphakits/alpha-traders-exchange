@@ -13,6 +13,18 @@ import {
 
 const iso = (msFromNow: number) => new Date(Date.now() + msFromNow).toISOString();
 
+function sellerVerification() {
+  return {
+    method: "manual_authorized_reviewer_v1",
+    identityDocumentReviewed: true,
+    liveIdentityVideoReviewed: true,
+    contactOwnershipConfirmed: true,
+    marketplaceRulesAccepted: true,
+    verifiedAt: iso(-60 * 60 * 1000),
+    verifiedByUserId: "marketplace-pulse-test-reviewer",
+  } as const;
+}
+
 function user(id: string, overrides: Record<string, unknown>) {
   const now = new Date().toISOString();
   return {
@@ -67,8 +79,8 @@ function listing(id: string, sellerId: string, overrides: Record<string, unknown
 function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   return {
     users: [
-      user("seller-online", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", onlineStatus: "online", lastActiveAt: iso(-60 * 1000) }),
-      user("seller-stale", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", onlineStatus: "online", lastActiveAt: iso(-30 * 60 * 1000) }),
+      user("seller-online", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerification: sellerVerification(), onlineStatus: "online", lastActiveAt: iso(-60 * 1000) }),
+      user("seller-stale", { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerification: sellerVerification(), onlineStatus: "online", lastActiveAt: iso(-30 * 60 * 1000) }),
       user("buyer-online", { lastActiveAt: iso(-2 * 60 * 1000) }),
       user("buyer-offline", { lastActiveAt: iso(-3 * 60 * 60 * 1000) }),
       user("admin-online", { role: "admin", roles: ["admin"], lastActiveAt: iso(-1 * 60 * 1000) }),

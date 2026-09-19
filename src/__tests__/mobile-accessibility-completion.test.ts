@@ -125,12 +125,15 @@ describe("mobile accessibility completion", () => {
     expect(coarsePointerRules).toContain('min-height: 1.5rem');
   });
 
-  it("renders final homepage statistics immediately instead of exposing zero-value placeholders", () => {
+  it("renders final homepage statistics and honest cross-device labels immediately", () => {
     const stats = source("src/components/sections/home/homepage-stats.tsx");
 
     expect(stats).toContain('numericValue: 20');
     expect(stats).toContain('numericValue: 2');
-    expect(stats).toContain('numericValue: 100');
+    expect(stats).toContain('staticDisplay: "On demand"');
+    expect(stats).toContain('staticDisplay: "Web + App"');
+    expect(stats).toContain('subtitleEn: "Phone & desktop"');
+    expect(stats).not.toContain('numericValue: 100');
     expect(stats).toContain('{displayValue}');
     expect(stats).not.toContain('useInView');
     expect(stats).not.toContain('setDisplayValue');

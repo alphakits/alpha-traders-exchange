@@ -5,7 +5,7 @@ import type { UserRole } from "@/types/alpha-exchange";
 
 type RouteContext = { params: Promise<{ userId: string }> };
 
-const VALID_ROLES: UserRole[] = ["guest", "student", "buyer", "pending_seller_approval", "approved_seller", "admin", "owner"];
+const VALID_ROLES: UserRole[] = ["guest", "student", "buyer", "admin"];
 
 function isValidRole(value: string): value is UserRole {
   return VALID_ROLES.includes(value as UserRole);

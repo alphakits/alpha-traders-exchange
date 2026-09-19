@@ -9,6 +9,7 @@ const navigationState = vi.hoisted(() => ({
   authenticated: true,
   role: "buyer",
   sellerStatus: "buyer",
+  sellerApprovalVerified: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -30,6 +31,7 @@ vi.mock("@/components/auth/canonical-session-provider", () => ({
           role: navigationState.role,
           roles: [navigationState.role],
           sellerStatus: navigationState.sellerStatus,
+          sellerApprovalVerified: navigationState.sellerApprovalVerified,
         }
       : null,
   }),
@@ -42,6 +44,7 @@ describe("MobileBottomNavigation", () => {
     navigationState.authenticated = true;
     navigationState.role = "buyer";
     navigationState.sellerStatus = "buyer";
+    navigationState.sellerApprovalVerified = false;
   });
 
   it("renders five clear English destinations with phone-sized targets", () => {
@@ -104,6 +107,7 @@ describe("MobileBottomNavigation", () => {
   it("keeps approved and suspended sellers on the seller trade-room flow", () => {
     navigationState.role = "approved_seller";
     navigationState.sellerStatus = "approved_seller";
+    navigationState.sellerApprovalVerified = true;
     const { rerender } = render(<MobileBottomNavigation locale="en" />);
     expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trade-room");
 

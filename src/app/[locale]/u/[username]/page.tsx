@@ -11,14 +11,15 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale, username } = await params;
   return buildPageMetadata({
     locale: locale as "ar" | "en",
-    title: locale === "ar" ? `البائع • ${username}` : `Seller • ${username}`,
-    description: locale === "ar" ? "ملف بائع عام في Alpha Traders." : "Public seller profile for Alpha Traders.",
-    path: `/seller/${username}`,
+    title: locale === "ar" ? `الملف العام • ${username}` : `Public Profile • ${username}`,
+    description: locale === "ar" ? "ملف عضو عام أو بائع موثّق في Alpha Traders." : "Public member or verified-seller profile for Alpha Traders.",
+    path: `/u/${username}`,
   });
 }
 
-function isSellerRole(role: string, sellerStatus: string) {
-  return role === "approved_seller" || sellerStatus === "approved_seller" || sellerStatus === "suspended";
+function isSellerRole(role: string, sellerStatus: string, sellerApprovalVerified: boolean) {
+  return sellerApprovalVerified
+    && (role === "approved_seller" || sellerStatus === "approved_seller" || sellerStatus === "suspended");
 }
 
 function sellerTierLabel(level: string, isAr: boolean) {
@@ -189,9 +190,15 @@ export default async function PublicUserProfilePage({
   });
   if (!data) notFound();
 
-  const publicTradingName = data.profile.publicTradingName || (isAr ? "بائع موثق" : "Verified Seller");
+  const isVerifiedSeller = isSellerRole(
+    data.profile.role,
+    data.profile.sellerStatus,
+    data.profile.sellerApprovalVerified,
+  );
+  const publicTradingName = data.profile.publicTradingName
+    || (isVerifiedSeller ? (isAr ? "بائع موثق" : "Verified Seller") : (isAr ? "عضو Alpha Traders" : "Alpha Traders Member"));
   const initials = publicTradingName.trim().charAt(0).toUpperCase() || "?";
-  const sellerIdentity = isSellerRole(data.profile.role, data.profile.sellerStatus)
+  const sellerIdentity = isVerifiedSeller
     ? await getPremiumSellerProfile({
         sellerId: data.profile.id,
         viewerUserId: viewer?.id,
@@ -215,14 +222,18 @@ export default async function PublicUserProfilePage({
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/70" />
             <div className="absolute end-4 top-4 flex items-center gap-2 rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs text-[#D1D5DB] backdrop-blur-sm">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
-              {isAr ? "هوية موثقة" : "Identity verified"}
+              {isVerifiedSeller
+                ? (isAr ? "تم التحقق من هوية البائع" : "Seller identity verified")
+                : data.profile.isEmailVerified
+                  ? (isAr ? "البريد الإلكتروني موثّق" : "Email verified")
+                  : (isAr ? "ملف عضو" : "Member profile")}
             </div>
           </div>
 
           <div className="px-6 pb-6 pt-0 md:px-8">
             <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
               <div className="flex items-end gap-4">
-                <div className={isSellerRole(data.profile.role, data.profile.sellerStatus) ? "profile-seller-frame" : "profile-member-frame"}>
+                <div className={isVerifiedSeller ? "profile-seller-frame" : "profile-member-frame"}>
                   {data.profile.profilePhotoUrl ? (
                     <Image src={data.profile.profilePhotoUrl} alt={publicTradingName} width={112} height={112} unoptimized className="h-full w-full rounded-2xl object-cover" />
                   ) : (
@@ -230,11 +241,11 @@ export default async function PublicUserProfilePage({
                   )}
                 </div>
                 <div className="pb-1">
-                  <h1 className={isSellerRole(data.profile.role, data.profile.sellerStatus) ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
+                  <h1 className={isVerifiedSeller ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
                     <bdi dir="auto">{publicTradingName}</bdi>
                   </h1>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    {isSellerRole(data.profile.role, data.profile.sellerStatus) ? (
+                    {isVerifiedSeller ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 font-semibold text-[#F4D87A]">
                         <ShieldCheck className="h-3.5 w-3.5" />
                         {isAr ? "بائع معتمد" : "Approved Seller"}
@@ -251,7 +262,7 @@ export default async function PublicUserProfilePage({
                         {isAr ? "عضو مؤسس" : "Founding Member"}
                       </span>
                     ) : null}
-                    {data.profile.isFeaturedSeller ? (
+                    {isVerifiedSeller && data.profile.isFeaturedSeller ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300">
                         <Award className="h-3.5 w-3.5" />
                         {isAr ? "بائع مميز" : "Featured Seller"}
@@ -277,7 +288,7 @@ export default async function PublicUserProfilePage({
             <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدور" : "Role"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{isSellerRole(data.profile.role, data.profile.sellerStatus) ? (isAr ? "بائع معتمد" : "Approved Seller") : (isAr ? "مشتري" : "Buyer")}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{isVerifiedSeller ? (isAr ? "بائع معتمد" : "Approved Seller") : (isAr ? "عضو" : "Member")}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدولة" : "Country"}</p>

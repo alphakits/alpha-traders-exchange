@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -121,6 +122,9 @@ async function upsertQaUser(db: AlphaExchangeDb, input: {
     role: input.role,
     roles: normalizeRoles(input.roles, input.role),
     sellerStatus: input.sellerStatus,
+    ...(input.sellerStatus === "approved_seller" ? {
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now, QA_USER_IDS.owner),
+    } : {}),
     emailVerified: true,
     emailVerifiedAt: now,
     verifiedPhone: input.verifiedPhone,

@@ -30,6 +30,7 @@ import {
   setMobileSellerListingStatus,
 } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
+import { canUseSellerTools } from "../auth/seller-access";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import type { MessageKey } from "../i18n/messages";
@@ -73,8 +74,7 @@ export function SellerWorkspaceScreen() {
   const usdIlsRate = useUsdDisplayRate();
   const queryClient = useQueryClient();
   const userId = user?.id ?? "anonymous";
-  const isApprovedSeller = user?.sellerStatus === "approved_seller"
-    || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
+  const isApprovedSeller = canUseSellerTools(user);
   const queryKey = useMemo(
     () => ["mobile-seller-listings", userId, locale] as const,
     [locale, userId],

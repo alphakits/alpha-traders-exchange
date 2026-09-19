@@ -1,6 +1,7 @@
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./base-url";
+import { createE2eSellerApprovalVerification } from "./seller-verification";
 
 const TEST_SUPPORT_HEADERS = {
   "content-type": "application/json",
@@ -145,6 +146,7 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       role: "approved_seller",
       roles: ["approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
       whatsappNumber: "+972500000098",
       preferredNetworks: ["TRC20"],
       preferredPaymentMethods: ["Bank Transfer"],

@@ -151,8 +151,6 @@ export function AccountSettingsPanel({
   const isAr = locale === "ar";
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "security");
   const [userId, setUserId] = useState<string | null>(null);
-  const [sellerStatus, setSellerStatus] = useState<string>("buyer");
-  const [userRole, setUserRole] = useState<string>("buyer");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [whatsappChannel, setWhatsappChannel] = useState<WhatsAppChannelState>(DEFAULT_WHATSAPP_CHANNEL);
@@ -195,8 +193,6 @@ export function AccountSettingsPanel({
       const data = (await res.json()) as {
         profile?: {
           id?: string;
-          roles?: string[];
-          sellerStatus?: string;
           isProfileHidden?: boolean;
           showTradeStats?: boolean;
           showLastActive?: boolean;
@@ -208,10 +204,6 @@ export function AccountSettingsPanel({
       };
       const id = data.profile?.id ?? "unknown";
       setUserId(id);
-      setSellerStatus(data.profile?.sellerStatus ?? "buyer");
-      setUserRole(
-        data.profile?.roles?.find((role) => role === "approved_seller" || role === "admin" || role === "owner") ?? "buyer",
-      );
       if (window.location.hash === "#seller-bank-accounts") {
         setActiveTab("profile");
       }
@@ -305,11 +297,9 @@ export function AccountSettingsPanel({
     }
   }, [initialTab, isAr]);
 
-  const canManageSellerBankAccounts = initialSellerBankAccess === true
-    || sellerStatus === "approved_seller"
-    || userRole === "approved_seller"
-    || userRole === "admin"
-    || userRole === "owner";
+  // The server computes this from the seller's persisted approval attestation.
+  // Do not infer access again from a client-visible role or status.
+  const canManageSellerBankAccounts = initialSellerBankAccess === true;
   const hasMaxBankAccounts = bankAccounts.length >= 2;
   const bankOptions = getIsraeliBankOptions();
   const selectedBankIsKnown = bankOptions.some((option) => option.name === bankForm.bankName);

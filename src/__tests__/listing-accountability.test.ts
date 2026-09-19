@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 import type { AlphaExchangeDb, AuditLogEntry } from "@/types/alpha-exchange";
 
 vi.mock("@/lib/postgres-runtime", () => ({
@@ -39,6 +40,9 @@ function createUser(id: string, email: string, role: "owner" | "approved_seller"
     role,
     roles: role === "owner" ? ["owner", "admin"] : [role],
     sellerStatus: role === "approved_seller" ? "approved_seller" : "buyer",
+    sellerApprovalVerification: role === "approved_seller"
+      ? createTestSellerApprovalVerification(now, OWNER_ID)
+      : undefined,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,

@@ -12,6 +12,7 @@ import {
   type DiscordSellerRoleStatus,
 } from "@/lib/discord/role-manager";
 import { readDiscordConfig } from "@/lib/discord/config";
+import { discordDesiredSellerStatusSql } from "@/lib/discord/seller-authorization-sql";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -139,7 +140,7 @@ async function resolveCurrentDesiredStatus(
   const result = await database.query<{
     desired_status: DiscordSellerRoleStatus;
   }>(
-    `select alpha_exchange.discord_desired_seller_status(users.seller_status) as desired_status
+    `select ${discordDesiredSellerStatusSql("users.seller_status", "users.payload")} as desired_status
        from alpha_exchange.discord_identities identity
        join alpha_exchange.users users on users.id = identity.platform_user_id
       where identity.discord_user_id = $1`,
@@ -278,7 +279,7 @@ async function enqueueReconciliation(pool: Pool): Promise<number> {
       (platform_user_id, discord_user_id, desired_status, reason, dedupe_key)
      select identity.platform_user_id,
             identity.discord_user_id,
-            alpha_exchange.discord_desired_seller_status(users.seller_status),
+            ${discordDesiredSellerStatusSql("users.seller_status", "users.payload")},
             'periodic_reconciliation',
             'reconcile:' || identity.platform_user_id || ':' || floor(extract(epoch from now()) / 900)::text
        from alpha_exchange.discord_identities identity

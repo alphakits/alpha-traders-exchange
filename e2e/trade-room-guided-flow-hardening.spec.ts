@@ -2,6 +2,7 @@ import { test, expect, request as pwRequest, type APIRequestContext, type Page }
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const SUPPORT_HEADERS = {
@@ -66,6 +67,7 @@ function makeSellerUser(passwordHash: string) {
     role: "approved_seller",
     roles: ["approved_seller"],
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: createE2eSellerApprovalVerification(now),
     availabilityStatus: "available",
     onlineStatus: "online",
     preferredNetworks: ["TRC20"],
@@ -592,7 +594,7 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
   });
 
   await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
-  await expect(page.getByText(/Trade status updated|Trade Accepted|تم تحديث حالة الصفقة|تم قبول الطلب/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Waiting for Buyer Payment|بانتظار دفع المشتري/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);
@@ -829,7 +831,7 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
     await login(sellerPage.request, sellerEmail, sellerPassword);
     await sellerPage.goto(`/en/trade-room/${requestId}`);
     await sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click();
-    await expect(sellerPage.getByText(/Trade status updated|Trade Accepted/i).first()).toBeVisible({ timeout: 20_000 });
+    await expect(sellerPage.getByText(/Waiting for Buyer Payment/i).first()).toBeVisible({ timeout: 20_000 });
 
     await buyerPage.goto(`/en/trade-room/${requestId}`);
     const buyerChatForm = buyerPage.locator("#chat form");

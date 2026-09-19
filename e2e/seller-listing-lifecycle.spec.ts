@@ -746,7 +746,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
         updatedAt,
       });
     };
-    const addRequest = (id: string, displayNumber: number, updatedAt: string, status: "pending" | "accepted" | "declined") => {
+    const addRequest = (id: string, displayNumber: number, updatedAt: string, status: "pending" | "accepted" | "declined", usdtAmount: number) => {
       db.purchaseRequests.push({
         id,
         tradeId: `trade-${id}`,
@@ -755,8 +755,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
         sellerId,
         buyerId,
         buyerName: "Dashboard Buyer",
-        usdtAmount: "100",
-        fiatAmount: "320",
+        usdtAmount: String(usdtAmount),
+        fiatAmount: String(usdtAmount * 3.2),
         currency: "ILS",
         network: "TRC20",
         paymentMethod: "Bank Transfer",
@@ -770,9 +770,9 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
     addListing(oldestListingId, 9301, "2030-01-05T00:00:00.000Z");
     addListing(listingId, 9303, "2030-01-07T00:00:00.000Z");
     addListing(middleListingId, 9302, "2030-01-06T00:00:00.000Z");
-    addRequest(oldestRequestId, 9201, "2030-01-02T00:00:00.000Z", "declined");
-    addRequest(middleRequestId, 9202, "2030-01-03T00:00:00.000Z", "declined");
-    addRequest(latestRequestId, 9203, "2030-01-04T00:00:00.000Z", "pending");
+    addRequest(oldestRequestId, 9201, "2030-01-02T00:00:00.000Z", "declined", 200);
+    addRequest(middleRequestId, 9202, "2030-01-03T00:00:00.000Z", "declined", 300);
+    addRequest(latestRequestId, 9203, "2030-01-04T00:00:00.000Z", "pending", 100);
     db.commissionRecords.push(
       {
         id: `dashboard-commission-a-${suffix}`,

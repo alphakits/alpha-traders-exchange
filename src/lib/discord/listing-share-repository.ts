@@ -3,6 +3,7 @@ import "server-only";
 import type { Pool, PoolClient } from "pg";
 
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 
 const SHARE_COOLDOWN_HOURS = 12;
 const CURRENT_MAPPING_STATES = ["queued", "publishing", "active", "update_pending"] as const;
@@ -250,11 +251,13 @@ export async function claimDiscordListingShare(input: {
 
     const actor = await client.query<{
       seller_status: string;
+      payload: Record<string, unknown>;
       disabled: boolean;
       profile_hidden: boolean;
       linked: boolean;
     }>(
       `select users.seller_status,
+              users.payload,
               coalesce((users.payload ->> 'disabled')::boolean, false) as disabled,
               coalesce(users.payload ->> 'isProfileHidden', 'false') = 'true' as profile_hidden,
               exists (
@@ -267,7 +270,14 @@ export async function claimDiscordListingShare(input: {
       [input.sellerId],
     );
     const seller = actor.rows[0];
-    if (!seller || seller.disabled || seller.seller_status !== "approved_seller") {
+    if (
+      !seller
+      || seller.disabled
+      || seller.seller_status !== "approved_seller"
+      || !isSellerApprovalVerificationComplete(
+        seller.payload.sellerApprovalVerification,
+      )
+    ) {
       return deny(
         client,
         input.sellerId,

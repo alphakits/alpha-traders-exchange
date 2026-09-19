@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 import {
   addSellerBankAccount,
+  canPublishListings,
   deleteSellerBankAccount,
   getSellerBankAccountsForUser,
   updateSellerAvailabilityStatus,
@@ -9,12 +10,15 @@ import {
   updateUserSellerSettings,
 } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 import type { SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
-  const bankAccounts = await getSellerBankAccountsForUser(user.id);
+  const sellerOperationAllowed = canPublishListings(user);
+  const sellerApprovalVerified = isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  const bankAccounts = sellerOperationAllowed ? await getSellerBankAccountsForUser(user.id) : [];
 
   return NextResponse.json({
     profile: {
@@ -34,6 +38,7 @@ export async function GET() {
       availabilityStatus: user.availabilityStatus,
     },
     bankAccounts,
+    sellerApprovalVerified,
   });
 }
 
@@ -48,8 +53,14 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const action = typeof body.action === "string" ? body.action.trim() : "";
+    const sellerOperationAllowed = canPublishListings(user);
+    const sellerOperationDenied = () => NextResponse.json(
+      { error: "Completed seller identity verification is required for this marketplace setting." },
+      { status: 403 },
+    );
 
     if (action === "add_bank_account") {
+      if (!sellerOperationAllowed) return sellerOperationDenied();
       const account = await addSellerBankAccount({
         sellerId: user.id,
         actorUserId: user.id,
@@ -63,6 +74,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (action === "update_bank_account") {
+      if (!sellerOperationAllowed) return sellerOperationDenied();
       const bankAccountId = String(body.bankAccountId ?? "").trim();
       if (!bankAccountId) {
         return NextResponse.json({ error: "bankAccountId is required." }, { status: 400 });
@@ -81,6 +93,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (action === "delete_bank_account") {
+      if (!sellerOperationAllowed) return sellerOperationDenied();
       const bankAccountId = String(body.bankAccountId ?? "").trim();
       if (!bankAccountId) {
         return NextResponse.json({ error: "bankAccountId is required." }, { status: 400 });
@@ -102,6 +115,7 @@ export async function PATCH(request: NextRequest) {
     const availabilityStatus = body.availabilityStatus === "available" || body.availabilityStatus === "away" || body.availabilityStatus === "vacation"
       ? body.availabilityStatus as SellerAvailabilityStatus
       : undefined;
+    if (availabilityStatus && !sellerOperationAllowed) return sellerOperationDenied();
     const preferredNetworksInput = Array.isArray(body.preferredNetworks) ? body.preferredNetworks.map((value: unknown) => String(value)) : undefined;
     const preferredPaymentMethods = Array.isArray(body.preferredPaymentMethods) ? body.preferredPaymentMethods.map((value: unknown) => String(value).trim()).filter(Boolean).slice(0, 8) : undefined;
     const languagesInput = Array.isArray(body.languages) ? body.languages.map((value: unknown) => String(value).trim()).filter(Boolean) : undefined;

@@ -131,6 +131,8 @@ export interface AlphaExchangeUser {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
+  /** Server-owned attestation required before a seller can publish or accept new marketplace work. */
+  sellerApprovalVerification?: SellerApprovalVerification;
   emailVerified?: boolean;
   emailVerifiedAt?: string;
   emailVerificationTokenHash?: string;
@@ -1027,6 +1029,7 @@ export interface MarketplaceEnforcementAuditEntry {
 
 export type AuditAction =
   | "seller_approved"
+  | "seller_verification_recorded"
   | "seller_rejected"
   | "seller_suspended"
   | "seller_reactivated"

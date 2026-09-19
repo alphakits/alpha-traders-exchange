@@ -10,6 +10,8 @@ import type {
   UserRole,
 } from "@/types/alpha-exchange";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -24,6 +26,8 @@ export type ClientSessionUser = {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
+  /** Privacy-safe authorization result; absent values fail closed for older clients. */
+  sellerApprovalVerified?: boolean;
   whatsappNumber: string;
   preferredNetworks: SupportedNetwork[];
   profilePhotoUrl: string;
@@ -59,6 +63,7 @@ export type AdminSellerSummary = {
   role: UserRole;
   roles: UserRole[];
   sellerStatus: SellerStatus;
+  sellerApprovalVerified: boolean;
   availabilityStatus?: SellerAvailabilityStatus;
   lifetimeCompletedVolumeUsdt?: number;
   sellerPrestigeRank?: SellerLevel;
@@ -92,14 +97,22 @@ export function toAdminUserSummary(user: AlphaExchangeUser) {
 
 /** Runtime allowlist for admin seller-management responses. */
 export function toAdminSellerSummary(user: AlphaExchangeUser): AdminSellerSummary {
+  const roles = normalizeRolesForUser({
+    email: user.email,
+    role: user.role,
+    roles: user.roles,
+    sellerStatus: user.sellerStatus,
+    sellerApprovalVerification: user.sellerApprovalVerification,
+  });
   return {
     id: user.id,
     fullName: user.fullName,
     email: user.email,
     whatsappNumber: user.whatsappNumber,
-    role: user.role,
-    roles: user.roles ?? [user.role],
+    role: resolvePrimaryRole(roles),
+    roles,
     sellerStatus: user.sellerStatus,
+    sellerApprovalVerified: isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
     availabilityStatus: user.availabilityStatus,
     lifetimeCompletedVolumeUsdt: user.lifetimeCompletedVolumeUsdt,
     sellerPrestigeRank: user.sellerPrestigeRank,
@@ -122,13 +135,21 @@ export function toClientSessionUser(
   options: ClientSessionUserOptions = {},
 ): ClientSessionUser | null {
   if (!user) return null;
+  const roles = normalizeRolesForUser({
+    email: user.email,
+    role: user.role,
+    roles: user.roles,
+    sellerStatus: user.sellerStatus,
+    sellerApprovalVerification: user.sellerApprovalVerification,
+  });
   return {
     id: user.id,
     fullName: user.fullName,
     email: user.email,
-    role: user.role,
-    roles: user.roles ?? [user.role],
+    role: resolvePrimaryRole(roles),
+    roles,
     sellerStatus: user.sellerStatus,
+    sellerApprovalVerified: isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
     whatsappNumber: user.whatsappNumber,
     preferredNetworks: user.preferredNetworks,
     profilePhotoUrl: user.profilePhotoUrl,

@@ -11,8 +11,9 @@ vi.mock("@/lib/auth", () => ({
   AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
-import { requireApiUser, requireApiAdmin, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireApiAdmin, requireApiSeller, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUserForAuthorization);
 const mockGetCurrentSessionToken = vi.mocked(getCurrentSessionToken);
@@ -161,6 +162,36 @@ describe("requireApiSellerWorkspaceActor", () => {
     mockGetCurrentSessionUser.mockResolvedValue(seller as never);
 
     const { user, unauthorized } = await requireApiSellerWorkspaceActor();
+
+    expect(user).toEqual(seller);
+    expect(unauthorized).toBeNull();
+  });
+});
+
+describe("requireApiSeller", () => {
+  it("denies a legacy Approved Seller status without the recorded attestation", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+    } as never);
+
+    const { user, unauthorized } = await requireApiSeller();
+
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+  });
+
+  it("allows an Approved Seller with the complete recorded attestation", async () => {
+    const seller = {
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+      sellerApprovalVerification: createTestSellerApprovalVerification(),
+    };
+    mockGetCurrentSessionUser.mockResolvedValue(seller as never);
+
+    const { user, unauthorized } = await requireApiSeller();
 
     expect(user).toEqual(seller);
     expect(unauthorized).toBeNull();

@@ -38,9 +38,11 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   const isAdminOwner = user.role === "owner"
     || user.role === "admin"
     || (user.roles ?? []).some((role) => role === "owner" || role === "admin");
-  const isSellerWorkspaceUser = user.role === "approved_seller"
-    || (user.roles ?? []).includes("approved_seller")
-    || user.sellerStatus === "approved_seller"
+  const isSellerWorkspaceUser = (
+    (user.role === "approved_seller" || (user.roles ?? []).includes("approved_seller"))
+    && user.sellerStatus === "approved_seller"
+    && user.sellerApprovalVerified === true
+  )
     || user.sellerStatus === "suspended";
   const isOwnerPurchaseRequests = isAdminOwner
     && pathname === "/admin/alpha-exchange"

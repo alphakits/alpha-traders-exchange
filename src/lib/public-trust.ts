@@ -1,6 +1,6 @@
 import type { AppLocale } from "@/i18n/routing";
 
-export const PUBLIC_TRUST_LAST_UPDATED = "2026-09-12";
+export const PUBLIC_TRUST_LAST_UPDATED = "2026-09-19";
 
 export type PublicTrustFaq = {
   id: string;
@@ -32,7 +32,7 @@ const PUBLIC_TRUST_FAQS: Record<AppLocale, PublicTrustFaq[]> = {
       id: "approved-seller-meaning",
       question: "What does Approved Seller mean?",
       answer:
-        "Only sellers approved by Alpha Traders can publish listings. Applications are manually reviewed and additional information may be requested. Approval is a platform access decision made at the time of review; it is not a guarantee of identity, future conduct, profit, or a risk-free transaction.",
+        "Only sellers whose required review controls were recorded by an authorized reviewer can publish listings. The review covers a government-issued identity document, live-video identity match, application-contact ownership, and marketplace-rules acceptance. Approval is a platform-access decision made at the time of review; it is not a guarantee of future conduct, profit, or a risk-free transaction.",
     },
     {
       id: "how-to-trade-safely",
@@ -88,7 +88,7 @@ const PUBLIC_TRUST_FAQS: Record<AppLocale, PublicTrustFaq[]> = {
       id: "approved-seller-meaning",
       question: "ماذا يعني بائع معتمد؟",
       answer:
-        "يمكن فقط للبائعين الذين وافقت عليهم Alpha Traders نشر العروض. تُراجع الطلبات يدويًا وقد تُطلب معلومات إضافية. الاعتماد قرار لمنح صلاحية استخدام المنصة وقت المراجعة، وليس ضمانًا للهوية أو السلوك المستقبلي أو الربح أو صفقة بلا مخاطر.",
+        "يمكن فقط للبائعين الذين سجّل مراجع مخول ضوابط مراجعتهم المطلوبة نشر العروض. تشمل المراجعة وثيقة هوية حكومية، ومطابقة الشخص في فيديو مباشر، وملكية وسيلة التواصل المستخدمة في الطلب، وقبول قواعد السوق. الاعتماد قرار لمنح صلاحية استخدام المنصة وقت المراجعة، وليس ضمانًا للسلوك المستقبلي أو الربح أو صفقة بلا مخاطر.",
     },
     {
       id: "how-to-trade-safely",

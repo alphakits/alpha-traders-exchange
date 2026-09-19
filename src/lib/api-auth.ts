@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
+import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
@@ -180,7 +181,7 @@ export async function requireApiStudent() {
 export async function requireApiSeller() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return { user: null, unauthorized };
-  if (!hasRole(user, "approved_seller")) {
+  if (!hasSellerOperationalAccess(user)) {
     logEvent("warn", {
       event: "permission_denied",
       actorUserId: user.id,
@@ -205,7 +206,7 @@ export async function requireApiSellerWorkspaceActor() {
     return { user: null, unauthorized: emailVerificationRequired };
   }
   const isSellerWorkspaceUser =
-    hasRole(user, "approved_seller") ||
+    user.sellerStatus === "approved_seller" ||
     hasRole(user, "pending_seller_approval") ||
     user.sellerStatus === "suspended";
 

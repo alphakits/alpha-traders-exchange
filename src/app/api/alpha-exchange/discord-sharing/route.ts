@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
-import { getSellerMarketplaceEnforcementStatus } from "@/lib/alpha-exchange-store";
+import { canPublishListings, getSellerMarketplaceEnforcementStatus } from "@/lib/alpha-exchange-store";
 import { getDiscordListingSharingStatus } from "@/lib/discord/listing-share-repository";
 
 export const runtime = "nodejs";
@@ -10,6 +10,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
+  if (!canPublishListings(user)) {
+    return NextResponse.json(
+      { error: "Completed seller identity verification is required before sharing listings.", code: "SELLER_VERIFICATION_REQUIRED" },
+      { status: 403, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
 
   const enforcement = await getSellerMarketplaceEnforcementStatus(user.id);
   if (enforcement.restricted) {

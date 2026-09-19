@@ -1,4 +1,5 @@
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 import type { AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
 
 export const ROLE_PRIORITY: UserRole[] = [
@@ -31,10 +32,24 @@ export function normalizeRolesForUser(input: {
   roles?: UserRole[];
   role?: UserRole;
   sellerStatus?: string;
+  sellerApprovalVerification?: AlphaExchangeUser["sellerApprovalVerification"];
 }) {
-  const roles = [...(input.roles ?? [])];
-  if (input.role && isUserRole(input.role)) roles.push(input.role);
-  if (input.sellerStatus === "approved_seller") roles.push("approved_seller");
+  const sellerApprovalVerified = isSellerApprovalVerificationComplete(
+    input.sellerApprovalVerification,
+  );
+  const roles = [...(input.roles ?? [])].filter(
+    (role) => role !== "approved_seller" || sellerApprovalVerified,
+  );
+  if (
+    input.role
+    && isUserRole(input.role)
+    && (input.role !== "approved_seller" || sellerApprovalVerified)
+  ) {
+    roles.push(input.role);
+  }
+  if (input.sellerStatus === "approved_seller" && sellerApprovalVerified) {
+    roles.push("approved_seller");
+  }
   if (input.sellerStatus === "pending_seller_approval") roles.push("pending_seller_approval");
 
   if (roles.length === 0) roles.push("guest");
@@ -45,9 +60,21 @@ export function normalizeRolesForUser(input: {
   return dedupeRoles(roles.filter(isUserRole));
 }
 
-export function hasRole(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">, role: UserRole) {
+export function hasRole(
+  user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">
+    & Partial<Pick<AlphaExchangeUser, "sellerApprovalVerification">>
+    & { sellerApprovalVerified?: boolean },
+  role: UserRole,
+) {
   if (role === "approved_seller") {
-    return user.sellerStatus === "approved_seller" || user.role === "approved_seller" || (user.roles ?? []).includes("approved_seller");
+    const hasApprovedSellerMarker = user.sellerStatus === "approved_seller"
+      || user.role === "approved_seller"
+      || (user.roles ?? []).includes("approved_seller");
+    return hasApprovedSellerMarker
+      && (
+        user.sellerApprovalVerified === true
+        || isSellerApprovalVerificationComplete(user.sellerApprovalVerification)
+      );
   }
   if (role === "pending_seller_approval") {
     return user.sellerStatus === "pending_seller_approval" || (user.roles ?? []).includes("pending_seller_approval");

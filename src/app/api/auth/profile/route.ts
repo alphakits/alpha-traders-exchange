@@ -3,6 +3,7 @@ import { requireApiUser } from "@/lib/api-auth";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
+import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 
 const PROFILE_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -37,11 +38,14 @@ function profileError(request: NextRequest, code: ProfileErrorCode, status: numb
 
 type RoleBadgeVariant = "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner";
 
-function toRoleBadgeVariant(user: { role: string; roles?: string[]; sellerStatus: string }): RoleBadgeVariant {
+function toRoleBadgeVariant(user: { role: string; roles?: string[]; sellerStatus: string; sellerApprovalVerification?: unknown }): RoleBadgeVariant {
   const roles = user.roles ?? [];
   if (roles.includes("owner") || user.role === "owner") return "owner";
   if (roles.includes("admin") || user.role === "admin") return "administrator";
-  if (roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller") return "approved_seller";
+  if (
+    (roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller")
+    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification)
+  ) return "approved_seller";
   if (roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval") return "pending_seller";
   if (roles.includes("buyer") || user.role === "buyer") return "buyer";
   if (roles.includes("student") || user.role === "student") return "student";

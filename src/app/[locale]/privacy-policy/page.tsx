@@ -24,6 +24,10 @@ const privacySections = {
       body: "We process information to provide accounts and marketplace features, coordinate trades, display appropriate public seller signals, deliver notifications, investigate disputes and abuse, secure the platform, enforce rules, maintain records, improve reliability, and meet applicable legal obligations.",
     },
     {
+      title: "Seller identity review",
+      body: "Seller applicants may be asked to present a government-issued identity document and a live identity video through an official review channel designated for that case. The applicant should be told the channel, purpose, and applicable retention terms before sending sensitive media. The Exchange account record stores the authorized reviewer, time, method, and completed review checks rather than raw identity media. Do not upload identity documents or identity videos to a public profile, Trade Room, Discord, or an unsolicited message.",
+    },
+    {
       title: "Trade-stage disclosure",
       body: "Sensitive trade information is disclosed according to the trade stage and participant role. Only submit information needed for the transaction. Do not place identity documents, bank details, payment evidence, passwords, recovery codes, or wallet secrets in public profiles, Discord, social channels, or unsolicited private messages.",
     },
@@ -56,6 +60,10 @@ const privacySections = {
     {
       title: "كيف نستخدم المعلومات",
       body: "نعالج المعلومات لتقديم الحساب وميزات السوق، وتنسيق الصفقات، وإظهار إشارات البائع العامة المناسبة، وإرسال الإشعارات، والتحقيق في النزاعات والإساءة، وحماية المنصة، وتطبيق القواعد، وحفظ السجلات، وتحسين الاعتمادية، والوفاء بالمتطلبات القانونية المعمول بها.",
+    },
+    {
+      title: "مراجعة هوية البائع",
+      body: "قد يُطلب من مقدم طلب البائع عرض وثيقة هوية حكومية وفيديو هوية مباشر عبر قناة مراجعة رسمية مخصصة للحالة. يجب إبلاغ مقدم الطلب بالقناة والغرض وشروط الاحتفاظ المعمول بها قبل إرسال الوسائط الحساسة. يحفظ سجل حساب Exchange هوية المراجع المخول والوقت والطريقة وضوابط المراجعة المكتملة بدلًا من وسائط الهوية الخام. لا ترفع وثائق الهوية أو فيديو الهوية إلى ملف عام أو غرفة التداول أو Discord أو رسالة غير مطلوبة.",
     },
     {
       title: "إظهار البيانات حسب مرحلة الصفقة",

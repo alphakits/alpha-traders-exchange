@@ -88,6 +88,8 @@ export interface MobileSessionUser {
   role: MobileUserRole;
   roles: MobileUserRole[];
   sellerStatus: MobileSellerStatus;
+  /** Server-computed seller authorization; no identity document data is exposed. */
+  sellerApprovalVerified: boolean;
   preferredLocale: MobileLocale;
   profilePhotoUrl: string;
   emailVerified: boolean;

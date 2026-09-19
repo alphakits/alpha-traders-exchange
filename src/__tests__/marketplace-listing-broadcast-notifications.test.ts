@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const identityFixture = vi.hoisted(() => ({
   ownerEmail: `owner-${globalThis.crypto.randomUUID()}@example.test`,
@@ -91,13 +92,17 @@ function createUser(input: {
 }) {
   const now = new Date().toISOString();
   const roles = input.roles ?? [input.role];
+  const sellerStatus = input.sellerStatus ?? (roles.includes("approved_seller") ? "approved_seller" : "buyer");
   return {
     id: input.id,
     fullName: input.id,
     email: input.email,
     role: input.role,
     roles,
-    sellerStatus: input.sellerStatus ?? (roles.includes("approved_seller") ? "approved_seller" : "buyer"),
+    sellerStatus,
+    sellerApprovalVerification: sellerStatus === "approved_seller"
+      ? createTestSellerApprovalVerification(now, OWNER_ID)
+      : undefined,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,

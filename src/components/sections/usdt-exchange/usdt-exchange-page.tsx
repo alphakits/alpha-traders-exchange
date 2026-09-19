@@ -1514,7 +1514,11 @@ export function UsdtExchangePage({
       setSellerBankAccountsLoading(false);
       return;
     }
-    const canLoadBankAccounts = Boolean(sessionUser && (sessionUser.sellerStatus === "approved_seller" || sessionUser.role === "admin"));
+    const canLoadBankAccounts = Boolean(sessionUser && (
+      (sessionUser.sellerStatus === "approved_seller" && sessionUser.sellerApprovalVerified === true)
+      || sessionUser.role === "admin"
+      || sessionUser.role === "owner"
+    ));
     if (!canLoadBankAccounts) {
       setSellerBankAccounts([]);
       return;
@@ -1689,7 +1693,8 @@ export function UsdtExchangePage({
   const sellerFormTouchedRef = useRef(false);
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
   const sellerStatusForLanding = sessionUser?.sellerStatus ?? "buyer";
-  const isApprovedSellerSession = sellerStatusForLanding === "approved_seller";
+  const isApprovedSellerSession = sellerStatusForLanding === "approved_seller"
+    && sessionUser?.sellerApprovalVerified === true;
   const hasSellerWorkspaceAccess = isApprovedSellerSession || sellerStatusForLanding === "suspended";
   const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
@@ -2527,6 +2532,9 @@ export function UsdtExchangePage({
         document.getElementById("my-listings-section")?.focus({ preventScroll: true });
       });
     });
+    window.setTimeout(() => {
+      document.getElementById("my-listings-section")?.focus({ preventScroll: true });
+    }, 250);
     return true;
   }, []);
 
@@ -2541,6 +2549,9 @@ export function UsdtExchangePage({
         document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID)?.focus({ preventScroll: true });
       });
     });
+    window.setTimeout(() => {
+      document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID)?.focus({ preventScroll: true });
+    }, 250);
     return true;
   }, []);
 
@@ -3802,7 +3813,15 @@ export function UsdtExchangePage({
           const target = document.getElementById("purchase-requests-section");
           if (target) {
             target.scrollIntoView({ behavior: "smooth", block: "start" });
-            window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
+            target.focus({ preventScroll: true });
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => {
+                document.getElementById("purchase-requests-section")?.focus({ preventScroll: true });
+              });
+            });
+            window.setTimeout(() => {
+              document.getElementById("purchase-requests-section")?.focus({ preventScroll: true });
+            }, 250);
             return;
           }
           router.push("/dashboard/seller#purchase-requests-section");

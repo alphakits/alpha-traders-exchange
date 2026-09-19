@@ -1,4 +1,8 @@
-import type { SellerApprovalVerification } from "@/types/alpha-exchange";
+import type {
+  SellerApprovalVerification,
+  SellerStatus,
+  UserRole,
+} from "@/types/alpha-exchange";
 
 export type SellerApprovalChecklist = Pick<
   SellerApprovalVerification,
@@ -22,6 +26,41 @@ export function isSellerApprovalChecklistComplete(value: unknown): value is Sell
     && checklist.liveIdentityVideoReviewed === true
     && checklist.contactOwnershipConfirmed === true
     && checklist.marketplaceRulesAccepted === true;
+}
+
+export function isSellerApprovalVerificationComplete(value: unknown): value is SellerApprovalVerification {
+  if (!isSellerApprovalChecklistComplete(value)) return false;
+  const verification = value as Partial<SellerApprovalVerification>;
+  return verification.method === "manual_authorized_reviewer_v1"
+    && typeof verification.verifiedAt === "string"
+    && verification.verifiedAt.trim().length > 0
+    && Number.isFinite(new Date(verification.verifiedAt).getTime())
+    && typeof verification.verifiedByUserId === "string"
+    && verification.verifiedByUserId.trim().length > 0;
+}
+
+export function normalizeSellerApprovalVerification(value: unknown): SellerApprovalVerification | undefined {
+  if (!isSellerApprovalVerificationComplete(value)) return undefined;
+  return {
+    method: "manual_authorized_reviewer_v1",
+    ...COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    verifiedAt: value.verifiedAt.trim(),
+    verifiedByUserId: value.verifiedByUserId.trim(),
+  };
+}
+
+export function hasSellerOperationalAccess(user: {
+  role: UserRole;
+  roles?: UserRole[];
+  sellerStatus: SellerStatus;
+  sellerApprovalVerification?: SellerApprovalVerification;
+}) {
+  const roles = user.roles ?? [user.role];
+  if (user.role === "admin" || user.role === "owner" || roles.includes("admin") || roles.includes("owner")) {
+    return true;
+  }
+  return user.sellerStatus === "approved_seller"
+    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
 }
 
 export function createSellerApprovalVerification(

@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
 import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCb);
 const H = { "x-alpha-test-support": "enabled" };
@@ -46,6 +47,7 @@ function mkUser(id: string, name: string, o: Record<string, unknown>) {
     id, fullName: name, email: `${id}@example.test`, passwordHash: "x",
     whatsappNumber: "+972500000000", role: "approved_seller", roles: ["approved_seller"],
     sellerStatus: "approved_seller", availabilityStatus: "available", onlineStatus: "offline",
+    sellerApprovalVerification: createE2eSellerApprovalVerification(now),
     preferredNetworks: ["TRC20"], preferredPaymentMethods: ["Bank Transfer"], profilePhotoUrl: "",
     languages: ["English"], bio: "PV seller", country: "Israel", createdAt: now, updatedAt: now,
     emailVerified: true, emailVerifiedAt: now, verifiedPhone: "+972500000000", phoneVerifiedAt: now,

@@ -99,6 +99,7 @@ worksheet, not a pre-approved set of Console answers.
 | Transaction history | Listings, requests, amounts, states, commissions, disputes, and reviews | Required when using the Exchange | App functionality, safety, records |
 | User content | Profiles, listings, messages, evidence images, reviews, reports, and support requests | Feature-dependent | App functionality, moderation, support |
 | Photos | Profile photo and optional trade evidence selected or captured by the user | Optional | Profile and active-trade evidence |
+| Sensitive identity information / video | Government-ID and live identity-video material for seller applicants when collected through the designated review channel; raw media is not stored in the Exchange account record | Required only for seller applicants; exact channel, retention, and deletion must match the declaration | Fraud prevention, account security, seller eligibility review |
 | Identifiers | Account ID, random installation/device ID, session records, and Expo push token | Required for authenticated/native functions; push is optional | Authentication, security, notifications |
 | App activity | Lesson progress, notification state/preferences, and marketplace/Trade Room actions | Feature-dependent | App functionality and synchronization |
 | Diagnostics | Request IDs, delivery state, and bounded technical/security logs | Generated during service use | Reliability, abuse prevention, security |
@@ -110,7 +111,7 @@ Before entering answers, verify:
 2. required versus optional collection across every distributed app version;
 3. encryption in transit and the handling of evidence/media at rest;
 4. retention and deletion behavior across Vercel, Supabase, Expo Push, email/SMS,
-   and any production-only provider;
+   the seller identity-review channel, and any production-only provider;
 5. that the public privacy policy and in-app deletion flow match the Console
    declaration exactly;
 6. that no advertising or tracking SDK is present in the signed dependency and

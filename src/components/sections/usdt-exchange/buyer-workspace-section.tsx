@@ -127,13 +127,18 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("section") !== "trade-history") return;
-    const frame = window.requestAnimationFrame(() => {
+    const focusTarget = () => {
       const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
       if (!target) return;
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       target.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    };
+    const frame = window.requestAnimationFrame(focusTarget);
+    const timer = window.setTimeout(focusTarget, 250);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [BUYER_TRADE_HISTORY_SECTION_ID]);
 
   return (

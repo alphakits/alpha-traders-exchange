@@ -34,6 +34,7 @@ type Props = {
   locale: "ar" | "en";
   isBuyer?: boolean;
   sellerStatus?: string;
+  sellerApprovalVerified?: boolean;
   phoneVerificationEnabled: boolean;
 };
 
@@ -93,6 +94,7 @@ export function GuestOnboarding({
   locale,
   isBuyer = false,
   sellerStatus,
+  sellerApprovalVerified = false,
   phoneVerificationEnabled,
 }: Props) {
   const router = useRouter();
@@ -109,7 +111,8 @@ export function GuestOnboarding({
 
   const isLoading = loading !== null;
   const sellerNeedsReview = sellerStatus === "pending_seller_approval" || sellerStep === "applied";
-  const sellerIsApproved = sellerStatus === "approved_seller";
+  const sellerIsApproved = sellerStatus === "approved_seller" && sellerApprovalVerified;
+  const sellerNeedsVerificationReconciliation = sellerStatus === "approved_seller" && !sellerApprovalVerified;
 
   useEffect(() => {
     const savedWhatsappNumber = canonicalSession?.user?.whatsappNumber?.trim();
@@ -392,7 +395,22 @@ export function GuestOnboarding({
             icon={Store}
             accent="blue"
           >
-            {sellerIsApproved ? (
+            {sellerNeedsVerificationReconciliation ? (
+                <div
+                  key="seller-verification-reconciliation"
+                  className="alpha-reveal-rise rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100"
+                >
+                  <p className="flex items-center gap-2 font-medium"><Clock3 className="h-4 w-4" />{isAr ? "سجل التحقق يحتاج إلى مطابقة." : "Verification record reconciliation is required."}</p>
+                  <p className="mt-1 text-xs text-amber-100/90">
+                    {isAr
+                      ? "يبقى نشر العروض وبدء الصفقات مقفلاً حتى يسجّل مراجع مخوّل اكتمال فحص الهوية والفيديو وملكية وسيلة التواصل وقواعد السوق."
+                      : "Listings and new trades remain locked until an authorized reviewer records the completed ID, live-video, contact-ownership, and marketplace-rules checks."}
+                  </p>
+                  <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => router.replace("/usdt-exchange")}>
+                    {isAr ? "العودة إلى Exchange" : "Return to Exchange"}
+                  </Button>
+                </div>
+              ) : sellerIsApproved ? (
                 <div
                   key="seller-approved"
                   className="alpha-reveal-rise rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-200"

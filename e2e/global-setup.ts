@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type { FullConfig } from "@playwright/test";
 import alphaExchangeSeed from "../data/alpha-exchange-db.json";
 import { resolveBuyerFixture } from "./support/buyer-fixture";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -125,6 +126,9 @@ function upsertUser(db: RuntimeDb, input: {
     role: input.role,
     roles: input.roles,
     sellerStatus: input.sellerStatus,
+    ...(input.sellerStatus === "approved_seller" ? {
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
+    } : {}),
     whatsappNumber: "+972500000111",
     preferredNetworks: ["TRC20"],
     preferredPaymentMethods: ["Bank Transfer"],

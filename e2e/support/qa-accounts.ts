@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import type { APIRequestContext } from "@playwright/test";
+import { createE2eSellerApprovalVerification } from "./seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
@@ -143,6 +144,7 @@ export async function provisionQaWorld(request: APIRequestContext): Promise<QaWo
     role: "approved_seller",
     roles: ["approved_seller"],
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: createE2eSellerApprovalVerification(now, adminId),
     fullName: "QA Seller",
     sellerPrestigeRank: "bronze",
     sellerBankAccounts: [{

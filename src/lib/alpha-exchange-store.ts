@@ -28,7 +28,13 @@ import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
 import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
-import { createSellerApprovalVerification, type SellerApprovalChecklist } from "@/lib/seller-approval-verification";
+import {
+  createSellerApprovalVerification,
+  hasSellerOperationalAccess,
+  isSellerApprovalVerificationComplete,
+  normalizeSellerApprovalVerification,
+  type SellerApprovalChecklist,
+} from "@/lib/seller-approval-verification";
 import {
   sendMarketplaceEmail,
   type MarketplaceEmailEvent,
@@ -1646,7 +1652,12 @@ function buildPublicUserProfileDataForUser(input: {
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const canViewSensitiveProfileDetails = canBypassVisibility;
   const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
-  const fallbackPublicTradingName = isTrustEligibleSeller(user) ? "Verified Seller" : "Verified Member";
+  const sellerApprovalVerified = isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  const fallbackPublicTradingName = sellerApprovalVerified
+    ? "Verified Seller"
+    : user.emailVerified === true
+      ? "Verified Member"
+      : "Alpha Traders Member";
   const publicTradingName = canBypassVisibility || !containsDirectContactContent(explicitPublicTradingName)
     ? (explicitPublicTradingName || fallbackPublicTradingName)
     : fallbackPublicTradingName;
@@ -1661,6 +1672,7 @@ function buildPublicUserProfileDataForUser(input: {
       role: user.role,
       roles: user.roles ?? [user.role],
       sellerStatus: user.sellerStatus,
+      sellerApprovalVerified,
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
       country: visibleText(user.country),
@@ -1747,7 +1759,8 @@ export function matchesPublicProfileUsername(
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
-  return hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
+  return (user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended")
+    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
@@ -2095,7 +2108,7 @@ export async function getSellerProfileRouteData(input: {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
   const seller = db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName }, normalizedUsername));
-  if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
+  if (!seller || !isTrustEligibleSeller(seller)) {
     return null;
   }
 
@@ -2168,7 +2181,7 @@ export async function getPremiumSellerProfile(input: {
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
-  if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
+  if (!isTrustEligibleSeller(seller)) return null;
   const trustSnapshot = computeSellerReputationSnapshot(db, seller.id);
   const publicAccount = buildPublicUserProfileDataForUser({
     db,
@@ -2580,8 +2593,13 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     .map((application) => application.userId));
   const sellerApplicationUserIds = new Set((db.sellerApplications ?? []).map((application) => application.userId));
   const approvedApplicationPaymentMethodsByUserId = new Map<string, ReturnType<typeof resolveListingPaymentMethods>>();
+  const approvedApplicationVerificationByUserId = new Map<string, NonNullable<AlphaExchangeUser["sellerApprovalVerification"]>>();
   for (const application of db.sellerApplications ?? []) {
     if (application.status !== "approved") continue;
+    const applicationVerification = normalizeSellerApprovalVerification(application.verification);
+    if (applicationVerification) {
+      approvedApplicationVerificationByUserId.set(application.userId, applicationVerification);
+    }
     const methods = resolveListingPaymentMethods(application.preferredNetworks);
     if (!methods.length) continue;
     approvedApplicationPaymentMethodsByUserId.set(
@@ -2649,11 +2667,15 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       if (effectiveSellerStatus === "pending_seller_approval" && legacyPendingApplicantIds.has(user.id) && !effectiveStoredRoles.includes("buyer")) {
         effectiveStoredRoles.push("buyer");
       }
+      const sellerApprovalVerification = normalizeSellerApprovalVerification(
+        (user as { sellerApprovalVerification?: unknown }).sellerApprovalVerification,
+      ) ?? approvedApplicationVerificationByUserId.get(user.id);
       const normalizedRoles = normalizeRolesForUser({
         email,
         role: effectiveRole,
         roles: effectiveStoredRoles,
         sellerStatus: effectiveSellerStatus,
+        sellerApprovalVerification,
       });
       const normalizedRole = resolvePrimaryRole(normalizedRoles);
       const onboardingSelectionRaw = typeof (user as { onboardingSelection?: string }).onboardingSelection === "string"
@@ -2708,6 +2730,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         roles: normalizedRoles,
         role: normalizedRole,
         sellerStatus: effectiveSellerStatus,
+        sellerApprovalVerification,
         preferredNetworks: Array.isArray((user as { preferredNetworks?: string[] }).preferredNetworks)
           ? ((user as { preferredNetworks: string[] }).preferredNetworks.filter((network) => isSupportedNetwork(network)) as SupportedNetwork[])
           : [],
@@ -2844,6 +2867,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
       ...application,
+      verification: normalizeSellerApprovalVerification(application.verification),
       displayNumber: normalizeDisplayNumber((application as { displayNumber?: unknown }).displayNumber),
       status: isValidSellerApplicationStatus(application.status) ? application.status : "pending",
     })),
@@ -5769,10 +5793,8 @@ function isAdminEmail(email: string) {
   return isAlphaExchangeOwnerEmail(email);
 }
 
-export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">) {
-  // Admin and owner can always publish listings.
-  if (hasRole(user, "admin") || hasRole(user, "owner")) return true;
-  return user.sellerStatus === "approved_seller";
+export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus" | "sellerApprovalVerification">) {
+  return hasSellerOperationalAccess(user);
 }
 
 function resolveInviteStatus(invite: PrivateBetaInviteCode) {
@@ -5885,6 +5907,7 @@ export async function upsertUserProfileForAuth(input: {
         role: existing.role,
         roles: existing.roles,
         sellerStatus: existing.sellerStatus,
+        sellerApprovalVerification: existing.sellerApprovalVerification,
       });
       const nextFullName = input.fullName.trim() || existing.fullName;
       // Preserve a legacy display value during auth synchronization so a user is
@@ -7254,6 +7277,7 @@ export async function approveSellerApplicationByAdmin(
     roles: nextRoles,
     role: resolvePrimaryRole(nextRoles),
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: verification,
     preferredPaymentMethods: Array.from(new Set([
       ...(db.users[userIndex].preferredPaymentMethods ?? []),
       ...applicationPaymentMethods,
@@ -7300,6 +7324,64 @@ export async function approveSellerApplicationByAdmin(
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   publishArchivedNotifications(archivedAdminNotifications);
+  return db.sellerApplications[applicationIndex];
+}
+
+export async function recordApprovedSellerVerificationByAdmin(
+  applicationId: string,
+  adminUserId: string,
+  reason: string,
+  verificationChecklist: SellerApprovalChecklist,
+) {
+  const db = await readDb();
+  const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
+  if (applicationIndex === -1) throw new Error("Seller application not found.");
+
+  const application = db.sellerApplications[applicationIndex];
+  if (application.status !== "approved") {
+    throw new Error("Verification can be recorded only for an approved seller application.");
+  }
+  const userIndex = db.users.findIndex((user) => user.id === application.userId);
+  if (userIndex === -1) throw new Error("Application user not found.");
+  const user = db.users[userIndex];
+  if (user.sellerStatus !== "approved_seller" && user.sellerStatus !== "suspended") {
+    throw new Error("Verification can be recorded only for an approved or suspended seller.");
+  }
+
+  const verifiedAt = nowIso();
+  const verification = createSellerApprovalVerification(
+    verificationChecklist,
+    adminUserId,
+    verifiedAt,
+  );
+  db.sellerApplications[applicationIndex] = {
+    ...application,
+    verification,
+    updatedAt: verifiedAt,
+  };
+  db.users[userIndex] = {
+    ...user,
+    sellerApprovalVerification: verification,
+    updatedAt: verifiedAt,
+  };
+
+  await appendAuditLog(db, {
+    action: "seller_verification_recorded",
+    actorUserId: adminUserId,
+    targetUserId: application.userId,
+    details: `Recorded identity verification for approved seller application ${application.id}`,
+    reason,
+    newValue: {
+      verificationMethod: verification.method,
+      identityDocumentReviewed: true,
+      liveIdentityVideoReviewed: true,
+      contactOwnershipConfirmed: true,
+      marketplaceRulesAccepted: true,
+      verifiedAt: verification.verifiedAt,
+    },
+  });
+
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   return db.sellerApplications[applicationIndex];
 }
 
@@ -7391,6 +7473,9 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
   if (userIndex === -1) throw new Error("User not found.");
   const user = db.users[userIndex];
   if (hasRole(user, "owner")) throw new Error("Owner account cannot be modified.");
+  if (!normalizeSellerApprovalVerification(user.sellerApprovalVerification)) {
+    throw new Error("Seller identity verification must be recorded before reactivation.");
+  }
   const nextRoles = addRole(removeRole(user.roles ?? [user.role], "pending_seller_approval"), "approved_seller");
   db.users[userIndex] = {
     ...user,
@@ -8045,7 +8130,7 @@ export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getHallOfFameEntries() {
   const db = await readDb();
   return db.users
-    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "elite")
+    .filter((user) => isTrustEligibleSeller(user) && (user.sellerPrestigeRank ?? "bronze") === "elite")
     .map((user) => buildHallOfFameEntry(db, user))
     .sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime());
 }
@@ -8191,7 +8276,7 @@ export async function getMarketplaceListings(
           if (sellersBlockedByCommission.has(listing.sellerId)) return false;
           if (sellersBlockedByEnforcement.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
-          if (!seller || seller.disabled === true || seller.sellerStatus !== "approved_seller") return false;
+          if (!seller || seller.disabled === true || !canPublishListings(seller)) return false;
           if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
           const availableAmount = toNumber(listing.availableAmount);
           const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
@@ -8319,7 +8404,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   let buyersOnline = 0;
   for (const user of db.users) {
     if (!isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) continue;
-    const isApprovedSeller = user.sellerStatus === "approved_seller";
+    const isApprovedSeller = user.sellerStatus === "approved_seller" && canPublishListings(user);
     if (isApprovedSeller) {
       if (!hiddenOrSuspended.has(user.id)) sellersOnline += 1;
     } else if (!hasRole(user, "admin") && !hasRole(user, "owner")) {
@@ -8361,7 +8446,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
     if (blockedByCommission.has(listing.sellerId)) return false;
     if (blockedByEnforcement.has(listing.sellerId)) return false;
     const seller = sellerById.get(listing.sellerId);
-    if (!seller || seller.sellerStatus !== "approved_seller") return false;
+    if (!seller || !canPublishListings(seller)) return false;
     if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
     if (toNumber(listing.availableAmount) <= 0) return false;
     if (listing.expiresAt) {
@@ -8405,6 +8490,8 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   const activity: MarketplacePulseActivityEntry[] = [];
   for (const listing of db.marketplaceListings) {
     if (hiddenOrSuspended.has(listing.sellerId)) continue;
+    const seller = sellerById.get(listing.sellerId);
+    if (!seller || !canPublishListings(seller)) continue;
     if (isFreshTimestamp(listing.createdAt, 24 * 60 * 60 * 1000, nowMs)) {
       activity.push({ id: `newlisting-${listing.id}`, type: "new_listing", network: listing.network, createdAt: listing.createdAt });
     }
@@ -8420,7 +8507,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
     }
   }
   for (const user of db.users) {
-    if (user.sellerStatus !== "approved_seller" || hiddenOrSuspended.has(user.id)) continue;
+    if (user.sellerStatus !== "approved_seller" || !canPublishListings(user) || hiddenOrSuspended.has(user.id)) continue;
     if (user.onlineStatus === "online" && isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) {
       activity.push({ id: `online-${user.id}`, type: "seller_online", createdAt: user.lastActiveAt ?? nowIsoValue });
     }
@@ -8459,6 +8546,9 @@ export async function updateSellerProfileStateByAdmin(input: {
   if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
     throw new Error("Seller profile state can be managed only for approved sellers.");
+  }
+  if (input.feature === true && !isTrustEligibleSeller(seller)) {
+    throw new Error("Seller identity verification must be recorded before featuring this profile.");
   }
   const nextFeatured = typeof input.feature === "boolean" ? input.feature : seller.isFeaturedSeller === true;
   const nextHidden = typeof input.hidden === "boolean" ? input.hidden : seller.isProfileHidden === true;
@@ -8543,7 +8633,11 @@ function refreshTesterMarketplaceListingSellerDisplayName(db: AlphaExchangeDb, t
 
 async function ensureDevelopmentTesterMarketplaceListing(db: AlphaExchangeDb) {
   if (!isDevelopmentTesterSeedEnabled()) return;
-  const testerSeller = db.users.find((user) => isTesterSellerAccount(user) && user.sellerStatus === "approved_seller");
+  const testerSeller = db.users.find(
+    (user) => isTesterSellerAccount(user)
+      && user.sellerStatus === "approved_seller"
+      && canPublishListings(user),
+  );
   if (!testerSeller) return;
   const refreshed = refreshTesterMarketplaceListingSellerDisplayName(db, testerSeller);
   const owner = db.users.find((user) => hasRole(user, "owner"));
@@ -9944,7 +10038,7 @@ export async function createPurchaseRequest(input: {
     );
   }
   if (
-    seller.sellerStatus !== "approved_seller"
+    !canPublishListings(seller)
     || seller.isProfileHidden === true
     || Boolean(getSellerActiveEnforcementRecord(db, seller.id))
   ) {
@@ -10142,7 +10236,7 @@ export async function createPurchaseRequest(input: {
         !canonicalListing
         || !canonicalSeller
         || canonicalSeller.disabled === true
-        || canonicalSeller.sellerStatus !== "approved_seller"
+        || !canPublishListings(canonicalSeller)
         || canonicalSeller.isProfileHidden === true
         || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
         || Boolean(getSellerActiveEnforcementRecord(snapshot, sellerId))
@@ -10304,7 +10398,7 @@ export async function createPurchaseRequest(input: {
       if (
         !canonicalSeller
         || canonicalSeller.disabled === true
-        || canonicalSeller.sellerStatus !== "approved_seller"
+        || !canPublishListings(canonicalSeller)
         || canonicalSeller.isProfileHidden === true
         || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
         || Boolean(getSellerActiveEnforcementRecord(snapshot, sellerId))
@@ -11771,7 +11865,7 @@ export async function getAccountProfileData(userId: string): Promise<{
     showEmailPublic: user.showEmailPublic === true,
   };
 
-  if (hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended") {
+  if (isTrustEligibleSeller(user)) {
     const reputation = computeSellerReputationSnapshot(db, user.id);
     const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
     const sellerLevel = user.sellerPrestigeRank ?? reputation.level;
@@ -13070,7 +13164,7 @@ async function updatePurchaseRequestStatusAttempt(
     if (
       !currentSeller
       || currentSeller.disabled === true
-      || currentSeller.sellerStatus !== "approved_seller"
+      || !canPublishListings(currentSeller)
       || currentSeller.isProfileHidden === true
       || isSellerUnavailableForNewBuyers(currentSeller.availabilityStatus)
       || Boolean(getSellerActiveEnforcementRecord(db, currentSeller.id))
@@ -13890,7 +13984,7 @@ async function updatePurchaseRequestStatusAttempt(
             || toNumber(request.usdtAmount) > toNumber(canonicalListing.availableAmount)
             || !canonicalSeller
             || canonicalSeller.disabled === true
-            || canonicalSeller.sellerStatus !== "approved_seller"
+            || !canPublishListings(canonicalSeller)
             || canonicalSeller.isProfileHidden === true
             || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
             || Boolean(getSellerActiveEnforcementRecord(canonicalSnapshot, canonicalSeller.id))
@@ -17120,7 +17214,10 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
   }
   return {
     usersCount: db.users.length,
-    approvedSellersCount: db.users.filter((user) => user.sellerStatus === "approved_seller").length,
+    approvedSellersCount: db.users.filter(
+      (user) => user.sellerStatus === "approved_seller"
+        && isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
+    ).length,
     pendingApplicationsCount: db.sellerApplications.filter((item) => item.status === "pending").length,
     pendingListingsCount: db.marketplaceListings.filter((item) => isListingPendingApproval(item)).length,
     rejectedApplicationsCount: db.sellerApplications.filter((item) => item.status === "rejected").length,
@@ -17417,20 +17514,42 @@ export async function unlockTradeReviewByAdmin(input: { requestId: string; reaso
 
 export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
   const db = await readDb();
+  const actor = db.users.find((candidate) => candidate.id === input.actorUserId);
+  if (!actor || !hasRole(actor, "owner")) {
+    throw new Error("Owner access is required to change account roles.");
+  }
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("A role-change reason is required.");
   const index = db.users.findIndex((u) => u.id === input.userId);
   if (index === -1) throw new Error("User not found.");
   const user = db.users[index];
   if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
+  if (input.role === "owner") {
+    throw new Error("Owner access cannot be assigned through generic role management.");
+  }
+  if (input.role === "approved_seller" || input.role === "pending_seller_approval") {
+    throw new Error("Seller access must be managed through the verified seller application workflow.");
+  }
+  if (["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus)) {
+    throw new Error("Seller accounts must be managed through dedicated seller controls.");
+  }
   const oldRole = user.role;
-  db.users[index] = { ...user, role: input.role, updatedAt: nowIso() };
+  const oldRoles = user.roles ?? [user.role];
+  const nextRoles = [input.role];
+  db.users[index] = {
+    ...user,
+    role: input.role,
+    roles: nextRoles,
+    updatedAt: nowIso(),
+  };
   await appendAuditLog(db, {
     action: "admin_override",
     actorUserId: input.actorUserId,
     targetUserId: input.userId,
     details: `User role changed from ${oldRole} to ${input.role}`,
-    oldValue: oldRole,
-    newValue: input.role,
-    reason: input.reason,
+    oldValue: { role: oldRole, roles: oldRoles },
+    newValue: { role: input.role, roles: nextRoles },
+    reason,
   });
   await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }

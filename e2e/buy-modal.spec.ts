@@ -2,6 +2,7 @@ import { test, expect, request, type APIRequestContext, type Page } from "@playw
 import { randomUUID } from "node:crypto";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
 
@@ -39,6 +40,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
       role: "approved_seller",
       roles: ["approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
       whatsappNumber: "+972500000055",
       preferredNetworks: ["TRC20"],
       preferredPaymentMethods: ["Bank Transfer"],

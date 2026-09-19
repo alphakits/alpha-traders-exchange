@@ -34,6 +34,7 @@ const seller = {
   role: "approved_seller" as const,
   roles: ["approved_seller" as const, "buyer" as const],
   sellerStatus: "approved_seller" as const,
+  sellerApprovalVerified: true,
   whatsappNumber: "",
   preferredNetworks: [],
   preferredPaymentMethods: [],
