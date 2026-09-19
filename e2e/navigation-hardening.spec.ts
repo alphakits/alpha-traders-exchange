@@ -101,7 +101,7 @@ test.describe("Navigation hardening", () => {
 
     await page.reload({ waitUntil: "commit" });
 
-    await expect(page).toHaveURL(/\/en\/dashboard\/seller$/);
+    await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
     await expect(main.getByText(/seller status/i).first()).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);

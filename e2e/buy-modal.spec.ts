@@ -247,11 +247,12 @@ test.describe("Direct Buy USDT modal", () => {
     const requests = Array.isArray(db.purchaseRequests) ? db.purchaseRequests : [];
     const submitted = requests.find((entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).listingId === listingId) as Record<string, unknown> | undefined;
     expect(submitted).toMatchObject({
+      usdtAmount: "100",
       listingPriceAtRequest: "3.60",
       pricePerUsdt: "3.25",
       priceMode: "buyer_offer",
       priceOfferDiscount: "0.35",
-      fiatAmount: "3250.00",
+      fiatAmount: "325.00",
       status: "pending",
     });
   });

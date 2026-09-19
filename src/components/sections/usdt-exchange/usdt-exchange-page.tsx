@@ -2534,8 +2534,13 @@ export function UsdtExchangePage({
     if (typeof document === "undefined") return false;
     const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
     if (!target) return false;
+    target.focus({ preventScroll: true });
     target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID)?.focus({ preventScroll: true });
+      });
+    });
     return true;
   }, []);
 

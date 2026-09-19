@@ -401,6 +401,13 @@ export async function POST(request: NextRequest) {
       reason: "unexpected_error",
       metadata: { errorType: error instanceof Error ? error.name : typeof error },
     });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Login failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    // Never expose provider configuration, database, or other internal error
+    // details through a public authentication response. The structured server
+    // log above retains the diagnostic category for operators while callers
+    // receive a stable, non-enumerating failure message.
+    return NextResponse.json(
+      { error: "Unable to sign in. Please try again." },
+      { status: 503, headers: AUTH_RESPONSE_HEADERS },
+    );
   }
 }

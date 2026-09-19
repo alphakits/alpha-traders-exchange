@@ -700,6 +700,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
+  const [dashboardBankAccount] = await ensureSellerBankAccounts(seller.page.request, 1);
+  if (!dashboardBankAccount) throw new Error("Seller bank account provisioning failed for dashboard listing fixtures.");
   const suffix = Date.now().toString(36);
   const listingId = `dashboard-listing-latest-${suffix}`;
   const middleListingId = `dashboard-listing-middle-${suffix}`;
@@ -731,6 +733,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
         network: "TRC20",
         paymentMethod: "Bank Transfer",
         paymentMethods: ["Bank Transfer"],
+        bankAccountId: dashboardBankAccount.id,
+        bankName: dashboardBankAccount.bankName,
         minimumTrade: "50",
         maximumTrade: "500",
         expiresAt: "2031-01-01T00:00:00.000Z",

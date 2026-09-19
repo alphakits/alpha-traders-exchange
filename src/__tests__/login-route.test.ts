@@ -12,6 +12,11 @@ const phoneVerificationMocks = vi.hoisted(() => ({
   isVerified: vi.fn(),
 }));
 
+const supabaseAuthMocks = vi.hoisted(() => ({
+  createClient: vi.fn(),
+  signInWithPassword: vi.fn(),
+}));
+
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
     set: vi.fn(),
@@ -42,9 +47,7 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 vi.mock("@/lib/supabase-auth-provider", () => ({
-  createSupabaseAuthClient: vi.fn(() => ({
-    auth: { signInWithPassword: vi.fn() },
-  })),
+  createSupabaseAuthClient: supabaseAuthMocks.createClient,
   inferLocaleFromRequest: vi.fn(() => "en"),
 }));
 
@@ -98,6 +101,13 @@ beforeEach(() => {
   mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mockCheckSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   mockAuthenticateLocalUser.mockResolvedValue(null);
+  supabaseAuthMocks.signInWithPassword.mockResolvedValue({
+    data: { user: null },
+    error: { message: "Invalid login credentials" },
+  });
+  supabaseAuthMocks.createClient.mockReturnValue({
+    auth: { signInWithPassword: supabaseAuthMocks.signInWithPassword },
+  });
   mockCreateEmailVerificationTokenForUser.mockResolvedValue({ token: "a".repeat(64) } as never);
   mockUpsertUserProfileForAuth.mockResolvedValue(verifiedLocalUser as never);
   mockCreateUserSession.mockResolvedValue({ token: "test-session-token", expiresAt: "2030-01-01T00:00:00.000Z" });
@@ -121,6 +131,35 @@ describe("POST /api/auth/login", () => {
 
     const payload = await response.json();
     expect(payload).toEqual({ error: "Invalid JSON body." });
+  });
+
+  it("returns a non-enumerating response for invalid provider credentials", async () => {
+    const request = new Request("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "unknown@example.com", password: "wrong-password" }),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Invalid credentials." });
+  });
+
+  it("does not expose authentication-provider configuration failures", async () => {
+    supabaseAuthMocks.createClient.mockImplementationOnce(() => {
+      throw new Error("Supabase authentication is not configured.");
+    });
+    const request = new Request("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "unknown@example.com", password: "wrong-password" }),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Unable to sign in. Please try again." });
   });
 
   it("validates malformed credentials before consuming login rate-limit capacity", async () => {
