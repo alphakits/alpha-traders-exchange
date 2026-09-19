@@ -319,6 +319,10 @@ describe("guided cash-trade completion", () => {
         actorUserId: BUYER_ID,
         actorRole: "buyer",
         nextStatus: "payment_sent",
+        ...(paymentMethod === "Cardless ATM Withdrawal" ? {
+          cardlessWithdrawalCode: "482913",
+          clientOperationId: "0123456789abcdef0123456789abcdef",
+        } : {}),
       });
       expect(buyerConfirmed.request).toMatchObject({
         status: "payment_sent",

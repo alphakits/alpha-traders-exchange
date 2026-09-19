@@ -6,7 +6,7 @@ type RouteContext = {
   params: Promise<{ requestId: string }>;
 };
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function POST(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
@@ -19,7 +19,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
     });
-    return NextResponse.json({ bankDetails });
+    return NextResponse.json({ bankDetails }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load bank details.";
     const status = message === "Trade not found."
@@ -27,6 +27,6 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       : message.includes("not allowed") || message.includes("only after")
         ? 403
         : 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });
   }
 }

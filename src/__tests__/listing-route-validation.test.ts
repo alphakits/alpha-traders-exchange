@@ -195,6 +195,35 @@ describe("alpha-exchange listing route validation", () => {
     }));
   });
 
+  it("canonicalizes a legacy three-decimal listing price to the two decimals buyers see", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue({
+      id: "listing-1",
+      price: "3.10",
+      currency: "ILS",
+      availableAmount: "1000",
+      minimumTrade: "100",
+      maximumTrade: "1000",
+      paymentMethods: ["Face-to-Face (Meet in Person)"],
+      paymentMethod: "Face-to-Face (Meet in Person)",
+    });
+
+    const request = new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
+      method: "PATCH",
+      body: JSON.stringify({
+        price: "3.263",
+        changeReason: "Price updated",
+        changeExplanation: "Correct the displayed marketplace price.",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await PATCH(request, { params: Promise.resolve({ listingId: "listing-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalledWith(expect.objectContaining({
+      price: "3.26",
+    }));
+  });
+
   it("requires supported banks when cardless ATM is enabled", async () => {
     mocks.getMarketplaceListingById.mockResolvedValue({
       id: "listing-1",

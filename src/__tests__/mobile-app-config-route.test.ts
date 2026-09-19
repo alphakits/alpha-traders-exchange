@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { GET } from "@/app/api/mobile/v1/app-config/route";
+import { GET, runtime } from "@/app/api/mobile/v1/app-config/route";
 
 function request(headers: Record<string, string> = {}) {
   return new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/app-config", {
@@ -22,6 +22,10 @@ afterEach(() => {
 });
 
 describe("GET /api/mobile/v1/app-config", () => {
+  it("runs at the edge so native startup does not wait for the Node/database bundle", () => {
+    expect(runtime).toBe("edge");
+  });
+
   it("remains available to an old client and returns its platform policy", async () => {
     vi.stubEnv("MOBILE_MIN_IOS_VERSION", "2.0.0");
     vi.stubEnv("MOBILE_LATEST_IOS_VERSION", "2.1.0");

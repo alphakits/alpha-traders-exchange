@@ -106,11 +106,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = await readMobileJsonBody(request);
     const action = String(body?.action ?? "").trim();
-    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face") {
+    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
-    const nextStatus = (isCashTradeCompletion ? "completed" : String(body?.status ?? "")) as PurchaseRequestStatus;
+    const isCardlessCodeSubmission = action === "submit_cardless_code";
+    const nextStatus = (isCashTradeCompletion ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(body?.status ?? "")) as PurchaseRequestStatus;
     if (!MOBILE_MUTABLE_STATUSES.has(nextStatus)) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -135,6 +136,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       nextStatus,
       completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
       safetyAcknowledged: body?.safetyAcknowledged === true,
+      cardlessWithdrawalCode: isCardlessCodeSubmission ? String(body?.withdrawalCode ?? "") : undefined,
+      clientOperationId: isCardlessCodeSubmission ? String(body?.clientOperationId ?? "") : undefined,
     });
 
     if (updated.deferredTrustWrite) {

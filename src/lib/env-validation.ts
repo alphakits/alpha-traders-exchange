@@ -39,6 +39,7 @@ const ENV_VARS: EnvVar[] = [
   { key: "DISCORD_MARKETPLACE_WEBHOOK_SECRET", required: false, description: "HMAC secret protecting marketplace event relay requests" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
   { key: "ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB", required: false, description: "Max evidence upload size in MB" },
+  { key: "ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", required: false, description: "Dedicated server-only encryption key material for temporary Cardless ATM withdrawal credentials" },
   { key: "CRON_SECRET", required: false, description: "Bearer secret protecting scheduled Trade Room reminder jobs" },
   { key: "ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN", required: false, description: "Dev-only: expose reset token in API response (never set in production)" },
   { key: "TWILIO_ACCOUNT_SID", required: false, description: "Twilio account SID for server-side SMS delivery" },
@@ -179,6 +180,16 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
         "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY — admin media uploads require object storage credentials in production.",
       );
     }
+    const cardlessCredentialSecret = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET?.trim();
+    if (cardlessCredentialSecret && cardlessCredentialSecret.length < 32) {
+      errors.push(
+        "SECURITY: ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET must contain at least 32 characters.",
+      );
+    } else if (!cardlessCredentialSecret) {
+      warnings.push(
+        "ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET is not set. Cardless ATM credentials will use existing server-only key material until a dedicated stable secret is configured.",
+      );
+    }
     if (!process.env.NEXT_PUBLIC_SITE_URL) {
       warnings.push(
         "NEXT_PUBLIC_SITE_URL is not set. Production metadata and sitemap will fall back to Vercel-provided hostnames instead of the custom domain.",
@@ -299,13 +310,19 @@ export function runEnvValidation(): void {
   }
 
   if (errors.length > 0) {
-    for (const error of errors) {
-      console.error("[env-validation] FATAL:", error);
-    }
     const isLocalBuild = process.env.NEXT_PHASE === "phase-production-build"
       && !process.env.VERCEL
       && !process.env.VERCEL_ENV;
-    if (isProductionSecurityRuntime() && !isLocalBuild) {
+    const shouldFailRuntime = isProductionSecurityRuntime() && !isLocalBuild;
+
+    for (const error of errors) {
+      if (shouldFailRuntime) {
+        console.error("[env-validation] FATAL:", error);
+      } else {
+        console.warn("[env-validation] NON-BLOCKING:", error);
+      }
+    }
+    if (shouldFailRuntime) {
       throw new Error(
         `Environment validation failed with ${errors.length} error(s). See logs above.`,
       );

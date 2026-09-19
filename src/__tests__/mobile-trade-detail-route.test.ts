@@ -257,6 +257,26 @@ describe("mobile trade detail route", () => {
     }));
   });
 
+  it("submits a Cardless ATM code and payment confirmation atomically", async () => {
+    const response = await PATCH(request("PATCH", {
+      action: "submit_cardless_code",
+      withdrawalCode: "482913",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
+    }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1",
+      actorUserId: "buyer-1",
+      actorRole: "buyer",
+      nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
+    }));
+  });
+
   it("exposes and executes seller-only Face-to-Face completion only after USDT was confirmed sent", async () => {
     mocks.requireMobileApiUser.mockResolvedValue({
       user: { id: "private-seller-id", role: "approved_seller" },

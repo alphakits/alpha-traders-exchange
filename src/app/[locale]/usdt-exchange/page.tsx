@@ -19,7 +19,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function UsdtExchangeRoute({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
-  const user = await getCurrentSessionUser();
+  const [{ locale }, user] = await Promise.all([
+    params,
+    getCurrentSessionUser(),
+  ]);
   return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
 }

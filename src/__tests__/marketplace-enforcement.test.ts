@@ -53,6 +53,18 @@ function createUser(id: string, role: "owner" | "admin" | "approved_seller") {
     sellerPrestigeRank: "bronze",
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `bank-${id}-leumi`,
+      sellerId: id,
+      accountHolderName: id,
+      bankName: "Bank Leumi",
+      branchNumber: "123",
+      accountNumber: "1234567890",
+      accountLast4: "7890",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
     ownerSettings: role === "owner"
       ? {
           marketplaceComplianceRecoveryWallet: {

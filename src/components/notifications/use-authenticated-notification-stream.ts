@@ -20,9 +20,11 @@ export function getNotificationStreamReconnectDelayMs(attempt: number) {
 }
 
 /**
- * Opens the notification stream only for a canonically authenticated session.
- * An EventSource cannot expose a failed handshake status, so every connection
- * error is reconciled through `/api/auth/me` before a bounded-backoff reconnect.
+ * Opens the notification stream from the server-authenticated session without
+ * waiting on a duplicate client bootstrap read. The stream endpoint performs
+ * its own cookie authorization. Because EventSource cannot expose a failed
+ * handshake status, connection errors are reconciled through `/api/auth/me`
+ * before any bounded-backoff reconnect.
  * A confirmed signed-out state therefore closes the stream instead of letting
  * the browser retry an unauthorized request indefinitely, while temporary
  * network or server failures can recover without a page reload.

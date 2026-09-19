@@ -26,7 +26,7 @@ describe("Trade Room client prefetch reliability", () => {
 
     vi.advanceTimersByTime(90_001);
     expect(readTradeRoomCache("trade-1", "buyer-1")).toBeNull();
-    expect(window.sessionStorage.getItem("alpha.trade-room.cache.buyer-1.trade-1")).toBeNull();
+    expect(window.sessionStorage.getItem("alpha.trade-room.cache.v2.buyer-1.trade-1")).toBeNull();
   });
 
   it("never shares a cached Trade Room snapshot with a different signed-in account", () => {
@@ -34,6 +34,30 @@ describe("Trade Room client prefetch reliability", () => {
 
     expect(readTradeRoomCache("trade-shared", "buyer-1")).toEqual({ privateView: "buyer-one" });
     expect(readTradeRoomCache("trade-shared", "buyer-2")).toBeNull();
+  });
+
+  it("never persists decrypted Cardless ATM credentials or server-only bank snapshots", () => {
+    writeTradeRoomCache("trade-secret", "buyer-1", {
+      request: {
+        id: "trade-secret",
+        sellerBankAccountSnapshot: { accountNumber: "12345678" },
+        messages: [{ id: "credential-1", credentialKind: "cardless_code", message: "Cardless withdrawal code: 123456", payloadHash: "secret-hash" }],
+      },
+      messages: [
+        { id: "normal-1", message: "Hello", payloadHash: "internal-hash" },
+        { id: "credential-1", credentialKind: "cardless_code", message: "Cardless withdrawal code: 123456", payloadHash: "secret-hash" },
+      ],
+    });
+
+    const raw = window.sessionStorage.getItem("alpha.trade-room.cache.v2.buyer-1.trade-secret");
+    expect(raw).not.toContain("123456");
+    expect(raw).not.toContain("12345678");
+    expect(raw).not.toContain("secret-hash");
+    expect(raw).not.toContain("internal-hash");
+    expect(readTradeRoomCache("trade-secret", "buyer-1")).toMatchObject({
+      request: { id: "trade-secret", messages: [] },
+      messages: [{ id: "normal-1", message: "Hello" }],
+    });
   });
 
   it("coalesces hover, focus, and click prefetches into one route and data request", async () => {

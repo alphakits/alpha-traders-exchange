@@ -1,4 +1,5 @@
 export const ALPHA_TRADERS_WEB_ORIGIN = "https://www.alphatraders.co.il";
+export const MAX_WEBSITE_NAVIGATION_URL_LENGTH = 4_096;
 
 const ALPHA_TRADERS_WEB_HOSTS = new Set([
   "alphatraders.co.il",
@@ -20,6 +21,7 @@ const EXTERNAL_SCHEMES = new Set([
 export type WebsiteNavigationDecision = "allow" | "external" | "block";
 
 export function isTrustedWebsiteDocumentUrl(rawUrl: string) {
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return false;
   try {
     const parsed = new URL(rawUrl);
     return parsed.protocol === "https:"
@@ -38,6 +40,7 @@ function isTrustedWebsiteBlobUrl(rawUrl: string) {
 }
 
 export function websiteNavigationDecision(rawUrl: string): WebsiteNavigationDecision {
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return "block";
   const value = rawUrl.trim();
   if (!value) return "block";
   if (value === "about:blank") return "allow";
@@ -64,6 +67,7 @@ export function websiteNavigationDecision(rawUrl: string): WebsiteNavigationDeci
 export function trustedWebsiteResumeUrl(rawUrl: string | null | undefined, locale: "ar" | "en") {
   const fallback = `${ALPHA_TRADERS_WEB_ORIGIN}/${locale}`;
   if (!rawUrl) return fallback;
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return fallback;
 
   try {
     const parsed = new URL(rawUrl, ALPHA_TRADERS_WEB_ORIGIN);
@@ -77,6 +81,7 @@ export function trustedWebsiteResumeUrl(rawUrl: string | null | undefined, local
 }
 
 export function trustedWebsiteReturnPath(rawUrl: string) {
+  if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return null;
   try {
     const parsed = new URL(rawUrl);
     if (!isTrustedWebsiteDocumentUrl(parsed.toString())) return null;

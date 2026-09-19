@@ -50,6 +50,7 @@ import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank"
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
+import { normalizeLocalizedDecimalInput, normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
 import type { SellerApplicationForm, SellerApplicationMethod } from "@/components/sections/usdt-exchange/seller-application-section";
@@ -280,6 +281,7 @@ export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolea
     trade_locked: "تم قفل الصفقة للمراجعة.",
     review_unlocked: "أصبح تقييم الصفقة متاحاً.",
     dispute_opened: "تم فتح نزاع على الصفقة.",
+    dispute_resolved: "تم حل النزاع ويمكن متابعة الصفقة.",
     commission_recorded: "تم تسجيل عمولة الصفقة.",
     commission_paid: "تم تأكيد دفع العمولة.",
     buyer_evidence_uploaded: "رفع المشتري إثبات الدفع.",
@@ -479,7 +481,7 @@ export function formatIls(value: number) {
 export function formatUsdt(value: number) {
   return `${value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 6,
   })} USDT`;
 }
 
@@ -530,10 +532,10 @@ export function formatIntegerForInput(value: string | number | null | undefined)
 }
 
 export function normalizeDecimalInput(value: string | number | null | undefined) {
-  const raw = String(value ?? "").replace(/[^\d.]/g, "");
-  const firstDot = raw.indexOf(".");
-  if (firstDot === -1) return raw;
-  return `${raw.slice(0, firstDot + 1)}${raw.slice(firstDot + 1).replace(/\./g, "")}`;
+  return normalizeLocalizedDecimalInput(value, {
+    maximumFractionDigits: 2,
+    maximumWholeDigits: 7,
+  });
 }
 
 export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
@@ -689,6 +691,10 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "SELLER_COMMISSION_DUE") return "يجب دفع عمولة البائع المستحقة قبل بدء عملية شراء جديدة.";
   if (code === "LISTING_SELLER_LOCKED") return "هذا العرض غير متاح مؤقتاً لطلبات شراء جديدة. اختر بائعاً آخر.";
+  if (code === "LISTING_CHANGED") return "تغيّرت تفاصيل العرض أثناء إرسال طلبك. أعد فتح العرض وراجع الشروط الجديدة.";
+  if (code === "LISTING_UNAVAILABLE") return "لم يعد هذا العرض متاحاً لطلب شراء جديد.";
+  if (code === "LISTING_AMOUNT_CHANGED") return "تغيّرت الكمية المتاحة أو حدود الصفقة. أعد فتح العرض واختر مبلغاً ضمن الحدود الجديدة.";
+  if (code === "LISTING_BANK_ACCOUNT_UNAVAILABLE") return "لم يعد حساب التحويل البنكي المرتبط بهذا العرض متاحاً. اختر عرضاً آخر أو اطلب من البائع تحديثه.";
   return safeErrorMessage("purchase", true);
 }
 
@@ -1035,7 +1041,7 @@ type ListingCardProps = {
 const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
-  const formattedAvailableAmount = toNumber(listing.availableAmount).toLocaleString("en-IL");
+  const formattedAvailableAmount = toNumber(listing.availableAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 });
   const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
   const presence = deriveSellerPresence({
     onlineStatus: listing.sellerProfile?.onlineStatus,
@@ -1231,7 +1237,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
+            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL", { maximumFractionDigits: 6 })} – {toNumber(listing.maximumTrade).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</span></p>
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
@@ -1845,6 +1851,33 @@ export function UsdtExchangePage({
       return null;
     }
   }, [isAr, refreshMyPurchaseRequests, tracedReadFetch]);
+
+  // Purchase requests are financial state, so the workspace must converge even
+  // when a user disabled in-app notifications or an SSE connection was lost.
+  useEffect(() => {
+    if (!sessionUser || isSessionResolving) return;
+    let disposed = false;
+    let inFlight = false;
+    const refreshVisibleRequests = async () => {
+      if (disposed || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      try {
+        await refreshMyPurchaseRequests();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const resume = () => { void refreshVisibleRequests(); };
+    const interval = window.setInterval(() => { void refreshVisibleRequests(); }, 12_000);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [isSessionResolving, refreshMyPurchaseRequests, sessionUser]);
 
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
@@ -2611,7 +2644,7 @@ export function UsdtExchangePage({
     setFaceToFaceSafetyAcknowledged(false);
     setBuyerInfo((prev) => ({
       ...prev,
-      usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
+      usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "",
     }));
   }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
@@ -2894,9 +2927,12 @@ export function UsdtExchangePage({
   const openListingModal = useCallback((listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer" = "listing_price") => {
     if (!requireAuth()) return;
     const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
+    const offerBounds = getPriceOfferBounds(listing.price);
     setSelectedListing(listing);
     setPurchasePriceMode(priceMode);
-    setBuyerOfferedPrice("");
+    setBuyerOfferedPrice(priceMode === "buyer_offer" && offerBounds && toNumber(offerBounds.listingPrice) > 0.01
+      ? (toNumber(offerBounds.listingPrice) - 0.01).toFixed(2)
+      : "");
     setSelectedPurchasePaymentMethod(supportedMethods[0] ?? "Bank Transfer");
     setSellerProfileData(null);
     setPurchaseSubmitted(false);
@@ -2907,7 +2943,7 @@ export function UsdtExchangePage({
     updateListingSelectionQuery(listing.id);
     setBuyerInfo((prev) => ({
       ...prev,
-      usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
+      usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "",
     }));
   }, [requireAuth, updateListingSelectionQuery]);
@@ -2978,11 +3014,13 @@ export function UsdtExchangePage({
     }
     const requestedAmount = toNumber(tradeAmount);
     const minTrade = Math.max(0, toNumber(selectedListing.minimumTrade));
-    const maxTrade = toNumber(selectedListing.maximumTrade || selectedListing.availableAmount);
+    const availableTrade = toNumber(selectedListing.availableAmount);
+    const configuredMaxTrade = toNumber(selectedListing.maximumTrade) || availableTrade;
+    const maxTrade = Math.min(configuredMaxTrade, availableTrade);
     if (requestedAmount < minTrade || requestedAmount > maxTrade) {
       setStatusMessage(isAr
-        ? `يجب أن يكون مبلغ الصفقة بين ${minTrade.toLocaleString("en-IL")} و${maxTrade.toLocaleString("en-IL")} USDT.`
-        : `Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
+        ? `يجب أن يكون مبلغ الصفقة بين ${minTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} و${maxTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT.`
+        : `Trade amount must be between ${minTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} and ${maxTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT.`);
       return;
     }
     if (purchasePriceMode === "buyer_offer") {
@@ -3099,9 +3137,13 @@ export function UsdtExchangePage({
     await submitPurchaseRequest();
   }
 
-  const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
-  const selectedPrice = selectedListing ? toNumber(selectedListing.price) : 0;
   const selectedOfferBounds = selectedListing ? getPriceOfferBounds(selectedListing.price) : null;
+  const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
+  const selectedPrice = selectedOfferBounds
+    ? toNumber(selectedOfferBounds.listingPrice)
+    : selectedListing
+      ? toNumber(selectedListing.price)
+      : 0;
   const selectedOfferValidation = selectedListing && purchasePriceMode === "buyer_offer"
     ? validatePriceOffer(selectedListing.price, buyerOfferedPrice)
     : null;
@@ -3109,8 +3151,7 @@ export function UsdtExchangePage({
     ? (selectedOfferValidation?.ok ? toNumber(selectedOfferValidation.offeredPrice) : 0)
     : selectedPrice;
   const selectedTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const commission = selectedTradeAmount * selectedTradePrice * 0.01;
-  const estimatedTotal = selectedTradeAmount * selectedTradePrice + commission;
+  const estimatedTotal = selectedTradeAmount * selectedTradePrice;
 
   const isApprovedSeller = isApprovedSellerSession;
   const isSellerWorkspaceUser = hasSellerWorkspaceAccess;
@@ -3245,7 +3286,12 @@ export function UsdtExchangePage({
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
   const buyerTradeAmount = toNumber(buyerInfo.usdtAmount);
   const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
-  const selectedMaxTrade = selectedListing ? toNumber(selectedListing.maximumTrade || selectedListing.availableAmount) : 0;
+  const selectedMaxTrade = selectedListing
+    ? Math.min(
+        toNumber(selectedListing.maximumTrade) || toNumber(selectedListing.availableAmount),
+        toNumber(selectedListing.availableAmount),
+      )
+    : 0;
   const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
   const buyerWalletValidationError = selectedListing
     ? localizeWalletValidationError(getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress), selectedListing.network, isAr)
@@ -4560,16 +4606,14 @@ export function UsdtExchangePage({
     const targetRequest = myRequests.find((request) => request.id === requestId);
     const isPriceOffer = targetRequest?.priceMode === "buyer_offer";
     setRequestActionKey(actionKey);
-    const safetyAcknowledged = nextStatus === "accepted"
-      ? true
-      : options?.safetyAcknowledged === true;
+    const safetyAcknowledged = options?.safetyAcknowledged === true;
     try {
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus, safetyAcknowledged }),
       });
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; request?: PurchaseRequest; destination?: string };
       if (!response.ok) {
         setSellerWorkspaceMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
         return;
@@ -4581,7 +4625,16 @@ export function UsdtExchangePage({
       else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage(isAr ? "بدأ إرسال USDT." : "USDT release started.");
       else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage(isAr ? "تم تحديد USDT كمُرسل." : "USDT sent marked.");
       else setSellerWorkspaceMessage(isPriceOffer ? (isAr ? "تم رفض عرض السعر." : "Price offer declined.") : (isAr ? "تم رفض الطلب." : "Request declined."));
+      if (payload.request) {
+        setMyRequests((current) => current.map((request) => request.id === payload.request?.id ? payload.request : request));
+      }
+      if (nextStatus === "accepted" && navigateAfterSuccess(router, payload.destination)) {
+        void refreshSellerWorkspace();
+        return;
+      }
       await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(isAr ? "تعذر الاتصال بالخادم الآن. حاول مرة أخرى." : "Unable to reach the server right now. Please try again.");
     } finally {
       setRequestActionKey(null);
     }
@@ -4953,7 +5006,7 @@ export function UsdtExchangePage({
                 <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
                   <div>
                     <p className="font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                    <p className="mt-0.5">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT • {paymentMethodLabel(request.paymentMethod, isAr)}</p>
+                    <p className="mt-0.5">{toNumber(request.usdtAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT • {paymentMethodLabel(request.paymentMethod, isAr)}</p>
                   </div>
                   <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{tradeStatusLabel(request.status, isAr)}</span>
                 </div>
@@ -4962,7 +5015,7 @@ export function UsdtExchangePage({
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
-            <p className="mt-3 text-3xl font-semibold text-white">{buyerOverviewStats.totalUsdtBought.toLocaleString("en-IL")} USDT</p>
+            <p className="mt-3 text-3xl font-semibold text-white">{buyerOverviewStats.totalUsdtBought.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</p>
             <p className="mt-1 text-sm text-[#E5E7EB]">{isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange."}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
@@ -5484,7 +5537,6 @@ export function UsdtExchangePage({
               sortedDashboardListings,
               ISRAELI_BANKS,
               formatIls,
-              formatIntegerForInput,
               listingChangeReasonLabel,
               listingStatusLabel,
               normalizeDecimalInput,
@@ -5512,7 +5564,7 @@ export function UsdtExchangePage({
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                     <div>
                       <p className="font-medium text-white">{shortTradeRef(trade, isAr)}</p>
-                      <p className="mt-0.5">{toNumber(trade.usdtAmount).toLocaleString("en-IL")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
+                      <p className="mt-0.5">{toNumber(trade.usdtAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
                       <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })}</p>
                     </div>
                   </div>
@@ -5877,7 +5929,7 @@ export function UsdtExchangePage({
         {[
           { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
           { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
-          { value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
+          { value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
           { value: isAr ? `${marketplacePulse.averageResponseMinutes} دقائق` : `${marketplacePulse.averageResponseMinutes} min`, labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
         ].map((item) => {
           const Icon = item.icon;
@@ -6013,7 +6065,6 @@ export function UsdtExchangePage({
           isSellerProfileLoading={isSellerProfileLoading}
           selectedAmount={selectedAmount}
           selectedPrice={selectedPrice}
-          commission={commission}
           estimatedTotal={estimatedTotal}
           isOwnerViewer={isOwnerViewer}
           isOwnerProfileActionLoading={isOwnerProfileActionLoading}
@@ -6045,7 +6096,7 @@ export function UsdtExchangePage({
             setSelectedPurchasePaymentMethod(method);
             setFaceToFaceSafetyAcknowledged(false);
           }}
-          onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: value }))}
+          onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
           onOfferedPriceChange={(value) => setBuyerOfferedPrice(normalizePriceOfferInput(value))}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
@@ -6057,7 +6108,6 @@ export function UsdtExchangePage({
             void handleOwnerSuspendSeller(sellerId);
           }}
           formatIls={formatIls}
-          formatIntegerForInput={formatIntegerForInput}
           localizedAuditAction={localizedAuditAction}
           paymentMethodEmoji={paymentMethodEmoji}
           paymentMethodLabel={paymentMethodLabel}

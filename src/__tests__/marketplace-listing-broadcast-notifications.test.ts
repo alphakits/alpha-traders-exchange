@@ -127,6 +127,18 @@ function createUser(input: {
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: roles.includes("approved_seller") ? [{
+      id: `bank-${input.id}-hapoalim`,
+      sellerId: input.id,
+      accountHolderName: input.id,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "1234567890",
+      accountLast4: "7890",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
     disabled: input.disabled ?? false,
   };
 }

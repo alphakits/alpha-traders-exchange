@@ -1,4 +1,4 @@
-const TRADE_ROOM_CACHE_PREFIX = "alpha.trade-room.cache.";
+const TRADE_ROOM_CACHE_PREFIX = "alpha.trade-room.cache.v2.";
 const TRADE_ROOM_CACHE_TTL_MS = 90_000;
 const inFlightTradeRoomPrefetches = new Map<string, Promise<void>>();
 
@@ -11,6 +11,36 @@ function tradeRoomCacheKey(requestId: string, actorUserId: string) {
   return `${TRADE_ROOM_CACHE_PREFIX}${encodeURIComponent(actorUserId)}.${encodeURIComponent(requestId)}`;
 }
 
+function sanitizeTradeRoomCacheData<T>(data: T): T {
+  if (!data || typeof data !== "object") return data;
+  let copy: T;
+  try {
+    copy = JSON.parse(JSON.stringify(data)) as T;
+  } catch {
+    return data;
+  }
+
+  const room = copy as Record<string, unknown>;
+  const sanitizeMessages = (value: unknown) => Array.isArray(value)
+    ? value
+        .filter((entry) => !entry || typeof entry !== "object" || (entry as { credentialKind?: unknown }).credentialKind !== "cardless_code")
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return entry;
+          const sanitized = { ...(entry as Record<string, unknown>) };
+          delete sanitized.payloadHash;
+          return sanitized;
+        })
+    : value;
+
+  room.messages = sanitizeMessages(room.messages);
+  if (room.request && typeof room.request === "object") {
+    const request = room.request as Record<string, unknown>;
+    request.messages = sanitizeMessages(request.messages);
+    delete request.sellerBankAccountSnapshot;
+  }
+  return copy;
+}
+
 export function buildTradeRoomHref(requestId: string) {
   return `/trade-room/${encodeURIComponent(requestId)}`;
 }
@@ -18,7 +48,10 @@ export function buildTradeRoomHref(requestId: string) {
 export function writeTradeRoomCache<T>(requestId: string, actorUserId: string, data: T) {
   if (typeof window === "undefined") return;
   try {
-    const payload: CachedTradeRoomPayload<T> = { cachedAt: Date.now(), data };
+    // Never persist a decrypted Cardless ATM credential in browser storage.
+    // The live response remains available in component memory and every room
+    // navigation immediately reconciles with a private/no-store API response.
+    const payload: CachedTradeRoomPayload<T> = { cachedAt: Date.now(), data: sanitizeTradeRoomCacheData(data) };
     window.sessionStorage.setItem(tradeRoomCacheKey(requestId, actorUserId), JSON.stringify(payload));
   } catch {
     // Best-effort cache only.
@@ -37,7 +70,11 @@ export function readTradeRoomCache<T>(requestId: string, actorUserId: string): T
       window.sessionStorage.removeItem(key);
       return null;
     }
-    return parsed.data;
+    const safeData = sanitizeTradeRoomCacheData(parsed.data);
+    // Rewrite defensively in case a pre-hardening caller stored an unsafe
+    // shape under the current namespace.
+    window.sessionStorage.setItem(key, JSON.stringify({ ...parsed, data: safeData }));
+    return safeData;
   } catch {
     return null;
   }

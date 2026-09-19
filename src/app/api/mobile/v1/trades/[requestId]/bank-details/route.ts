@@ -17,7 +17,7 @@ type RouteContext = {
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
-export async function GET(request: NextRequest, context: RouteContext) {
+export async function POST(request: NextRequest, context: RouteContext) {
   const requestId = createMobileRequestId(request);
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);

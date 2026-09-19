@@ -22,6 +22,7 @@ import {
   localizedTimelineMessage,
   marketTrendAriaLabel,
   marketReferenceLabel,
+  normalizeDecimalInput,
   paymentMethodTradeInstruction,
   sellerAccountStatusLabel,
   spokenLanguageLabel,
@@ -34,7 +35,15 @@ const ARABIC_TEXT = /[\u0600-\u06ff]/;
 describe("USDT exchange localized mobile copy", () => {
   it("groups every marketplace financial amount above 999", () => {
     expect(formatUsdt(1_000)).toBe("1,000.00 USDT");
+    expect(formatUsdt(1.234567)).toBe("1.234567 USDT");
     expect(formatIls(1_050_000)).toBe("₪1,050,000.00");
+  });
+
+  it("accepts seller prices from Arabic and decimal-comma keyboards", () => {
+    expect(normalizeDecimalInput("٣٫٢٣")).toBe("3.23");
+    expect(normalizeDecimalInput("3,23")).toBe("3.23");
+    expect(normalizeDecimalInput("1,000")).toBe("1000");
+    expect(normalizeDecimalInput("3.2.3")).toBe("");
   });
 
   it("renders time-based greetings from one deterministic Israel timezone", () => {
@@ -112,6 +121,7 @@ describe("USDT exchange localized mobile copy", () => {
       "trade_locked",
       "review_unlocked",
       "dispute_opened",
+      "dispute_resolved",
       "commission_recorded",
       "commission_paid",
       "buyer_evidence_uploaded",

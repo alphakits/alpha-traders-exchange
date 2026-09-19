@@ -41,6 +41,9 @@ function createUser(id: string, email: string, role: "owner" | "buyer" | "approv
   const now = new Date().toISOString();
   const roles: UserRole[] = role === "owner" ? ["owner", "admin"] : [role];
   const sellerStatus: SellerStatus = role === "approved_seller" ? "approved_seller" : "buyer";
+  const sellerSequence = Number(id.match(/\d+$/)?.[0] ?? "1");
+  const hapoalimAccountNumber = String(1_000_000_000 + sellerSequence);
+  const leumiAccountNumber = String(2_000_000_000 + sellerSequence);
   return {
     id,
     fullName: id,
@@ -80,6 +83,32 @@ function createUser(id: string, email: string, role: "owner" | "buyer" | "approv
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [
+      {
+        id: `seller-bank-${id}-hapoalim`,
+        sellerId: id,
+        accountHolderName: `Seller ${sellerSequence}`,
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: hapoalimAccountNumber,
+        accountLast4: hapoalimAccountNumber.slice(-4),
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `seller-bank-${id}-leumi`,
+        sellerId: id,
+        accountHolderName: `Seller ${sellerSequence}`,
+        bankName: "Bank Leumi",
+        branchNumber: "456",
+        accountNumber: leumiAccountNumber,
+        accountLast4: leumiAccountNumber.slice(-4),
+        isDefault: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ] : undefined,
   };
 }
 
@@ -789,6 +818,7 @@ describe("partial listing preservation", () => {
       currency: "ILS",
       network: "TRC20",
       paymentMethods: ["Bank Transfer"],
+      bankAccountId: `seller-bank-${SELLER_TWO_ID}-leumi`,
       bankName: "Bank Leumi",
       minimumTrade: "50",
       maximumTrade: "500",
@@ -1636,6 +1666,164 @@ describe("partial listing preservation", () => {
         && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(candidate.status),
     );
     expect(activeBuyerTrades).toHaveLength(1);
+  });
+
+  it("never leaves a new pending request behind when request creation races listing acceptance", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+    const first = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    await Promise.allSettled([
+      createPurchaseRequest({
+        buyerId: BUYER_TWO_ID,
+        listingId: listing.id,
+        usdtAmount: "100",
+        buyerName: "Buyer Two",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+        actorUserId: BUYER_TWO_ID,
+      }),
+      updatePurchaseRequestStatus({
+        requestId: first.request.id,
+        actorUserId: SELLER_ID,
+        actorRole: "approved_seller",
+        nextStatus: "accepted",
+      }),
+    ]);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.purchaseRequests.find((request) => request.id === first.request.id)?.status).toBe("accepted");
+    expect(snapshot.purchaseRequests.filter((request) => request.listingId === listing.id && request.status === "pending")).toHaveLength(0);
+    expect(snapshot.marketplaceListings.find((candidate) => candidate.id === listing.id)).toMatchObject({
+      status: "matched",
+      activeTradeRequestId: first.request.id,
+    });
+  });
+
+  it("allows only one seller to accept when one buyer has pending requests on different listings", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    snapshot.users.push(createUser(SELLER_TWO_ID, "seller-two@example.com", "approved_seller"));
+    const firstListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    const secondListing = await createMarketplaceListing({
+      sellerId: SELLER_TWO_ID,
+      sellerDisplayName: "Seller Two",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_TWO_ID,
+    });
+    await approveListing(firstListing.id);
+    await approveListing(secondListing.id);
+    const first = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: firstListing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+    const second = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: secondListing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    const results = await Promise.allSettled([
+      updatePurchaseRequestStatus({ requestId: first.request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" }),
+      updatePurchaseRequestStatus({ requestId: second.request.id, actorUserId: SELLER_TWO_ID, actorRole: "approved_seller", nextStatus: "accepted" }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const latest = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(latest.purchaseRequests.filter((request) => request.buyerId === BUYER_ONE_ID && request.status === "accepted")).toHaveLength(1);
+  });
+
+  it("rejects acceptance when the listing no longer has the requested amount", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "500",
+      buyerName: "Buyer One",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+    await updateMarketplaceListingForSeller({
+      listingId: listing.id,
+      sellerId: SELLER_ID,
+      actorUserId: SELLER_ID,
+      availableAmount: "100",
+      maximumTrade: "100",
+      changeReason: "inventory_change",
+      changeExplanation: "Available inventory changed before acceptance.",
+    });
+
+    await expect(updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    })).rejects.toMatchObject({ code: "listing-amount-unavailable" });
   });
 
   it("preserves edits to different listings when sellers save concurrently", async () => {

@@ -12,6 +12,11 @@ type RouteContext = {
   params: Promise<{ requestId: string }>;
 };
 
+const PRIVATE_NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Pragma: "no-cache",
+};
+
 function isValidRequestStatus(value: string): value is "pending" | "accepted" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed" | "declined" | "cancelled" {
   return value === "pending" || value === "accepted" || value === "payment_sent" || value === "funds_received" || value === "usdt_release_pending" || value === "usdt_sent" || value === "completed" || value === "declined" || value === "cancelled";
 }
@@ -69,11 +74,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
-    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face") {
+    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return NextResponse.json({ error: "Invalid trade action.", stage: "action-invalid", code: "invalid-action", diagId }, { status: 400 });
     }
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
-    const status = isCashTradeCompletion ? "completed" : String(rawBody.status ?? "").trim();
+    const isCardlessCodeSubmission = action === "submit_cardless_code";
+    const status = isCashTradeCompletion ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
     const safetyAcknowledged = rawBody.safetyAcknowledged === true;
     if (routeDebug) {
       console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, action, parsedStatus: status, safetyAcknowledged });
@@ -123,6 +129,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       nextStatus: status,
       completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
       safetyAcknowledged,
+      cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,
+      clientOperationId: isCardlessCodeSubmission ? String(rawBody.clientOperationId ?? "") : undefined,
       traceId: isUsdtSent ? traceId : undefined,
     });
     if (deferredTrustWrite) {
@@ -208,6 +216,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     return NextResponse.json(responseBody, {
       headers: {
+        ...PRIVATE_NO_STORE_HEADERS,
         "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Queue-Ms": String(queueMs),
         "X-Trade-Db-Ms": String(metrics.totalMs),
@@ -255,6 +264,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         responseBody: rejection,
       });
     }
-    return NextResponse.json(rejection, { status: responseStatus });
+    return NextResponse.json(rejection, { status: responseStatus, headers: PRIVATE_NO_STORE_HEADERS });
   }
 }

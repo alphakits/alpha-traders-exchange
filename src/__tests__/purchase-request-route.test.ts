@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   checkRateLimit: vi.fn(),
   createPurchaseRequest: vi.fn(),
   getMyPurchaseRequests: vi.fn(),
+  sanitizePurchaseRequestForActor: vi.fn(),
   hasRole: vi.fn(),
   isVerified: vi.fn(),
   logEvent: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("@/lib/alpha-exchange-store", async (importOriginal) => {
     ...actual,
     createPurchaseRequest: mocks.createPurchaseRequest,
     getMyPurchaseRequests: mocks.getMyPurchaseRequests,
+    sanitizePurchaseRequestForActor: mocks.sanitizePurchaseRequestForActor,
   };
 });
 
@@ -63,6 +65,7 @@ describe("purchase request route", () => {
     mocks.checkRateLimit.mockReset();
     mocks.createPurchaseRequest.mockReset();
     mocks.getMyPurchaseRequests.mockReset();
+    mocks.sanitizePurchaseRequestForActor.mockReset();
     mocks.hasRole.mockReset();
     mocks.isVerified.mockReset();
     mocks.logEvent.mockReset();
@@ -86,6 +89,12 @@ describe("purchase request route", () => {
     mocks.hasRole.mockImplementation((_user: unknown, role: string) => role === "buyer");
     mocks.isVerified.mockReturnValue(true);
     mocks.prepareTradeEventEmails.mockResolvedValue(async () => {});
+    mocks.sanitizePurchaseRequestForActor.mockImplementation((purchase: Record<string, unknown>) => {
+      const sanitized = { ...purchase };
+      delete sanitized.sellerBankAccountSnapshot;
+      delete sanitized.sellerBankAccountId;
+      return sanitized;
+    });
   });
 
   it("preserves purchaseRequestId in details for pending buyer feedback blockers", async () => {
@@ -151,6 +160,44 @@ describe("purchase request route", () => {
     const input = mocks.createPurchaseRequest.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(input).not.toHaveProperty("buyerWhatsapp");
     expect(input).not.toHaveProperty("buyerNotes");
+  });
+
+  it("never exposes the locked seller bank snapshot in the pending create response", async () => {
+    mocks.createPurchaseRequest.mockResolvedValue({
+      request: {
+        id: "purchase-secret",
+        paymentMethod: "Bank Transfer",
+        status: "pending",
+        sellerBankAccountId: "bank-secret",
+        sellerBankAccountSnapshot: {
+          accountHolderName: "Seller Secret",
+          bankName: "Bank Hapoalim",
+          branchNumber: "123",
+          accountNumber: "987654321",
+          accountLast4: "4321",
+        },
+      },
+      metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
+    });
+    const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
+      method: "POST",
+      body: JSON.stringify({
+        listingId: "listing-1",
+        usdtAmount: "500",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await POST(request);
+    const raw = await response.text();
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(raw).not.toContain("sellerBankAccountSnapshot");
+    expect(raw).not.toContain("sellerBankAccountId");
+    expect(raw).not.toContain("987654321");
+    expect(raw).not.toContain("Seller Secret");
   });
 
   it("denies an unverified-email session before mutating a purchase request", async () => {

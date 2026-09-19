@@ -10,7 +10,7 @@ type CanonicalSessionContextValue = {
   user: ClientSessionUser | null;
   isResolving: boolean;
   error: boolean;
-  refresh: (options?: { force?: boolean }) => Promise<CanonicalSessionRefreshResult>;
+  refresh: (options?: { force?: boolean; background?: boolean }) => Promise<CanonicalSessionRefreshResult>;
 };
 
 const CanonicalSessionContext = createContext<CanonicalSessionContextValue | null>(null);
@@ -44,7 +44,10 @@ export function CanonicalSessionProvider({
   locale?: AppLocale;
 }) {
   const [user, setUser] = useState<ClientSessionUser | null>(initialSessionUser);
-  const [isResolving, setIsResolving] = useState(true);
+  // A server-rendered authenticated principal is immediately usable. Verify
+  // it in parallel instead of freezing the entire Exchange workspace behind a
+  // second /api/auth/me round trip on every navigation.
+  const [isResolving, setIsResolving] = useState(initialSessionUser === null);
   const [error, setError] = useState(false);
   const requestRef = useRef<Promise<CanonicalSessionRefreshResult> | null>(null);
   const requestIdRef = useRef(0);
@@ -56,10 +59,15 @@ export function CanonicalSessionProvider({
   const recoveryNeededRef = useRef(false);
   const scheduleRecoveryRef = useRef<() => void>(() => undefined);
   const localeSyncRef = useRef<string | null>(null);
+  const hasInitialSession = initialSessionUser !== null;
   const canonicalUserId = user?.id;
   const canonicalPreferredLocale = user?.preferredLocale;
 
-  const refresh = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+  const refresh = useCallback(async ({
+    force = false,
+    background = false,
+  }: { force?: boolean; background?: boolean } = {}) => {
+    const shouldBlock = !background || force;
     if (force) {
       // An auth boundary changed while a request may still be in flight. Its
       // result is no longer authoritative, so sequence a fresh canonical read.
@@ -69,7 +77,7 @@ export function CanonicalSessionProvider({
     if (requestRef.current) return requestRef.current;
     const requestId = ++requestIdRef.current;
     const request = (async () => {
-      setIsResolving(true);
+      if (shouldBlock) setIsResolving(true);
       setError(false);
       try {
         const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
@@ -98,7 +106,7 @@ export function CanonicalSessionProvider({
         }
         return "unavailable" as const;
       } finally {
-        if (mountedRef.current && requestId === requestIdRef.current) setIsResolving(false);
+        if (shouldBlock && mountedRef.current && requestId === requestIdRef.current) setIsResolving(false);
       }
     })();
     requestRef.current = request;
@@ -148,7 +156,7 @@ export function CanonicalSessionProvider({
 
   useEffect(() => {
     mountedRef.current = true;
-    void refresh();
+    void refresh({ background: hasInitialSession });
     const handleAuthChange = () => void refresh({ force: true });
     const handleSignedOut = () => {
       hadAuthenticatedSessionRef.current = false;
@@ -176,7 +184,7 @@ export function CanonicalSessionProvider({
       window.removeEventListener("online", resumeSessionRecovery);
       document.removeEventListener("visibilitychange", resumeSessionRecovery);
     };
-  }, [clearSessionRecovery, refresh]);
+  }, [clearSessionRecovery, hasInitialSession, refresh]);
 
   useEffect(() => {
     if (!locale || !canonicalUserId || canonicalPreferredLocale === locale) return;

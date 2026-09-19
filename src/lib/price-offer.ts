@@ -11,12 +11,41 @@ function parsePriceCents(value: string | number | null | undefined) {
   return Number.isSafeInteger(cents) ? cents : null;
 }
 
+function parseListingPriceCents(value: string | number | null | undefined) {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/^\u20aa\s*/, "")
+    .replace(/\s*ILS$/i, "")
+    .trim();
+  const match = normalized.match(/^(?:0|[1-9]\d{0,6})(?:\.(\d{1,6}))?$/);
+  if (!match) return null;
+  const [wholePart, decimalPart = ""] = normalized.split(".");
+  let cents = Number(wholePart) * 100 + Number(decimalPart.slice(0, 2).padEnd(2, "0"));
+  if ((decimalPart[2] ?? "0") >= "5") cents += 1;
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
 function formatPriceCents(cents: number) {
   return (cents / 100).toFixed(2);
 }
 
+/**
+ * Canonicalizes the trusted listing price to the same two-cent precision shown
+ * to buyers. Legacy listings may contain extra decimal places even though the
+ * marketplace and negotiated offers are displayed and settled to two.
+ */
+export function normalizeListingPrice(value: string | number | null | undefined) {
+  const cents = parseListingPriceCents(value);
+  return cents !== null && cents > 0 ? formatPriceCents(cents) : null;
+}
+
 export function getPriceOfferBounds(listingPrice: string | number) {
-  const listingPriceCents = parsePriceCents(listingPrice);
+  // Marketplace responses can contain a display-formatted ILS price (for
+  // example "₪3.26") and legacy persisted listings can contain extra decimal
+  // places (for example "3.263"). Both must settle to the same two-decimal
+  // price buyers see. Buyer-entered offers remain strict and never use this
+  // trusted-listing parser.
+  const listingPriceCents = parseListingPriceCents(listingPrice);
   if (listingPriceCents === null || listingPriceCents <= 0) return null;
   const minimumPriceCents = Math.max(1, listingPriceCents - MAX_PRICE_OFFER_DISCOUNT_CENTS);
   return {
@@ -88,7 +117,11 @@ export function validatePriceOffer(
 }
 
 export function normalizePriceOfferInput(value: string | number | null | undefined) {
-  const raw = String(value ?? "").replace(/[^\d.]/g, "");
+  const raw = String(value ?? "")
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[٫,]/g, ".")
+    .replace(/[^\d.]/g, "");
   const firstDot = raw.indexOf(".");
   if (firstDot === -1) return raw.slice(0, 7);
   const wholePart = raw.slice(0, firstDot).slice(0, 7);

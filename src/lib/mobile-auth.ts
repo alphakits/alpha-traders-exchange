@@ -31,7 +31,7 @@ export type MobileAccessValidation =
 
 export type MobileRefreshResult =
   | { status: "rotated"; tokens: MobileAuthTokens; session: MobileDeviceSessionRecord }
-  | { status: "invalid" | "expired" | "revoked" | "reused" | "device_mismatch" };
+  | { status: "invalid" | "expired" | "revoked" | "reused" | "device_mismatch" | "account_disabled" };
 
 function createOpaqueToken(kind: TokenKind) {
   const prefix = kind === "access" ? ACCESS_TOKEN_PREFIX : REFRESH_TOKEN_PREFIX;

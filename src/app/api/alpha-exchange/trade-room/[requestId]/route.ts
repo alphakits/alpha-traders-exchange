@@ -8,6 +8,11 @@ type RouteContext = {
   params: Promise<{ requestId: string }>;
 };
 
+const PRIVATE_NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Pragma: "no-cache",
+};
+
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
@@ -50,6 +55,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     });
     return NextResponse.json(room, {
       headers: {
+        ...PRIVATE_NO_STORE_HEADERS,
         "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Db-Ms": String(routeMs),
         "Server-Timing": `route;dur=${routeMs}, db;dur=${routeMs}`,
@@ -77,7 +83,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     });
     return NextResponse.json(
       { error: message, code },
-      { status },
+      { status, headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
 }

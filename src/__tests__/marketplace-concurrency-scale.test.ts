@@ -49,6 +49,8 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
   const now = new Date().toISOString();
   const roles: UserRole[] = role === "owner" ? ["owner", "admin"] : [role];
   const sellerStatus: SellerStatus = role === "approved_seller" ? "approved_seller" : "buyer";
+  const sellerSequence = Number(id.match(/\d+$/)?.[0] ?? "1");
+  const accountNumber = String(1_000_000_000 + sellerSequence);
   return {
     id,
     fullName: id,
@@ -86,6 +88,18 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
+    sellerBankAccounts: role === "approved_seller" ? [{
+      id: `seller-bank-${id}-hapoalim`,
+      sellerId: id,
+      accountHolderName: `Scale Seller ${sellerSequence}`,
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber,
+      accountLast4: accountNumber.slice(-4),
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    }] : undefined,
   };
 }
 

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { validateEnv } from "@/lib/env-validation";
+import { runEnvValidation, validateEnv } from "@/lib/env-validation";
 
 describe("production environment safety validation", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
@@ -31,6 +32,42 @@ describe("production environment safety validation", () => {
     expect(errors.join("\n")).toContain("AUTH_COOKIE_SECURE=false");
   });
 
+  it("labels missing local-build configuration as non-blocking", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PHASE", "phase-production-build");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("SUPABASE_DB_URL", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(() => runEnvValidation()).not.toThrow();
+    expect(warn.mock.calls.some(([prefix]) => prefix === "[env-validation] NON-BLOCKING:")).toBe(true);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("keeps deployed production configuration failures fatal", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PHASE", "phase-production-build");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("SUPABASE_DB_URL", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(() => runEnvValidation()).toThrow("Environment validation failed");
+    expect(error.mock.calls.some(([prefix]) => prefix === "[env-validation] FATAL:")).toBe(true);
+    expect(warn.mock.calls.some(([prefix]) => prefix === "[env-validation] NON-BLOCKING:")).toBe(false);
+  });
+
   it("requires marketplace relay credentials as an all-or-none production configuration", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
@@ -40,6 +77,16 @@ describe("production environment safety validation", () => {
     const { errors } = validateEnv();
     expect(errors.join("\n")).toContain("DISCORD_MARKETPLACE_WEBHOOK_URL");
     expect(errors.join("\n")).toContain("DISCORD_MARKETPLACE_WEBHOOK_SECRET");
+  });
+
+  it("rejects weak dedicated Cardless ATM credential key material", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "too-short");
+
+    const { errors } = validateEnv();
+    expect(errors.join("\n")).toContain("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET must contain at least 32 characters");
   });
 
   it("fails closed when WhatsApp is enabled without written policy clearance and complete server credentials", () => {

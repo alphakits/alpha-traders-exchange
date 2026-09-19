@@ -762,6 +762,13 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
 }
 
 function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean) {
+  if (request.status === "declined" || request.status === "cancelled") {
+    return {
+      isYourTurn: false,
+      title: isAr ? "تم إغلاق الصفقة" : "TRADE CLOSED",
+      detail: isAr ? "لا يوجد إجراء مطلوب لهذه الصفقة." : "No further action is available for this trade.",
+    };
+  }
   if (request.status === "review_open" || request.status === "completed" || request.status === "locked") {
     return {
       isYourTurn: false,
@@ -921,6 +928,7 @@ function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
       trade_locked: "تم إغلاق الصفقة",
       review_unlocked: "أصبح بإمكانك إضافة تقييم",
       dispute_opened: "تم فتح نزاع لهذه الصفقة",
+      dispute_resolved: "تم حل النزاع ويمكن متابعة الصفقة",
       commission_recorded: "تم تسجيل عمولة الصفقة",
       commission_paid: "تم دفع عمولة الصفقة",
       buyer_evidence_uploaded: "رفع المشتري إثبات الدفع",
@@ -1405,6 +1413,7 @@ function TradeRoomPageSession({
   const perfSseReceivedTsRef = useRef<number | null>(null);
   const perfSsePublishedAtRef = useRef<number | null>(null);
   const roomRef = useRef<TradeRoomData | null>(null);
+  const deferredSseRoomRef = useRef<TradeRoomData | null>(null);
   const lastDeepLinkHandledRef = useRef<string | null>(null);
   const buyerCompletionLockRef = useRef(false);
   const sellerCompletionRedirectedRef = useRef(false);
@@ -1688,7 +1697,13 @@ function TradeRoomPageSession({
         // SSE snapshot can be stale. A chat POST is different: retain only its
         // temporary message while still applying authoritative counterparty
         // status/Poke/timeline updates below.
-        if (actionInFlightRef.current) return;
+        if (actionInFlightRef.current) {
+          const queued = deferredSseRoomRef.current;
+          if (!queued || !shouldIgnoreRegressiveSnapshot(queued, payload, buyerCompletionLockRef.current)) {
+            deferredSseRoomRef.current = payload;
+          }
+          return;
+        }
         if (PERF_LOG) {
           const sseReceivedTs = performance.now();
           perfSseReceivedTsRef.current = sseReceivedTs;
@@ -1911,31 +1926,45 @@ function TradeRoomPageSession({
       setBankDetailsError(null);
       return;
     }
-    let cancelled = false;
     setBankDetails(null);
+    setBankDetailsBusy(false);
+    setBankDetailsError(null);
+  }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails]);
+
+  const handleRevealBankDetails = useCallback(async () => {
+    if (!bankDetailsRequestId || bankDetailsBusy) return;
+    const confirmed = window.confirm(isAr
+      ? "اعرض تفاصيل الحساب فقط عندما تكون مستعداً للتحقق منها. عرضها لا يؤكد الدفع؛ يبقى الإلغاء متاحاً حتى ترسل الدفعة أو إثباتها. هل تريد المتابعة؟"
+      : "Reveal the account details only when you are ready to verify them. Viewing them does not confirm payment; cancellation remains available until payment or evidence is submitted. Continue?");
+    if (!confirmed) return;
     setBankDetailsBusy(true);
     setBankDetailsError(null);
-    void fetch(`/api/alpha-exchange/trade-room/${bankDetailsRequestId}/bank-details`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
-        if (!response.ok) {
-          throw new Error(isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : (payload.error ?? "Failed to load bank details."));
-        }
-        if (!cancelled) setBankDetails(payload.bankDetails ?? null);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setBankDetails(null);
-          setBankDetailsError(localizedCaughtError(error, isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details.", isAr));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setBankDetailsBusy(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails, isAr]);
+    try {
+      const response = await fetch(`/api/alpha-exchange/trade-room/${bankDetailsRequestId}/bank-details`, { method: "POST", cache: "no-store" });
+      const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
+      if (!response.ok || !payload.bankDetails) {
+        throw new Error(isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : (payload.error ?? "Failed to load bank details."));
+      }
+      setBankDetails(payload.bankDetails);
+      const currentRoom = roomRef.current;
+      if (currentRoom && !currentRoom.request.sensitivePaymentSharedAt) {
+        const nextRoom = applyRequestToRoom(currentRoom, {
+          ...currentRoom.request,
+          sensitivePaymentSharedAt: new Date().toISOString(),
+          sensitivePaymentKind: "bank_details",
+        });
+        roomRef.current = nextRoom;
+        setRoom(nextRoom);
+        writeTradeRoomCache(requestId, actor.id, nextRoom);
+      }
+      await fetchRoom(true);
+    } catch (error) {
+      setBankDetails(null);
+      setBankDetailsError(localizedCaughtError(error, isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details.", isAr));
+    } finally {
+      setBankDetailsBusy(false);
+    }
+  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, requestId]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -1990,14 +2019,39 @@ function TradeRoomPageSession({
   const handleStatusUpdate = useCallback(async (action: StatusPrimaryAction) => {
     const nextStatus = action.nextStatus;
     if (!request || !room) return;
+    let sellerSafetyAcknowledged = false;
+    if (nextStatus === "accepted" && isFaceToFacePaymentMethod(request.paymentMethod)) {
+      sellerSafetyAcknowledged = window.confirm(isAr
+        ? "أؤكد أنني قرأت إرشادات اللقاء الآمن وسألتقي في مكان عام وآمن دون مشاركة معلومات شخصية غير ضرورية."
+        : "I confirm that I read the safe-meeting guidance and will meet in a safe public place without sharing unnecessary personal information.");
+      if (!sellerSafetyAcknowledged) return;
+    }
+    let cardlessWithdrawalCode = "";
+    if (nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod)) {
+      const enteredCode = window.prompt(isAr
+        ? "أدخل رمز السحب من 4 إلى 12 رقماً. سيتم إرساله للبائع وتأكيده في خطوة واحدة، وبعدها لا يمكن الإلغاء العادي."
+        : "Enter the 4–12 digit withdrawal code. It will be sent to the seller and confirmed in one step; simple cancellation ends afterward.");
+      if (enteredCode === null) return;
+      cardlessWithdrawalCode = enteredCode.replace(/\s+/g, "");
+      if (!/^\d{4,12}$/.test(cardlessWithdrawalCode)) {
+        setActionError(isAr ? "يجب أن يتكون رمز السحب من 4 إلى 12 رقماً." : "Withdrawal code must contain 4 to 12 digits.");
+        return;
+      }
+    }
     const mutationKey = `${request.id}:${request.status}:${action.command ?? nextStatus}`;
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     const previousRoom = room;
     const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor, action.command);
-    const payload = action.command
+    const payload = cardlessWithdrawalCode
+      ? {
+          action: "submit_cardless_code",
+          withdrawalCode: cardlessWithdrawalCode,
+          clientOperationId: globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(16).padStart(12, "0")}${Math.random().toString(16).slice(2).padEnd(20, "0").slice(0, 20)}`,
+        }
+      : action.command
       ? { action: action.command }
       : nextStatus === "accepted"
-        ? { status: nextStatus, safetyAcknowledged: true }
+        ? { status: nextStatus, safetyAcknowledged: sellerSafetyAcknowledged }
         : { status: nextStatus };
     // T0: click timestamp
     const clickTs = performance.now();
@@ -2076,7 +2130,7 @@ function TradeRoomPageSession({
         throw new Error(readApiErrorFallback(responsePayload, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.", isAr));
       }
       if (responsePayload.request) {
-        const nextRoom = applyRequestToRoom(optimisticRoom, responsePayload.request);
+        const nextRoom = applyRequestToRoom(roomRef.current ?? optimisticRoom, responsePayload.request);
         roomRef.current = nextRoom;
         setRoom(nextRoom);
         writeTradeRoomCache(requestId, actor.id, nextRoom);
@@ -2118,9 +2172,12 @@ function TradeRoomPageSession({
         }
         setStatusMessage(isAr ? "تم تحديث حالة الصفقة بعد تأكيد الخادم." : "Trade status updated after server confirmation.");
       } else {
-        roomRef.current = previousRoom;
-        setRoom(previousRoom);
-        writeTradeRoomCache(requestId, actor.id, previousRoom);
+        const currentRoom = roomRef.current;
+        if (!deferredSseRoomRef.current && (!currentRoom || tradeRoomSnapshotSignature(currentRoom) === tradeRoomSnapshotSignature(optimisticRoom))) {
+          roomRef.current = previousRoom;
+          setRoom(previousRoom);
+          writeTradeRoomCache(requestId, actor.id, previousRoom);
+        }
         const message = localizedCaughtError(error, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.", isAr);
         setActionError(message);
         setActionNotice(null);
@@ -2131,6 +2188,20 @@ function TradeRoomPageSession({
         actionNoticeTimeoutRef.current = null;
       }
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
+      const deferredRoom = deferredSseRoomRef.current;
+      deferredSseRoomRef.current = null;
+      if (deferredRoom) {
+        const currentRoom = roomRef.current;
+        const reconciledRoom = currentRoom
+          ? mergeTradeRoomSnapshotPreservingOptimisticMessages(currentRoom, deferredRoom)
+          : deferredRoom;
+        if (!currentRoom || !shouldIgnoreRegressiveSnapshot(currentRoom, reconciledRoom, buyerCompletionLockRef.current)) {
+          roomRef.current = reconciledRoom;
+          setRoom(reconciledRoom);
+          writeTradeRoomCache(requestId, actor.id, reconciledRoom);
+        }
+      }
+      await fetchRoom(true);
       setActionBusy(false);
     }
   }, [actor, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
@@ -2142,6 +2213,10 @@ function TradeRoomPageSession({
     if (!currentRoom) return;
     const message = chatDraft.trim();
     if (!message && !chatImage) return;
+    if (chatImage && isCashTradePaymentMethod(currentRoom.request.paymentMethod)) {
+      setChatErrorMessage(isAr ? "لا تقبل صفقات النقد صور المحادثة أو إثباتات الدفع." : "Cash trades do not accept chat photos or payment evidence.");
+      return;
+    }
     if (chatImage && !ALLOWED_CHAT_IMAGE_TYPES.has(chatImage.type)) {
       setChatErrorMessage(isAr ? "يجب أن يكون مرفق المحادثة صورة PNG أو JPEG أو WebP." : "Chat attachments must be PNG, JPEG, or WebP images.");
       return;
@@ -2378,7 +2453,7 @@ function TradeRoomPageSession({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence.", isAr));
       }
-      const nextRoom = payload.request ? applyRequestToRoom(previousRoom, payload.request) : optimisticRoom;
+      const nextRoom = payload.request ? applyRequestToRoom(roomRef.current ?? optimisticRoom, payload.request) : optimisticRoom;
       roomRef.current = nextRoom;
       setRoom(nextRoom);
       writeTradeRoomCache(requestId, actor.id, nextRoom);
@@ -2406,15 +2481,32 @@ function TradeRoomPageSession({
           : (isAr ? "تم رفع الإثبات بنجاح." : "Evidence uploaded."),
       );
     } catch (error) {
-      roomRef.current = previousRoom;
-      setRoom(previousRoom);
-      writeTradeRoomCache(requestId, actor.id, previousRoom);
+      const currentRoom = roomRef.current;
+      if (!deferredSseRoomRef.current && (!currentRoom || tradeRoomSnapshotSignature(currentRoom) === tradeRoomSnapshotSignature(optimisticRoom))) {
+        roomRef.current = previousRoom;
+        setRoom(previousRoom);
+        writeTradeRoomCache(requestId, actor.id, previousRoom);
+      }
       setStatusMessage(localizedCaughtError(error, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence.", isAr));
     } finally {
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
+      const deferredRoom = deferredSseRoomRef.current;
+      deferredSseRoomRef.current = null;
+      if (deferredRoom) {
+        const currentRoom = roomRef.current;
+        const reconciledRoom = currentRoom
+          ? mergeTradeRoomSnapshotPreservingOptimisticMessages(currentRoom, deferredRoom)
+          : deferredRoom;
+        if (!currentRoom || !shouldIgnoreRegressiveSnapshot(currentRoom, reconciledRoom, buyerCompletionLockRef.current)) {
+          roomRef.current = reconciledRoom;
+          setRoom(reconciledRoom);
+          writeTradeRoomCache(requestId, actor.id, reconciledRoom);
+        }
+      }
+      await fetchRoom(true);
       setEvidenceBusy(null);
     }
-  }, [actor.id, buyerEvidenceFile, isAr, request, requestId, room, sellerEvidenceFile]);
+  }, [actor.id, buyerEvidenceFile, fetchRoom, isAr, request, requestId, room, sellerEvidenceFile]);
 
   const handlePrimaryAction = useCallback(async () => {
     if (!primaryAction) return;
@@ -3249,7 +3341,12 @@ function TradeRoomPageSession({
                         <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white"><bdi dir="ltr">{bankDetails.accountNumber}</bdi></span></p>
                       </div>
                     ) : (
-                      <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "سيتم إظهار التفاصيل بعد قبول البائع للصفقة." : "Details appear after seller accepts the trade."}</p>
+                      <div className="mt-2 space-y-3 text-sm text-[#D1D5DB]">
+                        <p>{isAr ? "اعرض التفاصيل للتحقق من الحساب. يبقى الإلغاء متاحاً حتى ترسل الدفعة أو إثباتها." : "Reveal the details to verify the account. Cancellation remains available until you submit payment or payment evidence."}</p>
+                        <Button type="button" onClick={() => void handleRevealBankDetails()}>
+                          {isAr ? "إظهار تفاصيل البنك" : "Reveal Bank Details"}
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ) : !isSeller && request.status === "pending" && isBankTransferPaymentMethod(requestPaymentMethod) ? (
@@ -3813,6 +3910,11 @@ function TradeRoomPageSession({
                     {isAr ? "رسائل جديدة — عرض" : "New messages — show"}
                   </Button>
                 ) : null}
+                {isCardlessAtmTrade && !isSeller && request.status === "accepted" ? (
+                  <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
+                    {isAr ? "استخدم زر رمز السحب المحمي أعلاه. سيتم إرسال الرمز وتأكيد الدفع معاً لمنع الإلغاء أو الرسائل المتأخرة." : "Use the protected withdrawal-code action above. It sends the code and confirms payment atomically, preventing cancellation or delayed-message races."}
+                  </div>
+                ) : (
                 <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
                   <Textarea
                     value={chatDraft}
@@ -3837,31 +3939,37 @@ function TradeRoomPageSession({
                       <span>{chatErrorMessage}</span>
                     </div>
                   ) : null}
-                  <Input
-                    ref={chatImageInputRef}
-                    type="file"
-                    tabIndex={-1}
-                    accept="image/png,image/jpeg,image/webp"
-                    capture="environment"
-                    className="sr-only"
-                    aria-label={isAr ? "اختيار صورة للمحادثة" : "Choose chat image"}
-                    onChange={(event) => setChatImage(event.target.files?.[0] ?? null)}
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" size="sm" variant="secondary" onClick={() => chatImageInputRef.current?.click()}>
-                      <Paperclip className="h-4 w-4" aria-hidden="true" />
-                      {chatImage ? (isAr ? "تغيير الصورة" : "Change Image") : (isAr ? "إرفاق صورة" : "Attach Image")}
-                    </Button>
-                    {chatImage ? (
-                      <Button type="button" size="sm" variant="ghost" onClick={() => {
-                        setChatImage(null);
-                        if (chatImageInputRef.current) chatImageInputRef.current.value = "";
-                      }}>
-                        {isAr ? "إزالة" : "Remove"}
-                      </Button>
-                    ) : null}
-                  </div>
-                  {chatImage ? <p className="break-all text-xs text-[#D1D5DB]"><bdi dir="ltr">{chatImage.name}</bdi></p> : null}
+                  {!isCashTrade ? (
+                    <>
+                      <Input
+                        ref={chatImageInputRef}
+                        type="file"
+                        tabIndex={-1}
+                        accept="image/png,image/jpeg,image/webp"
+                        capture="environment"
+                        className="sr-only"
+                        aria-label={isAr ? "اختيار صورة للمحادثة" : "Choose chat image"}
+                        onChange={(event) => setChatImage(event.target.files?.[0] ?? null)}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="button" size="sm" variant="secondary" onClick={() => chatImageInputRef.current?.click()}>
+                          <Paperclip className="h-4 w-4" aria-hidden="true" />
+                          {chatImage ? (isAr ? "تغيير الصورة" : "Change Image") : (isAr ? "إرفاق صورة" : "Attach Image")}
+                        </Button>
+                        {chatImage ? (
+                          <Button type="button" size="sm" variant="ghost" onClick={() => {
+                            setChatImage(null);
+                            if (chatImageInputRef.current) chatImageInputRef.current.value = "";
+                          }}>
+                            {isAr ? "إزالة" : "Remove"}
+                          </Button>
+                        ) : null}
+                      </div>
+                      {chatImage ? <p className="break-all text-xs text-[#D1D5DB]"><bdi dir="ltr">{chatImage.name}</bdi></p> : null}
+                    </>
+                  ) : (
+                    <p className="text-xs text-[#FDE68A]">{isAr ? "لا صور أو إثباتات دفع في صفقات النقد؛ استخدم خطوات التأكيد المحمية أعلاه." : "No photos or payment evidence are accepted for cash trades; use the protected confirmation steps above."}</p>
+                  )}
                   <div className="flex items-center gap-2">
                     <Button type="submit" className="flex-1" disabled={chatBusy || (!chatDraft.trim() && !chatImage)}>
                       {chatBusy ? (
@@ -3873,6 +3981,7 @@ function TradeRoomPageSession({
                     </Button>
                   </div>
                 </form>
+                )}
               </CardContent>
             </Card>
 
@@ -3888,7 +3997,7 @@ function TradeRoomPageSession({
                   </>
                 ) : isCardlessAtmTrade ? (
                   <>
-                    <p>{isAr ? "أرسل رمز السحب داخل محادثة الصفقة فقط. يؤكد البائع بعد استلام النقد فعليًا، وعندها فقط يظهر عنوان المحفظة." : "Send the withdrawal code only inside the Trade Room chat. The seller confirms only after collecting the cash; only then is the wallet revealed."}</p>
+                    <p>{isAr ? "أرسل رمز السحب باستخدام الإجراء المحمي فقط. يؤكد البائع بعد استلام النقد فعليًا، وعندها فقط يظهر عنوان المحفظة." : "Send the withdrawal code only with the protected action. The seller confirms only after collecting the cash; only then is the wallet revealed."}</p>
                     <p>{isAr ? "لا يلزم رفع صورة. بعد تأكيد المشتري إرسال الرمز لا يمكن الإلغاء العادي؛ افتح نزاعًا إذا ظهرت مشكلة." : "No photo is required. After the buyer confirms sending the code, normal cancellation is locked; open a dispute if anything goes wrong."}</p>
                   </>
                 ) : (
