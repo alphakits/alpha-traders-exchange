@@ -187,14 +187,18 @@ check(navigation.includes("isTrustedWebsiteBlobUrl"), "First-party blob navigati
 check(Boolean(easConfig.build?.preview), "The EAS preview build profile is missing.");
 check(easConfig.build?.production?.autoIncrement === true, "Production build-number auto-increment is missing.");
 check(Boolean(easConfig.submit?.production), "The EAS production submission profile is missing.");
+check(
+  easConfig.submit?.production?.ios?.ascAppId === "6812101323",
+  "The EAS iOS submission profile is not connected to the Alpha Traders App Store record.",
+);
 check(installedIphoneWorkflow.includes("type: apple-device-registration-request"), "The registered-iPhone workflow is missing device registration.");
 check(installedIphoneWorkflow.includes("refresh_ad_hoc_provisioning_profile: true"), "The registered-iPhone workflow does not refresh provisioning.");
 check(iosTestflightWorkflow.includes("branches: [release/ios-testflight]"), "The TestFlight workflow is not isolated to its controlled release branch.");
 check(iosTestflightWorkflow.includes("profile: production"), "The TestFlight workflow is not using the production profile.");
-check(iosTestflightWorkflow.includes("type: testflight"), "The TestFlight upload job is missing.");
+check(iosTestflightWorkflow.includes("type: submit"), "The TestFlight upload job is missing.");
 check(iosTestflightWorkflow.includes("needs: [build_ios]"), "The TestFlight upload is not gated on a successful iOS build.");
 check(iosTestflightWorkflow.includes("build_id: ${{ needs.build_ios.outputs.build_id }}"), "The TestFlight upload is not pinned to the build produced by the workflow.");
-check(iosTestflightWorkflow.includes("submit_beta_review: false"), "The private TestFlight workflow must not request external Beta App Review.");
+check(!iosTestflightWorkflow.includes("submit_beta_review: true"), "The private TestFlight workflow must not request external Beta App Review.");
 check(!iosTestflightWorkflow.includes("external_groups:"), "The private TestFlight workflow must not distribute to external groups.");
 check(githubWorkflow.includes("eas build --platform ios --profile preview"), "The GitHub iOS preview workflow is missing.");
 
