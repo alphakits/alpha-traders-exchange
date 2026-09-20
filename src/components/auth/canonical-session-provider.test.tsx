@@ -1,7 +1,9 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import {
   CanonicalSessionProvider,
+  CANONICAL_SESSION_READ_TIMEOUT_MS,
   getCanonicalSessionRecoveryDelayMs,
   getSessionExpiryLoginDestination,
   useCanonicalSession,
@@ -24,6 +26,41 @@ function ErrorProbe() {
 }
 
 describe("CanonicalSessionProvider", () => {
+  it("times out a stalled session read and recovers without treating the outage as logout", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = {
+      id: "timeout-seller", fullName: "Test Seller", email: "test@example.test", role: "approved_seller" as const,
+      roles: ["approved_seller" as const], sellerStatus: "approved_seller" as const, whatsappNumber: "", preferredNetworks: [],
+      profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline" as const, createdAt: "2026-01-01",
+    };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_url, { signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }))
+      .mockResolvedValue({ ok: true, json: async () => ({ user }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CanonicalSessionProvider initialSessionUser={user}><ErrorProbe /></CanonicalSessionProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(CANONICAL_SESSION_READ_TIMEOUT_MS); });
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByText("timeout-seller:ok")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a fresh read after StrictMode cleanup instead of reusing an aborted promise", async () => {
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_url, { signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }))
+      .mockResolvedValue({ ok: true, json: async () => ({ user: null }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<StrictMode><CanonicalSessionProvider initialSessionUser={null}><Probe /></CanonicalSessionProvider></StrictMode>);
+    await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -90,7 +127,7 @@ describe("CanonicalSessionProvider", () => {
       </CanonicalSessionProvider>,
     );
 
-    await vi.waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120_000);
     });
@@ -114,6 +151,8 @@ describe("CanonicalSessionProvider", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     act(() => window.dispatchEvent(new Event("alpha-auth-changed")));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(false);
 
     await act(async () => {
       initial.resolve({ ok: true, json: async () => ({ user: { id: "stale-user" } }) } as Response);
@@ -126,6 +165,21 @@ describe("CanonicalSessionProvider", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
+  });
+
+  it("aborts a pending read on sign-out and ignores its late authenticated response", async () => {
+    const response = deferred<Response>();
+    const fetchMock = vi.fn().mockReturnValue(response.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CanonicalSessionProvider initialSessionUser={null}><Probe /></CanonicalSessionProvider>);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    act(() => window.dispatchEvent(new Event("alpha-auth-signed-out")));
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(screen.getByText("anonymous")).toBeTruthy();
+    await act(async () => {
+      response.resolve({ ok: true, json: async () => ({ user: { id: "signed-out-user" } }) } as Response);
+    });
+    expect(screen.getByText("anonymous")).toBeTruthy();
   });
 
   it("coalesces normal concurrent refreshes into one canonical request", async () => {

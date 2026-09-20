@@ -1,4 +1,5 @@
 import { logEvent } from "@/lib/structured-logging";
+import { getSafeErrorDigest } from "@/lib/client-error-report";
 
 type RequestErrorContext = {
   routePath: string;
@@ -30,6 +31,7 @@ export function onRequestError(
     reason: "unhandled_runtime_exception",
     metadata: {
       errorName: error instanceof Error ? error.name : typeof error,
+      digest: getSafeErrorDigest(error),
       method: request.method.toUpperCase().slice(0, 12),
       routePath: context.routePath,
       routeType: context.routeType,

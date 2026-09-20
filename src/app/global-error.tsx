@@ -6,6 +6,7 @@ import { ShieldAlert, RefreshCcw, Home } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { reloadCurrentPage } from "@/lib/page-recovery";
+import { reportClientError } from "@/lib/report-client-error";
 
 type ErrorLocale = "ar" | "en";
 
@@ -47,10 +48,11 @@ export default function GlobalError({
   // after hydration. This prevents an English visitor from receiving an
   // Arabic-only error (or vice versa) in the server-rendered fallback.
   const [locale, setLocale] = useState<ErrorLocale | null>(null);
+  const [reference, setReference] = useState<string>();
   const activeCopy = locale ? ERROR_COPY[locale] : null;
 
   useEffect(() => {
-    console.error("[global-error]", error.message, error.digest);
+    setReference(reportClientError(error, "global"));
     setLocale(resolveGlobalErrorLocale(window.location.pathname, document.documentElement.lang));
   }, [error]);
 
@@ -90,6 +92,10 @@ export default function GlobalError({
                   </span>
                 )}
               </p>
+
+              {reference ? <p className="mt-4 break-all text-xs text-white/50">
+                {locale === "ar" ? "مرجع الخطأ" : locale === "en" ? "Error reference" : "مرجع الخطأ / Error reference"}: <bdi dir="ltr">{reference}</bdi>
+              </p> : null}
 
               {/* Divider */}
               <div className="mx-auto my-6 h-px w-24 bg-[#C9A227]/20" aria-hidden="true" />
