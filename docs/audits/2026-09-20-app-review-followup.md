@@ -1,0 +1,88 @@
+# App Review follow-up — 20 September 2026 UTC
+
+## Production preparation
+
+[PR #174](https://github.com/alphakits/alpha-traders-exchange/pull/174) was merged
+as `70b155d470b247eb96acc7530271f1d5e542baa9`. Its
+[production deployment](https://vercel.com/alpha-kits/alpha-traders-exchange/p4tzM8XLkMkDRS8ZVSux7G8G8UrG)
+reported success. The authenticated Website Health screen independently showed
+that release and **All systems healthy**.
+
+The owner interface now exposes **Record Verification** for existing approved
+seller applications. All five approved-application pages were inspected without
+exporting seller identities: 8 + 8 + 8 + 8 + 4 = **36 applications**. Each offered
+the new action; none showed a recorded verification marker. No attestations,
+seller approvals, suspensions, role changes, or financial actions were performed.
+
+The prerequisite passed **36 tests across five files**, TypeScript, and ESLint.
+Its nine published blobs and complete tree matched the tested local commit.
+The full enforcement release remains in PR #173 until the actual prior checks
+are reconciled. See the [rollout procedure](../deployment/seller-verification-rollout.md).
+
+## Academy correction
+
+Live inspection of the Candles lesson found a public workbook iframe displaying
+“refused to connect.” Its first-party PDF inherited both `X-Frame-Options: DENY`
+and `frame-ancestors 'none'` from the global response headers.
+
+[PR #175](https://github.com/alphakits/alpha-traders-exchange/pull/175) corrects
+both headers for the public course PDF directory and the known course-notes HTML
+file. Only same-origin framing is allowed. Application, admin, API, upload, and
+unrelated file routes retain their existing framing prohibition.
+
+**14 regression tests**, TypeScript, and ESLint passed. The tests evaluate the
+actual Next.js header configuration on three course-document paths and six
+protected/unrelated paths. The
+[preview build](https://vercel.com/alpha-kits/alpha-traders-exchange/CSJRPS7RQm57qsuPcgBHeA14Saa2)
+passed, and the PR was merged as `94c385c060a06fe1ae8949cc3c16fb0f8c2f43b3`.
+Its [production deployment](https://vercel.com/alpha-kits/alpha-traders-exchange/Guuu5wq8CGZ9Kpvfn8GBUS915VZf)
+succeeded. The authenticated health screen showed that release as healthy with
+no operational issues, and the public App Review preflight passed **23/23**.
+
+Live HTTP checks confirmed `SAMEORIGIN` and `frame-ancestors 'self'` on the
+course PDF and known HTML workbook. Login, health API, and an unrelated upload
+path retained `DENY` and `frame-ancestors 'none'`. The Candles PDF returned 200
+with `application/pdf`; all 59,221 bytes matched the repository file. Its SHA-256
+is `07b7d7c16d34b6b9adec67ee34e96df9a65eb6e715423f0067919bab97fcf8da`.
+
+The cloud browser still displayed a blocked embedded PDF after reloading.
+The cause of that remaining visual failure is not established. Do not represent
+the corrected HTTP policy as a completed browser/device rendering test.
+The same session logged React hydration error 418 and failed Supabase lesson
+progress persistence. The precise Supabase error was not exposed by the safe
+console output. Those Academy observations remain unresolved; no authorization
+or storage policy was relaxed to silence them.
+
+## Review evidence reconciliation
+
+- Build **1.2.0 (13)** remains the signed native candidate from application
+  commit `1d7bbc14499ae00de62952f2276c91461c427169`. No native app or contract
+  source changed in these follow-ups. The previously archived 1,893-test and
+  148-browser-test results retain their original scope and provenance.
+- The integrated follow-up passed **20 targeted tests** across seller
+  reconciliation and course-document framing. These are additional checks,
+  not a claim that hosted CI or the full browser suite was rerun.
+- The earlier reviewer account was found. Production currently shows an active
+  Buyer and a rejected seller application. Historic conversational claims of
+  seller access were not used as live evidence. Credentials and a dedicated
+  non-financial fixture still need verification on the final backend.
+- The owner's previously uploaded Israeli VAT business certificate was found
+  and visually inspected. It remains outside the repository. It documents
+  business registration, not the cryptocurrency permission basis or proof of
+  Apple's submitting-entity eligibility. No certificate or legal response was
+  sent to Apple.
+- The Candles video loaded from Supabase Storage with browser media ready state
+  4 and no media error. This confirms that observed provider and loaded asset;
+  it is not a claim that every lesson or native playback was tested.
+- The optional Discord Management screen reported a Railway worker diagnostics
+  timeout and unknown resource readiness. Successful Discord delivery is not
+  established. The primary App Review journey must not depend on Discord.
+- Apple's original uploaded information request explicitly requires a recording
+  captured on a physical device, starting with app launch. The response package
+  was corrected to preserve that opening sequence. The existing labeled browser
+  QA video remains internal QA evidence.
+
+The owner has authorized continued work. Missing identity-review facts,
+physical-device evidence, credential validity, and regulatory/content rights
+are not inferred from that general authorization. No final App Review reply or
+resubmission has been made.

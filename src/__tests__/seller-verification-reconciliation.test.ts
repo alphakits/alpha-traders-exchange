@@ -126,4 +126,34 @@ describe("approved seller verification reconciliation", () => {
       "Reactivation requested.",
     )).rejects.toThrow("Seller identity verification must be recorded before reactivation.");
   });
+  it("preserves suspension and roles when recording a prior review", async () => {
+    globalThis.__alphaExchangeMemorySnapshot = seed("suspended") as never;
+    invalidateAlphaExchangeStoreCache();
+    const before = await findUserById("legacy-seller");
+
+    await recordApprovedSellerVerificationByAdmin(
+      "legacy-application", "owner-1", "Retained review reconciled.",
+      COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    );
+
+    const after = await findUserById("legacy-seller");
+    expect(after?.sellerStatus).toBe("suspended");
+    expect(after?.role).toBe(before?.role);
+    expect(after?.roles).toEqual(before?.roles);
+    expect(after?.sellerApprovalVerification?.verifiedByUserId).toBe("owner-1");
+  });
+
+  it.each(["pending", "rejected"] as const)("cannot approve a %s application through reconciliation", async (status) => {
+    const snapshot = seed();
+    snapshot.sellerApplications[0].status = status;
+    globalThis.__alphaExchangeMemorySnapshot = snapshot as never;
+    invalidateAlphaExchangeStoreCache();
+    await expect(recordApprovedSellerVerificationByAdmin(
+      "legacy-application", "owner-1", "Do not change application status.",
+      COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    )).rejects.toThrow("Verification can be recorded only for an approved seller application.");
+    const [application] = await getAllSellerApplicationsForAdmin();
+    expect(application?.status).toBe(status);
+    expect(application?.verification).toBeUndefined();
+  });
 });

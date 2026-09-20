@@ -17,11 +17,36 @@ documents, bank details, wallet secrets, or production-user data.
 | Submission ID | `0a2470dc-4f2a-4c7e-8d4f-1b0a8d46cbe2` |
 | Submitted | 2026-09-16 02:38 (App Store Connect display time) |
 | Submitted by | Mark Jozen |
-| Replacement build | `[NEW_BUILD_NUMBER]` |
-| Exact Git commit | `[RELEASE_COMMIT]` |
+| Replacement build | `13` |
+| Exact Git commit | `1d7bbc14499ae00de62952f2276c91461c427169` |
 | Production deployment | `[VERCEL_DEPLOYMENT_ID]` |
 
-## Apple policy basis verified on 2026-09-19
+## Evidence reconciliation — 20 September 2026 UTC
+
+Build **1.2.0 (13)** is signed, delivered to TestFlight, and selected in the
+saved App Store draft. Its application source is the commit above. The complete
+technical results are in the [candidate verification record](../audits/2026-09-19-sdk57-candidate-verification.md).
+
+The previously uploaded Israeli VAT business registration certificate has been
+located and visually inspected. It is available in the private release evidence;
+no identity number, address, certificate image, or private file locator belongs
+in this repository. Its presence resolves the request to locate business
+registration evidence. It does not establish the cryptocurrency permission
+basis or Apple's submitting-entity eligibility.
+
+The earlier review account was located in production. The current admin view
+shows an active Buyer and a rejected seller application. Previous conversational
+claims of approved-seller access do not establish its current state. Keep the
+reviewer credentials and fixture placeholders below until both roles are tested
+against the final backend.
+
+[PR #174](https://github.com/alphakits/alpha-traders-exchange/pull/174) prepares
+admin reconciliation controls before PR #173 activates the verification
+requirement. Do not treat this prerequisite as the completed enforcement release.
+The preparation controls are deployed in production at `70b155d470b247eb96acc7530271f1d5e542baa9`; the protected Website Health view reports healthy. The Approved filter contains 36 applications, all currently offering Record Verification and none showing a recorded attestation. No attestations were created. The physical-iPhone recording, current reviewer access, and appropriate service permission/content-rights evidence remain outstanding. The reply below is an
+unsent template and must not be presented as a completed-evidence statement.
+
+## Apple policy basis verified on 2026-09-20
 
 - **Guideline 2.1 — App Completeness:** the submitted build must be final,
   tested on-device, backed by live services, and supplied with full demo access.
@@ -46,10 +71,10 @@ Official sources:
 
 | Request | Required response evidence |
 | --- | --- |
-| 1. Physical-device demonstration | One continuous recording of the exact signed replacement build on a physical iPhone running the latest publicly released iOS supported by the build. Begin by showing the device model, iOS version, app version, and build number; then show launch, buyer access, approved-seller access, Exchange, a seeded non-financial Trade Room, safety controls, native push/deep link, privacy mask, support, and account deletion. |
+| 1. Physical-device demonstration | One continuous recording of the exact signed replacement build on a physical iPhone running the latest publicly released iOS supported by the build. Begin by launching the app, as Apple requested. Identify the app version and build during the capture and include device-model/iOS-version evidence. Show buyer access, approved-seller access, Exchange, a seeded non-financial Trade Room, safety controls, native push/deep link, privacy mask, support, and account deletion. |
 | 2. Purpose, audience, problem, and value | Use the product explanation below. Target audience is adults 18+ in Israel who use Arabic or English trading education and a structured direct-settlement P2P USDT workflow. |
 | 3. Setup and feature access | Keep two fictional accounts live: a verified Buyer and an Approved Seller. Put credentials only in App Store Connect. Seed a clearly named review listing and non-financial Trade Room; Apple must not register, provide identity data, transfer fiat, or send USDT. |
-| 4. External services | Disclose Vercel, Supabase, Expo Push, Resend, TRON/TronGrid, and the bounded Academy media providers actually active in production. Reconcile optional Discord, Twilio, or Meta services against production before sending. |
+| 4. External services | Disclose Vercel, Supabase, Expo Push, Resend, TRON/TronGrid, and the bounded Academy media providers actually active in production. A live lesson was observed loading its video from Supabase Storage; its workbook is served by the first-party site. Reconcile optional Discord, Twilio, or Meta services against production before sending. |
 | 5. Regional differences | App Store availability is Israel only. English and Arabic expose the same feature set. The native app presents monetary values in USD/USDT; ILS-denominated listing and settlement values are normalized with the live USD/ILS reference before display. Payment methods are the supported Israeli bank-transfer, cardless-ATM, and face-to-face flows. No post-review remote feature unlock is used. |
 | 6. Regulated service / protected content authorization | Attach the exact submitting-entity record and the counsel-approved Israeli licensing/permission basis for the P2P USDT model. A tax/business registration may be included as entity evidence but must not be described as a cryptocurrency licence. Attach a signed content-rights statement for Academy material if requested. |
 
@@ -60,7 +85,7 @@ resolved and the named attachments have been checked.
 
 > Thank you for reviewing Alpha Traders 1.2.0 and for requesting additional
 > information under Guideline 2.1. We have prepared replacement build
-> [NEW_BUILD_NUMBER] and expanded the App Review Information so every core
+> 13 and expanded the App Review Information so every core
 > feature can be reviewed without using real money, cryptocurrency, identity
 > documents, or customer data.
 >
@@ -108,7 +133,7 @@ resolved and the named attachments have been checked.
 >
 > The production backend, support contact, review listing, Trade Room, and both
 > reviewer accounts will remain available throughout review. We respectfully
-> request review of build [NEW_BUILD_NUMBER], and we are ready to answer any
+> request review of build 13, and we are ready to answer any
 > specific follow-up question.
 
 ## App Review Notes (4,000-character field)
@@ -118,7 +143,7 @@ limit. Add credentials only in App Store Connect immediately before submission;
 do not put them in this file.
 
 <!-- APP_REVIEW_NOTES_START -->
-Alpha Traders 1.2.0 build [NEW_BUILD_NUMBER] is a final public iPhone app for adults 18+ in Israel. It combines bilingual Arabic/English trading education with a structured direct-settlement peer-to-peer USDT marketplace. Approved sellers publish owner-reviewed listings; buyers submit requests; both sides use a staged Trade Room with in-platform chat, evidence, status guidance, notifications, disputes, reporting, blocking, and verified post-trade reviews. Alpha Traders does not custody buyer fiat or seller USDT. The parties settle directly. A 1% seller service commission is recorded only after a completed marketplace trade; the app does not sell digital content or cryptocurrency through Apple In-App Purchase.
+Alpha Traders 1.2.0 build 13 is a final public iPhone app for adults 18+ in Israel. It combines bilingual Arabic/English trading education with a structured direct-settlement peer-to-peer USDT marketplace. Approved sellers publish owner-reviewed listings; buyers submit requests; both sides use a staged Trade Room with in-platform chat, evidence, status guidance, notifications, disputes, reporting, blocking, and verified post-trade reviews. Alpha Traders does not custody buyer fiat or seller USDT. The parties settle directly. A 1% seller service commission is recorded only after a completed marketplace trade; the app does not sell digital content or cryptocurrency through Apple In-App Purchase.
 
 The Academy material available in this build is not sold or unlocked inside the app. There are no In-App Purchase products or paid digital-feature unlocks in this version.
 

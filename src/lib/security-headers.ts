@@ -16,6 +16,15 @@ export function buildPublicBrandAssetHeaders(): SecurityHeader[] {
   ];
 }
 
+/** Allow reviewed public course documents inside first-party lesson pages. */
+export function buildPublicCourseDocumentHeaders(input: { isProduction: boolean }): SecurityHeader[] {
+  const policy = buildSecurityHeaders(input).find((header) => header.key === "Content-Security-Policy")!.value;
+  return [
+    { key: "X-Frame-Options", value: "SAMEORIGIN" },
+    { key: "Content-Security-Policy", value: policy.replace("frame-ancestors 'none'", "frame-ancestors 'self'") },
+  ];
+}
+
 export function buildSecurityHeaders(input: { isProduction: boolean }): SecurityHeader[] {
   const contentSecurityPolicy = [
     "default-src 'self'",
