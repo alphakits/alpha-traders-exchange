@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useLocale } from "next-intl";
 import { CalendarClock, CheckCircle2, Clock3, FileText, PlayCircle } from "lucide-react";
 import { getLessonBySlug, lessons } from "@/lib/content";
@@ -13,11 +13,21 @@ export function StudentDashboard() {
   const locale = useLocale();
   const isAr = locale === "ar";
 
-  const snapshot = useMemo(() => getDashboardSnapshot(lessons), []);
-  const meta = useMemo(() => getLearningMeta(), []);
+  const [snapshot, setSnapshot] = useState<ReturnType<typeof getDashboardSnapshot>>({
+    currentLesson: lessons[0] ?? null,
+    completedLessons: 0,
+    hoursStudied: 0,
+    lastActivityAt: null,
+    recentNotes: [],
+  });
+  const [meta, setMeta] = useState<ReturnType<typeof getLearningMeta> | null>(null);
+  useEffect(() => {
+    setSnapshot(getDashboardSnapshot(lessons));
+    setMeta(getLearningMeta());
+  }, []);
   const overallProgress = lessons.length ? Math.round((snapshot.completedLessons / lessons.length) * 100) : 0;
-  const lastLesson = meta.lastLessonSlug ? getLessonBySlug(meta.lastLessonSlug) : undefined;
-  const lastLessonLabel = meta.lastLessonSlug
+  const lastLesson = meta?.lastLessonSlug ? getLessonBySlug(meta.lastLessonSlug) : undefined;
+  const lastLessonLabel = meta?.lastLessonSlug
     ? lastLesson
       ? (isAr ? lastLesson.titleAr : lastLesson.title)
       : (isAr ? "درس محفوظ" : "Saved lesson")

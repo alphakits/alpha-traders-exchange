@@ -45,13 +45,29 @@ path retained `DENY` and `frame-ancestors 'none'`. The Candles PDF returned 200
 with `application/pdf`; all 59,221 bytes matched the repository file. Its SHA-256
 is `07b7d7c16d34b6b9adec67ee34e96df9a65eb6e715423f0067919bab97fcf8da`.
 
-The cloud browser still displayed a blocked embedded PDF after reloading.
-The cause of that remaining visual failure is not established. Do not represent
-the corrected HTTP policy as a completed browser/device rendering test.
-The same session logged React hydration error 418 and failed Supabase lesson
-progress persistence. The precise Supabase error was not exposed by the safe
-console output. Those Academy observations remain unresolved; no authorization
-or storage policy was relaxed to silence them.
+The earlier cloud session still displayed a blocked embedded PDF after reloading.
+A fresh browser session subsequently rendered the full Candles workbook inside
+the lesson: its PDF toolbar, page thumbnail, title, summary, takeaways, and
+objectives were visually inspected. No additional header relaxation was needed.
+The earlier session's failure cause is unconfirmed. This is a browser observation,
+not a physical-iPhone result.
+
+The React hydration error was separately reproduced with saved browser progress
+on the lesson, Academy roadmap, and student dashboard. [PR #176](https://github.com/alphakits/alpha-traders-exchange/pull/176)
+restores browser-local progress after the server/client initial render. It passed
+**15 targeted tests**, including eight English/Arabic hydration cases, TypeScript,
+and changed-file ESLint. All seven blobs and its complete tree matched the tested
+local source. The preview passed and it was merged as
+`db1a548a85eeb3417f3f84a906031fb94f92e609`.
+Its [production deployment](https://vercel.com/alpha-kits/alpha-traders-exchange/8DhoiAWRvibLMCZnoBVwSG6jkvkR)
+succeeded; the live lesson loaded its new deployment-tagged script and the public
+review preflight passed **23/23** again. See the [focused verification record](2026-09-20-academy-hydration.md).
+
+Supabase web lesson-progress persistence remains a separate unresolved diagnostic.
+The client now logs a bounded provider error code for investigation. The signed
+native Academy uses its existing account-scoped local progress storage; this
+web diagnostic does not establish a native progress failure. No database access
+policy or seller authorization was relaxed to suppress the error.
 
 ## Review evidence reconciliation
 
@@ -71,6 +87,9 @@ or storage policy was relaxed to silence them.
   business registration, not the cryptocurrency permission basis or proof of
   Apple's submitting-entity eligibility. No certificate or legal response was
   sent to Apple.
+- A [content-rights schedule](../mobile/academy-content-rights-schedule.md) now
+  inventories the five published native lessons and 29 distinct media assets.
+  It is unsigned and requires actual ownership/license facts from the rights holder.
 - The Candles video loaded from Supabase Storage with browser media ready state
   4 and no media error. This confirms that observed provider and loaded asset;
   it is not a claim that every lesson or native playback was tested.

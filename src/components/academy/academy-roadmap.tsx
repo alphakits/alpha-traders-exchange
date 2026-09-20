@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Circle, Lock, PlayCircle } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { getAllLessonProgress, getCourseProgressPercent } from "@/lib/learning-progress";
+import { getAllLessonProgress } from "@/lib/learning-progress";
 import type { AcademyLevel } from "@/types/academy";
 import { formatAcademyLevel } from "@/lib/academy-localization";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,9 +41,10 @@ export function AcademyRoadmap({ courses }: { courses: AcademyRoadmapCourse[] })
   const locale = useLocale();
   const isAr = locale === "ar";
 
-  const progressMap = useMemo(() => {
+  const [progressMap, setProgressMap] = useState(() => new Map<string, boolean>());
+  useEffect(() => {
     const allProgress = getAllLessonProgress();
-    return new Map(allProgress.map((entry) => [entry.lessonId, entry.lessonCompleted]));
+    setProgressMap(new Map(allProgress.map((entry) => [entry.lessonId, entry.lessonCompleted])));
   }, []);
 
   const sections = useMemo(() => {
@@ -70,10 +71,8 @@ export function AcademyRoadmap({ courses }: { courses: AcademyRoadmapCourse[] })
           <div className="space-y-4">
             {sections[sectionKey].map((course) => {
               const courseLessons = course.lessons;
-              const percent = getCourseProgressPercent(
-                course.id,
-                courseLessons.map((lesson) => lesson.id),
-              );
+              const completed = courseLessons.filter((lesson) => progressMap.get(lesson.id)).length;
+              const percent = courseLessons.length ? Math.round((completed / courseLessons.length) * 100) : 0;
 
               return (
                 <Card key={course.id} className="relative overflow-hidden">
