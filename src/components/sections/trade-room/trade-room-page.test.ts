@@ -157,7 +157,7 @@ describe("Trade Room client stability helpers", () => {
     } as PurchaseRequest;
 
     expect(getPrimaryAction(cardless, "buyer-1", false, false)).toMatchObject({
-      label: "I Sent the Withdrawal Code",
+      label: "Send & Confirm Withdrawal Details",
       mode: "status",
       nextStatus: "payment_sent",
     });

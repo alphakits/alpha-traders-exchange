@@ -27,6 +27,7 @@ import type {
   MobileTradeStatus,
 } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
+import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
   completeMobileCashTrade,
   getMobileTrade,
@@ -163,6 +164,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
   const [cardlessWithdrawalCode, setCardlessWithdrawalCode] = useState("");
+  const [cardlessVerificationKind, setCardlessVerificationKind] = useState<CardlessVerificationKind>("id_number");
+  const [cardlessVerificationValue, setCardlessVerificationValue] = useState("");
+  const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessWithdrawalCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
   const [disputeReason, setDisputeReason] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
@@ -205,6 +209,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBankDetails(null);
     setDraftMessage("");
     setCardlessWithdrawalCode("");
+    setCardlessVerificationKind("id_number");
+    setCardlessVerificationValue("");
     setDisputeReason("");
     setReviewRating(5);
     setReviewComment("");
@@ -333,9 +339,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   async function submitCardlessCode() {
     if (busyAction) return;
-    const code = cardlessWithdrawalCode.replace(/\s+/g, "");
-    if (!/^\d{4,12}$/.test(code)) {
-      setError(t("withdrawalCodeInvalid"));
+    if (!cardlessDetails.ok) {
+      setError(t("withdrawalDetailsInvalid"));
       return;
     }
     const operationScope = activeTradeScopeRef.current;
@@ -344,9 +349,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("payment_sent");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
-        submitMobileCardlessCode(tokens, requestLocale, requestId, code, Crypto.randomUUID()));
+        submitMobileCardlessCode(tokens, requestLocale, requestId, cardlessDetails.details, Crypto.randomUUID()));
       if (activeTradeScopeRef.current !== operationScope) return;
       setCardlessWithdrawalCode("");
+      setCardlessVerificationValue("");
       applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
@@ -816,22 +822,46 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           {actions.canMarkPaymentSent ? (
             <View style={styles.actionGroup}>
               {isCardlessAtm ? (
+                <>
+                <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("withdrawalDetailsTitle")}</Text>
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalDetailsHint")}</Text>
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{t("withdrawalCodeLabel")}</Text>
                 <TextInput
                   accessibilityLabel={t("withdrawalCodeLabel")}
                   editable={!actionsDisabled}
                   inputMode="numeric"
                   keyboardType="number-pad"
                   maxLength={12}
-                  onChangeText={(value) => setCardlessWithdrawalCode(value.replace(/\D/g, "").slice(0, 12))}
+                  onChangeText={(value) => setCardlessWithdrawalCode(normalizeCardlessDigits(value).replace(/\s+/g, "").slice(0, 12))}
                   placeholder={t("withdrawalCodePlaceholder")}
                   placeholderTextColor={colors.textMuted}
                   secureTextEntry
                   style={styles.input}
                   value={cardlessWithdrawalCode}
                 />
+                <View accessibilityRole="radiogroup" style={{ flexDirection: isRTL ? "row-reverse" : "row", gap: spacing.sm }}>
+                  {(["id_number", "date_of_birth"] as const).map((kind) => (
+                    <Pressable key={kind} accessibilityRole="radio" accessibilityState={{ checked: cardlessVerificationKind === kind, disabled: actionsDisabled }}
+                      disabled={actionsDisabled} style={[styles.ratingOption, cardlessVerificationKind === kind && styles.ratingOptionSelected]}
+                      onPress={() => { setCardlessVerificationKind(kind); setCardlessVerificationValue(""); }}>
+                      <Text style={[styles.ratingOptionText, cardlessVerificationKind === kind && styles.ratingOptionTextSelected]}>
+                        {kind === "id_number" ? t("withdrawalIdNumber") : t("withdrawalBirthDate")}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={[styles.messageText, isRTL && styles.rtlText]}>{cardlessVerificationKind === "id_number" ? t("withdrawalIdNumber") : t("withdrawalBirthDate")}</Text>
+                <TextInput accessibilityLabel={cardlessVerificationKind === "id_number" ? t("withdrawalIdNumber") : t("withdrawalBirthDate")}
+                  editable={!actionsDisabled} autoComplete="off" autoCorrect={false}
+                  keyboardType={cardlessVerificationKind === "id_number" ? "number-pad" : "default"}
+                  maxLength={cardlessVerificationKind === "id_number" ? 12 : 10}
+                  value={cardlessVerificationValue} onChangeText={(value) => setCardlessVerificationValue(normalizeCardlessDigits(value))}
+                  placeholder={cardlessVerificationKind === "id_number" ? t("withdrawalIdNumber") : "DD/MM/YYYY"}
+                  placeholderTextColor={colors.textMuted} style={styles.input} />
+                </>
               ) : null}
               <GoldButton
-                disabled={actionsDisabled || (isCardlessAtm && !/^\d{4,12}$/.test(cardlessWithdrawalCode))}
+                disabled={actionsDisabled || (isCardlessAtm && !cardlessDetails.ok)}
                 loading={busyAction === "payment_sent"}
                 onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("payment_sent", t("cashHandoverConfirmation"))}
               >

@@ -397,6 +397,8 @@ describe("full Exchange App Review rehearsal", () => {
       actorRole: "buyer",
       nextStatus: "payment_sent",
       cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "id_number",
+      cardlessVerificationValue: "012345678",
       clientOperationId: "abcdef0123456789abcdef0123456789",
     });
     expect(buyerConfirmation.request).toMatchObject({ status: "payment_sent", buyerEvidence: undefined });
@@ -412,7 +414,7 @@ describe("full Exchange App Review rehearsal", () => {
       markMessagesRead: false,
     });
     expect(sellerRoomWithProtectedCode.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ message: "Cardless withdrawal code: 482913" }),
+      expect.objectContaining({ message: "Cardless withdrawal code: 482913\nID number: 012345678" }),
     ]));
     await updatePurchaseRequestStatus({
       requestId: created.request.id,

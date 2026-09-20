@@ -870,14 +870,14 @@ export function submitMobileCardlessCode(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
   requestId: string,
-  withdrawalCode: string,
+  details: import("@alpha-traders/contracts").CardlessWithdrawalDetails,
   clientOperationId: string,
 ) {
   return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
     locale,
     method: "PATCH",
     accessToken: tokens.accessToken,
-    body: { action: "submit_cardless_code", withdrawalCode, clientOperationId },
+    body: { action: "submit_cardless_code", ...details, clientOperationId },
   });
 }
 

@@ -12,6 +12,7 @@ import {
   createPurchaseRequest,
   forceCancelTradeByAdmin,
   forceCompleteTradeByAdmin,
+  getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   submitBuyerTradeReview,
   updatePurchaseRequestStatus,
@@ -176,6 +177,40 @@ describe("guided cash-trade completion", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it("requires both withdrawal fields without advancing or exposing incomplete details", async () => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913", clientOperationId: "0123456789abcdef0123456789abcdef",
+    })).rejects.toMatchObject({ code: "cardless-verification-required" });
+    expect(currentSnapshot().purchaseRequests[0]?.status).toBe("accepted");
+    expect(JSON.stringify(currentSnapshot())).not.toContain("482913");
+  });
+
+  it.each([
+    ["id_number", "012345678", "ID number: 012345678"],
+    ["date_of_birth", "29/02/1992", "Date of birth: 29/02/1992"],
+  ])("protects %s together with the code and rejects a changed retry", async (kind, value, display) => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    const input = { requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "payment_sent" as const,
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: kind, cardlessVerificationValue: value,
+      clientOperationId: "0123456789abcdef0123456789abcdef" };
+    await updatePurchaseRequestStatus(input);
+    const persisted = JSON.stringify(currentSnapshot());
+    expect(persisted).not.toContain("482913");
+    expect(persisted).not.toContain(value);
+    expect((await updatePurchaseRequestStatus(input)).statusChanged).toBe(false);
+    await expect(updatePurchaseRequestStatus({ ...input, cardlessVerificationValue: kind === "id_number" ? "112345678" : "28/02/1992" }))
+      .rejects.toMatchObject({ code: "cardless-code-conflict" });
+    const room = await getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.messages).toEqual(expect.arrayContaining([expect.objectContaining({ message: `Cardless withdrawal code: 482913\n${display}` })]));
+    await expect(getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: OUTSIDER_ID, actorRole: "buyer", markMessagesRead: false })).rejects.toThrow();
+    await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" });
+    const afterCash = await getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(JSON.stringify(afterCash.messages)).not.toContain("482913");
+    expect(JSON.stringify(afterCash.messages)).not.toContain(value);
+    expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
+  });
+
   it("records USDT sent first, then lets only the seller complete the cash trade", async () => {
     const { listingId } = seedTrade({ status: "funds_received" });
 
@@ -325,6 +360,8 @@ describe("guided cash-trade completion", () => {
         nextStatus: "payment_sent",
         ...(paymentMethod === "Cardless ATM Withdrawal" ? {
           cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "id_number",
+      cardlessVerificationValue: "012345678",
           clientOperationId: "0123456789abcdef0123456789abcdef",
         } : {}),
       });
