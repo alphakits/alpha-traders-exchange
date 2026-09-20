@@ -1,9 +1,7 @@
 "use client";
 
 import type { Lesson } from "@/types/academy";
-import { createClient } from "@/lib/supabase/client";
 
-const LEARNER_KEY_STORAGE = "alpha-traders:learner-key";
 const PROGRESS_STORAGE = "alpha-traders:lesson-progress";
 const LEARNING_META_STORAGE = "alpha-traders:learning-meta";
 const QUIZ_PASS_PERCENT = 70;
@@ -70,15 +68,6 @@ function defaultMeta(): LearningMeta {
     lastActivityAt: null,
     totalStudyMinutes: 0,
   };
-}
-
-export function getLearnerKey() {
-  if (typeof window === "undefined") return "server-render";
-  const existing = window.localStorage.getItem(LEARNER_KEY_STORAGE);
-  if (existing) return existing;
-  const generated = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `anon-${Date.now()}`;
-  window.localStorage.setItem(LEARNER_KEY_STORAGE, generated);
-  return generated;
 }
 
 function readAllProgress() {
@@ -184,59 +173,10 @@ export function getDashboardSnapshot(lessons: Lesson[]) {
   };
 }
 
-async function persistToSupabase(progress: LessonProgressState, eventType: LearningEventType) {
-  const supabase = createClient();
-  const learnerKey = getLearnerKey();
-
-  const { error: eventError } = await supabase.from("lesson_progress_events").insert({
-    learner_key: learnerKey,
-    lesson_id: progress.lessonId,
-    course_id: progress.courseId,
-    event_type: eventType,
-    payload: {
-      lessonSlug: progress.lessonSlug,
-      videoWatched: progress.videoWatched,
-      pdfOpened: progress.pdfOpened,
-      pdfReadProgress: progress.pdfReadProgress,
-      quizCompleted: progress.quizCompleted,
-      lessonCompleted: progress.lessonCompleted,
-      bookmarked: progress.bookmarked,
-      quizScore: progress.quizScore,
-      notes: progress.notes,
-      videoPositionSeconds: progress.videoPositionSeconds,
-    },
-  });
-
-  if (eventError) {
-    throw eventError;
-  }
-
-  const { error: stateError } = await supabase.from("lesson_progress_state").upsert(
-    {
-      learner_key: learnerKey,
-      lesson_id: progress.lessonId,
-      course_id: progress.courseId,
-      video_watched: progress.videoWatched,
-      pdf_opened: progress.pdfOpened,
-      quiz_completed: progress.quizCompleted,
-      lesson_completed: progress.lessonCompleted,
-      bookmarked: progress.bookmarked,
-      quiz_score: progress.quizScore,
-      updated_at: progress.updatedAt,
-    },
-    { onConflict: "learner_key,lesson_id" },
-  );
-
-  if (stateError) {
-    throw stateError;
-  }
-}
-
 export async function updateLessonProgress({
   lessonId,
   courseId,
   lessonSlug,
-  eventType,
   updater,
 }: {
   lessonId: string;
@@ -271,14 +211,8 @@ export async function updateLessonProgress({
     lastActivityAt: next.updatedAt,
   });
 
-  try {
-    await persistToSupabase(next, eventType);
-  } catch (error) {
-    // Expose only a bounded provider code in the diagnostic line.
-    const rawCode = error && typeof error === "object" && "code" in error ? error.code : null;
-    const code = typeof rawCode === "string" && /^[A-Z0-9_]{1,40}$/i.test(rawCode) ? rawCode : "unknown";
-    console.error(`Failed to persist lesson progress to Supabase (${code})`, error);
-  }
+  // Progress is browser-local, like the native app's device-local store.
+  // The legacy remote write had no read/restore path or authenticated owner.
 
   return next;
 }

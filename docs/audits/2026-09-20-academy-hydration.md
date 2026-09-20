@@ -22,13 +22,44 @@ Validation after the workspace recovery:
 - Native app and contract source are unchanged. Signed iOS build 13 does not
   need rebuilding for this web-only correction.
 
-The Supabase failure message now includes a bounded provider error code to aid
-diagnosis. This is not a fix or a passing claim for remote progress persistence.
-The embedded PDF observation also remains separate: direct PDF viewing worked,
-but the cloud browser's embedded viewer remained blocked despite corrected
-same-origin response headers. No storage, identity, or framing policy is relaxed
-by this change.
+## Production hydration and workbook verification
 
-This record establishes local verification only. Deployment and live browser
-results must be recorded separately once available. It does not claim App Review
-submission, approval, a physical-iPhone run, or a new full-suite/hosted-CI run.
+[PR #176](https://github.com/alphakits/alpha-traders-exchange/pull/176) merged as
+`db1a548a85eeb3417f3f84a906031fb94f92e609`. Preview and production builds succeeded.
+The live lesson loaded its new deployment-tagged bundle, restored saved reading
+progress, and produced no React hydration error in the captured application logs.
+The public review preflight passed 23/23. A fresh browser session also visually
+verified the embedded Candles PDF after the separate framing correction in
+PR #175. The earlier session's continued PDF failure cause is unconfirmed.
+
+## Removal of the unused remote progress write
+
+The bounded diagnostic added in PR #176 identified PostgREST `PGRST205` on the
+legacy progress write. Source inspection established that web progress is read
+only from browser storage. There is no remote read/restore path. The write used
+an anonymous learner identifier and attempted to send notes to progress tables
+that the deployed API did not expose.
+
+[PR #177](https://github.com/alphakits/alpha-traders-exchange/pull/177) removes
+that failing one-way write and its unused learner identifier. Existing local
+notes, video position, workbook progress, completion, and summaries are retained.
+The English/Arabic notes label now explicitly says it is saved in this browser.
+Native Academy progress remains in its existing account-scoped device storage.
+No database migration, access-policy change, or cloud-sync claim is introduced.
+
+The two changed source files passed the same 15 focused tests, TypeScript, and
+ESLint. The published tree exactly matches local verification:
+`de58877c86a402b9bd71cbd563a526d6f0ee2ea7`.
+
+The PR merged as `660949244072f9a6db4eb6442c5b6eaedcfa65f3`; both preview and
+[production builds](https://vercel.com/alpha-kits/alpha-traders-exchange/GHxN15iM4pX47NDPw9vEzwxvVP6C)
+succeeded. The live lesson loaded that deployment's bundle and displayed the
+new label. Its originally empty notes field was given a temporary QA note, showed
+the saved indicator, and restored the exact note after reloading and hydration.
+The temporary note was cleared through the same UI and saved again. Captured
+application logs contained no hydration or Supabase progress error; unrelated
+browser-extension metadata errors were excluded from that app-specific result.
+All **23 public App Review preflight checks** passed against this deployment.
+
+This record does not claim App Review submission, approval, a physical-iPhone
+run, or a new full-suite/hosted-CI run.

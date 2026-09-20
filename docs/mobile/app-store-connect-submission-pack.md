@@ -155,8 +155,14 @@ The app does not request App Tracking Transparency permission and has no ad SDK.
 | User content | Profile image/bio, listings, Trade Room messages, receipt evidence, reviews, reports, and support messages | Yes | No |
 | Sensitive information / photos or videos | Government-ID and live identity-video material for seller applicants when collected through the designated review channel; raw media stays outside the Exchange account record, but the collection, channel, retention, and deletion practice must still be declared exactly | Yes, seller applicants only | No |
 | Identifiers | Account ID, random installation/device ID, session records, and Expo push token | Yes | No |
-| Usage data | Lesson progress, notification state/preferences, marketplace and Trade Room state changes | Yes | No |
+| Usage data | Notification state/preferences, marketplace and Trade Room state changes | Yes | No |
 | Diagnostics | Request IDs, delivery state, and bounded technical/security logs | May be linked for security | No |
+
+Academy lesson progress and notes use account-scoped storage on the native device
+and browser storage on the website. The web-only correction in PR #177 removes
+an unused, failing remote progress write; no cloud restore path exists. Do not
+describe these local progress records as a working synchronization feature or
+combine them with the separate server-held marketplace activity in this worksheet.
 
 Verify retention, provider processing, and deletion behavior against Vercel,
 Supabase, Expo Push, email/SMS providers, the seller identity-review channel,

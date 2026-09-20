@@ -101,8 +101,13 @@ worksheet, not a pre-approved set of Console answers.
 | Photos | Profile photo and optional trade evidence selected or captured by the user | Optional | Profile and active-trade evidence |
 | Sensitive identity information / video | Government-ID and live identity-video material for seller applicants when collected through the designated review channel; raw media is not stored in the Exchange account record | Required only for seller applicants; exact channel, retention, and deletion must match the declaration | Fraud prevention, account security, seller eligibility review |
 | Identifiers | Account ID, random installation/device ID, session records, and Expo push token | Required for authenticated/native functions; push is optional | Authentication, security, notifications |
-| App activity | Lesson progress, notification state/preferences, and marketplace/Trade Room actions | Feature-dependent | App functionality and synchronization |
+| App activity | Notification state/preferences and marketplace/Trade Room actions | Feature-dependent | App functionality and synchronization |
 | Diagnostics | Request IDs, delivery state, and bounded technical/security logs | Generated during service use | Reliability, abuse prevention, security |
+
+Academy progress and notes stay in account-scoped native device storage or the
+website's browser storage. PR #177 removes the unused web progress write that
+failed against Supabase; it does not add cloud synchronization. Assess the
+server-held activity above separately from these local progress records.
 
 Before entering answers, verify:
 

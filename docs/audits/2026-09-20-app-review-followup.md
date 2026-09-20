@@ -65,16 +65,31 @@ review preflight passed **23/23** again. See the [focused verification record](2
 
 On a fresh post-deployment reload, the lesson restored the visible saved reading
 position and no React hydration error appeared in the captured application logs.
-The remaining web persistence failure now identifies **PGRST205**. PostgREST
+The separate web persistence failure identified **PGRST205**. PostgREST
 [documents this code](https://docs.postgrest.org/en/stable/references/errors.html#group-2-schema-cache)
-as a requested table not found. The legacy client writes to
-`lesson_progress_events` and `lesson_progress_state`; those definitions appear
-in `supabase/schema.sql`, but their live schema exposure/cache and access policy
-have not been verified. Do not claim remote synchronization works or enable
-anonymous access to learner notes as a workaround. The signed
-native Academy uses its existing account-scoped local progress storage; this
-web diagnostic does not establish a native progress failure. No database access
-policy or seller authorization was relaxed to suppress the error.
+as a requested table not found. Inspection confirmed that the legacy client
+attempted anonymous writes to `lesson_progress_events` and `lesson_progress_state`
+while restoring progress only from browser storage; it had no remote read/restore
+path. [PR #177](https://github.com/alphakits/alpha-traders-exchange/pull/177) removes
+this unused, failing write and labels notes explicitly as saved in this browser.
+It preserves local progress and notes without sending them to an unused backend.
+The signed native Academy keeps its existing account-scoped device storage.
+No database migration, access-policy change, seller authorization change, or
+cloud synchronization was introduced. The store disclosure worksheets now
+distinguish local Academy progress from server-held marketplace activity.
+
+PR #177 passed **15 focused tests**, TypeScript, and changed-file ESLint. Both
+published blobs and tree `de58877c86a402b9bd71cbd563a526d6f0ee2ea7` exactly match
+the verified source. Its
+[preview deployment](https://vercel.com/alpha-kits/alpha-traders-exchange/AWQLxqLPYFL5GNTDDSbqNQhMtGUr)
+succeeded, and it merged as `660949244072f9a6db4eb6442c5b6eaedcfa65f3`.
+Its [production deployment](https://vercel.com/alpha-kits/alpha-traders-exchange/GHxN15iM4pX47NDPw9vEzwxvVP6C)
+also succeeded. The live lesson loaded the new bundle and browser-local label.
+A temporary note in the previously empty field saved and restored exactly after
+reload and hydration; it was then cleared through the UI and saved again.
+Captured application logs showed neither the hydration nor Supabase progress
+error. Browser-extension metadata errors were separate from application logs.
+The public review preflight passed **23/23** on this release.
 
 ## Review evidence reconciliation
 
@@ -107,6 +122,11 @@ policy or seller authorization was relaxed to suppress the error.
   captured on a physical device, starting with app launch. The response package
   was corrected to preserve that opening sequence. The existing labeled browser
   QA video remains internal QA evidence.
+- The App Store Connect session subsequently expired. A secure browser sign-in
+  attempt returned `submission_failed` without a visible site error. No
+  credential was entered through an alternate tool, and no reply or submission
+  was made. The owner must complete the browser's manual sign-in handoff before
+  App Store Connect work can continue.
 
 The owner has authorized continued work. Missing identity-review facts,
 physical-device evidence, credential validity, and regulatory/content rights

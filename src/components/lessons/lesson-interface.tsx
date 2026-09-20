@@ -596,7 +596,7 @@ export function LessonInterface({
           <Card>
             <CardHeader>
               <CardDescription>{isAr ? "ملاحظاتك" : "Your Notes"}</CardDescription>
-              <CardTitle className="text-base">{isAr ? "تُحفظ تلقائياً" : "Auto-saved"}</CardTitle>
+              <CardTitle className="text-base">{isAr ? "محفوظة في هذا المتصفح" : "Saved in this browser"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <textarea
