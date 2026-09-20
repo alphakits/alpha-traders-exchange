@@ -25,9 +25,10 @@ documents, bank details, wallet secrets, or production-user data.
 
 Build **1.2.0 (15)** was signed and uploaded to TestFlight. The owner reported
 selecting it, but Apple authentication prevented independent confirmation of the
-saved selection. The website approval correction is a later source revision;
-its native-source edits require a new signed build for exact-source submission
-evidence. Do not substitute an earlier build's test or recording evidence.
+saved selection. The website approval correction is a later backend revision. Native application
+source and contracts are preserved from build 15; its root layout shows the
+canonical website on every route. Confirm the saved build and test that signed
+build against the corrected backend. Do not substitute an older recording.
 The original technical results remain in the [candidate verification record](../audits/2026-09-19-sdk57-candidate-verification.md).
 
 The previously uploaded Israeli VAT business registration certificate has been

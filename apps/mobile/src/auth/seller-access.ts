@@ -5,5 +5,5 @@ export function canUseSellerTools(user: MobileSessionUser | null | undefined) {
   if (user.role === "admin" || user.role === "owner" || user.roles.some((role) => role === "admin" || role === "owner")) {
     return true;
   }
-  return user.sellerStatus === "approved_seller";
+  return user.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true;
 }

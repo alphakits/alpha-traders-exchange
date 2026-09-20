@@ -38,5 +38,7 @@ identity-review record. Retain the other Exchange hardening and privacy work.
 
 Publish the matching backend before validating the final signed mobile build.
 A TestFlight upload is not proof that the backend was deployed or that Apple
-approved the submission. Native screen edits require a new signed build;
-existing builds remain compatible with the approval response field.
+approved the submission. The existing signed native shell is preserved. Its root layout renders the
+canonical website for every route, so the deployed website supplies the visible
+approval screen. Backend compatibility fields keep the delivered build working
+without a new identity-record requirement.

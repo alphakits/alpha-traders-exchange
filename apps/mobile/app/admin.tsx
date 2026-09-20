@@ -36,6 +36,7 @@ export default function AdminScreen() {
   const [review, setReview] = useState<PendingReview | null>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [verificationConfirmed, setVerificationConfirmed] = useState(false);
   const query = useQuery({
     enabled: status === "authenticated" && isAdmin,
     queryKey,
@@ -52,6 +53,7 @@ export default function AdminScreen() {
       setReview(null);
       setReason("");
       setError("");
+      setVerificationConfirmed(false);
       void queryClient.invalidateQueries({ queryKey: ["mobile-marketplace"] });
       Alert.alert(isAr ? "تم الحفظ" : "Saved", isAr ? "تم تنفيذ قرار المراجعة." : "The review decision was applied.");
     },
@@ -64,6 +66,7 @@ export default function AdminScreen() {
   function openReview(input: PendingReview) {
     setReason("");
     setError("");
+    setVerificationConfirmed(false);
     setReview(input);
   }
 
@@ -72,6 +75,27 @@ export default function AdminScreen() {
     const cleanReason = reason.trim();
     if (review.reasonRequired && cleanReason.length < 3) {
       setError(isAr ? "أدخل سببًا واضحًا من 3 أحرف على الأقل." : "Enter a clear reason of at least 3 characters.");
+      return;
+    }
+    if (review.target === "seller_application" && review.decision === "approve" && !verificationConfirmed) {
+      setError(isAr
+        ? "يجب تأكيد مراجعة الهوية والفيديو وملكية وسيلة التواصل وقواعد السوق قبل اعتماد البائع."
+        : "Confirm the identity, live-video, contact-ownership, and marketplace-rules checks before approving the seller.");
+      return;
+    }
+    if (review.target === "seller_application" && review.decision === "approve") {
+      mutation.mutate({
+        target: "seller_application",
+        id: review.id,
+        decision: "approve",
+        reason: cleanReason,
+        verification: {
+          identityDocumentReviewed: true,
+          liveIdentityVideoReviewed: true,
+          contactOwnershipConfirmed: true,
+          marketplaceRulesAccepted: true,
+        },
+      });
       return;
     }
     mutation.mutate({
@@ -125,8 +149,21 @@ export default function AdminScreen() {
           <View style={styles.modalCard}>
             <Text accessibilityRole="header" style={[styles.modalTitle, isRTL && styles.rtlText]}>{review?.title}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "أضف ملاحظة مراجعة واضحة. تُحفظ في سجل الإدارة." : "Add a clear review note. It is retained in the admin record."}</Text>
-            {review?.target === "seller_application" ? (
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "راجع الهوية والفيديو عبر واتساب، ثم اقبل الطلب أو ارفضه هنا." : "Review identity and video through WhatsApp, then approve or reject the application here."}</Text>
+            {review?.target === "seller_application" && review.decision === "approve" ? (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: verificationConfirmed }}
+                disabled={mutation.isPending}
+                onPress={() => { setVerificationConfirmed((current) => !current); setError(""); }}
+                style={({ pressed }) => [styles.attestation, pressed && styles.pressed]}
+              >
+                <Text style={styles.attestationMark}>{verificationConfirmed ? "✓" : "○"}</Text>
+                <Text style={[styles.attestationText, isRTL && styles.rtlText]}>
+                  {isAr
+                    ? "أؤكد أنني راجعت وثيقة الهوية الحكومية، وطابقت الشخص في فيديو هوية مباشر، وأكدت ملكية وسيلة التواصل، وقبول قواعد السوق. لن تُحفظ مستندات الهوية الأصلية في سجل Exchange."
+                    : "I confirm that I reviewed the government identity document, matched the person in a live identity video, confirmed contact ownership, and confirmed acceptance of the marketplace rules. Raw identity documents will not be stored in the Exchange record."}
+                </Text>
+              </Pressable>
             ) : null}
             <TextInput
               editable={!mutation.isPending}
@@ -209,6 +246,9 @@ const styles = StyleSheet.create({
   modalCard: { backgroundColor: colors.surface, borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, maxWidth: 520, padding: spacing.lg, width: "100%" },
   modalTitle: { color: colors.text, fontSize: typography.title, fontWeight: "900" },
   input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 120, padding: spacing.md },
+  attestation: { alignItems: "flex-start", backgroundColor: "rgba(201,162,39,0.08)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, flexDirection: "row", gap: spacing.sm, padding: spacing.md },
+  attestationMark: { color: colors.goldBright, fontSize: 22, fontWeight: "900", lineHeight: 24 },
+  attestationText: { color: colors.text, flex: 1, fontSize: typography.small, lineHeight: 21 },
   pressed: { opacity: 0.8 },
   rowReverse: { flexDirection: "row-reverse" },
   rtlInput: { textAlign: "right", writingDirection: "rtl" },
