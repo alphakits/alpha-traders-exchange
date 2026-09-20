@@ -12,6 +12,7 @@ const MAX_ETH_USDT_RATE = 100_000;
 const MIN_CACHE_TTL_MS = 30_000;
 const MAX_CACHE_TTL_MS = 60_000;
 const DEFAULT_CACHE_TTL_MS = 45_000;
+const MARKET_PROVIDER_TIMEOUT_MS = 3_000;
 
 let cachedSnapshot: MarketSnapshot | null = null;
 let lastLiveSnapshot: MarketSnapshot | null = null;
@@ -39,6 +40,35 @@ function getCacheTtlMs() {
   return DEFAULT_CACHE_TTL_MS;
 }
 
+async function fetchMarketProviderJson<T>(url: string): Promise<T> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("market_provider_timeout"));
+    }, MARKET_PROVIDER_TIMEOUT_MS);
+  });
+
+  try {
+    // Bound the complete response, including its body. A stalled provider
+    // must not leave the shared inFlight refresh pending for every caller.
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) {
+          void response.body?.cancel().catch(() => undefined);
+          throw new Error("market_provider_unavailable");
+        }
+        return await response.json() as T;
+      })(),
+      deadline,
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 async function fetchUsdIlsRate() {
   const configured = toNumber(process.env.ALPHA_EXCHANGE_USD_ILS_RATE);
   if (configured > 0) {
@@ -60,9 +90,7 @@ async function fetchUsdIlsRate() {
 
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint.url, { cache: "no-store" });
-      if (!response.ok) continue;
-      const payload = await response.json() as Record<string, unknown>;
+      const payload = await fetchMarketProviderJson<Record<string, unknown>>(endpoint.url);
       const value = endpoint.parse(payload);
       if (isInRange(value, MIN_USD_ILS_RATE, MAX_USD_ILS_RATE)) {
         return { value, source: endpoint.name, success: true as const };
@@ -96,10 +124,8 @@ async function fetchBtcUsdtRate() {
 
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint.url, { cache: "no-store" });
-      if (!response.ok) continue;
-      const payload = await response.json();
-      const value = endpoint.parse(payload as { price?: unknown; data?: { amount?: unknown } });
+      const payload = await fetchMarketProviderJson<{ price?: unknown; data?: { amount?: unknown } }>(endpoint.url);
+      const value = endpoint.parse(payload);
       if (isInRange(value, MIN_BTC_USDT_RATE, MAX_BTC_USDT_RATE)) {
         return { value, source: endpoint.name, success: true as const };
       }
@@ -132,10 +158,8 @@ async function fetchEthUsdtRate() {
 
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint.url, { cache: "no-store" });
-      if (!response.ok) continue;
-      const payload = await response.json();
-      const value = endpoint.parse(payload as { price?: unknown; data?: { amount?: unknown } });
+      const payload = await fetchMarketProviderJson<{ price?: unknown; data?: { amount?: unknown } }>(endpoint.url);
+      const value = endpoint.parse(payload);
       if (isInRange(value, MIN_ETH_USDT_RATE, MAX_ETH_USDT_RATE)) {
         return { value, source: endpoint.name, success: true as const };
       }
