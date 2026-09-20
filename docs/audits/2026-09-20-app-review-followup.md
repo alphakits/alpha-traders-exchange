@@ -63,8 +63,15 @@ Its [production deployment](https://vercel.com/alpha-kits/alpha-traders-exchange
 succeeded; the live lesson loaded its new deployment-tagged script and the public
 review preflight passed **23/23** again. See the [focused verification record](2026-09-20-academy-hydration.md).
 
-Supabase web lesson-progress persistence remains a separate unresolved diagnostic.
-The client now logs a bounded provider error code for investigation. The signed
+On a fresh post-deployment reload, the lesson restored the visible saved reading
+position and no React hydration error appeared in the captured application logs.
+The remaining web persistence failure now identifies **PGRST205**. PostgREST
+[documents this code](https://docs.postgrest.org/en/stable/references/errors.html#group-2-schema-cache)
+as a requested table not found. The legacy client writes to
+`lesson_progress_events` and `lesson_progress_state`; those definitions appear
+in `supabase/schema.sql`, but their live schema exposure/cache and access policy
+have not been verified. Do not claim remote synchronization works or enable
+anonymous access to learner notes as a workaround. The signed
 native Academy uses its existing account-scoped local progress storage; this
 web diagnostic does not establish a native progress failure. No database access
 policy or seller authorization was relaxed to suppress the error.
