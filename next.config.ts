@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import { isProductionSecurityRuntime } from "./src/lib/runtime-safety";
-import { buildPublicBrandAssetHeaders, buildSecurityHeaders } from "./src/lib/security-headers";
+import { buildPublicBrandAssetHeaders, buildPublicCourseDocumentHeaders, buildSecurityHeaders } from "./src/lib/security-headers";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const isDev = process.env.NODE_ENV !== "production";
@@ -57,6 +57,15 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" },
         ],
+      },
+      // Only trusted, public course documents may be framed by our own lessons.
+      {
+        source: "/files/course/pdfs/:path*",
+        headers: buildPublicCourseDocumentHeaders({ isProduction: isProductionSecurityRuntime() }),
+      },
+      {
+        source: "/files/course/academy-course-notes.html",
+        headers: buildPublicCourseDocumentHeaders({ isProduction: isProductionSecurityRuntime() }),
       },
     ];
   },
