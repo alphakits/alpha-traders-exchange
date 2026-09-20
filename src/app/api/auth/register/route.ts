@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
@@ -13,6 +14,8 @@ type RegistrationErrorCode =
   | "REQUIRED_FIELDS"
   | "FIELD_TOO_LONG"
   | "INVALID_EMAIL"
+  | "WHATSAPP_REQUIRED"
+  | "INVALID_WHATSAPP"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
   | "PASSWORD_TOO_SHORT"
@@ -27,6 +30,14 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
   REQUIRED_FIELDS: {
     ar: "الاسم الكامل والبريد الإلكتروني وكلمة المرور مطلوبة.",
     en: "Full name, email, and password are required.",
+  },
+  WHATSAPP_REQUIRED: {
+    ar: "رقم واتساب مطلوب للتواصل بشأن حسابك.",
+    en: "A WhatsApp number is required for account contact.",
+  },
+  INVALID_WHATSAPP: {
+    ar: "أدخل رقم واتساب صالحًا مثل 05XXXXXXXX أو رقمًا دوليًا يبدأ بـ + ورمز الدولة.",
+    en: "Enter a valid WhatsApp number, such as 05XXXXXXXX or an international number starting with + and country code.",
   },
   FIELD_TOO_LONG: {
     ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
@@ -123,17 +134,24 @@ export async function POST(request: NextRequest) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
-    const whatsappNumber = String(body.whatsappNumber ?? "").trim();
+    const whatsappInput = typeof body.whatsappNumber === "string" ? body.whatsappNumber.trim() : "";
     const agreedToTerms = Boolean(body.agreedToTerms);
 
     if (!fullName || !email || !password || !confirmPassword) {
       return registrationErrorResponse(locale, "REQUIRED_FIELDS", 400);
     }
-    if (fullName.length > 100 || whatsappNumber.length > 30 || email.length > 254) {
+    if (fullName.length > 100 || whatsappInput.length > 30 || email.length > 254) {
       return registrationErrorResponse(locale, "FIELD_TOO_LONG", 400);
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return registrationErrorResponse(locale, "INVALID_EMAIL", 400);
+    }
+    if (!whatsappInput) {
+      return registrationErrorResponse(locale, "WHATSAPP_REQUIRED", 400);
+    }
+    const whatsappNumber = normalizeRegistrationWhatsApp(whatsappInput);
+    if (!whatsappNumber) {
+      return registrationErrorResponse(locale, "INVALID_WHATSAPP", 400);
     }
     assertNoDirectContactContent(fullName);
 
@@ -186,7 +204,7 @@ export async function POST(request: NextRequest) {
         data: {
           full_name: fullName,
           preferred_locale: locale,
-          ...(whatsappNumber ? { whatsapp_number: whatsappNumber } : {}),
+          whatsapp_number: whatsappNumber,
         },
       },
     });

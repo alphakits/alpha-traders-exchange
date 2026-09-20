@@ -13,12 +13,42 @@ function completeRequiredFields() {
   fireEvent.change(screen.getByLabelText(/البريد الإلكتروني|Email/), { target: { value: "test@example.com" } });
   fireEvent.change(screen.getByLabelText(/^كلمة المرور$|^Password$/), { target: { value: "password123" } });
   fireEvent.change(screen.getByLabelText(/تأكيد كلمة المرور|Confirm Password/), { target: { value: "password123" } });
+  fireEvent.change(screen.getByLabelText(/رقم واتساب|WhatsApp Number/), { target: { value: "0501234567" } });
   fireEvent.click(screen.getByRole("checkbox"));
 }
 
 describe("RegisterForm localization", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("requires WhatsApp before a registration request in %s", async (locale) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale={locale} />);
+    completeRequiredFields();
+    const contact = screen.getByLabelText(/رقم واتساب|WhatsApp Number/) as HTMLInputElement;
+    expect(contact.required).toBe(true);
+    expect(contact.type).toBe("tel");
+    fireEvent.change(contact, { target: { value: "   " } });
+    fireEvent.submit(contact.closest("form")!);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toContain(locale === "ar" ? "رقم واتساب مطلوب" : "A WhatsApp number is required");
+  });
+
+  it("rejects malformed numbers and sends accepted contacts in international format", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale="en" />);
+    completeRequiredFields();
+    const contact = screen.getByLabelText("WhatsApp Number");
+    fireEvent.change(contact, { target: { value: "not a number" } });
+    fireEvent.submit(contact.closest("form")!);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.change(contact, { target: { value: "050-123-4567" } });
+    fireEvent.submit(contact.closest("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ whatsappNumber: "+972501234567" });
   });
 
   it("uses a stable Arabic error instead of exposing an unexpected English API error", async () => {

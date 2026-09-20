@@ -82,9 +82,10 @@ type ClientSessionUserOptions = {
   isPhotoVerified?: boolean;
 };
 
-/** Runtime allowlist for the small user summary rendered by the admin dashboard. */
+/** Runtime allowlist for the private, admin-only user/contact summary. */
 export function toAdminUserSummary(user: AlphaExchangeUser) {
   return {
+    whatsappNumber: user.whatsappNumber,
     id: user.id,
     fullName: user.fullName,
     email: user.email,

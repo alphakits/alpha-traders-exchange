@@ -20,6 +20,10 @@ const privacySections = {
       body: "Depending on how you use the service, data may include account and contact details, authentication and verification records, profile information, marketplace listings, trade messages and status history, payment or wallet details needed for a trade, uploaded evidence, support reports, notification preferences, and technical security logs.",
     },
     {
+      title: "Registration contact number",
+      body: "New registrations require a WhatsApp contact number so the Alpha Traders owner and authorized support team can contact you about your account, support requests, and marketplace safety. Providing a number does not verify ownership or enable optional WhatsApp notifications. The number is not public by default.",
+    },
+    {
       title: "How information is used",
       body: "We process information to provide accounts and marketplace features, coordinate trades, display appropriate public seller signals, deliver notifications, investigate disputes and abuse, secure the platform, enforce rules, maintain records, improve reliability, and meet applicable legal obligations.",
     },
@@ -56,6 +60,10 @@ const privacySections = {
     {
       title: "المعلومات التي قد نجمعها",
       body: "بحسب استخدامك للخدمة، قد تشمل البيانات معلومات الحساب والتواصل، وسجلات المصادقة والتحقق، ومعلومات الملف، وعروض السوق، ورسائل الصفقة وسجل حالتها، وتفاصيل الدفع أو المحفظة اللازمة للصفقة، والأدلة المرفوعة، وبلاغات الدعم، وتفضيلات الإشعارات، وسجلات الأمان التقنية.",
+    },
+    {
+      title: "رقم التواصل عند التسجيل",
+      body: "يتطلب التسجيل الجديد رقم واتساب للتواصل حتى يتمكن مالك Alpha Traders وفريق الدعم المخوّل من التواصل معك بشأن الحساب وطلبات الدعم وسلامة السوق. تقديم الرقم لا يُثبت ملكيته ولا يفعّل إشعارات واتساب الاختيارية. لا يظهر الرقم للعامة افتراضيًا.",
     },
     {
       title: "كيف نستخدم المعلومات",

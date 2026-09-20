@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -35,6 +36,11 @@ export default function RegisterScreen() {
   async function submit() {
     setError(null);
     setSuccess(null);
+    const contactNumber = normalizeRegistrationWhatsApp(whatsappNumber);
+    if (!contactNumber) {
+      setError(t(whatsappNumber.trim() ? "whatsappInvalid" : "whatsappRequired"));
+      return;
+    }
     const valid = fullName.trim().length > 0
       && fullName.trim().length <= 100
       && EMAIL_PATTERN.test(email.trim())
@@ -42,7 +48,6 @@ export default function RegisterScreen() {
       && password.length >= 8
       && password.length <= 256
       && password === confirmPassword
-      && whatsappNumber.trim().length <= 30
       && agreedToTerms;
     if (!valid) {
       setError(t("registrationInvalid"));
@@ -55,7 +60,7 @@ export default function RegisterScreen() {
         email: email.trim().toLowerCase(),
         password,
         confirmPassword,
-        whatsappNumber: whatsappNumber.trim(),
+        whatsappNumber: contactNumber,
         agreedToTerms,
       }, locale);
       setSuccess(response.message ?? t("registrationSuccess"));
@@ -136,12 +141,15 @@ export default function RegisterScreen() {
                 editable={!isSubmitting}
                 inputMode="tel"
                 isRTL={isRTL}
-                label={t("whatsappOptional")}
+                label={t("whatsappNumber")}
+                accessibilityHint={t("whatsappContactHelp")}
                 maxLength={30}
                 onChangeText={setWhatsappNumber}
                 textContentType="telephoneNumber"
                 value={whatsappNumber}
               />
+
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{t("whatsappContactHelp")}</Text>
 
               <Pressable
                 accessibilityRole="checkbox"
