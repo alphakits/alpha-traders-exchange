@@ -448,34 +448,6 @@ function NotificationBellSession({
     return null;
   }
 
-  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
-    const applicationId = extractSellerApplicationId(notification);
-    if (!applicationId) return;
-    const actionKey = `${notification.id}:${decision}`;
-    if (actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`]) return;
-    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
-      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) {
-        setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-        return;
-      }
-      // The server archives every matching admin action notification after a
-      // decision. Reload instead of marking this item read, which would
-      // otherwise turn an archived action back into a visible read item.
-      await loadNotifications(20, { forceListUpdate: true });
-    } catch {
-      setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-    } finally {
-      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
-  }
-
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
     const label = getCommissionPaymentNotificationDestination(notification)
       ? "Pay Commission"
@@ -637,27 +609,7 @@ function NotificationBellSession({
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`])}
-                                onClick={() => void handleSellerApplicationDecision(notification, "approve")}
-                              >
-                                {isAr ? "موافقة" : "Approve"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`])}
-                                onClick={() => void handleSellerApplicationDecision(notification, "reject")}
-                              >
-                                {isAr ? "رفض" : "Reject"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`] || actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
+                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`])}
                                 onClick={() => {
                                   void handleDismissNotification(notification);
                                 }}
@@ -666,6 +618,11 @@ function NotificationBellSession({
                                   ? (isAr ? "جاري الحفظ..." : "Saving...")
                                   : (isAr ? "لاحقاً" : "Later")}
                               </Button>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  {isAr ? "تحديد كمقروء" : "Mark read"}
+                                </Button>
+                              ) : null}
                             </>
                           ) : (
                             <>

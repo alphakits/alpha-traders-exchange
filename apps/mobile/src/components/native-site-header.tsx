@@ -11,6 +11,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../auth/auth-context";
+import { canUseSellerTools } from "../auth/seller-access";
 import { useLocale } from "../i18n/locale-context";
 import { BrandMark } from "./brand-mark";
 import { LanguageSwitch } from "./language-switch";
@@ -52,9 +53,7 @@ export function NativeSiteHeader() {
   const { isRTL, t } = useLocale();
   const [menuOpen, setMenuOpen] = useState(false);
   const isAuthenticated = status === "authenticated" && Boolean(user);
-  const canSell = Boolean(user?.sellerStatus === "approved_seller" || user?.roles.some((role) => (
-    role === "approved_seller" || role === "admin" || role === "owner"
-  )));
+  const canSell = canUseSellerTools(user);
 
   function closeAndRun(action: () => void) {
     setMenuOpen(false);

@@ -24,6 +24,8 @@ describe("GET /api/health", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(response.headers.get("server-timing")).toMatch(/^health;dur=\d+, db;dur=18$/);
+    expect(response.headers.get("x-health-route-ms")).toMatch(/^\d+$/);
     await expect(response.json()).resolves.toMatchObject({
       status: "ok",
       checks: { database: "ok" },

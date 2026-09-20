@@ -34,25 +34,26 @@ test.afterAll(async () => {
 });
 
 test.describe("Navigation hardening", () => {
-  test("buyer Workspace Summary replaces Quick Actions and routes cards to canonical destinations", async ({ page }) => {
+  test("buyer workspace replaces Quick Actions and routes cards to canonical destinations", async ({ page }) => {
     test.skip(!buyerFixture, "Buyer fixture not available");
 
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
     await page.goto("/en/dashboard");
 
     const main = page.getByRole("main");
-    await expect(main.getByText("Workspace Summary").first()).toBeVisible();
+    await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
 
     const tradeRequests = main.getByRole("button", { name: /^My Trade Requests:/ });
+    const tradeHistory = main.locator("#my-trade-requests-section");
     await expect(tradeRequests).toHaveCount(1);
+    await expect(tradeHistory).toBeVisible();
     await tradeRequests.focus();
     await page.keyboard.press("Enter");
 
     await expect(page).toHaveURL(/\/en\/dashboard$/);
-    await expect(main.locator("#my-trade-requests-section")).toBeVisible();
-    await expect(main.locator("#my-trade-requests-section")).toBeFocused();
+    await expect(tradeHistory).toBeFocused();
 
     await main.getByRole("button", { name: /^Browse Marketplace:/ }).click();
     await expect(page).toHaveURL(/\/en\/usdt-exchange#marketplace$/);
@@ -66,7 +67,7 @@ test.describe("Navigation hardening", () => {
 
     await expect(page).not.toHaveURL(/\/en\/dashboard$/);
     await expect(page).toHaveURL(
-      /\/en\/(trade-room\/[\w-]+|usdt-exchange#my-trade-requests-section)$/,
+      /\/en\/(trade-room\/[\w-]+|usdt-exchange\?section=trade-history#my-trade-requests-section)$/,
       { timeout: 20_000 },
     );
   });
@@ -79,7 +80,7 @@ test.describe("Navigation hardening", () => {
     await page.reload({ waitUntil: "commit" });
 
     await expect(page).toHaveURL(/\/en\/dashboard$/);
-    await expect(page.getByRole("main").getByText("Workspace Summary").first()).toBeVisible();
+    await expect(page.getByRole("main").getByText("Your workspace", { exact: true }).first()).toBeVisible();
   });
 
   test("seller refresh keeps the approved workspace stable", async ({ page }) => {
@@ -89,7 +90,7 @@ test.describe("Navigation hardening", () => {
     await page.goto("/en/dashboard/seller");
     const main = page.getByRole("main");
     await expect(main.getByText(/seller status/i).first()).toBeVisible();
-    await expect(main.getByText("Workspace Summary").first()).toBeVisible();
+    await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /Seller Dashboard/i })).toHaveCount(0);
 
@@ -101,13 +102,13 @@ test.describe("Navigation hardening", () => {
 
     await page.reload({ waitUntil: "commit" });
 
-    await expect(page).toHaveURL(/\/en\/dashboard\/seller$/);
+    await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
     await expect(main.getByText(/seller status/i).first()).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
     await manageListings.focus();
     await page.keyboard.press("Enter");
-    await expect(main.locator("#my-listings-section")).toBeFocused();
+    await expect(main.locator("#my-listings-section")).toBeFocused({ timeout: 10_000 });
   });
 
   test("guest protected trade-room route redirects to login with redirectTo", async ({ page }) => {

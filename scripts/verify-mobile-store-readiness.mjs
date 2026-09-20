@@ -102,6 +102,7 @@ const submissionPack = readText("docs/mobile/app-store-connect-submission-pack.m
 const googlePlaySubmissionPack = readText("docs/mobile/google-play-submission-pack.md");
 const fullExchangeEvidence = readText("docs/mobile/full-exchange-app-review-evidence.md");
 const responsePlaybook = readText("docs/mobile/app-review-response-playbook.md");
+const informationRequestResponse = readText("docs/mobile/app-review-information-request-2026-09-19.md");
 const privateRecordTemplate = readText("docs/mobile/app-review-private-record-template.md");
 const economicCalendarPlan = readText("docs/mobile/economic-calendar-post-release-plan.md");
 const runbook = readText("docs/mobile/private-beta-release-runbook.md");
@@ -110,14 +111,29 @@ const reviewSurfaceScript = readText("scripts/verify-mobile-review-surface.mjs")
 const reviewRehearsal = readText("src/__tests__/app-review-rehearsal.test.ts");
 const scaleRehearsal = readText("src/__tests__/marketplace-concurrency-scale.test.ts");
 const releaseSafetyGate = readText("scripts/release-safety-gate.mjs");
+const committedExchangeSeed = readJson("data/alpha-exchange-db.json");
 const supportPage = readText("src/app/[locale]/support/page.tsx");
 const userSafetyActions = readText("src/components/account/user-safety-actions.tsx");
 const userBlockRoute = readText("src/app/api/alpha-exchange/user-blocks/[userId]/route.ts");
 const exchangeStore = readText("src/lib/alpha-exchange-store.ts");
+const sellerApprovalVerification = readText("src/lib/seller-approval-verification.ts");
+const sellerApprovalRoute = readText("src/app/api/alpha-exchange/admin/seller-applications/[applicationId]/approve/route.ts");
+const sellerVerificationReconciliationRoute = readText("src/app/api/alpha-exchange/admin/seller-applications/[applicationId]/verification/route.ts");
+const sellerRoles = readText("src/lib/roles.ts");
+const genericRoleRoute = readText("src/app/api/alpha-exchange/admin/users/[userId]/role/route.ts");
+const sellerApprovalPolicy = readText("src/lib/seller-approval.ts");
+const discordSellerAuthorizationSql = readText("src/lib/discord/seller-authorization-sql.ts");
+const mobileAdminOverviewRoute = readText("src/app/api/mobile/v1/admin/overview/route.ts");
+const adminExchangeDashboard = readText("src/components/admin/alpha-exchange-admin-dashboard.tsx");
+const notificationBell = readText("src/components/notifications/notification-bell.tsx");
+const notificationsPage = readText("src/components/notifications/notifications-page.tsx");
 const tradeRoomPage = readText("src/components/sections/trade-room/trade-room-page.tsx");
 const tradeRoomActions = readText("src/lib/trade-room-actions.ts");
 
 check(appConfig.name === "Alpha Traders", "The iOS display name must remain Alpha Traders.");
+check(Object.keys(committedExchangeSeed).length > 0, "The committed Exchange seed schema is empty or unreadable.");
+check(Object.values(committedExchangeSeed).every((value) => Array.isArray(value)), "The committed Exchange seed may contain collections only.");
+check(Object.values(committedExchangeSeed).every((value) => Array.isArray(value) && value.length === 0), "The committed Exchange seed must not contain users, credentials, sessions, or runtime data.");
 check(rootPackage.scripts?.["mobile:store-readiness"] === "node scripts/verify-mobile-store-readiness.mjs", "The source-readiness command is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:store-readiness:submission"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=all", "The combined iOS/Android submission gate is not wired into the root package.");
 check(rootPackage.scripts?.["mobile:store-readiness:submission:ios"] === "node scripts/verify-mobile-store-readiness.mjs --submission --platform=ios", "The iOS submission gate is not wired into the root package.");
@@ -182,14 +198,18 @@ check(navigation.includes("isTrustedWebsiteBlobUrl"), "First-party blob navigati
 check(Boolean(easConfig.build?.preview), "The EAS preview build profile is missing.");
 check(easConfig.build?.production?.autoIncrement === true, "Production build-number auto-increment is missing.");
 check(Boolean(easConfig.submit?.production), "The EAS production submission profile is missing.");
+check(
+  easConfig.submit?.production?.ios?.ascAppId === "6812101323",
+  "The EAS iOS submission profile is not connected to the Alpha Traders App Store record.",
+);
 check(installedIphoneWorkflow.includes("type: apple-device-registration-request"), "The registered-iPhone workflow is missing device registration.");
 check(installedIphoneWorkflow.includes("refresh_ad_hoc_provisioning_profile: true"), "The registered-iPhone workflow does not refresh provisioning.");
 check(iosTestflightWorkflow.includes("branches: [release/ios-testflight]"), "The TestFlight workflow is not isolated to its controlled release branch.");
 check(iosTestflightWorkflow.includes("profile: production"), "The TestFlight workflow is not using the production profile.");
-check(iosTestflightWorkflow.includes("type: testflight"), "The TestFlight upload job is missing.");
+check(iosTestflightWorkflow.includes("type: submit"), "The TestFlight upload job is missing.");
 check(iosTestflightWorkflow.includes("needs: [build_ios]"), "The TestFlight upload is not gated on a successful iOS build.");
 check(iosTestflightWorkflow.includes("build_id: ${{ needs.build_ios.outputs.build_id }}"), "The TestFlight upload is not pinned to the build produced by the workflow.");
-check(iosTestflightWorkflow.includes("submit_beta_review: false"), "The private TestFlight workflow must not request external Beta App Review.");
+check(!iosTestflightWorkflow.includes("submit_beta_review: true"), "The private TestFlight workflow must not request external Beta App Review.");
 check(!iosTestflightWorkflow.includes("external_groups:"), "The private TestFlight workflow must not distribute to external groups.");
 check(githubWorkflow.includes("eas build --platform ios --profile preview"), "The GitHub iOS preview workflow is missing.");
 
@@ -306,6 +326,59 @@ check(fullExchangeEvidence.includes("Legal entity providing the regulated servic
 check(fullExchangeEvidence.includes("Fictional App Review scenario"), "The safe reviewer scenario is missing.");
 check(fullExchangeEvidence.includes("Established operating-history evidence"), "The established Exchange operating-history evidence plan is missing.");
 check(fullExchangeEvidence.includes("WhatsApp member list") && fullExchangeEvidence.includes("seller identity document"), "The seller/community identity-evidence privacy rule is missing.");
+check(fullExchangeEvidence.includes("## Approved-seller admission evidence") && fullExchangeEvidence.includes("live-video identity match"), "The approved-seller admission evidence boundary is missing.");
+check(fullExchangeEvidence.includes("148-flow Chromium") && fullExchangeEvidence.includes("exact release commit"), "The independent browser reliability evidence gate is missing.");
+check(
+  sellerApprovalVerification.includes("identityDocumentReviewed: true")
+    && sellerApprovalVerification.includes("liveIdentityVideoReviewed: true")
+    && sellerApprovalVerification.includes("contactOwnershipConfirmed: true")
+    && sellerApprovalVerification.includes("marketplaceRulesAccepted: true"),
+  "The approved-seller identity checklist is incomplete.",
+);
+check(
+  sellerApprovalRoute.includes("requireApiAdmin")
+    && mobileAdminOverviewRoute.includes("await requireAdmin(request, requestId)")
+    && !sellerApprovalRoute.includes("isSellerApprovalChecklistComplete")
+    && !mobileAdminOverviewRoute.includes("isSellerApprovalChecklistComplete"),
+  "Seller approval must remain an authenticated admin decision after WhatsApp review without an extra checklist.",
+);
+check(
+  sellerRoles.includes("isOwnerApprovedSeller(user)")
+    && sellerApprovalPolicy.includes('user.sellerStatus === "approved_seller"')
+    && exchangeStore.includes("hasSellerOperationalAccess(user)"),
+  "Seller operations must require canonical approval and deny pending, rejected, or suspended sellers.",
+);
+check(
+  sellerVerificationReconciliationRoute.includes("requireApiAdmin")
+    && sellerVerificationReconciliationRoute.includes("isSellerApprovalChecklistComplete")
+    && sellerVerificationReconciliationRoute.includes("recordApprovedSellerVerificationByAdmin"),
+  "The legacy seller-verification reconciliation path is missing an authenticated complete-checklist gate.",
+);
+check(
+  !genericRoleRoute.includes('"approved_seller"')
+    && !genericRoleRoute.includes('"pending_seller_approval"')
+    && !genericRoleRoute.includes('"owner"'),
+  "Generic role management can bypass seller approval or assign owner access.",
+);
+check(
+  discordSellerAuthorizationSql.includes("ownerApprovedSellerSql")
+    && discordSellerAuthorizationSql.includes("= 'approved_seller'")
+    && discordSellerAuthorizationSql.includes("else 'none'"),
+  "Discord seller access must follow the canonical approval status.",
+);
+check(
+  adminExchangeDashboard.includes("after your WhatsApp review")
+    && !adminExchangeDashboard.includes("COMPLETE_SELLER_APPROVAL_CHECKLIST")
+    && !adminExchangeDashboard.includes("Record Verification"),
+  "The admin dashboard must retain approve/reject after WhatsApp review without additional attestation controls.",
+);
+check(
+  !notificationBell.includes("handleSellerApplicationDecision")
+    && !notificationsPage.includes("handleSellerApplicationDecision")
+    && !notificationBell.includes("/admin/seller-applications/")
+    && !notificationsPage.includes("/admin/seller-applications/"),
+  "A notification surface can bypass the admin seller-application review screen.",
+);
 check(responsePlaybook.includes("## Response rules"), "The App Review response rules are missing.");
 check(responsePlaybook.includes("## Question-and-evidence matrix"), "The App Review question-and-evidence matrix is missing.");
 check(responsePlaybook.includes("## Stop and escalate"), "The App Review legal escalation boundary is missing.");
@@ -314,10 +387,46 @@ check(responsePlaybook.includes("government-issued identity documents") && respo
 check(responsePlaybook.includes("citizenship or residence alone is not authorization"), "The identity and territory-authorization boundary is missing.");
 check(responsePlaybook.includes("Do not upload seller identity documents") && responsePlaybook.includes("Do not improvise a legal conclusion"), "The App Review response playbook is missing its evidence-safety stop rules.");
 check(responsePlaybook.includes("https://developer.apple.com/app-store/review/guidelines/") && responsePlaybook.includes("manage-app-privacy") && responsePlaybook.includes("CELEX:32023R1114"), "The App Review response playbook is missing its official Apple/EU sources.");
+check(informationRequestResponse.includes("0a2470dc-4f2a-4c7e-8d4f-1b0a8d46cbe2"), "The active App Review information-request package is missing the rejected submission ID.");
+check(informationRequestResponse.includes("| Build rejected | `7` |") && informationRequestResponse.includes("2.1.0 Performance: App Completeness"), "The active App Review information-request package does not identify the rejected build and guideline.");
+for (const requestedEvidence of [
+  "Physical-device demonstration",
+  "Purpose, audience, problem, and value",
+  "Setup and feature access",
+  "External services",
+  "Regional differences",
+  "Regulated service / protected content authorization",
+]) {
+  check(informationRequestResponse.includes(requestedEvidence), `The App Review information-request package does not cover ${requestedEvidence}.`);
+}
+check(informationRequestResponse.includes("Buyer account") && informationRequestResponse.includes("Approved Seller account"), "The App Review information-request package must provide both reviewer roles.");
+check(informationRequestResponse.includes("Vercel") && informationRequestResponse.includes("Supabase") && informationRequestResponse.includes("Expo") && informationRequestResponse.includes("Resend") && informationRequestResponse.includes("TRON/TronGrid"), "The App Review information-request package is missing core external-service disclosures.");
+check(informationRequestResponse.includes("Israel storefront only") && informationRequestResponse.includes("English and Arabic have the same features"), "The App Review information-request package is missing the regional behavior disclosure.");
+check(informationRequestResponse.includes("must not be described as a cryptocurrency licence"), "The App Review information-request package must distinguish entity registration from cryptocurrency permission.");
+check(informationRequestResponse.includes("Guideline 3.1.5(iii)") && informationRequestResponse.includes("Guideline 5.1.1(ix)"), "The App Review information-request package is missing Apple's cryptocurrency and submitting-entity rules.");
+check(informationRequestResponse.includes("https://developer.apple.com/app-store/review/guidelines/") && informationRequestResponse.includes("reply-to-app-review-messages"), "The App Review information-request package is missing its official Apple policy and response sources.");
+check(informationRequestResponse.includes("old exposed reviewer password is rotated"), "The App Review resubmission gate must require reviewer-password rotation.");
+check(informationRequestResponse.includes("App Store Connect no longer") && informationRequestResponse.includes("zero screenshots"), "The App Review resubmission gate must block the zero-screenshot state shown in the rejected submission.");
+check(informationRequestResponse.includes("### Operational-evidence boundary"), "The App Review information-request package is missing its operational-evidence boundary.");
+check(informationRequestResponse.includes("A cash photo, a commission-payment screen, or") && informationRequestResponse.includes("does not independently establish the trade amount"), "The App Review package must prohibit unsupported real-trade claims.");
+check(informationRequestResponse.includes("independently confirmed on-chain") && informationRequestResponse.includes("Pending") && informationRequestResponse.includes("Evidence Missing"), "The App Review package must reject pending screenshots and unverified transfer receipts as completion evidence.");
+check(informationRequestResponse.includes("state the exact discrepancy") && informationRequestResponse.includes("exact total") && informationRequestResponse.includes("reconciles to the delivered amount"), "The App Review package must require exact settlement-amount reconciliation.");
+check(informationRequestResponse.includes("never expose a customer or seller") && informationRequestResponse.includes("no real transaction is used as Apple's review fixture"), "The App Review package must keep real users and transactions out of the review fixture.");
+check(informationRequestResponse.includes("raw seller identity document") && informationRequestResponse.includes("privacy/legal"), "The App Review package must protect seller identity evidence from unnecessary disclosure.");
+check(informationRequestResponse.includes("148-flow Chromium") && informationRequestResponse.includes("passes against the exact replacement") && informationRequestResponse.includes("immutable workflow run URL"), "The App Review resubmission gate must require independent browser reliability evidence for the exact replacement commit.");
+const reviewNotesMatch = informationRequestResponse.match(/<!-- APP_REVIEW_NOTES_START -->([\s\S]*?)<!-- APP_REVIEW_NOTES_END -->/);
+check(Boolean(reviewNotesMatch), "The App Review Notes markers are missing from the information-request package.");
+if (reviewNotesMatch) {
+  const reviewNotes = reviewNotesMatch[1].trim();
+  check([...reviewNotes].length <= 4_000, `The App Review Notes exceed Apple's 4,000-character limit (${[...reviewNotes].length} characters).`);
+  check(reviewNotes.includes("REVIEW ACCESS — NO REAL FUNDS REQUIRED"), "The App Review Notes do not provide a safe non-financial reviewer path.");
+  check(!/roflxd123/i.test(reviewNotes), "The previously exposed reviewer password must never be stored in the response package.");
+}
 check(privateRecordTemplate.includes("## Release identity") && privateRecordTemplate.includes("## Gate register"), "The private App Review release-record template is incomplete.");
 check(privateRecordTemplate.includes("Exact legal name from selected government ID") && privateRecordTemplate.includes("Identity-document and legal-name consistency reconciled"), "The private release record is missing identity reconciliation.");
 check(privateRecordTemplate.includes("## Apple correspondence log") && privateRecordTemplate.includes("## Attachment release check"), "The private App Review case and attachment controls are missing.");
 check(privateRecordTemplate.includes("Never populate this repository"), "The private release-record template does not prohibit committing sensitive evidence.");
+check(privateRecordTemplate.includes("148-flow browser reliability suite") && privateRecordTemplate.includes("workflow run URL"), "The private release record is missing the independent browser reliability proof.");
 check(economicCalendarPlan.includes("Do not scrape Forex Factory"), "The economic-calendar data rights rule is missing.");
 check(economicCalendarPlan.includes("not part of the first release"), "The economic-calendar release boundary is missing.");
 check(economicCalendarPlan.toLowerCase().includes("market-event notifications are optional"), "The economic-calendar notification consent rule is missing.");
@@ -329,6 +438,7 @@ check(reviewDryRun.includes("must not reopen either notification"), "The signed-
 check(reviewDryRun.includes("rapidly press two competing lifecycle controls"), "The signed-device dry run is missing rapid competing-action protection.");
 check(reviewDryRun.includes("## Automated rehearsal boundary"), "The local reviewer-rehearsal boundary is not documented.");
 check(reviewDryRun.includes("/api/admin/setup-test-accounts") && reviewDryRun.includes("/api/testing"), "The reviewer-account guide does not prohibit production test/setup routes.");
+check(reviewDryRun.includes("npm run verify:release:full") && reviewDryRun.includes("148-flow Chromium"), "The signed-device dry run must require the full independent browser suite on the exact release commit.");
 
 if (failures.length > 0) {
   console.error(`\nMobile store source readiness failed (${failures.length} issue${failures.length === 1 ? "" : "s"}):\n`);
@@ -338,6 +448,9 @@ if (failures.length > 0) {
 
 console.log(`\nMobile store source readiness passed (${passed} checks).`);
 
+const commonSubmissionConfirmations = [
+  ["ALPHA_BROWSER_RELIABILITY_APPROVED", "the 148-flow Chromium suite passed on the exact release commit and its report/run URL is archived"],
+];
 const appleSubmissionConfirmations = [
   ["ALPHA_APPLE_MEMBERSHIP_ACTIVE", "Apple Developer Program enrollment is active"],
   ["ALPHA_APPLE_FULL_EXCHANGE_SCOPE_APPROVED", "the exact reviewed build, metadata, screenshots, and notes disclose the complete Exchange"],
@@ -366,10 +479,10 @@ const googlePlaySubmissionConfirmations = [
   ["ALPHA_GOOGLE_PLAY_ROLLOUT_READY", "testers, release countries, managed publishing, monitoring owner, and staged-rollout stop conditions are approved"],
 ];
 const submissionConfirmations = submissionPlatform === "ios"
-  ? appleSubmissionConfirmations
+  ? [...commonSubmissionConfirmations, ...appleSubmissionConfirmations]
   : submissionPlatform === "android"
-    ? googlePlaySubmissionConfirmations
-    : [...appleSubmissionConfirmations, ...googlePlaySubmissionConfirmations];
+    ? [...commonSubmissionConfirmations, ...googlePlaySubmissionConfirmations]
+    : [...commonSubmissionConfirmations, ...appleSubmissionConfirmations, ...googlePlaySubmissionConfirmations];
 const missingConfirmations = submissionConfirmations.filter(([name]) => process.env[name] !== "1");
 
 if (!submissionMode) {

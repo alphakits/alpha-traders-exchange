@@ -3,7 +3,7 @@ import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 
 // Mock @/lib/auth before importing api-auth so the module uses our stub
 vi.mock("@/lib/auth", () => ({
-  getCurrentSessionUser: vi.fn(),
+  getCurrentSessionUserForAuthorization: vi.fn(),
   getCurrentSessionToken: vi.fn().mockResolvedValue(null),
   clearUserSession: vi.fn().mockResolvedValue(undefined),
   AUTH_COOKIE_NAME: "alpha_exchange_session",
@@ -11,13 +11,16 @@ vi.mock("@/lib/auth", () => ({
   AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
-import { requireApiUser, requireApiAdmin, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
-import { getCurrentSessionUser } from "@/lib/auth";
+import { requireApiUser, requireApiAdmin, requireApiSeller, requireApiSellerWorkspaceActor, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
-const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUser);
+const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUserForAuthorization);
+const mockGetCurrentSessionToken = vi.mocked(getCurrentSessionToken);
+const mockClearUserSession = vi.mocked(clearUserSession);
 const originalBypassEnv = process.env.PHOTO_VERIFICATION_BYPASS_EMAILS;
 
-function makeUser(overrides: Partial<{ role: string; email: string; emailVerified: boolean }> = {}) {
+function makeUser(overrides: Partial<{ role: string; email: string; emailVerified: boolean; disabled: boolean }> = {}) {
   return {
     id: "user-1",
     email: "user@example.com",
@@ -29,6 +32,8 @@ function makeUser(overrides: Partial<{ role: string; email: string; emailVerifie
 
 beforeEach(() => {
   mockGetCurrentSessionUser.mockReset();
+  mockGetCurrentSessionToken.mockReset().mockResolvedValue(null);
+  mockClearUserSession.mockReset().mockResolvedValue(undefined);
   process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = originalBypassEnv;
 });
 
@@ -81,6 +86,18 @@ describe("requireApiUser", () => {
     const { user, unauthorized } = await requireApiUser();
     expect(user).toEqual(u);
     expect(unauthorized).toBeNull();
+  });
+
+  it("rejects a disabled account and revokes its existing session", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue(makeUser({ disabled: true }) as never);
+    mockGetCurrentSessionToken.mockResolvedValue("disabled-session-token");
+
+    const { user, unauthorized } = await requireApiUser();
+
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+    await expect(unauthorized?.json()).resolves.toMatchObject({ code: "ACCOUNT_DISABLED" });
+    expect(mockClearUserSession).toHaveBeenCalledWith("disabled-session-token");
   });
 });
 
@@ -149,6 +166,48 @@ describe("requireApiSellerWorkspaceActor", () => {
     expect(user).toEqual(seller);
     expect(unauthorized).toBeNull();
   });
+});
+
+describe("requireApiSeller", () => {
+  it("allows an owner-approved seller without an additional identity record", async () => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+    } as never);
+
+    const { user, unauthorized } = await requireApiSeller();
+
+    expect(user?.sellerStatus).toBe("approved_seller");
+    expect(unauthorized).toBeNull();
+  });
+
+  it("allows an Approved Seller with the complete recorded attestation", async () => {
+    const seller = {
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+      sellerApprovalVerification: createTestSellerApprovalVerification(),
+    };
+    mockGetCurrentSessionUser.mockResolvedValue(seller as never);
+
+    const { user, unauthorized } = await requireApiSeller();
+
+    expect(user).toEqual(seller);
+    expect(unauthorized).toBeNull();
+  });
+  it.each(["buyer", "pending_seller_approval", "rejected", "suspended"])("denies a %s seller despite stale roles and historical proof", async (sellerStatus) => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus,
+      sellerApprovalVerification: createTestSellerApprovalVerification(),
+    } as never);
+    const { user, unauthorized } = await requireApiSeller();
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+  });
+
 });
 
 describe("requirePhoneVerificationForTrading", () => {

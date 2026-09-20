@@ -4,6 +4,7 @@ import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification"
 import { isTwilioSendEnabled } from "@/lib/notification-platform";
 import { buildPageMetadata } from "@/lib/seo";
 import { AccountSettingsPanel } from "@/components/settings/account-settings-panel";
+import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
   const query = await searchParams;
   const user = await getCurrentSessionUser();
   if (!user) redirect(`/${locale}/login?redirectTo=/${locale}/settings`);
+  const sellerBankAccess = hasSellerOperationalAccess(user);
   return (
     <AccountSettingsPanel
       locale={locale === "ar" ? "ar" : "en"}
@@ -39,7 +41,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
         || user.role === "owner"
           ? "account"
           : undefined}
-      initialSellerBankAccess={user.sellerStatus === "approved_seller" || user.role === "approved_seller" || user.role === "admin" || user.role === "owner"}
+      initialSellerBankAccess={sellerBankAccess}
     />
   );
 }

@@ -17,6 +17,7 @@ import {
 } from "@/lib/mobile-api";
 import { toMobileSessionUser } from "@/lib/mobile-session-user";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { logEvent } from "@/lib/structured-logging";
 
 const PROFILE_UPDATE_KEYS = new Set<keyof MobileAccountProfileUpdateRequest>([
@@ -89,7 +90,8 @@ async function profilePayload(userId: string) {
     ? "owner" as const
     : roles.includes("admin") || user.role === "admin"
       ? "administrator" as const
-      : roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller"
+      : (roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller")
+          && isOwnerApprovedSeller(user)
         ? "approved_seller" as const
         : roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval"
           ? "pending_seller" as const

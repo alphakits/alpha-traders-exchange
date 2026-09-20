@@ -8,10 +8,16 @@ vi.mock("server-only", () => ({}));
 const mocks = vi.hoisted(() => ({
   claim: vi.fn(),
   requireSeller: vi.fn(),
+  canPublishListings: vi.fn(),
+  getSellerMarketplaceEnforcementStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiSellerWorkspaceActor: mocks.requireSeller,
+}));
+vi.mock("@/lib/alpha-exchange-store", () => ({
+  canPublishListings: mocks.canPublishListings,
+  getSellerMarketplaceEnforcementStatus: mocks.getSellerMarketplaceEnforcementStatus,
 }));
 vi.mock("@/lib/discord/listing-share-repository", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/discord/listing-share-repository")>();
@@ -53,6 +59,8 @@ describe("Discord listing share route", () => {
       user: { id: "seller-1" },
       unauthorized: null,
     });
+    mocks.canPublishListings.mockReturnValue(true);
+    mocks.getSellerMarketplaceEnforcementStatus.mockResolvedValue({ restricted: false });
     mocks.claim.mockResolvedValue({
       accepted: true,
       mappingId: "mapping-1",
@@ -81,6 +89,16 @@ describe("Discord listing share route", () => {
   it("rejects cross-site requests before claiming cooldown", async () => {
     const response = await POST(request("https://attacker.example"), context);
     expect(response.status).toBe(403);
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it("rejects a legacy approved seller whose verification record is absent", async () => {
+    mocks.canPublishListings.mockReturnValue(false);
+
+    const response = await POST(request(), context);
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ code: "SELLER_VERIFICATION_REQUIRED" });
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 

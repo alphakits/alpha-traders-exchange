@@ -18,6 +18,7 @@ import {
   updateMobileOnboarding,
 } from "../src/api/mobile-api";
 import { useAuth } from "../src/auth/auth-context";
+import { canUseSellerTools } from "../src/auth/seller-access";
 import { GoldButton } from "../src/components/gold-button";
 import { NativeSiteHeader } from "../src/components/native-site-header";
 import { useLocale } from "../src/i18n/locale-context";
@@ -52,6 +53,7 @@ export default function SellerApplicationScreen() {
   const isBuyer = currentUser.roles.includes("buyer");
   const pending = currentUser.sellerStatus === "pending_seller_approval" || submitted;
   const approved = currentUser.sellerStatus === "approved_seller" || currentUser.roles.includes("approved_seller");
+  const sellerToolsAvailable = canUseSellerTools(currentUser);
 
   function toggleMethod(method: string) {
     setMethods((current) => current.includes(method)
@@ -102,9 +104,24 @@ export default function SellerApplicationScreen() {
       <SafeAreaView style={styles.safeArea}>
         <NativeSiteHeader />
         <View style={styles.statePage}>
-          <Text style={styles.stateIcon}>✓</Text>
-          <Text style={[styles.stateTitle, isRTL && styles.rtlText]}>{isAr ? "أنت بائع معتمد بالفعل" : "You are already an approved seller"}</Text>
-          <GoldButton onPress={() => router.replace("/(tabs)/seller")}>{isAr ? "فتح لوحة البائع" : "Open Seller Dashboard"}</GoldButton>
+          <Text style={sellerToolsAvailable ? styles.stateIcon : styles.pendingIcon}>{sellerToolsAvailable ? "✓" : "◷"}</Text>
+          <Text style={[styles.stateTitle, isRTL && styles.rtlText]}>
+            {sellerToolsAvailable
+              ? (isAr ? "أنت بائع معتمد بالفعل" : "You are already an approved seller")
+              : (isAr ? "يجب مطابقة سجل التحقق" : "Verification record reconciliation required")}
+          </Text>
+          {!sellerToolsAvailable ? (
+            <Text style={[styles.body, styles.centerText, isRTL && styles.rtlText]}>
+              {isAr
+                ? "سيبقى النشر وبدء الصفقات مقفلين حتى يؤكد مسؤول مخوّل مراجعة الهوية الحكومية وفيديو الهوية وملكية وسيلة التواصل وقواعد السوق."
+                : "Publishing and new trades remain locked until an authorized reviewer records the completed government-ID, live-video, contact-ownership, and marketplace-rules checks."}
+            </Text>
+          ) : null}
+          <GoldButton onPress={() => router.replace(sellerToolsAvailable ? "/(tabs)/seller" : "/(tabs)/market")}>
+            {sellerToolsAvailable
+              ? (isAr ? "فتح لوحة البائع" : "Open Seller Dashboard")
+              : (isAr ? "العودة إلى Exchange" : "Return to Exchange")}
+          </GoldButton>
         </View>
       </SafeAreaView>
     );

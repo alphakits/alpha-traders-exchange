@@ -1,10 +1,10 @@
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
-import { createSellerApprovalVerification, normalizeSellerApprovalVerification, type SellerApprovalChecklist } from "@/lib/seller-approval-verification";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
@@ -29,6 +29,12 @@ import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
 import { isWhatsAppSendingEnabled } from "@/lib/whatsapp-platform";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
+import {
+  createSellerApprovalVerification,
+  hasSellerOperationalAccess,
+  normalizeSellerApprovalVerification,
+  type SellerApprovalChecklist,
+} from "@/lib/seller-approval-verification";
 import {
   sendMarketplaceEmail,
   type MarketplaceEmailEvent,
@@ -162,7 +168,8 @@ import {
 } from "@/lib/action-destinations";
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
-import { getPriceOfferBounds, validatePriceOffer } from "@/lib/price-offer";
+import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
+import { calculateFiatAmount, calculateSellerCommissionAmount, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
@@ -875,14 +882,77 @@ function isSafeStoredTradeRoomImageUrl(value: string | undefined) {
     && validateUploadContent(raw, mimeType as "image/jpeg" | "image/png" | "image/webp");
 }
 
-function sanitizeTradeRoomMessageForCounterparty(message: TradeChatMessage, canViewPrivateContent: boolean) {
+function getCardlessCredentialKey() {
+  const dedicatedSecret = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET?.trim();
+  if (dedicatedSecret && dedicatedSecret.length < 32) {
+    throw new Error("Cardless credential encryption secret must contain at least 32 characters.");
+  }
+  const secret = dedicatedSecret
+    || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+    || process.env.SUPABASE_DB_URL?.trim()
+    || (process.env.NODE_ENV === "test" ? "alpha-exchange-cardless-test-secret" : "");
+  if (!secret) throw new Error("Cardless credential encryption is not configured.");
+  return createHash("sha256").update(`alpha-exchange-cardless-v1\0${secret}`).digest();
+}
+
+function cardlessCredentialPayloadHash(requestId: string, code: string) {
+  return createHmac("sha256", getCardlessCredentialKey())
+    .update(`cardless-code\0${requestId}\0${code}`)
+    .digest("hex");
+}
+
+function containsCardlessCredentialLikeContent(value: string) {
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+  // Treat common spacing, punctuation, and invisible formatting characters as
+  // code separators. This prevents `12 34 56`, Arabic/full-width digits, and
+  // zero-width variants from bypassing the protected credential action.
+  return /(?:^|\D)\d(?:[\s\-–—_.:/\u200B-\u200D\u2060]*\d){3,11}(?:\D|$)/.test(normalized);
+}
+
+function encryptCardlessCredential(code: string, requestId: string, messageId: string) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", getCardlessCredentialKey(), iv);
+  cipher.setAAD(Buffer.from(`${requestId}\0${messageId}`));
+  const encrypted = Buffer.concat([cipher.update(code, "utf8"), cipher.final()]);
+  return `cardless:v1:${iv.toString("base64url")}:${cipher.getAuthTag().toString("base64url")}:${encrypted.toString("base64url")}`;
+}
+
+function decryptCardlessCredential(value: string, requestId: string, messageId: string) {
+  const [prefix, version, ivValue, tagValue, encryptedValue] = value.split(":");
+  if (prefix !== "cardless" || version !== "v1" || !ivValue || !tagValue || !encryptedValue) return null;
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", getCardlessCredentialKey(), Buffer.from(ivValue, "base64url"));
+    decipher.setAAD(Buffer.from(`${requestId}\0${messageId}`));
+    decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(encryptedValue, "base64url")), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeTradeRoomMessageForCounterparty(
+  message: TradeChatMessage,
+  canViewPrivateContent: boolean,
+  canViewConfidentialCredential = true,
+) {
   const imageMimeType = TRADE_ROOM_CHAT_IMAGE_MIME_TYPES.has(String(message.imageMimeType ?? "").toLowerCase())
     ? String(message.imageMimeType).toLowerCase()
     : undefined;
   const hasSafeImage = Boolean(imageMimeType && isSafeStoredTradeRoomImageUrl(message.imageUrl));
   return {
     ...message,
-    message: canViewPrivateContent ? message.message : redactExchangeUserContent(message.message),
+    message: message.credentialKind === "cardless_code" && !canViewConfidentialCredential
+      ? "Cardless withdrawal code hidden after cash collection"
+      : message.credentialKind === "cardless_code"
+        ? (() => {
+            const code = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
+            return code ? `Cardless withdrawal code: ${code}` : "Cardless withdrawal code unavailable";
+          })()
+      : canViewPrivateContent ? message.message : redactExchangeUserContent(message.message),
+    payloadHash: undefined,
     imageUrl: hasSafeImage ? message.imageUrl : undefined,
     imageMimeType: hasSafeImage ? imageMimeType : undefined,
     imageName: hasSafeImage ? `trade-room-attachment.${extensionForEvidenceMimeType(imageMimeType!)}` : undefined,
@@ -940,8 +1010,8 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     : undefined;
   if (request) {
     if (isQaCommissionModeEnabled()) return 1;
-    const requestedUsdt = toNumber(request.usdtAmount);
-    if (requestedUsdt > 0) return roundUsdt(requestedUsdt * 0.01);
+    const calculated = calculateSellerCommissionAmount(request.usdtAmount);
+    if (calculated !== null) return calculated;
   }
   if (isQaCommissionModeEnabled()) return 1;
   return roundUsdt(record.commissionAmount);
@@ -1582,7 +1652,12 @@ function buildPublicUserProfileDataForUser(input: {
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const canViewSensitiveProfileDetails = canBypassVisibility;
   const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
-  const fallbackPublicTradingName = isTrustEligibleSeller(user) ? "Verified Seller" : "Verified Member";
+  const sellerApprovalVerified = isOwnerApprovedSeller(user);
+  const fallbackPublicTradingName = sellerApprovalVerified
+    ? "Verified Seller"
+    : user.emailVerified === true
+      ? "Verified Member"
+      : "Alpha Traders Member";
   const publicTradingName = canBypassVisibility || !containsDirectContactContent(explicitPublicTradingName)
     ? (explicitPublicTradingName || fallbackPublicTradingName)
     : fallbackPublicTradingName;
@@ -1597,6 +1672,7 @@ function buildPublicUserProfileDataForUser(input: {
       role: user.role,
       roles: user.roles ?? [user.role],
       sellerStatus: user.sellerStatus,
+      sellerApprovalVerified,
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
       country: visibleText(user.country),
@@ -1642,7 +1718,7 @@ export async function getPublicUserProfileById(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
 }) {
-  const db = await readDb();
+  const db = await readDb({ bypassCache: true });
   const user = db.users.find((row) => row.id === input.userId);
   if (!user) return null;
   return buildPublicUserProfileDataForUser({
@@ -1683,7 +1759,7 @@ export function matchesPublicProfileUsername(
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
-  return hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
+  return user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
@@ -2031,7 +2107,7 @@ export async function getSellerProfileRouteData(input: {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
   const seller = db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName }, normalizedUsername));
-  if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
+  if (!seller || !isTrustEligibleSeller(seller)) {
     return null;
   }
 
@@ -2104,7 +2180,7 @@ export async function getPremiumSellerProfile(input: {
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
-  if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
+  if (!isTrustEligibleSeller(seller)) return null;
   const trustSnapshot = computeSellerReputationSnapshot(db, seller.id);
   const publicAccount = buildPublicUserProfileDataForUser({
     db,
@@ -2361,6 +2437,7 @@ const VALID_TRADE_TIMELINE_TYPES = {
   trade_locked: true,
   review_unlocked: true,
   dispute_opened: true,
+  dispute_resolved: true,
   commission_recorded: true,
   commission_paid: true,
   buyer_evidence_uploaded: true,
@@ -2515,8 +2592,13 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     .map((application) => application.userId));
   const sellerApplicationUserIds = new Set((db.sellerApplications ?? []).map((application) => application.userId));
   const approvedApplicationPaymentMethodsByUserId = new Map<string, ReturnType<typeof resolveListingPaymentMethods>>();
+  const approvedApplicationVerificationByUserId = new Map<string, NonNullable<AlphaExchangeUser["sellerApprovalVerification"]>>();
   for (const application of db.sellerApplications ?? []) {
     if (application.status !== "approved") continue;
+    const applicationVerification = normalizeSellerApprovalVerification(application.verification);
+    if (applicationVerification) {
+      approvedApplicationVerificationByUserId.set(application.userId, applicationVerification);
+    }
     const methods = resolveListingPaymentMethods(application.preferredNetworks);
     if (!methods.length) continue;
     approvedApplicationPaymentMethodsByUserId.set(
@@ -2584,11 +2666,15 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       if (effectiveSellerStatus === "pending_seller_approval" && legacyPendingApplicantIds.has(user.id) && !effectiveStoredRoles.includes("buyer")) {
         effectiveStoredRoles.push("buyer");
       }
+      const sellerApprovalVerification = normalizeSellerApprovalVerification(
+        (user as { sellerApprovalVerification?: unknown }).sellerApprovalVerification,
+      ) ?? approvedApplicationVerificationByUserId.get(user.id);
       const normalizedRoles = normalizeRolesForUser({
         email,
         role: effectiveRole,
         roles: effectiveStoredRoles,
         sellerStatus: effectiveSellerStatus,
+        sellerApprovalVerification,
       });
       const normalizedRole = resolvePrimaryRole(normalizedRoles);
       const onboardingSelectionRaw = typeof (user as { onboardingSelection?: string }).onboardingSelection === "string"
@@ -2643,7 +2729,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         roles: normalizedRoles,
         role: normalizedRole,
         sellerStatus: effectiveSellerStatus,
-        sellerApprovalVerification: normalizeSellerApprovalVerification(user.sellerApprovalVerification),
+        sellerApprovalVerification,
         preferredNetworks: Array.isArray((user as { preferredNetworks?: string[] }).preferredNetworks)
           ? ((user as { preferredNetworks: string[] }).preferredNetworks.filter((network) => isSupportedNetwork(network)) as SupportedNetwork[])
           : [],
@@ -2853,6 +2939,15 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           ],
       tradeCreatedAt: typeof (request as { tradeCreatedAt?: string }).tradeCreatedAt === "string" ? (request as { tradeCreatedAt: string }).tradeCreatedAt : undefined,
       paymentSentAt: typeof (request as { paymentSentAt?: string }).paymentSentAt === "string" ? (request as { paymentSentAt: string }).paymentSentAt : undefined,
+      sensitivePaymentSharedAt:
+        typeof (request as { sensitivePaymentSharedAt?: string }).sensitivePaymentSharedAt === "string"
+          ? (request as { sensitivePaymentSharedAt: string }).sensitivePaymentSharedAt
+          : undefined,
+      sensitivePaymentKind:
+        (request as { sensitivePaymentKind?: unknown }).sensitivePaymentKind === "bank_details"
+          || (request as { sensitivePaymentKind?: unknown }).sensitivePaymentKind === "cardless_code"
+          ? (request as { sensitivePaymentKind: "bank_details" | "cardless_code" }).sensitivePaymentKind
+          : undefined,
       usdtSentAt: typeof (request as { usdtSentAt?: string }).usdtSentAt === "string" ? (request as { usdtSentAt: string }).usdtSentAt : undefined,
       completedAt: typeof (request as { completedAt?: string }).completedAt === "string" ? (request as { completedAt: string }).completedAt : undefined,
       timedOutAt: typeof (request as { timedOutAt?: string }).timedOutAt === "string" ? (request as { timedOutAt: string }).timedOutAt : undefined,
@@ -2968,6 +3063,9 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         displayNumber: normalizeDisplayNumber((item as { displayNumber?: unknown }).displayNumber),
         buyerEvidenceId: typeof (item as { buyerEvidenceId?: string }).buyerEvidenceId === "string" ? (item as { buyerEvidenceId: string }).buyerEvidenceId : undefined,
         sellerEvidenceId: typeof (item as { sellerEvidenceId?: string }).sellerEvidenceId === "string" ? (item as { sellerEvidenceId: string }).sellerEvidenceId : undefined,
+        resolvedAt: typeof (item as { resolvedAt?: string }).resolvedAt === "string" ? (item as { resolvedAt: string }).resolvedAt : undefined,
+        resolvedByUserId: typeof (item as { resolvedByUserId?: string }).resolvedByUserId === "string" ? (item as { resolvedByUserId: string }).resolvedByUserId : undefined,
+        resolutionNotes: typeof (item as { resolutionNotes?: string }).resolutionNotes === "string" ? (item as { resolutionNotes: string }).resolutionNotes : undefined,
       })),
     sellerReports: (db.sellerReports ?? [])
       .filter((item) => item && typeof item.id === "string")
@@ -2997,6 +3095,11 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         return {
           ...entry,
           kind: (entry as { kind?: string }).kind === "system" ? "system" : "user",
+          credentialKind: (entry as { credentialKind?: unknown }).credentialKind === "cardless_code" ? "cardless_code" : undefined,
+          confidential: (entry as { confidential?: unknown }).confidential === true,
+          payloadHash: typeof (entry as { payloadHash?: unknown }).payloadHash === "string"
+            ? (entry as { payloadHash: string }).payloadHash
+            : undefined,
           senderRole: isUserRole(senderRoleRaw) ? senderRoleRaw : "buyer",
           message: String((entry as { message?: string }).message ?? "").trim(),
           createdAt: String((entry as { createdAt?: string }).createdAt ?? nowIso()),
@@ -3805,7 +3908,7 @@ const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notificat
 const COMMISSION_ASSIGNMENT_TABLES = ["commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_ROOM_INTERACTION_TABLES = ["purchase_requests", "notifications"] as const satisfies readonly SnapshotTableName[];
 const TRADE_ROOM_INTERACTION_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications"] as const satisfies readonly SnapshotTableName[];
-const TRADE_STATUS_FAST_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications", "audit_logs", "sms_deliveries", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_FAST_READ_TABLES = ["users", "seller_applications", "listings", "purchase_requests", "commissions", "notifications", "audit_logs", "sms_deliveries", "evidence", "disputes", "marketplace_enforcement_records"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_TERMINAL_READ_TABLES = [
   ...TRADE_STATUS_FAST_READ_TABLES,
   "activity_logs",
@@ -3861,7 +3964,7 @@ const NOTIFICATION_READ_TABLES = [
   "disputes",
   "trust_snapshots",
 ] as const satisfies readonly SnapshotTableName[];
-const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", "activity_logs", "sms_deliveries", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const SELLER_REPORT_TABLES = ["seller_reports", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_STATE_TABLES = ["beta_announcements", "audit_logs"] as const satisfies readonly SnapshotTableName[];
@@ -5689,10 +5792,8 @@ function isAdminEmail(email: string) {
   return isAlphaExchangeOwnerEmail(email);
 }
 
-export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">) {
-  // Admin and owner can always publish listings.
-  if (hasRole(user, "admin") || hasRole(user, "owner")) return true;
-  return user.sellerStatus === "approved_seller";
+export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus" | "sellerApprovalVerification">) {
+  return hasSellerOperationalAccess(user);
 }
 
 function resolveInviteStatus(invite: PrivateBetaInviteCode) {
@@ -5784,62 +5885,86 @@ export async function upsertUserProfileForAuth(input: {
   emailVerified?: boolean;
   preferredLocale?: PreferredLocale;
 }) {
-  const db = await readDb({ skipMaintenance: true });
+  // Authentication must never synchronize a cached account snapshot back over
+  // a newer disable, role demotion, or seller suspension. Start from durable
+  // state and reapply the narrow profile/auth delta if another instance wins
+  // the repository lock first.
+  const db = await readDb({ bypassCache: true, skipMaintenance: true });
   const email = normalizeEmail(input.email);
   const existingIndex = db.users.findIndex((user) => normalizeEmail(user.email) === email);
-  const timestamp = nowIso();
   if (existingIndex !== -1) {
-    const existing = db.users[existingIndex];
-    const normalizedRoles = normalizeRolesForUser({
-      email,
-      role: existing.role,
-      roles: existing.roles,
-      sellerStatus: existing.sellerStatus,
-    });
-    const nextFullName = input.fullName.trim() || existing.fullName;
-    // Preserve a legacy display value during auth synchronization so a user is
-    // not locked out before the privacy projection can redact it. Any actual
-    // new display-name change remains subject to the content policy.
-    if (nextFullName !== existing.fullName) assertNoExchangeDirectContact(nextFullName);
-    const nextWhatsappNumber = input.whatsappNumber.trim() || existing.whatsappNumber;
-    const nextPasswordHash = input.passwordHash ?? existing.passwordHash;
-    const nextRole = resolvePrimaryRole(normalizedRoles);
-    const nextEmailVerified = input.emailVerified === true ? true : existing.emailVerified === true;
-    const nextEmailVerifiedAt = input.emailVerified === true
-      ? (existing.emailVerifiedAt ?? timestamp)
-      : existing.emailVerifiedAt;
-    const nextPreferredLocale = input.preferredLocale ?? normalizePreferredLocale(existing.preferredLocale);
+    let committedUser: AlphaExchangeUser | null = null;
+    let changed = false;
+    const applyAuthProfileSync = (snapshot: AlphaExchangeDb) => {
+      const canonicalIndex = snapshot.users.findIndex((user) => normalizeEmail(user.email) === email);
+      if (canonicalIndex === -1) throw new Error("User not found.");
+      const existing = snapshot.users[canonicalIndex];
+      if (existing.disabled === true) throw new Error("This account is disabled.");
+      const timestamp = nowIso();
+      const normalizedRoles = normalizeRolesForUser({
+        email,
+        role: existing.role,
+        roles: existing.roles,
+        sellerStatus: existing.sellerStatus,
+        sellerApprovalVerification: existing.sellerApprovalVerification,
+      });
+      const nextFullName = input.fullName.trim() || existing.fullName;
+      // Preserve a legacy display value during auth synchronization so a user is
+      // not locked out before the privacy projection can redact it. Any actual
+      // new display-name change remains subject to the content policy.
+      if (nextFullName !== existing.fullName) assertNoExchangeDirectContact(nextFullName);
+      const nextWhatsappNumber = input.whatsappNumber.trim() || existing.whatsappNumber;
+      const nextPasswordHash = input.passwordHash ?? existing.passwordHash;
+      const nextRole = resolvePrimaryRole(normalizedRoles);
+      const nextEmailVerified = input.emailVerified === true ? true : existing.emailVerified === true;
+      const nextEmailVerifiedAt = input.emailVerified === true
+        ? (existing.emailVerifiedAt ?? timestamp)
+        : existing.emailVerifiedAt;
+      const nextPreferredLocale = input.preferredLocale ?? normalizePreferredLocale(existing.preferredLocale);
 
-    const unchanged =
-      existing.fullName === nextFullName
-      && existing.whatsappNumber === nextWhatsappNumber
-      && existing.passwordHash === nextPasswordHash
-      && existing.role === nextRole
-      && existing.emailVerified === nextEmailVerified
-      && existing.emailVerifiedAt === nextEmailVerifiedAt
-      && existing.preferredLocale === nextPreferredLocale
-      && JSON.stringify(existing.roles ?? []) === JSON.stringify(normalizedRoles);
+      changed =
+        existing.fullName !== nextFullName
+        || existing.whatsappNumber !== nextWhatsappNumber
+        || existing.passwordHash !== nextPasswordHash
+        || existing.role !== nextRole
+        || existing.emailVerified !== nextEmailVerified
+        || existing.emailVerifiedAt !== nextEmailVerifiedAt
+        || existing.preferredLocale !== nextPreferredLocale
+        || JSON.stringify(existing.roles ?? []) !== JSON.stringify(normalizedRoles);
 
-    if (unchanged) {
-      return existing;
-    }
+      if (!changed) {
+        committedUser = existing;
+        return snapshot;
+      }
 
-    db.users[existingIndex] = {
-      ...existing,
-      fullName: nextFullName,
-      whatsappNumber: nextWhatsappNumber,
-      passwordHash: nextPasswordHash,
-      roles: normalizedRoles,
-      role: nextRole,
-      emailVerified: nextEmailVerified,
-      emailVerifiedAt: nextEmailVerifiedAt,
-      preferredLocale: nextPreferredLocale,
-      updatedAt: timestamp,
+      snapshot.users[canonicalIndex] = {
+        ...existing,
+        fullName: nextFullName,
+        whatsappNumber: nextWhatsappNumber,
+        passwordHash: nextPasswordHash,
+        roles: normalizedRoles,
+        role: nextRole,
+        emailVerified: nextEmailVerified,
+        emailVerifiedAt: nextEmailVerifiedAt,
+        preferredLocale: nextPreferredLocale,
+        updatedAt: timestamp,
+      };
+      committedUser = snapshot.users[canonicalIndex];
+      return snapshot;
     };
-    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-    return db.users[existingIndex];
+
+    applyAuthProfileSync(db);
+    if (changed) {
+      await writeDb(db, {
+        selectedTables: USER_PROFILE_TABLES,
+        rebaseOnLatest: applyAuthProfileSync,
+      });
+    }
+    if (!committedUser) throw new Error("User not found.");
+    return committedUser;
   }
 
+  const timestamp = nowIso();
   const roles = normalizeRolesForUser({
     email,
     roles: isAdminEmail(email) ? ["owner", "admin"] : ["guest"],
@@ -6241,6 +6366,52 @@ function getSellerBankAccountById(user: AlphaExchangeUser, bankAccountId: string
   return getSellerBankAccounts(user).find((account) => account.id === bankAccountId);
 }
 
+type LockedTradeBankAccount = Pick<
+  SellerBankAccount,
+  "id" | "accountHolderName" | "bankName" | "branchNumber" | "accountNumber" | "accountLast4"
+>;
+
+/**
+ * New requests carry an immutable copy of the selected payment instructions.
+ * The live-account lookup is deliberately limited to pre-migration requests;
+ * a malformed or incomplete snapshot must fail closed instead of silently
+ * switching the buyer to payment details that were edited later.
+ */
+function resolveLockedTradeBankAccount(
+  request: PurchaseRequest,
+  seller: AlphaExchangeUser | undefined,
+): LockedTradeBankAccount | undefined {
+  const snapshot = request.sellerBankAccountSnapshot;
+  if (snapshot !== undefined) {
+    const id = String(request.sellerBankAccountId ?? "").trim();
+    const accountHolderName = String(snapshot.accountHolderName ?? "").trim();
+    const bankName = String(snapshot.bankName ?? "").trim();
+    const branchNumber = String(snapshot.branchNumber ?? "").replace(/\D/g, "");
+    const accountNumber = String(snapshot.accountNumber ?? "").replace(/\D/g, "");
+    if (!id || !accountHolderName || !bankName || !branchNumber || !accountNumber) return undefined;
+    return {
+      id,
+      accountHolderName,
+      bankName,
+      branchNumber,
+      accountNumber,
+      accountLast4: accountNumber.slice(-4),
+    };
+  }
+
+  if (!seller || !request.sellerBankAccountId) return undefined;
+  const legacyAccount = getSellerBankAccountById(seller, request.sellerBankAccountId);
+  if (!legacyAccount) return undefined;
+  return {
+    id: legacyAccount.id,
+    accountHolderName: legacyAccount.accountHolderName,
+    bankName: legacyAccount.bankName,
+    branchNumber: legacyAccount.branchNumber,
+    accountNumber: legacyAccount.accountNumber,
+    accountLast4: legacyAccount.accountLast4,
+  };
+}
+
 function isTradeStatusUsingBankDetails(status: PurchaseRequestStatus) {
   return status === "accepted"
     || status === "payment_sent"
@@ -6249,13 +6420,16 @@ function isTradeStatusUsingBankDetails(status: PurchaseRequestStatus) {
     || status === "usdt_sent";
 }
 
-function hasActiveUsageForSellerBankAccount(db: AlphaExchangeDb, sellerId: string, bankAccountId: string) {
-  const activeTrade = db.purchaseRequests.find((request) =>
+function hasInProgressTradeForSellerBankAccount(db: AlphaExchangeDb, sellerId: string, bankAccountId: string) {
+  return db.purchaseRequests.some((request) =>
     request.sellerId === sellerId
     && request.sellerBankAccountId === bankAccountId
     && isTradeStatusUsingBankDetails(request.status),
   );
-  if (activeTrade) return true;
+}
+
+function hasActiveUsageForSellerBankAccount(db: AlphaExchangeDb, sellerId: string, bankAccountId: string) {
+  if (hasInProgressTradeForSellerBankAccount(db, sellerId, bankAccountId)) return true;
   return db.marketplaceListings.some((listing) =>
     listing.sellerId === sellerId
     && listing.bankAccountId === bankAccountId
@@ -6358,6 +6532,14 @@ export async function updateSellerBankAccount(input: {
   const accountIndex = accounts.findIndex((account) => account.id === input.bankAccountId);
   if (accountIndex === -1) throw new Error("Bank account not found.");
   const sanitized = sanitizeSellerBankAccountInput(input);
+  const currentAccount = accounts[accountIndex];
+  const bankDetailsChanging = currentAccount.accountHolderName !== sanitized.accountHolderName
+    || currentAccount.bankName !== sanitized.bankName
+    || currentAccount.branchNumber !== sanitized.branchNumber
+    || currentAccount.accountNumber !== sanitized.accountNumber;
+  if (bankDetailsChanging && hasInProgressTradeForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
+    throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
+  }
   const now = nowIso();
   const updatedAccount: SellerBankAccount = {
     ...accounts[accountIndex],
@@ -6388,12 +6570,6 @@ export async function updateSellerBankAccount(input: {
     listing.bankName = updatedAccount.bankName;
     listing.updatedAt = now;
   }
-  for (const request of db.purchaseRequests) {
-    if (request.sellerId !== input.sellerId || request.sellerBankAccountId !== updatedAccount.id) continue;
-    request.bankName = updatedAccount.bankName;
-    request.updatedAt = now;
-  }
-
   await appendAuditLog(db, {
     action: "seller_bank_account_updated",
     actorUserId: input.actorUserId,
@@ -6401,7 +6577,16 @@ export async function updateSellerBankAccount(input: {
     details: `Seller updated bank account ${updatedAccount.id}.`,
     newValue: { bankAccountId: updatedAccount.id, bankName: updatedAccount.bankName, branchNumber: updatedAccount.branchNumber, accountLast4: updatedAccount.accountLast4 },
   });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  await writeDb(db, {
+    selectedTables: LISTING_TRUST_WRITE_TABLES,
+    validateBeforeCommit: bankDetailsChanging
+      ? (snapshot) => {
+          if (hasInProgressTradeForSellerBankAccount(snapshot, input.sellerId, input.bankAccountId)) {
+            throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
+          }
+        }
+      : undefined,
+  });
   return toPublicSellerBankAccount(updatedAccount);
 }
 
@@ -6511,43 +6696,58 @@ export async function updateUserSellerSettings(input: {
     ...(input.languages ?? []),
     ...(input.preferredPaymentMethods ?? []),
   );
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  db.users[index] = {
-    ...user,
-    fullName: input.fullName?.trim() || user.fullName,
-    whatsappNumber: input.whatsappNumber?.trim() || user.whatsappNumber,
-    preferredNetworks: input.preferredNetworks ?? user.preferredNetworks,
-    profilePhotoUrl: input.profilePhotoUrl?.trim() ?? user.profilePhotoUrl,
-    coverBannerUrl: input.coverBannerUrl?.trim() ?? user.coverBannerUrl,
-    languages: input.languages?.map((language) => String(language).trim()).filter(Boolean) ?? user.languages,
-    bio: input.bio?.trim() ?? user.bio,
-    tradingExperience: input.tradingExperience?.trim() ?? user.tradingExperience,
-    workingHours: input.workingHours?.trim() ?? user.workingHours,
-    preferredPaymentMethods: input.preferredPaymentMethods?.map((item) => String(item).trim()).filter(Boolean) ?? user.preferredPaymentMethods,
-    country: input.country?.trim() ?? user.country,
-    city: input.city?.trim() ?? user.city,
-    onlineStatus: input.onlineStatus ?? user.onlineStatus,
-    isProfileHidden: typeof input.isProfileHidden === "boolean" ? input.isProfileHidden : user.isProfileHidden,
-    showTradeStats: typeof input.showTradeStats === "boolean" ? input.showTradeStats : user.showTradeStats,
-    showLastActive: typeof input.showLastActive === "boolean" ? input.showLastActive : user.showLastActive,
-    allowDirectMessages: typeof input.allowDirectMessages === "boolean" ? input.allowDirectMessages : user.allowDirectMessages,
-    allowProfileSearch: typeof input.allowProfileSearch === "boolean" ? input.allowProfileSearch : user.allowProfileSearch,
-    showPhonePublic: typeof input.showPhonePublic === "boolean" ? input.showPhonePublic : user.showPhonePublic,
-    showEmailPublic: typeof input.showEmailPublic === "boolean" ? input.showEmailPublic : user.showEmailPublic,
-    lastActiveAt: nowIso(),
-    updatedAt: nowIso(),
+  const db = await readDb({ bypassCache: true });
+  let committedUser: AlphaExchangeUser | null = null;
+  let previousOnlineStatus: SellerOnlineStatus | undefined;
+  const applySellerSettings = async (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = snapshot.users[index];
+    if (user.disabled === true) throw new Error("This account is disabled.");
+    const timestamp = nowIso();
+    previousOnlineStatus = user.onlineStatus;
+    snapshot.users[index] = {
+      ...user,
+      fullName: input.fullName?.trim() || user.fullName,
+      whatsappNumber: input.whatsappNumber?.trim() || user.whatsappNumber,
+      preferredNetworks: input.preferredNetworks ?? user.preferredNetworks,
+      profilePhotoUrl: input.profilePhotoUrl?.trim() ?? user.profilePhotoUrl,
+      coverBannerUrl: input.coverBannerUrl?.trim() ?? user.coverBannerUrl,
+      languages: input.languages?.map((language) => String(language).trim()).filter(Boolean) ?? user.languages,
+      bio: input.bio?.trim() ?? user.bio,
+      tradingExperience: input.tradingExperience?.trim() ?? user.tradingExperience,
+      workingHours: input.workingHours?.trim() ?? user.workingHours,
+      preferredPaymentMethods: input.preferredPaymentMethods?.map((item) => String(item).trim()).filter(Boolean) ?? user.preferredPaymentMethods,
+      country: input.country?.trim() ?? user.country,
+      city: input.city?.trim() ?? user.city,
+      onlineStatus: input.onlineStatus ?? user.onlineStatus,
+      isProfileHidden: typeof input.isProfileHidden === "boolean" ? input.isProfileHidden : user.isProfileHidden,
+      showTradeStats: typeof input.showTradeStats === "boolean" ? input.showTradeStats : user.showTradeStats,
+      showLastActive: typeof input.showLastActive === "boolean" ? input.showLastActive : user.showLastActive,
+      allowDirectMessages: typeof input.allowDirectMessages === "boolean" ? input.allowDirectMessages : user.allowDirectMessages,
+      allowProfileSearch: typeof input.allowProfileSearch === "boolean" ? input.allowProfileSearch : user.allowProfileSearch,
+      showPhonePublic: typeof input.showPhonePublic === "boolean" ? input.showPhonePublic : user.showPhonePublic,
+      showEmailPublic: typeof input.showEmailPublic === "boolean" ? input.showEmailPublic : user.showEmailPublic,
+      lastActiveAt: timestamp,
+      updatedAt: timestamp,
+    };
+    if (isTrustEligibleSeller(snapshot.users[index])) {
+      await recalculateTrustEngine(snapshot, { reason: "Seller profile updated", triggeredBy: input.userId });
+    }
+    committedUser = snapshot.users[index];
+    return snapshot;
   };
-  if (isTrustEligibleSeller(db.users[index])) {
-    await recalculateTrustEngine(db, { reason: "Seller profile updated", triggeredBy: input.userId });
-  }
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
-  if (input.onlineStatus && input.onlineStatus !== user.onlineStatus) {
+
+  await applySellerSettings(db);
+  await writeDb(db, {
+    selectedTables: LISTING_TRUST_WRITE_TABLES,
+    rebaseOnLatest: applySellerSettings,
+  });
+  if (input.onlineStatus && input.onlineStatus !== previousOnlineStatus) {
     publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.userId, onlineStatus: input.onlineStatus } });
   }
-  return db.users[index];
+  if (!committedUser) throw new Error("User not found.");
+  return committedUser;
 }
 
 function normalizeComplianceEvidenceDataUrl(value: string) {
@@ -6845,14 +7045,18 @@ export async function getSessionByToken(token: string) {
   return session;
 }
 
-export async function getAuthenticatedUserBySessionToken(token: string) {
+export async function getAuthenticatedUserBySessionToken(
+  token: string,
+  options?: { includeDisabled?: boolean },
+) {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
   if (typeof repository.loadAuthenticatedSessionSnapshot !== "function") {
     // Compatibility for local/test repository doubles created before the
     // combined session lookup was introduced.
     const session = await getSessionByToken(token);
-    return session ? findUserById(session.userId) : null;
+    const user = session ? await findUserById(session.userId) : null;
+    return user?.disabled === true && options?.includeDisabled !== true ? null : user;
   }
 
   const parsed = await repository.loadAuthenticatedSessionSnapshot(hashed);
@@ -6866,7 +7070,8 @@ export async function getAuthenticatedUserBySessionToken(token: string) {
     syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
     return null;
   }
-  return db.users.find((user) => user.id === session.userId) ?? null;
+  const user = db.users.find((candidate) => candidate.id === session.userId) ?? null;
+  return user?.disabled === true && options?.includeDisabled !== true ? null : user;
 }
 
 export async function deleteSessionByToken(token: string) {
@@ -7037,16 +7242,25 @@ export async function getAllSellerApplicationsForAdmin(dbInput?: AlphaExchangeDb
   return db.sellerApplications;
 }
 
-export async function approveSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
+export async function approveSellerApplicationByAdmin(
+  applicationId: string,
+  adminUserId: string,
+  reason: string | undefined,
+  _legacyVerificationChecklist?: SellerApprovalChecklist,
+) {
+  // Older clients may still send a checklist; approval does not create identity evidence.
+  void _legacyVerificationChecklist;
   const db = await readDb();
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
   const application = db.sellerApplications[applicationIndex];
+  if (application.status !== "pending") throw new Error("Seller application is no longer pending review.");
+  const approvedAt = nowIso();
   db.sellerApplications[applicationIndex] = {
     ...application,
     status: "approved",
-    updatedAt: nowIso(),
+    updatedAt: approvedAt,
   };
 
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
@@ -7072,6 +7286,7 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
     targetUserId: application.userId,
     details: `Approved seller application ${application.id}`,
     reason: reason?.trim() || undefined,
+    newValue: { sellerStatus: "approved_seller", applicationStatus: "approved" },
   });
   pushNotification(db, {
     userId: application.userId,
@@ -7245,6 +7460,9 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
   if (userIndex === -1) throw new Error("User not found.");
   const user = db.users[userIndex];
   if (hasRole(user, "owner")) throw new Error("Owner account cannot be modified.");
+  if (user.sellerStatus !== "suspended") {
+    throw new Error("Only a suspended seller can be reactivated.");
+  }
   const nextRoles = addRole(removeRole(user.roles ?? [user.role], "pending_seller_approval"), "approved_seller");
   db.users[userIndex] = {
     ...user,
@@ -7899,7 +8117,7 @@ export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getHallOfFameEntries() {
   const db = await readDb();
   return db.users
-    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "elite")
+    .filter((user) => isTrustEligibleSeller(user) && (user.sellerPrestigeRank ?? "bronze") === "elite")
     .map((user) => buildHallOfFameEntry(db, user))
     .sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime());
 }
@@ -8024,7 +8242,7 @@ export async function getMarketplaceListings(
   );
   const hiddenSellerIds = new Set(
     db.users
-      .filter((user) => user.isProfileHidden === true || user.sellerStatus === "suspended")
+      .filter((user) => user.disabled === true || user.isProfileHidden === true || user.sellerStatus === "suspended")
       .map((user) => user.id),
   );
   const interactionBlockedSellerIds = new Set<string>();
@@ -8045,9 +8263,12 @@ export async function getMarketplaceListings(
           if (sellersBlockedByCommission.has(listing.sellerId)) return false;
           if (sellersBlockedByEnforcement.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
-          if (!seller || seller.sellerStatus !== "approved_seller") return false;
+          if (!seller || seller.disabled === true || !canPublishListings(seller)) return false;
           if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
-          if (toNumber(listing.availableAmount) <= 0) return false;
+          const availableAmount = toNumber(listing.availableAmount);
+          const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
+          const maximumTrade = toNumber(listing.maximumTrade) || availableAmount;
+          if (availableAmount <= 0 || Math.min(maximumTrade, availableAmount) < minimumTrade) return false;
           if (listing.expiresAt) {
             const expiresMs = new Date(listing.expiresAt).getTime();
             if (expiresMs && !Number.isNaN(expiresMs) && expiresMs <= nowMs) return false;
@@ -8123,18 +8344,33 @@ function isFreshTimestamp(value: string | null | undefined, windowMs: number, no
  */
 export async function touchUserPresence(userId: string): Promise<void> {
   if (!userId) return;
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) return;
-  const user = db.users[index];
-  const nowMs = Date.now();
-  const lastMs = user.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
-  if (Number.isFinite(lastMs) && lastMs > 0 && nowMs - lastMs < PULSE_PRESENCE_TOUCH_THROTTLE_MS && user.onlineStatus === "online") {
-    return;
-  }
-  const timestamp = nowIso();
-  db.users[index] = { ...user, onlineStatus: "online", lastActiveAt: timestamp, updatedAt: timestamp };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  const db = await readDb({ bypassCache: true });
+  let changed = false;
+  const applyPresence = (snapshot: AlphaExchangeDb) => {
+    changed = false;
+    const index = snapshot.users.findIndex((user) => user.id === userId);
+    if (index === -1) return snapshot;
+    const user = snapshot.users[index];
+    // A heartbeat that raced an account disable must not restore the stale
+    // enabled user record or mark a disabled account online.
+    if (user.disabled === true) return snapshot;
+    const nowMs = Date.now();
+    const lastMs = user.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
+    if (Number.isFinite(lastMs) && lastMs > 0 && nowMs - lastMs < PULSE_PRESENCE_TOUCH_THROTTLE_MS && user.onlineStatus === "online") {
+      return snapshot;
+    }
+    const timestamp = nowIso();
+    snapshot.users[index] = { ...user, onlineStatus: "online", lastActiveAt: timestamp, updatedAt: timestamp };
+    changed = true;
+    return snapshot;
+  };
+
+  applyPresence(db);
+  if (!changed) return;
+  await writeDb(db, {
+    selectedTables: USER_PROFILE_TABLES,
+    rebaseOnLatest: applyPresence,
+  });
 }
 
 /**
@@ -8155,7 +8391,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   let buyersOnline = 0;
   for (const user of db.users) {
     if (!isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) continue;
-    const isApprovedSeller = user.sellerStatus === "approved_seller";
+    const isApprovedSeller = user.sellerStatus === "approved_seller" && canPublishListings(user);
     if (isApprovedSeller) {
       if (!hiddenOrSuspended.has(user.id)) sellersOnline += 1;
     } else if (!hasRole(user, "admin") && !hasRole(user, "owner")) {
@@ -8197,7 +8433,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
     if (blockedByCommission.has(listing.sellerId)) return false;
     if (blockedByEnforcement.has(listing.sellerId)) return false;
     const seller = sellerById.get(listing.sellerId);
-    if (!seller || seller.sellerStatus !== "approved_seller") return false;
+    if (!seller || !canPublishListings(seller)) return false;
     if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
     if (toNumber(listing.availableAmount) <= 0) return false;
     if (listing.expiresAt) {
@@ -8241,6 +8477,8 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   const activity: MarketplacePulseActivityEntry[] = [];
   for (const listing of db.marketplaceListings) {
     if (hiddenOrSuspended.has(listing.sellerId)) continue;
+    const seller = sellerById.get(listing.sellerId);
+    if (!seller || !canPublishListings(seller)) continue;
     if (isFreshTimestamp(listing.createdAt, 24 * 60 * 60 * 1000, nowMs)) {
       activity.push({ id: `newlisting-${listing.id}`, type: "new_listing", network: listing.network, createdAt: listing.createdAt });
     }
@@ -8256,7 +8494,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
     }
   }
   for (const user of db.users) {
-    if (user.sellerStatus !== "approved_seller" || hiddenOrSuspended.has(user.id)) continue;
+    if (user.sellerStatus !== "approved_seller" || !canPublishListings(user) || hiddenOrSuspended.has(user.id)) continue;
     if (user.onlineStatus === "online" && isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) {
       activity.push({ id: `online-${user.id}`, type: "seller_online", createdAt: user.lastActiveAt ?? nowIsoValue });
     }
@@ -8295,6 +8533,9 @@ export async function updateSellerProfileStateByAdmin(input: {
   if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
     throw new Error("Seller profile state can be managed only for approved sellers.");
+  }
+  if (input.feature === true && !isTrustEligibleSeller(seller)) {
+    throw new Error("Seller identity verification must be recorded before featuring this profile.");
   }
   const nextFeatured = typeof input.feature === "boolean" ? input.feature : seller.isFeaturedSeller === true;
   const nextHidden = typeof input.hidden === "boolean" ? input.hidden : seller.isProfileHidden === true;
@@ -8379,7 +8620,11 @@ function refreshTesterMarketplaceListingSellerDisplayName(db: AlphaExchangeDb, t
 
 async function ensureDevelopmentTesterMarketplaceListing(db: AlphaExchangeDb) {
   if (!isDevelopmentTesterSeedEnabled()) return;
-  const testerSeller = db.users.find((user) => isTesterSellerAccount(user) && user.sellerStatus === "approved_seller");
+  const testerSeller = db.users.find(
+    (user) => isTesterSellerAccount(user)
+      && user.sellerStatus === "approved_seller"
+      && canPublishListings(user),
+  );
   if (!testerSeller) return;
   const refreshed = refreshTesterMarketplaceListingSellerDisplayName(db, testerSeller);
   const owner = db.users.find((user) => hasRole(user, "owner"));
@@ -8446,8 +8691,7 @@ function resolveSellerListingBankAccount(
   if (!seller) throw new Error("Seller not found.");
   const accounts = getSellerBankAccounts(seller);
   if (!accounts.length) {
-    if (bankAccountId) throw new Error("Selected bank account was not found for this seller.");
-    return null;
+    throw new Error("Save a bank account before publishing a Bank Transfer listing.");
   }
   const selected = bankAccountId
     ? accounts.find((account) => account.id === bankAccountId)
@@ -8465,12 +8709,17 @@ function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId:
   const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
   const elevated = actorRole === "admin" || actorRole === "owner";
   if (!participant && !elevated) return false;
+  const disclosureStatuses = new Set<PurchaseRequestStatus>([
+    "accepted",
+    "payment_sent",
+    "funds_received",
+    "usdt_release_pending",
+    "usdt_sent",
+  ]);
   return Boolean(
     request.sellerBankAccountId
     && isBankTransferPaymentMethod(request.paymentMethod)
-    && request.status !== "pending"
-    && request.status !== "declined"
-    && request.status !== "cancelled",
+    && disclosureStatuses.has(request.status),
   );
 }
 export async function createMarketplaceListing(input: {
@@ -8511,6 +8760,16 @@ export async function createMarketplaceListing(input: {
   if (blockReason) throw new Error(blockReason);
   logProfile("getSellerListingBlockReason");
   const now = nowIso();
+  const canonicalPrice = normalizeListingPrice(input.price);
+  if (!canonicalPrice) throw new Error("Price must be a valid amount with no more than six decimal places.");
+  const canonicalAvailableAmount = canonicalizeTradeAmount(input.availableAmount);
+  const canonicalMinimumTrade = canonicalizeNonNegativeTradeAmount(input.minimumTrade?.trim() || "0");
+  const canonicalMaximumTrade = canonicalizeTradeAmount(input.maximumTrade?.trim() || input.availableAmount);
+  if (!canonicalAvailableAmount) throw new Error("Available amount must be a valid positive USDT amount with no more than six decimal places.");
+  if (!canonicalMinimumTrade) throw new Error("Minimum trade must be a valid non-negative USDT amount with no more than six decimal places.");
+  if (!canonicalMaximumTrade) throw new Error("Maximum trade must be a valid positive USDT amount with no more than six decimal places.");
+  if (toNumber(canonicalMaximumTrade) > toNumber(canonicalAvailableAmount)) throw new Error("Maximum trade must be less than or equal to available amount.");
+  if (toNumber(canonicalMaximumTrade) < toNumber(canonicalMinimumTrade)) throw new Error("Maximum trade must be greater than or equal to minimum trade.");
   const expiresAt = input.expiresAt?.trim() || getListingExpirationIso(now, input.expirationHours);
   const listingPaymentMethods = resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS);
   if (!listingPaymentMethods.length) {
@@ -8538,17 +8797,17 @@ export async function createMarketplaceListing(input: {
     sellerId: input.sellerId,
     sellerDisplayName: input.sellerDisplayName,
     photos: (input.photos ?? []).map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6),
-    originalAmount: input.availableAmount.trim(),
-    availableAmount: input.availableAmount.trim(),
-    price: input.price.trim(),
+    originalAmount: canonicalAvailableAmount,
+    availableAmount: canonicalAvailableAmount,
+    price: canonicalPrice,
     currency: input.currency?.trim() || "ILS",
     network: input.network,
     paymentMethods: listingPaymentMethods,
     paymentMethod: primaryPaymentMethod,
     bankAccountId: selectedSellerBankAccount?.id,
     bankName: requiresIsraeliBankSelection(listingPaymentMethods) ? serializeIsraeliBankSelection(listingBanks) || undefined : undefined,
-    minimumTrade: input.minimumTrade?.trim() || "0",
-    maximumTrade: input.maximumTrade?.trim() || input.availableAmount.trim(),
+    minimumTrade: canonicalMinimumTrade,
+    maximumTrade: canonicalMaximumTrade,
     expiresAt,
     notes: input.notes?.trim() || "",
     sellerDescription: input.sellerDescription?.trim() || "",
@@ -8736,6 +8995,24 @@ export async function updateMarketplaceListingForSeller(input: {
     current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
   );
   const updatedAt = nowIso();
+  const canonicalPrice = input.price !== undefined ? normalizeListingPrice(input.price) : undefined;
+  if (input.price !== undefined && !canonicalPrice) {
+    throw new Error("Price must be a valid amount with no more than six decimal places.");
+  }
+  const canonicalAvailableAmount = input.availableAmount !== undefined
+    ? canonicalizeTradeAmount(input.availableAmount)
+    : canonicalizeTradeAmount(current.availableAmount);
+  const canonicalMinimumTrade = input.minimumTrade !== undefined
+    ? canonicalizeNonNegativeTradeAmount(input.minimumTrade)
+    : canonicalizeNonNegativeTradeAmount(current.minimumTrade);
+  const canonicalMaximumTrade = input.maximumTrade !== undefined
+    ? canonicalizeTradeAmount(input.maximumTrade)
+    : canonicalizeTradeAmount(current.maximumTrade);
+  if (!canonicalAvailableAmount) throw new Error("Available amount must be a valid positive USDT amount with no more than six decimal places.");
+  if (!canonicalMinimumTrade) throw new Error("Minimum trade must be a valid non-negative USDT amount with no more than six decimal places.");
+  if (!canonicalMaximumTrade) throw new Error("Maximum trade must be a valid positive USDT amount with no more than six decimal places.");
+  if (toNumber(canonicalMaximumTrade) > toNumber(canonicalAvailableAmount)) throw new Error("Maximum trade must be less than or equal to available amount.");
+  if (toNumber(canonicalMaximumTrade) < toNumber(canonicalMinimumTrade)) throw new Error("Maximum trade must be greater than or equal to minimum trade.");
   const normalizedPaymentMethods = input.paymentMethods
     ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS)
     : (input.paymentMethod ? resolveListingPaymentMethods(undefined, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS) : undefined);
@@ -8771,9 +9048,9 @@ export async function updateMarketplaceListingForSeller(input: {
   const next: MarketplaceListing = {
     ...current,
     photos: input.photos ? input.photos.map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6) : current.photos,
-    originalAmount: input.availableAmount?.trim() || current.originalAmount,
-    availableAmount: input.availableAmount?.trim() || current.availableAmount,
-    price: input.price?.trim() || current.price,
+    originalAmount: input.availableAmount !== undefined ? canonicalAvailableAmount : current.originalAmount,
+    availableAmount: canonicalAvailableAmount,
+    price: canonicalPrice ?? current.price,
     currency: input.currency?.trim() || current.currency,
     network: input.network || current.network,
     paymentMethods: nextPaymentMethods,
@@ -8782,8 +9059,8 @@ export async function updateMarketplaceListingForSeller(input: {
     bankName: nextRequiresBankSelection
       ? serializeIsraeliBankSelection(nextBankSelection) || undefined
       : undefined,
-    minimumTrade: input.minimumTrade?.trim() || current.minimumTrade,
-    maximumTrade: input.maximumTrade?.trim() || current.maximumTrade,
+    minimumTrade: canonicalMinimumTrade,
+    maximumTrade: canonicalMaximumTrade,
     expiresAt: input.expiresAt?.trim() || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt),
     expiredAt: input.status === "active" ? undefined : current.expiredAt,
     lastRenewedAt: input.status === "active" && current.status === "expired" ? updatedAt : current.lastRenewedAt,
@@ -9082,10 +9359,16 @@ export async function adminOverrideMarketplaceListing(input: {
     expiresAt: listing.expiresAt,
     expiredAt: listing.expiredAt,
     closedAt: listing.closedAt,
+    activeTradeRequestId: listing.activeTradeRequestId,
+    availableAmount: listing.availableAmount,
+    updatedAt: listing.updatedAt,
   };
   const activeRequest = listing.activeTradeRequestId
     ? db.purchaseRequests.find((request) => request.id === listing.activeTradeRequestId)
     : undefined;
+  const activeRequestCommitBasis = activeRequest
+    ? { id: activeRequest.id, status: activeRequest.status, updatedAt: activeRequest.updatedAt }
+    : null;
 
   if (input.action === "renew") {
     if (isListingLocked(listing.status)) throw new Error("Locked listings cannot be renewed.");
@@ -9133,6 +9416,32 @@ export async function adminOverrideMarketplaceListing(input: {
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
         relatedHref: requestDetailsHref(activeRequest.id),
+        whatsappEvent: "trade_cancelled",
+      });
+    }
+    for (const pendingRequest of db.purchaseRequests.filter((candidate) => (
+      candidate.listingId === listing.id
+      && candidate.id !== activeRequest?.id
+      && candidate.status === "pending"
+    ))) {
+      pendingRequest.status = "declined";
+      pendingRequest.updatedAt = now;
+      appendTradeTimelineEntry(pendingRequest, {
+        type: pendingRequest.priceMode === "buyer_offer" ? "price_offer_declined" : "request_declined",
+        actorUserId: input.adminUserId,
+        actorRole: "admin",
+        message: "Request declined because an admin closed the listing",
+        createdAt: now,
+      });
+      pushNotification(db, {
+        userId: pendingRequest.buyerId,
+        category: "trade",
+        title: pendingRequest.priceMode === "buyer_offer" ? "Price offer declined" : "Trade request declined",
+        message: "The listing was closed by an admin, so this pending request can no longer be accepted.",
+        relatedRequestId: pendingRequest.id,
+        relatedTradeId: pendingRequest.tradeId ?? pendingRequest.id,
+        relatedListingId: listing.id,
+        relatedHref: requestDetailsHref(pendingRequest.id),
         whatsappEvent: "trade_cancelled",
       });
     }
@@ -9196,7 +9505,45 @@ export async function adminOverrideMarketplaceListing(input: {
       actionLabel: "Review Listing",
     });
   }
-  await writeDb(db, { selectedTables: ADMIN_LISTING_OVERRIDE_TABLES });
+  await writeDb(db, {
+    selectedTables: ADMIN_LISTING_OVERRIDE_TABLES,
+    validateLatestBeforeCommit: (canonicalSnapshot) => {
+      const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === listing.id);
+      if (
+        !canonicalListing
+        || canonicalListing.status !== before.status
+        || canonicalListing.expiresAt !== before.expiresAt
+        || canonicalListing.expiredAt !== before.expiredAt
+        || canonicalListing.closedAt !== before.closedAt
+        || canonicalListing.activeTradeRequestId !== before.activeTradeRequestId
+        || canonicalListing.availableAmount !== before.availableAmount
+        || canonicalListing.updatedAt !== before.updatedAt
+      ) {
+        throw new TradeBlockedError(
+          "concurrent-listing-override-change",
+          "This listing changed while the admin action was being applied. Refresh and review it again.",
+          activeRequestCommitBasis?.id,
+          { guard: "canonical-admin-listing-override", listingId: listing.id },
+        );
+      }
+      if (activeRequestCommitBasis) {
+        const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === activeRequestCommitBasis.id);
+        if (
+          !canonicalRequest
+          || canonicalRequest.status !== activeRequestCommitBasis.status
+          || canonicalRequest.updatedAt !== activeRequestCommitBasis.updatedAt
+          || hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)
+        ) {
+          throw new TradeBlockedError(
+            "concurrent-listing-override-change",
+            "The active trade changed or payment progress began while the listing was being closed. Refresh and review it again.",
+            activeRequestCommitBasis.id,
+            { guard: "canonical-admin-listing-active-trade", listingId: listing.id },
+          );
+        }
+      }
+    },
+  });
   return listing;
 }
 
@@ -9615,7 +9962,11 @@ export async function createPurchaseRequest(input: {
   const walletValidationError = getWalletAddressValidationError(listing.network, buyerReceivingWalletAddress);
   if (walletValidationError) throw new Error(walletValidationError);
   const listingPaymentMethods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
+  const suppliedPaymentMethod = String(input.paymentMethod ?? "").trim();
   const selectedPaymentMethod = normalizeMarketplacePaymentMethod(input.paymentMethod);
+  if (suppliedPaymentMethod && !selectedPaymentMethod) {
+    throw new Error("Selected payment method is invalid.");
+  }
   const primaryPaymentMethod = selectedPaymentMethod && listingPaymentMethods.includes(selectedPaymentMethod)
     ? selectedPaymentMethod
     : listingPaymentMethods[0] ?? "Bank Transfer";
@@ -9649,7 +10000,7 @@ export async function createPurchaseRequest(input: {
       { guard: "user-block", listingId: listing.id },
     );
   }
-  if (!seller || isSellerUnavailableForNewBuyers(seller.availabilityStatus)) {
+  if (!seller || seller.disabled === true || isSellerUnavailableForNewBuyers(seller.availabilityStatus)) {
     pushNotification(db, {
       userId: input.buyerId,
       category: "listing",
@@ -9674,7 +10025,7 @@ export async function createPurchaseRequest(input: {
     );
   }
   if (
-    seller.sellerStatus !== "approved_seller"
+    !canPublishListings(seller)
     || seller.isProfileHidden === true
     || Boolean(getSellerActiveEnforcementRecord(db, seller.id))
   ) {
@@ -9688,12 +10039,13 @@ export async function createPurchaseRequest(input: {
       },
     );
   }
-  const requestedUsdtAmount = String(input.usdtAmount ?? "").trim();
+  const rawRequestedUsdtAmount = String(input.usdtAmount ?? "").trim();
+  const requestedUsdtAmount = canonicalizeTradeAmount(rawRequestedUsdtAmount);
   const requestedAmount = toNumber(requestedUsdtAmount);
   const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
   const maximumTrade = toNumber(listing.maximumTrade) || toNumber(listing.availableAmount);
   const remainingAmount = toNumber(listing.availableAmount);
-  if (!requestedUsdtAmount || requestedAmount <= 0) throw new Error("Trade amount must be greater than zero.");
+  if (!requestedUsdtAmount || requestedAmount <= 0) throw new Error("Trade amount must be a valid positive USDT amount with no more than six decimal places.");
   if (requestedAmount < minimumTrade) throw new Error(`Minimum trade for this listing is ${listing.minimumTrade} USDT.`);
   if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
   if (requestedAmount > remainingAmount) throw new Error("Requested amount exceeds the remaining listing quantity.");
@@ -9723,8 +10075,23 @@ export async function createPurchaseRequest(input: {
   const sellerBankAccount = listing.bankAccountId && seller
     ? getSellerBankAccountById(seller, listing.bankAccountId)
     : undefined;
+  if (isBankTransferPaymentMethod(primaryPaymentMethod) && !sellerBankAccount) {
+    throw new TradeBlockedError(
+      "LISTING_BANK_ACCOUNT_UNAVAILABLE",
+      "This Bank Transfer listing no longer has a valid payout account. Choose another listing or ask the seller to update it.",
+      undefined,
+      { guard: "bank-account-linked-at-request", listingId: listing.id },
+    );
+  }
+  const canonicalListingBanks = parseIsraeliBankSelection(listing.bankName);
+  const requestedCardlessBanks = parseIsraeliBankSelection(input.bankName);
+  const canonicalCardlessBanks = requestedCardlessBanks.length
+    && requestedCardlessBanks.every((bank) => canonicalListingBanks.includes(bank))
+    ? requestedCardlessBanks
+    : canonicalListingBanks;
   const usdtAmount = requestedUsdtAmount;
-  const fiatAmount = (requestedAmount * toNumber(pricePerUsdt)).toFixed(2);
+  const fiatAmount = calculateFiatAmount(usdtAmount, pricePerUsdt);
+  if (!fiatAmount) throw new Error("Unable to calculate the trade total.");
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
     id: `purchase-${randomUUID()}`,
@@ -9746,9 +10113,20 @@ export async function createPurchaseRequest(input: {
     buyerSafetyAcknowledged,
     sellerSafetyAcknowledged: !requiresFaceToFaceSafetyNotice,
     sellerBankAccountId: sellerBankAccount?.id,
-    bankName: (isBankTransferPaymentMethod(primaryPaymentMethod) || isCardlessAtmPaymentMethod(primaryPaymentMethod))
-      ? (serializeIsraeliBankSelection(parseIsraeliBankSelection(input.bankName || sellerBankAccount?.bankName || listing.bankName)) || undefined)
+    sellerBankAccountSnapshot: sellerBankAccount
+      ? {
+          accountHolderName: sellerBankAccount.accountHolderName,
+          bankName: sellerBankAccount.bankName,
+          branchNumber: sellerBankAccount.branchNumber,
+          accountNumber: sellerBankAccount.accountNumber,
+          accountLast4: sellerBankAccount.accountLast4,
+        }
       : undefined,
+    bankName: isBankTransferPaymentMethod(primaryPaymentMethod)
+      ? sellerBankAccount?.bankName
+      : isCardlessAtmPaymentMethod(primaryPaymentMethod)
+        ? (serializeIsraeliBankSelection(canonicalCardlessBanks) || undefined)
+        : undefined,
     timeline: [
       {
         id: `timeline-purchase-${randomUUID()}-1`,
@@ -9820,11 +10198,101 @@ export async function createPurchaseRequest(input: {
   await writeDb(db, {
     selectedTables: PURCHASE_REQUEST_CREATE_TABLES,
     cacheResult: fromFullCache,
+    // `validateBeforeCommit` runs after the repository's stale-snapshot merge.
+    // User and enforcement collections historically prefer the incoming
+    // snapshot during that merge, so inspect the untouched latest snapshot as
+    // well. A disable, suspension, block, or bank-account edit that wins the
+    // lock must prevent this stale request and all of its side effects.
+    validateLatestBeforeCommit: (snapshot) => {
+      const canonicalListing = snapshot.marketplaceListings.find((candidate) => candidate.id === input.listingId);
+      const canonicalSeller = snapshot.users.find((candidate) => candidate.id === sellerId);
+      const canonicalBuyer = snapshot.users.find((candidate) => candidate.id === input.buyerId);
+      const canonicalBankAccount = canonicalListing?.bankAccountId && canonicalSeller
+        ? getSellerBankAccountById(canonicalSeller, canonicalListing.bankAccountId)
+        : undefined;
+      const bankAccountChanged = isBankTransferPaymentMethod(primaryPaymentMethod) && (
+        !sellerBankAccount
+        || !canonicalBankAccount
+        || canonicalBankAccount.id !== sellerBankAccount.id
+        || canonicalBankAccount.accountHolderName !== sellerBankAccount.accountHolderName
+        || canonicalBankAccount.bankName !== sellerBankAccount.bankName
+        || canonicalBankAccount.branchNumber !== sellerBankAccount.branchNumber
+        || canonicalBankAccount.accountNumber !== sellerBankAccount.accountNumber
+      );
+      if (
+        !canonicalListing
+        || !canonicalSeller
+        || canonicalSeller.disabled === true
+        || !canPublishListings(canonicalSeller)
+        || canonicalSeller.isProfileHidden === true
+        || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
+        || Boolean(getSellerActiveEnforcementRecord(snapshot, sellerId))
+        || !canonicalBuyer
+        || canonicalBuyer.disabled === true
+        || canonicalBuyer.emailVerified !== true
+        || isUserInteractionBlocked(snapshot, input.buyerId, sellerId)
+        || bankAccountChanged
+      ) {
+        throw new TradeBlockedError(
+          "LISTING_SELLER_LOCKED",
+          "This listing is temporarily unavailable for new purchases. Choose another seller.",
+          undefined,
+          { guard: "latest-listing-participants-at-commit", listingId: input.listingId },
+        );
+      }
+    },
     // Two tabs, a mobile-network retry, or two Vercel instances can validate
     // the same buyer snapshot before either request commits. Re-check the
     // invariant while the repository's cross-instance advisory lock is held
     // so only one active trade can ever be persisted for a buyer.
     validateBeforeCommit: (snapshot) => {
+      const canonicalListing = snapshot.marketplaceListings.find((candidate) => candidate.id === input.listingId);
+      const listingTermsChanged = !canonicalListing
+        || canonicalListing.updatedAt !== listing.updatedAt
+        || canonicalListing.status !== listing.status
+        || canonicalListing.activeTradeRequestId !== listing.activeTradeRequestId
+        || canonicalListing.availableAmount !== listing.availableAmount
+        || canonicalListing.minimumTrade !== listing.minimumTrade
+        || canonicalListing.maximumTrade !== listing.maximumTrade
+        || canonicalListing.price !== listing.price
+        || canonicalListing.currency !== listing.currency
+        || canonicalListing.network !== listing.network
+        || canonicalListing.bankAccountId !== listing.bankAccountId
+        || canonicalListing.bankName !== listing.bankName
+        || JSON.stringify(resolveListingPaymentMethods(canonicalListing.paymentMethods, canonicalListing.paymentMethod))
+          !== JSON.stringify(listingPaymentMethods);
+      if (listingTermsChanged) {
+        throw new TradeBlockedError(
+          "LISTING_CHANGED",
+          "This listing changed while your request was being submitted. Reopen it and review the latest terms.",
+          undefined,
+          { guard: "canonical-listing-terms-at-commit", listingId: input.listingId },
+        );
+      }
+      if (!canListingReceiveRequests(canonicalListing)) {
+        throw new TradeBlockedError(
+          "LISTING_UNAVAILABLE",
+          "This listing is no longer available for a new buyer.",
+          undefined,
+          { guard: "canonical-listing-open-at-commit", listingId: input.listingId },
+        );
+      }
+      const canonicalAvailableAmount = toNumber(canonicalListing.availableAmount);
+      const canonicalMinimumTrade = Math.max(0, toNumber(canonicalListing.minimumTrade));
+      const canonicalMaximumTrade = toNumber(canonicalListing.maximumTrade) || canonicalAvailableAmount;
+      if (
+        requestedAmount > canonicalAvailableAmount
+        || requestedAmount < canonicalMinimumTrade
+        || requestedAmount > canonicalMaximumTrade
+      ) {
+        throw new TradeBlockedError(
+          "LISTING_AMOUNT_CHANGED",
+          "The available amount or trade limits changed. Reopen the listing and choose an amount within the latest limits.",
+          undefined,
+          { guard: "canonical-listing-amount-at-commit", listingId: input.listingId },
+        );
+      }
+
       const duplicateRequest = snapshot.purchaseRequests.find(
         (candidate) => candidate.id !== request.id
           && candidate.buyerId === input.buyerId
@@ -9910,12 +10378,22 @@ export async function createPurchaseRequest(input: {
       }
 
       const canonicalSeller = snapshot.users.find((candidate) => candidate.id === sellerId);
+      const canonicalBuyer = snapshot.users.find((candidate) => candidate.id === input.buyerId);
+      const canonicalBankAccount = canonicalListing?.bankAccountId && canonicalSeller
+        ? getSellerBankAccountById(canonicalSeller, canonicalListing.bankAccountId)
+        : undefined;
       if (
         !canonicalSeller
-        || canonicalSeller.sellerStatus !== "approved_seller"
+        || canonicalSeller.disabled === true
+        || !canPublishListings(canonicalSeller)
         || canonicalSeller.isProfileHidden === true
         || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
         || Boolean(getSellerActiveEnforcementRecord(snapshot, sellerId))
+        || !canonicalBuyer
+        || canonicalBuyer.disabled === true
+        || canonicalBuyer.emailVerified !== true
+        || isUserInteractionBlocked(snapshot, input.buyerId, sellerId)
+        || (isBankTransferPaymentMethod(primaryPaymentMethod) && !canonicalBankAccount)
       ) {
         throw new TradeBlockedError(
           "LISTING_SELLER_LOCKED",
@@ -9995,15 +10473,18 @@ const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
 
 export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
   const canViewPrivateContent = actorRole === "admin" || actorRole === "owner";
+  const canViewConfidentialCredential = request.status === "payment_sent"
+    && (request.buyerId === actorUserId || request.sellerId === actorUserId);
   const canViewBuyerContact = canViewPrivateContent;
   const canViewWallet = canViewPrivateContent
     || request.buyerId === actorUserId
     || (request.sellerId === actorUserId && SELLER_WALLET_VISIBLE_STATUSES.has(request.status));
   const redacted: PurchaseRequest = {
     ...request,
+    sellerBankAccountSnapshot: undefined,
     buyerName: canViewPrivateContent ? request.buyerName : redactExchangeUserContent(request.buyerName),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
-    messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent)),
+    messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential)),
     buyerEvidence: canViewPrivateContent ? request.buyerEvidence : sanitizeTradeEvidenceForCounterparty(request.buyerEvidence),
     sellerEvidence: canViewPrivateContent ? request.sellerEvidence : sanitizeTradeEvidenceForCounterparty(request.sellerEvidence),
     closeReason: canViewPrivateContent ? request.closeReason : redactExchangeUserContent(request.closeReason),
@@ -10461,6 +10942,7 @@ export async function getTradeRoomData(input: {
       }
       if (committedMessageIds.length) {
         canonicalRequest.messages = canonicalMessages;
+        canonicalRequest.updatedAt = nowIsoAfter(canonicalRequest.updatedAt, seenAt);
         snapshot.purchaseRequests[canonicalIndex] = canonicalRequest;
       }
       return snapshot;
@@ -10511,6 +10993,7 @@ export async function getTradeRoomData(input: {
   const payableSellerCommission = sellerPendingCommissions.find((record) => record.purchaseRequestId === request.id)
     ?? sellerPendingCommissions[0];
   const canViewPrivateContent = input.actorRole === "admin" || input.actorRole === "owner";
+  const canViewSellerCommission = canViewPrivateContent || request.sellerId === input.actorUserId;
 
   return {
     request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole),
@@ -10519,7 +11002,11 @@ export async function getTradeRoomData(input: {
       buyerName: canViewPrivateContent ? buyer?.fullName ?? request.buyerName : redactExchangeUserContent(buyer?.fullName ?? request.buyerName),
       sellerName: canViewPrivateContent ? seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId : redactExchangeUserContent(seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId),
     },
-    messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent)),
+    messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
+      message,
+      canViewPrivateContent,
+      request.status === "payment_sent" && (request.buyerId === input.actorUserId || request.sellerId === input.actorUserId),
+    )),
     poke: getTradeRoomPokeAvailability(request, input.actorUserId),
     deadlineAt,
     timeRemainingSeconds,
@@ -10528,10 +11015,12 @@ export async function getTradeRoomData(input: {
     isOverdue,
     hasOpenDispute: Boolean(openDispute),
     canOpenDispute: isBuyerActor && (request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent"),
-    sellerCommissionDueAmount: Number(sellerPendingCommissions.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0).toFixed(2)),
-    sellerCommissionDueCount: sellerPendingCommissions.length,
-    sellerPayableCommissionId: payableSellerCommission?.id,
-    sellerPayableCommissionAmount: payableSellerCommission
+    sellerCommissionDueAmount: canViewSellerCommission
+      ? Number(sellerPendingCommissions.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0).toFixed(2))
+      : 0,
+    sellerCommissionDueCount: canViewSellerCommission ? sellerPendingCommissions.length : 0,
+    sellerPayableCommissionId: canViewSellerCommission ? payableSellerCommission?.id : undefined,
+    sellerPayableCommissionAmount: canViewSellerCommission && payableSellerCommission
       ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
       : undefined,
   };
@@ -10614,10 +11103,7 @@ export async function getTradeRoomBankDetails(input: {
     }
 
     const seller = snapshot.users.find((user) => user.id === request.sellerId);
-    if (!seller) throw new Error("Seller not found.");
-    const bankAccount = request.sellerBankAccountId
-      ? getSellerBankAccountById(seller, request.sellerBankAccountId)
-      : undefined;
+    const bankAccount = resolveLockedTradeBankAccount(request, seller);
     if (!bankAccount) {
       throw new Error("No bank account is linked to this trade.");
     }
@@ -10638,17 +11124,24 @@ export async function getTradeRoomBankDetails(input: {
       && entry.actorUserId === input.actorUserId
       && new Date(entry.createdAt).getTime() >= Date.now() - 5 * 60 * 1000,
     );
-    shouldPersistAudit = !recentlyLogged;
+    const buyerDisclosureNeedsMarker = input.actorUserId === request.buyerId && !request.sensitivePaymentSharedAt;
+    shouldPersistAudit = !recentlyLogged || buyerDisclosureNeedsMarker;
     if (!shouldPersistAudit) return snapshot;
 
     const now = nowIsoAfter(request.updatedAt);
-    appendTradeTimelineEntry(request, {
-      type: "bank_details_revealed",
-      actorUserId: input.actorUserId,
-      actorRole: resolveActorRole(snapshot, input.actorUserId),
-      message: "Trade bank details viewed",
-      createdAt: now,
-    });
+    if (!recentlyLogged) {
+      appendTradeTimelineEntry(request, {
+        type: "bank_details_revealed",
+        actorUserId: input.actorUserId,
+        actorRole: resolveActorRole(snapshot, input.actorUserId),
+        message: "Trade bank details viewed",
+        createdAt: now,
+      });
+    }
+    if (buyerDisclosureNeedsMarker) {
+      request.sensitivePaymentSharedAt = now;
+      request.sensitivePaymentKind = "bank_details";
+    }
     request.updatedAt = now;
     snapshot.purchaseRequests[requestIndex] = request;
     await appendAuditLog(snapshot, {
@@ -10810,7 +11303,15 @@ async function closePurchaseRequestManuallyAttempt(
       selectedTables: TRADE_STATUS_BASE_TABLES,
       validateLatestBeforeCommit: (canonicalSnapshot) => {
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
-        if (!canonicalRequest || canonicalRequest.status !== request.status || canonicalRequest.closedAt !== request.closedAt) {
+        if (
+          !canonicalRequest
+          || canonicalRequest.status !== request.status
+          || canonicalRequest.closedAt !== request.closedAt
+          || canonicalRequest.updatedAt !== request.updatedAt
+        ) {
+          throw new ConcurrentTradeMutationError();
+        }
+        if (isAdmin && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)) {
           throw new ConcurrentTradeMutationError();
         }
         const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === request.listingId);
@@ -10888,6 +11389,9 @@ export async function postTradeRoomMessage(input: {
     .update(`${input.purchaseRequestId}:${input.actorUserId}:${clientMessageId}`)
     .digest("hex")
     .slice(0, 32)}`;
+  const payloadHash = createHash("sha256")
+    .update(`${message}\0${image?.mimeType ?? ""}\0${image?.dataUrl ?? ""}`)
+    .digest("hex");
   const validationMs = Date.now() - validationStartedAt;
 
   const businessStartedAt = Date.now();
@@ -10910,6 +11414,14 @@ export async function postTradeRoomMessage(input: {
     const canonicalRecipientUserId = canonicalParticipantSide === "buyer" ? canonicalRequest.sellerId : canonicalRequest.buyerId;
     const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
     if (existingMessage) {
+      const existingPayloadHash = existingMessage.payloadHash ?? createHash("sha256")
+        .update(`${existingMessage.message}\0${existingMessage.imageMimeType ?? ""}\0${existingMessage.imageUrl ?? ""}`)
+        .digest("hex");
+      if (!constantTimeHexEquals(existingPayloadHash, payloadHash)) {
+        throw new TradeBlockedError("message-id-payload-mismatch", "This message request id was already used with different content.", canonicalRequest.id, {
+          guard: "chat-idempotency-payload",
+        });
+      }
       committed = {
         message: existingMessage,
         recipientUserId: canonicalRecipientUserId,
@@ -10920,14 +11432,43 @@ export async function postTradeRoomMessage(input: {
       };
       return snapshot;
     }
+    if (canonicalRequest.closedAt || canonicalRequest.status === "cancelled" || canonicalRequest.status === "declined") {
+      throw new TradeBlockedError("trade-chat-closed", "Messages cannot be sent after this trade is closed.", canonicalRequest.id, {
+        guard: "terminal-trade-chat",
+      });
+    }
+    if (isCashTradePaymentMethod(canonicalRequest.paymentMethod) && image) {
+      throw new TradeBlockedError("cash-trade-chat-image-blocked", "Cash trades do not accept chat photos or payment evidence.", canonicalRequest.id, {
+        guard: "cash-trade-no-photos",
+      });
+    }
+    if (
+      canonicalParticipantSide === "buyer"
+      && canonicalRequest.status === "accepted"
+      && isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
+    ) {
+      throw new TradeBlockedError("cardless-code-action-required", "Use the protected withdrawal-code action instead of ordinary chat.", canonicalRequest.id, {
+        guard: "atomic-cardless-code",
+      });
+    }
+    if (
+      isCardlessAtmPaymentMethod(canonicalRequest.paymentMethod)
+      && (containsCardlessCredentialLikeContent(message) || Boolean(image))
+    ) {
+      throw new TradeBlockedError("cardless-code-chat-blocked", "Withdrawal codes and code images must use the protected withdrawal-code action.", canonicalRequest.id, {
+        guard: "cardless-code-never-generic-chat",
+      });
+    }
 
     const nextMessage: TradeChatMessage = {
       id: messageId,
+      clientMessageId,
       purchaseRequestId: canonicalRequest.id,
       kind: "user",
       senderUserId: input.actorUserId,
       senderRole: canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
       message,
+      payloadHash,
       createdAt,
       sentAt: createdAt,
       readByUserIds: [input.actorUserId],
@@ -10938,7 +11479,7 @@ export async function postTradeRoomMessage(input: {
       imageMimeType: image?.mimeType,
     };
     canonicalRequest.messages = [nextMessage, ...(canonicalRequest.messages ?? [])];
-    canonicalRequest.updatedAt = createdAt;
+    canonicalRequest.updatedAt = nowIsoAfter(canonicalRequest.updatedAt, createdAt);
     snapshot.purchaseRequests[canonicalRequestIndex] = canonicalRequest;
     snapshot.tradeMessages = [nextMessage, ...(snapshot.tradeMessages ?? [])];
     const notificationPublication = pushNotification(snapshot, {
@@ -11312,7 +11853,7 @@ export async function getAccountProfileData(userId: string): Promise<{
     showEmailPublic: user.showEmailPublic === true,
   };
 
-  if (hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended") {
+  if (isTrustEligibleSeller(user)) {
     const reputation = computeSellerReputationSnapshot(db, user.id);
     const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
     const sellerLevel = user.sellerPrestigeRank ?? reputation.level;
@@ -11468,13 +12009,6 @@ async function uploadTradeEvidenceAttempt(
   if (isCashTradePaymentMethod(request.paymentMethod)) {
     throw new Error("Photo evidence is not used for Face-to-Face or Cardless ATM trades. Use the guided confirmation buttons instead.");
   }
-  if (request.status === "pending" || request.status === "declined" || request.status === "cancelled") {
-    throw new Error("Evidence can be uploaded only after trade acceptance.");
-  }
-  if (input.side === "seller" && request.status !== "usdt_release_pending") {
-    throw new Error("Seller USDT evidence can be uploaded only during the USDT release stage.");
-  }
-
   const mimeType = String(input.mimeType ?? "").toLowerCase().trim();
   if (!supportedEvidenceMimeTypes.has(mimeType)) {
     throw new Error("Unsupported evidence file type.");
@@ -11529,6 +12063,12 @@ async function uploadTradeEvidenceAttempt(
         replayed: true,
       },
     };
+  }
+  if (input.side === "buyer" && request.status !== "accepted") {
+    throw new Error("Buyer payment evidence can be uploaded only once, immediately after trade acceptance.");
+  }
+  if (input.side === "seller" && request.status !== "usdt_release_pending") {
+    throw new Error("Seller USDT evidence can be uploaded only during the USDT release stage.");
   }
   const existingEvidenceIdAtRead = existing?.id ?? null;
   const requestStatusAtRead = request.status;
@@ -11802,6 +12342,12 @@ export async function downloadTradeEvidenceContent(input: {
   if (!request) throw new Error("Trade not found.");
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
 
+  const repository = await getAlphaExchangeRepository();
+  const buffer = await repository.readEvidenceContent(evidence.id);
+  if (!buffer?.length) {
+    throw new Error("Evidence content not found.");
+  }
+
   const actor = db.users.find((item) => item.id === input.actorUserId);
   if (input.actorRole === "admin" || input.actorRole === "owner") {
     await appendAuditLog(db, {
@@ -11819,13 +12365,7 @@ export async function downloadTradeEvidenceContent(input: {
     listingId: request.listingId,
     details: `Downloaded ${evidence.side} evidence ${evidence.id}.`,
   });
-  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
-
-  const repository = await getAlphaExchangeRepository();
-  const buffer = await repository.readEvidenceContent(evidence.id);
-  if (!buffer?.length) {
-    throw new Error("Evidence content not found.");
-  }
+  await writeDb(db, { selectedTables: ["audit_logs"] });
   return {
     evidence: {
       ...evidence,
@@ -11861,6 +12401,14 @@ export async function downloadMarketplaceComplianceEvidenceById(input: {
   const repository = await getAlphaExchangeRepository();
   const buffer = await repository.readEvidenceContent(storagePath);
   if (!buffer?.length) throw new Error("Evidence content not found.");
+
+  await appendAuditLog(db, {
+    action: "marketplace_compliance_evidence_downloaded",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Downloaded marketplace compliance evidence ${input.evidenceId}.`,
+  });
+  await writeDb(db, { selectedTables: ["audit_logs"] });
 
   return { evidence, buffer };
 }
@@ -12190,6 +12738,8 @@ type UpdatePurchaseRequestStatusInput = {
   completionMode?: "cash_trade" | "face_to_face" | "admin_override";
   completionReason?: string;
   safetyAcknowledged?: boolean;
+  cardlessWithdrawalCode?: string;
+  clientOperationId?: string;
   traceId?: string;
 };
 
@@ -12263,10 +12813,18 @@ async function updatePurchaseRequestStatusAttempt(
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
   const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
+  const isSystemActor = input.actorUserId === SYSTEM_ACTOR_USER_ID;
   const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isCashTrade = isCashTradePaymentMethod(requestPaymentMethod);
+  const cardlessWithdrawalCode = String(input.cardlessWithdrawalCode ?? "").replace(/\s+/g, "");
+  const cardlessOperationId = String(input.clientOperationId ?? "").trim().toLowerCase();
+  const cardlessCodeIsValid = /^\d{4,12}$/.test(cardlessWithdrawalCode);
+  const cardlessOperationIdIsValid = /^[a-f0-9]{32}$|^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cardlessOperationId);
+  const cardlessPayloadHash = cardlessCodeIsValid
+    ? cardlessCredentialPayloadHash(request.id, cardlessWithdrawalCode)
+    : "";
   // `face_to_face` remains accepted for already-installed clients. The server
   // validates the actual payment method before applying the shared cash flow.
   const isCashTradeCompletion = input.completionMode === "cash_trade" || input.completionMode === "face_to_face";
@@ -12284,6 +12842,26 @@ async function updatePurchaseRequestStatusAttempt(
       sellerId: request.sellerId,
       buyerId: request.buyerId,
     });
+  }
+  if (isAdmin && !isSeller && !isBuyer && !isSystemActor && !isAdminCompletion && !isCashTradeCompletion) {
+    throw new TradeBlockedError(
+      "admin-dedicated-action-required",
+      "Admins must use the dedicated, reasoned admin action for this trade.",
+      request.id,
+      { guard: "admin-dedicated-trade-action", nextStatus: input.nextStatus, actorUserId: input.actorUserId },
+    );
+  }
+
+  const openDisputeAtRead = db.disputes.find((candidate) => (
+    candidate.purchaseRequestId === request.id && candidate.status === "open"
+  ));
+  if (openDisputeAtRead) {
+    throw new TradeBlockedError(
+      "trade-disputed",
+      "This trade is paused while an admin reviews the open dispute.",
+      request.id,
+      { guard: "open-dispute-pauses-lifecycle", disputeId: openDisputeAtRead.id },
+    );
   }
 
   if (isCashTradeCompletion && input.nextStatus !== "completed") {
@@ -12348,6 +12926,15 @@ async function updatePurchaseRequestStatusAttempt(
 
   let currentStatus = request.status;
   if (currentStatus === input.nextStatus) {
+    if (isAtmTrade && input.nextStatus === "payment_sent" && cardlessWithdrawalCode) {
+      if (!cardlessCodeIsValid) {
+        throw new TradeBlockedError("cardless-code-invalid", "Withdrawal code must contain 4 to 12 digits.", request.id, { guard: "cardless-code-format" });
+      }
+      const existingCredential = (request.messages ?? []).find((message) => message.credentialKind === "cardless_code");
+      if (!existingCredential || existingCredential.payloadHash !== cardlessPayloadHash) {
+        throw new TradeBlockedError("cardless-code-conflict", "A different withdrawal code was already submitted for this trade.", request.id, { guard: "cardless-code-idempotency" });
+      }
+    }
     return {
       request: enrichRequestWithEvidence(db, request),
       statusChanged: false,
@@ -12494,8 +13081,8 @@ async function updatePurchaseRequestStatusAttempt(
     && currentStatus === "accepted"
     && (request.paymentSentAt || request.buyerEvidence || getTradeEvidenceFile(db, request.id, "buyer"))
   ) {
-    throw new TradeBlockedError("payment-evidence-exists", "This trade cannot be cancelled after payment or payment evidence is submitted.", request.id, {
-      guard: "cancel-before-payment-evidence",
+    throw new TradeBlockedError("payment-progress-exists", "This trade cannot be cancelled after payment or payment evidence is submitted.", request.id, {
+      guard: "cancel-before-payment-progress",
       currentStatus,
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
@@ -12560,6 +13147,89 @@ async function updatePurchaseRequestStatusAttempt(
         activeTradeRequestId: listing.activeTradeRequestId,
         nextStatus: input.nextStatus,
       });
+    }
+    const currentSeller = db.users.find((candidate) => candidate.id === request.sellerId);
+    if (
+      !currentSeller
+      || currentSeller.disabled === true
+      || !canPublishListings(currentSeller)
+      || currentSeller.isProfileHidden === true
+      || isSellerUnavailableForNewBuyers(currentSeller.availabilityStatus)
+      || Boolean(getSellerActiveEnforcementRecord(db, currentSeller.id))
+    ) {
+      throw new TradeBlockedError("seller-not-eligible", "This seller cannot accept new trades right now.", request.id, {
+        guard: "seller-eligible-at-accept",
+        sellerId: request.sellerId,
+        nextStatus: input.nextStatus,
+      });
+    }
+    const currentBuyer = db.users.find((candidate) => candidate.id === request.buyerId);
+    if (!currentBuyer || currentBuyer.disabled === true || currentBuyer.emailVerified !== true) {
+      throw new TradeBlockedError("buyer-not-eligible", "This buyer cannot start a trade right now.", request.id, {
+        guard: "buyer-eligible-at-accept",
+        buyerId: request.buyerId,
+        nextStatus: input.nextStatus,
+      });
+    }
+    if (isUserInteractionBlocked(db, request.buyerId, request.sellerId)) {
+      throw new TradeBlockedError("user-interaction-blocked", "A user block prevents this trade from being accepted.", request.id, {
+        guard: "user-block-at-accept",
+        buyerId: request.buyerId,
+        sellerId: request.sellerId,
+      });
+    }
+    if (isBankTransferTrade) {
+      const linkedBankAccount = resolveLockedTradeBankAccount(request, currentSeller);
+      if (!linkedBankAccount) {
+        throw new TradeBlockedError("bank-account-unavailable", "This Bank Transfer request has no valid locked seller bank account.", request.id, {
+          guard: "bank-account-linked-at-accept",
+          sellerId: request.sellerId,
+        });
+      }
+    }
+    const otherActiveBuyerTrade = db.purchaseRequests.find((candidate) => (
+      candidate.id !== request.id
+      && candidate.buyerId === request.buyerId
+      && isActiveTradeStatus(candidate.status)
+      && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod))
+    ));
+    if (otherActiveBuyerTrade) {
+      throw new TradeBlockedError(
+        "buyer-active-trade-exists",
+        "This buyer already has another active trade. Try again after it is completed or cancelled.",
+        request.id,
+        { guard: "single-active-buyer-trade-at-accept", conflictingRequestId: otherActiveBuyerTrade.id },
+      );
+    }
+    const buyerPendingFeedback = getBuyerPendingFeedbackTrade(db, request.buyerId);
+    if (buyerPendingFeedback) {
+      throw new TradeBlockedError(
+        "buyer-feedback-required",
+        "This buyer must review the previous trade before another request can be accepted.",
+        request.id,
+        { guard: "buyer-feedback-at-accept", conflictingRequestId: buyerPendingFeedback.id },
+      );
+    }
+    const buyerSellerCommission = getSellerPurchaseCommissionBlock(db, request.buyerId);
+    if (buyerSellerCommission) {
+      throw new TradeBlockedError(
+        "buyer-seller-commission-due",
+        "This buyer must settle a pending seller commission before another request can be accepted.",
+        request.id,
+        { guard: "buyer-seller-commission-at-accept", commissionId: buyerSellerCommission.id },
+      );
+    }
+    if (toNumber(request.usdtAmount) > toNumber(listing.availableAmount)) {
+      throw new TradeBlockedError(
+        "listing-amount-unavailable",
+        "The listing no longer has enough USDT for this request.",
+        request.id,
+        {
+          guard: "listing-amount-at-accept",
+          requestedAmount: request.usdtAmount,
+          availableAmount: listing.availableAmount,
+        },
+      );
     }
     if (isFaceToFaceTrade && !next.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) {
       throw new TradeBlockedError("safety-acknowledgment-required", "Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.", request.id, {
@@ -12727,6 +13397,37 @@ async function updatePurchaseRequestStatusAttempt(
     if (isBuyerEvidenceRequiredForPaymentMethod(requestPaymentMethod) && !buyerEvidence) {
       throw new Error("Buyer evidence is required before marking payment sent.");
     }
+    if (isAtmTrade) {
+      if (!cardlessCodeIsValid) {
+        throw new TradeBlockedError("cardless-code-required", "Enter the 4 to 12 digit withdrawal code and submit it with this confirmation.", request.id, {
+          guard: "atomic-cardless-code",
+        });
+      }
+      if (!cardlessOperationIdIsValid) {
+        throw new TradeBlockedError("cardless-operation-id-invalid", "A valid withdrawal-code request id is required.", request.id, {
+          guard: "cardless-code-idempotency-key",
+        });
+      }
+      const credentialMessageId = `trade-credential-${createHash("sha256").update(`${request.id}:${request.buyerId}:${cardlessOperationId}`).digest("hex").slice(0, 32)}`;
+      const credentialMessage: TradeChatMessage = {
+        id: credentialMessageId,
+        purchaseRequestId: request.id,
+        kind: "user",
+        senderUserId: request.buyerId,
+        senderRole: "buyer",
+        message: encryptCardlessCredential(cardlessWithdrawalCode, request.id, credentialMessageId),
+        credentialKind: "cardless_code",
+        confidential: true,
+        payloadHash: cardlessPayloadHash,
+        createdAt: now,
+        sentAt: now,
+        readByUserIds: [request.buyerId],
+      };
+      next.messages = [credentialMessage, ...(next.messages ?? [])];
+      db.tradeMessages = [credentialMessage, ...(db.tradeMessages ?? [])];
+      next.sensitivePaymentSharedAt = now;
+      next.sensitivePaymentKind = "cardless_code";
+    }
     next.status = "payment_sent";
     if (buyerEvidence) {
       next.buyerEvidence = buyerEvidence;
@@ -12781,6 +13482,13 @@ async function updatePurchaseRequestStatusAttempt(
   } else if (input.nextStatus === "funds_received") {
     next.status = "funds_received";
     next.fundsReceivedAt = now;
+    if (isAtmTrade) {
+      const redactCredential = (message: TradeChatMessage): TradeChatMessage => message.credentialKind === "cardless_code"
+        ? { ...message, message: "Cardless withdrawal code redeemed", confidential: true, payloadHash: undefined }
+        : message;
+      next.messages = (next.messages ?? []).map(redactCredential);
+      db.tradeMessages = (db.tradeMessages ?? []).map((message) => message.purchaseRequestId === request.id ? redactCredential(message) : message);
+    }
     appendTradeTimelineEntry(next, {
       type: "seller_confirmed_funds",
       actorUserId: input.actorUserId,
@@ -12816,6 +13524,12 @@ async function updatePurchaseRequestStatusAttempt(
     });
     queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "usdt_release_pending") {
+    if (isCashTrade) {
+      throw new TradeBlockedError("cash-release-stage-not-allowed", "Cash trades move directly from funds confirmation to USDT sent.", request.id, {
+        guard: "bank-release-stage-only",
+        paymentMethod: requestPaymentMethod,
+      });
+    }
     next.status = "usdt_release_pending";
     next.usdtReleaseStartedAt = now;
     next.usdtReleaseDeadlineAt = addMinutesIso(now, 45);
@@ -12920,25 +13634,33 @@ async function updatePurchaseRequestStatusAttempt(
       createdAt: now,
     });
 
-    const remainingAmount = listing ? Math.max(0, toNumber(listing.availableAmount) - toNumber(next.usdtAmount)) : 0;
+    const remainingAmount = listing ? subtractTradeAmounts(listing.availableAmount, next.usdtAmount) : "0";
+    if (listing && remainingAmount === null) {
+      throw new TradeBlockedError("listing-inventory-invalid", "The listing inventory changed and cannot be settled safely.", request.id, {
+        guard: "fixed-point-listing-inventory",
+      });
+    }
     if (listing) {
-      listing.availableAmount = remainingAmount.toFixed(2).replace(/\.00$/, "");
+      listing.availableAmount = remainingAmount ?? "0";
       listing.activeTradeRequestId = undefined;
       listing.lockedAt = undefined;
       listing.updatedAt = now;
-      if (remainingAmount > 0) {
+      if (remainingAmount !== "0") {
         const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
         const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= Date.now());
-        listing.status = shouldExpire ? "expired" : "active";
+        const remainderBelowMinimum = isTradeAmountLessThan(remainingAmount ?? "0", listing.minimumTrade) === true;
+        listing.status = shouldExpire ? "expired" : remainderBelowMinimum ? "paused" : "active";
         listing.expiredAt = shouldExpire ? now : undefined;
         await appendListingStateAudit(db, {
-          action: shouldExpire ? "listing_expired" : "listing_reopened",
+          action: shouldExpire ? "listing_expired" : remainderBelowMinimum ? "listing_paused" : "listing_reopened",
           actorUserId: input.actorUserId,
           targetUserId: request.sellerId,
           listingId: request.listingId,
           purchaseRequestId: request.id,
           details: shouldExpire
             ? `Listing ${listing.id} expired after trade completion with ${listing.availableAmount} USDT remaining.`
+            : remainderBelowMinimum
+              ? `Listing ${listing.id} paused because its ${listing.availableAmount} USDT remainder is below the ${listing.minimumTrade} USDT minimum trade.`
             : `Listing ${listing.id} reopened with ${listing.availableAmount} USDT remaining.`,
         });
       } else {
@@ -12963,10 +13685,10 @@ async function updatePurchaseRequestStatusAttempt(
     let commission = db.commissionRecords.find((record) => record.purchaseRequestId === request.id);
     if (!commission) {
       const normalizedGross = toNumber(next.fiatAmount);
-      const normalizedUsdt = toNumber(next.usdtAmount);
       const commissionAmount = isQaCommissionModeEnabled()
         ? 1
-        : roundUsdt(normalizedUsdt * COMMISSION_RATE);
+        : calculateSellerCommissionAmount(next.usdtAmount);
+      if (commissionAmount === null) throw new Error("Unable to calculate seller commission.");
       commission = {
         id: `commission-${randomUUID()}`,
         source: "trade",
@@ -13202,6 +13924,14 @@ async function updatePurchaseRequestStatusAttempt(
         if (!canonicalRequest || canonicalRequest.status !== stateBefore) {
           throw new ConcurrentTradeMutationError();
         }
+        if (canonicalSnapshot.disputes.some((candidate) => (
+          candidate.purchaseRequestId === request.id && candidate.status === "open"
+        ))) {
+          throw new ConcurrentTradeMutationError();
+        }
+        if (input.nextStatus === "cancelled" && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)) {
+          throw new ConcurrentTradeMutationError();
+        }
 
         const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === request.listingId);
         const listingChanged = listingCommitBasis
@@ -13226,6 +13956,34 @@ async function updatePurchaseRequestStatusAttempt(
             canonicalPendingCommissionCount !== pendingCommissionCountAtRead
             || canonicalPendingSiblingIds.length !== pendingSiblingRequestIdsAtRead.length
             || canonicalPendingSiblingIds.some((id, index) => id !== pendingSiblingRequestIdsAtRead[index])
+          ) {
+            throw new ConcurrentTradeMutationError();
+          }
+          const canonicalSeller = canonicalSnapshot.users.find((candidate) => candidate.id === request.sellerId);
+          const canonicalBuyer = canonicalSnapshot.users.find((candidate) => candidate.id === request.buyerId);
+          const canonicalOtherActiveBuyerTrade = canonicalSnapshot.purchaseRequests.find((candidate) => (
+            candidate.id !== request.id
+            && candidate.buyerId === request.buyerId
+            && isActiveTradeStatus(candidate.status)
+            && (!candidate.buyerConfirmationArchivedAt || isCashTradePaymentMethod(candidate.paymentMethod))
+          ));
+          if (
+            !canonicalListing
+            || toNumber(request.usdtAmount) > toNumber(canonicalListing.availableAmount)
+            || !canonicalSeller
+            || canonicalSeller.disabled === true
+            || !canPublishListings(canonicalSeller)
+            || canonicalSeller.isProfileHidden === true
+            || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
+            || Boolean(getSellerActiveEnforcementRecord(canonicalSnapshot, canonicalSeller.id))
+            || !canonicalBuyer
+            || canonicalBuyer.disabled === true
+            || canonicalBuyer.emailVerified !== true
+            || isUserInteractionBlocked(canonicalSnapshot, request.buyerId, request.sellerId)
+            || (isBankTransferTrade && !resolveLockedTradeBankAccount(canonicalRequest, canonicalSeller))
+            || Boolean(canonicalOtherActiveBuyerTrade)
+            || Boolean(getBuyerPendingFeedbackTrade(canonicalSnapshot, request.buyerId))
+            || Boolean(getSellerPurchaseCommissionBlock(canonicalSnapshot, request.buyerId))
           ) {
             throw new ConcurrentTradeMutationError();
           }
@@ -13346,7 +14104,11 @@ async function updatePurchaseRequestStatusAttempt(
 
 export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
+  return db.purchaseRequests.map((request) => sanitizePurchaseRequestForActor(
+    enrichRequestWithEvidence(db, request),
+    "admin-non-participant",
+    "admin",
+  ));
 }
 
 export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
@@ -16152,10 +16914,17 @@ export async function openTradeDispute(input: {
   const applyDisputeToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
     const request = snapshot.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
     if (!request) throw new Error("Trade not found.");
-    const isParticipant = request.buyerId === input.openedByUserId || request.sellerId === input.openedByUserId;
-    if (!isParticipant) throw new Error("Only trade participants can open a dispute.");
-    if (request.status === "pending" || request.status === "declined" || request.status === "cancelled") {
-      throw new Error("Dispute can be opened only after trade is accepted.");
+    if (request.buyerId !== input.openedByUserId) {
+      throw new Error("Only the trade buyer can open a dispute.");
+    }
+    const disputableStatuses = new Set<PurchaseRequestStatus>([
+      "payment_sent",
+      "funds_received",
+      "usdt_release_pending",
+      "usdt_sent",
+    ]);
+    if (!disputableStatuses.has(request.status)) {
+      throw new Error("A dispute can be opened only after payment starts and before the trade closes.");
     }
 
     const existingOpen = snapshot.disputes.find((item) => item.purchaseRequestId === request.id && item.status === "open");
@@ -16189,6 +16958,7 @@ export async function openTradeDispute(input: {
       message: "Dispute opened for this trade.",
       createdAt: dispute.createdAt,
     });
+    request.updatedAt = nowIsoAfter(request.updatedAt, dispute.createdAt);
 
     for (const adminUser of getAdminNotificationRecipients(snapshot)) {
       pushNotification(snapshot, {
@@ -16253,6 +17023,111 @@ export async function openTradeDispute(input: {
       payload: { request: enrichRequestWithEvidence(db, result.request) },
     });
     await dispatchCommittedSms(db, priorSmsCount);
+  }
+  return result.dispute;
+}
+
+export async function resolveTradeDisputeByAdmin(input: {
+  disputeId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  resolutionNotes: string;
+}) {
+  const resolutionNotes = String(input.resolutionNotes ?? "").trim();
+  if (!resolutionNotes) throw new Error("Resolution notes are required.");
+  if (resolutionNotes.length > 1000) throw new Error("Resolution notes are too long.");
+  assertNoExchangeDirectContact(resolutionNotes);
+  if (input.actorRole !== "admin" && input.actorRole !== "owner") {
+    throw new Error("Admin access required.");
+  }
+
+  const db = await readDb({ bypassCache: true });
+  let committed: { dispute: TradeDisputeCase; request: PurchaseRequest; changed: boolean } | null = null;
+  const applyResolutionToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const actor = snapshot.users.find((candidate) => candidate.id === input.actorUserId);
+    if (!actor || (!hasRole(actor, "admin") && !hasRole(actor, "owner"))) {
+      throw new Error("Admin access required.");
+    }
+    const disputeIndex = snapshot.disputes.findIndex((candidate) => candidate.id === input.disputeId);
+    if (disputeIndex === -1) throw new Error("Dispute not found.");
+    const dispute = snapshot.disputes[disputeIndex];
+    const request = snapshot.purchaseRequests.find((candidate) => candidate.id === dispute.purchaseRequestId);
+    if (!request) throw new Error("Trade not found.");
+    if (dispute.status === "resolved") {
+      committed = { dispute, request, changed: false };
+      return snapshot;
+    }
+
+    const resolvedAt = nowIsoAfter(dispute.updatedAt, request.updatedAt);
+    const resolved: TradeDisputeCase = {
+      ...dispute,
+      status: "resolved",
+      resolvedAt,
+      resolvedByUserId: input.actorUserId,
+      resolutionNotes,
+      updatedAt: resolvedAt,
+    };
+    snapshot.disputes[disputeIndex] = resolved;
+    appendTradeTimelineEntry(request, {
+      type: "dispute_resolved",
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+      message: "Dispute review resolved by an admin; normal trade actions may continue.",
+      createdAt: resolvedAt,
+    });
+    request.updatedAt = resolvedAt;
+    for (const userId of new Set([request.buyerId, request.sellerId])) {
+      pushNotification(snapshot, {
+        userId,
+        category: "dispute",
+        title: "Dispute review resolved",
+        message: "An admin resolved the dispute review. Reopen the Trade Room for the next permitted action.",
+        relatedRequestId: request.id,
+        relatedTradeId: request.tradeId ?? request.id,
+        relatedListingId: request.listingId,
+        relatedHref: requestDetailsHref(request.id),
+        actionHref: requestDetailsHref(request.id),
+        actionLabel: "Open Trade Room",
+        forceInApp: true,
+      });
+    }
+    await appendAuditLog(snapshot, {
+      action: "trade_dispute_resolved",
+      actorUserId: input.actorUserId,
+      targetUserId: request.sellerId,
+      purchaseRequestId: request.id,
+      listingId: request.listingId,
+      details: `Resolved dispute ${resolved.id} for trade ${request.tradeId ?? request.id}.`,
+      reason: resolutionNotes,
+      oldValue: { status: dispute.status },
+      newValue: { status: resolved.status, resolvedAt },
+    });
+    committed = { dispute: resolved, request, changed: true };
+    return snapshot;
+  };
+
+  await applyResolutionToCanonicalSnapshot(db);
+  let result = committed as { dispute: TradeDisputeCase; request: PurchaseRequest; changed: boolean } | null;
+  if (!result) throw new Error("Failed to resolve dispute.");
+  if (result.changed) {
+    await writeDb(db, {
+      selectedTables: DISPUTE_WRITE_TABLES,
+      rebaseOnLatest: applyResolutionToCanonicalSnapshot,
+    });
+    result = committed as { dispute: TradeDisputeCase; request: PurchaseRequest; changed: boolean } | null;
+    if (!result) throw new Error("Failed to save dispute resolution.");
+  }
+  if (result.changed) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: {
+        requestId: result.request.id,
+        request: enrichRequestWithEvidence(db, result.request),
+        status: result.request.status,
+        timeline: result.request.timeline,
+        publishedAtEpochMs: Date.now(),
+      },
+    });
   }
   return result.dispute;
 }
@@ -16327,7 +17202,10 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
   }
   return {
     usersCount: db.users.length,
-    approvedSellersCount: db.users.filter((user) => user.sellerStatus === "approved_seller").length,
+    approvedSellersCount: db.users.filter(
+      (user) => user.sellerStatus === "approved_seller"
+        && isOwnerApprovedSeller(user),
+    ).length,
     pendingApplicationsCount: db.sellerApplications.filter((item) => item.status === "pending").length,
     pendingListingsCount: db.marketplaceListings.filter((item) => isListingPendingApproval(item)).length,
     rejectedApplicationsCount: db.sellerApplications.filter((item) => item.status === "rejected").length,
@@ -16485,7 +17363,7 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
 }
 
 export async function forceCancelTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
-  const db = await readDb();
+  const db = await readDb({ bypassCache: true });
   const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
@@ -16507,6 +17385,14 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     createdAt: now,
   });
   const listing = db.marketplaceListings.find((candidate) => candidate.id === request.listingId);
+  const listingCommitBasis = listing
+    ? {
+        status: listing.status,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        availableAmount: listing.availableAmount,
+        updatedAt: listing.updatedAt,
+      }
+    : null;
   if (listing?.activeTradeRequestId === request.id) {
     await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, input.reason);
   }
@@ -16535,7 +17421,41 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
       whatsappEvent: "trade_cancelled",
     });
   }
-  await writeDb(db, { selectedTables: TRADE_STATUS_BASE_TABLES });
+  await writeDb(db, {
+    selectedTables: TRADE_STATUS_BASE_TABLES,
+    validateLatestBeforeCommit: (canonicalSnapshot) => {
+      const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
+      if (
+        !canonicalRequest
+        || canonicalRequest.status !== request.status
+        || canonicalRequest.updatedAt !== request.updatedAt
+        || hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)
+      ) {
+        throw new TradeBlockedError(
+          "concurrent-force-cancel-change",
+          "This trade changed or payment progress began while it was being cancelled. Refresh and review it again.",
+          request.id,
+          { guard: "canonical-admin-force-cancel" },
+        );
+      }
+      const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === request.listingId);
+      const listingChanged = listingCommitBasis
+        ? !canonicalListing
+          || canonicalListing.status !== listingCommitBasis.status
+          || canonicalListing.activeTradeRequestId !== listingCommitBasis.activeTradeRequestId
+          || canonicalListing.availableAmount !== listingCommitBasis.availableAmount
+          || canonicalListing.updatedAt !== listingCommitBasis.updatedAt
+        : Boolean(canonicalListing);
+      if (listingChanged) {
+        throw new TradeBlockedError(
+          "concurrent-force-cancel-change",
+          "The listing changed while this trade was being cancelled. Refresh and review it again.",
+          request.id,
+          { guard: "canonical-admin-force-cancel-listing" },
+        );
+      }
+    },
+  });
   publishArchivedTradeActionReminders(archivedActionReminders);
   const enriched = enrichRequestWithEvidence(db, next);
   publishRealtimeEvent({
@@ -16582,20 +17502,42 @@ export async function unlockTradeReviewByAdmin(input: { requestId: string; reaso
 
 export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
   const db = await readDb();
+  const actor = db.users.find((candidate) => candidate.id === input.actorUserId);
+  if (!actor || !hasRole(actor, "owner")) {
+    throw new Error("Owner access is required to change account roles.");
+  }
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("A role-change reason is required.");
   const index = db.users.findIndex((u) => u.id === input.userId);
   if (index === -1) throw new Error("User not found.");
   const user = db.users[index];
   if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
+  if (input.role === "owner") {
+    throw new Error("Owner access cannot be assigned through generic role management.");
+  }
+  if (input.role === "approved_seller" || input.role === "pending_seller_approval") {
+    throw new Error("Seller access must be managed through the verified seller application workflow.");
+  }
+  if (["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus)) {
+    throw new Error("Seller accounts must be managed through dedicated seller controls.");
+  }
   const oldRole = user.role;
-  db.users[index] = { ...user, role: input.role, updatedAt: nowIso() };
+  const oldRoles = user.roles ?? [user.role];
+  const nextRoles = [input.role];
+  db.users[index] = {
+    ...user,
+    role: input.role,
+    roles: nextRoles,
+    updatedAt: nowIso(),
+  };
   await appendAuditLog(db, {
     action: "admin_override",
     actorUserId: input.actorUserId,
     targetUserId: input.userId,
     details: `User role changed from ${oldRole} to ${input.role}`,
-    oldValue: oldRole,
-    newValue: input.role,
-    reason: input.reason,
+    oldValue: { role: oldRole, roles: oldRoles },
+    newValue: { role: input.role, roles: nextRoles },
+    reason,
   });
   await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
@@ -16955,6 +17897,7 @@ export async function getAdminPrepDashboardData() {
     approvedSellers,
     listings,
     purchaseRequests,
+    disputes: db.disputes,
     commissionRecords,
     auditLogs,
     notifications,

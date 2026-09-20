@@ -325,6 +325,7 @@ describe("Trade content policy", () => {
     for (const account of snapshot().users) {
       account.notificationPreferences = { inApp: true, email: false, sms: false };
     }
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
 
     const submit = () => openTradeDispute({
@@ -345,10 +346,11 @@ describe("Trade content policy", () => {
     ))).toHaveLength(1);
   });
 
-  it("allows only one winner when buyer and seller open a dispute simultaneously", async () => {
+  it("allows only one winner when two different buyer disputes are submitted simultaneously", async () => {
     for (const account of snapshot().users) {
       account.notificationPreferences = { inApp: true, email: false, sms: false };
     }
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
     reloadStoreFromSnapshot();
 
     const results = await Promise.allSettled([
@@ -359,8 +361,8 @@ describe("Trade content policy", () => {
       }),
       openTradeDispute({
         purchaseRequestId: REQUEST_ID,
-        openedByUserId: SELLER_ID,
-        reason: "Seller requests an admin review",
+        openedByUserId: BUYER_ID,
+        reason: "Buyer reports a different problem",
       }),
     ]);
 

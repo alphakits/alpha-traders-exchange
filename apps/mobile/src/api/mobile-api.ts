@@ -866,6 +866,21 @@ export function completeMobileCashTrade(
   });
 }
 
+export function submitMobileCardlessCode(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  withdrawalCode: string,
+  clientOperationId: string,
+) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { action: "submit_cardless_code", withdrawalCode, clientOperationId },
+  });
+}
+
 export function getMobileTradeBankDetails(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
@@ -873,7 +888,7 @@ export function getMobileTradeBankDetails(
 ) {
   return mobileRequest<MobileTradeBankDetailsResponse>(
     `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/bank-details`,
-    { locale, accessToken: tokens.accessToken },
+    { locale, method: "POST", accessToken: tokens.accessToken },
   );
 }
 

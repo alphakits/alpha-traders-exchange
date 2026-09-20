@@ -66,6 +66,21 @@ export function usdAmountToCurrency(
   return amount;
 }
 
+/**
+ * Converts a user-entered USD price to the two-decimal settlement price used by
+ * the Exchange engine. Returning a canonical string keeps validation and the
+ * submitted payload on the same cent instead of comparing an unrounded float.
+ */
+export function currencyPriceFromUsdInput(
+  value: FinancialValue,
+  currency: string | null | undefined,
+  usdIlsRate: FinancialValue,
+) {
+  const converted = usdAmountToCurrency(value, currency, usdIlsRate);
+  const cents = Math.round((converted + Number.EPSILON) * 100);
+  return (Math.max(0, cents) / 100).toFixed(2);
+}
+
 export function formatUsd(value: FinancialValue, maximumFractionDigits = 2) {
   return `$${formatFinancialNumber(value, {
     minimumFractionDigits: 2,

@@ -88,6 +88,8 @@ export interface MobileSessionUser {
   role: MobileUserRole;
   roles: MobileUserRole[];
   sellerStatus: MobileSellerStatus;
+  /** Server-computed seller authorization; no identity document data is exposed. */
+  sellerApprovalVerified: boolean;
   preferredLocale: MobileLocale;
   profilePhotoUrl: string;
   emailVerified: boolean;
@@ -726,7 +728,19 @@ export type MobileAdminReviewRequest =
   | {
       target: "seller_application";
       id: string;
-      decision: "approve" | "reject";
+      decision: "approve";
+      reason: string;
+      verification: {
+        identityDocumentReviewed: true;
+        liveIdentityVideoReviewed: true;
+        contactOwnershipConfirmed: true;
+        marketplaceRulesAccepted: true;
+      };
+    }
+  | {
+      target: "seller_application";
+      id: string;
+      decision: "reject";
       reason: string;
     };
 
@@ -895,6 +909,7 @@ export type MobileTradeTimelineEvent =
   | "trade_locked"
   | "review_unlocked"
   | "dispute_opened"
+  | "dispute_resolved"
   | "commission_recorded"
   | "commission_paid"
   | "buyer_evidence_uploaded"

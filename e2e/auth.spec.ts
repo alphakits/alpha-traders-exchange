@@ -130,7 +130,7 @@ test.describe("Authentication", () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
-  test("invalid credentials show error message", async ({ page }) => {
+  test("invalid credentials show a safe error message", async ({ page }) => {
     await page.request.post("/api/auth/logout").catch(() => {});
     await page.goto("/en/login");
     const form = page.locator('form[data-hydrated="true"]').first();
@@ -140,8 +140,12 @@ test.describe("Authentication", () => {
     await form.locator('button[type="submit"]').click();
     // Should stay on login page
     await expect(page).toHaveURL(/\/en\/login/);
-    // Error message visible
-    await expect(page.locator("text=/invalid|incorrect|not found/i")).toBeVisible({ timeout: 10_000 });
+    // A visible, accessible message must be shown without leaking provider or
+    // infrastructure details when the configured auth backend is unavailable.
+    const status = page.getByRole("status");
+    await expect(status).toBeVisible({ timeout: 10_000 });
+    await expect(status).toContainText(/invalid|incorrect|not found|unable to sign in|try again/i);
+    await expect(status).not.toContainText(/supabase|database|configuration|environment variable/i);
   });
 
   test("session persists after page refresh", async ({ page }) => {
@@ -287,7 +291,7 @@ test.describe("Infrastructure", () => {
     const resp = await page.goto("/en");
     const headers = resp!.headers();
     expect(headers["x-content-type-options"]).toBe("nosniff");
-    expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(headers["x-frame-options"]).toBe("DENY");
     expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
   });
 });

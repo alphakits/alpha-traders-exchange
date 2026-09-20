@@ -13,6 +13,7 @@ import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parse
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, requiresSellerPayoutBankAccount, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { LISTING_CHANGE_REASONS } from "@/lib/listing-change-reasons";
 import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
+import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { cn } from "@/lib/utils";
 import type { MarketplaceListing, PurchaseRequest, SupportedNetwork } from "@/types/alpha-exchange";
 import type { SellerBankAccount } from "@/components/sections/usdt-exchange/usdt-exchange-page";
@@ -88,7 +89,6 @@ export type SellerListingsWorkspacePortalProps = {
   sortedDashboardListings: MarketplaceListing[];
   ISRAELI_BANKS: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").ISRAELI_BANKS;
   formatIls: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatIls;
-  formatIntegerForInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatIntegerForInput;
   listingChangeReasonLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").listingChangeReasonLabel;
   listingStatusLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").listingStatusLabel;
   normalizeDecimalInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").normalizeDecimalInput;
@@ -151,7 +151,6 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     sortedDashboardListings,
     ISRAELI_BANKS,
     formatIls,
-    formatIntegerForInput,
     listingChangeReasonLabel,
     listingStatusLabel,
     normalizeDecimalInput,
@@ -270,7 +269,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {shortListingRef(listing)}</p>
                         <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
                       </div>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{toNumber(listing.availableAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</p>
                       <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{formatIls(toNumber(listing.price))}</p>
                       <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{listingPaymentMethods}</p>
                       <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
@@ -367,7 +366,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
+                        <Input inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
                         <div className="space-y-2">
                           <Input
                             value={listingEditForm.price}
@@ -398,8 +397,8 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <option value="BEP20">BEP20</option>
                           <option value="SOL">SOL</option>
                         </select>
-                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
-                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
+                        <Input inputMode="decimal" value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
+                        <Input inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
                         <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة الدفع" : "Payment Method"} *</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-3">
@@ -563,7 +562,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
                               {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}
                               {listingEditBankAccountMismatch ? <p className="text-amber-200">{isAr ? "يجب أن تشمل البنوك المدعومة بنك استلام الدفعات المحدد." : "Supported banks must include the selected payout bank."}</p> : null}
-                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
+                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>
                         </div>

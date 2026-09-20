@@ -1,6 +1,10 @@
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+
+// This large workspace renders asynchronously; allow shared CI workers to settle
+// mocked fetches without weakening any payment or navigation assertions.
+configure({ asyncUtilTimeout: 5_000 });
 
 const routerPush = vi.fn();
 const navigationState = vi.hoisted(() => ({ search: "" }));
@@ -34,6 +38,7 @@ const seller = {
   role: "approved_seller" as const,
   roles: ["approved_seller" as const, "buyer" as const],
   sellerStatus: "approved_seller" as const,
+  sellerApprovalVerified: true,
   whatsappNumber: "",
   preferredNetworks: [],
   preferredPaymentMethods: [],

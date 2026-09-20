@@ -144,6 +144,20 @@ function reliabilityTier(score: number | null): string | null {
   return "Developing reliability";
 }
 
+function hasDiscordSellerAuthorization(
+  sellerStatus: string | null,
+  userPayload: Record<string, unknown> | null,
+) {
+  if (!userPayload) return false;
+  const role = stringValue(userPayload.role);
+  const roles = Array.isArray(userPayload.roles)
+    ? userPayload.roles.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const isPrivilegedOperator = role === "admin" || role === "owner"
+    || roles.includes("admin") || roles.includes("owner");
+  return isPrivilegedOperator || sellerStatus === "approved_seller";
+}
+
 export function buildAuthoritativeDiscordListingSnapshot(input: {
   listing: Record<string, unknown>;
   seller: Record<string, unknown>;
@@ -184,7 +198,8 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
     sellerDisplayName: publicTradingName || "Alpha Traders Seller",
     sellerLevel: stringValue(trustSnapshot?.level) || null,
     reliabilityTier: reliabilityTier(numberValue(trustSnapshot?.reliabilityScore)),
-    approvedSeller: input.sellerStatus === "approved_seller",
+    approvedSeller: input.sellerStatus === "approved_seller"
+      && hasDiscordSellerAuthorization(input.sellerStatus, input.seller),
     availableAmount: stringValue(input.listing.availableAmount, "0"),
     price: stringValue(input.listing.price, "0"),
     currency: stringValue(input.listing.currency, "ILS"),
@@ -319,6 +334,7 @@ export function determineDiscordListingLifecycle(
     || !input.listingPayload
     || !input.userPayload
     || input.sellerStatus !== "approved_seller"
+    || !hasDiscordSellerAuthorization(input.sellerStatus, input.userPayload)
     || !input.identityLinked
     || input.userPayload.disabled === true
     || input.userPayload.isProfileHidden === true

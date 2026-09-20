@@ -1,0 +1,1980 @@
+{
+  "sourceCommit": "91dbb078506d791243cd2ec617b8518eb4fcf548",
+  "sourceTree": "6bffdef0a8f018c31ade3752404d536f187c3f00",
+  "baseCommit": "e548c874967c5bc6d437b2c75c2a6ea1069f6922",
+  "runner": "Local isolated Linux runtime; production Next.js server bound to loopback; synthetic accounts and in-memory repository",
+  "command": "CI=1 PLAYWRIGHT_JSON_OUTPUT_NAME=verified-browser.json node node_modules/playwright/cli.js test --config=<local prebuilt-server config> --retries=0 --reporter=list,json",
+  "configuration": {
+    "inherits": "playwright.config.ts",
+    "webServerCommand": "npm run start -- -H 127.0.0.1 -p 3000",
+    "explanation": "Reuses the clean production build from d79b6d3; the only later changes correct button labels in two test files."
+  },
+  "productionBuildSource": "d79b6d3acc237e3bda6ad83f4467d2e018193c72",
+  "node": "24.19.0",
+  "playwright": "1.61.1",
+  "chromium": "149.0.7827.55",
+  "nextBuildId": "ZZite9_qtD3_xD8b30a_P",
+  "stats": {
+    "startTime": "2026-09-19T23:01:03.132Z",
+    "duration": 267087.807,
+    "expected": 147,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "rawJsonSha256": "bcf11d78e805f033a2d957063aa2e5d63b1bf67640b26054b17fdfc18acba4e6",
+  "tests": [
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > homepage loads without authentication",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 423,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > protected route /en/academy redirects to login",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 319,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > protected route /en/usdt-exchange redirects to login",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 305,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > protected route /en/dashboard redirects to login",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 323,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > protected route /en/profile redirects to login",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 301,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > login page is publicly accessible",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 321,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > register page is publicly accessible",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 248,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > about-founder page is publicly accessible",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 320,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Guest access > community page is publicly accessible",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 328,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > owner can log in and is redirected away from login page",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 593,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > buyer can log in",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 697,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > seller can log in",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 603,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > admin can log in",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 582,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > invalid credentials show a safe error message",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 680,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > session persists after page refresh",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 718,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Authentication > logout clears session and redirects to login",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 755,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Post-login redirect > redirectTo preserved through login for /en/academy",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 633,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Post-login redirect > redirectTo preserved through login for /en/usdt-exchange",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 534,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Post-login redirect > already-logged-in user accessing login page is redirected away",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2677,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Role-based access > admin route /en/admin/alpha-exchange accessible to owner",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 813,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Role-based access > profile exposes owner dashboard entry for owner",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 840,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Role-based access > admin route /en/admin/alpha-exchange accessible to admin",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 736,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Role-based access > admin route /en/admin/alpha-exchange inaccessible to buyer",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 926,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Role-based access > /api/auth/me returns user for authenticated session",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 855,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Role-based access > /api/auth/me returns null for unauthenticated request",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 33,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Infrastructure > health endpoint returns ok",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 35,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "auth.spec.ts",
+      "title": "auth.spec.ts > Infrastructure > security headers present on HTML responses",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 285,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "buy-modal.spec.ts",
+      "title": "buy-modal.spec.ts > Direct Buy USDT modal > opens a purchase-first modal with the form immediately visible (desktop)",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1700,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "buy-modal.spec.ts",
+      "title": "buy-modal.spec.ts > Direct Buy USDT modal > renders without horizontal overflow at 320px and keeps the form reachable",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1281,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "buy-modal.spec.ts",
+      "title": "buy-modal.spec.ts > Direct Buy USDT modal > submits the minimum valid price offer on desktop and freezes the negotiated totals",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2260,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "buy-modal.spec.ts",
+      "title": "buy-modal.spec.ts > Direct Buy USDT modal > keeps the Arabic price-offer dialog valid and overflow-free at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1304,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "buy-modal.spec.ts",
+      "title": "buy-modal.spec.ts > Direct Buy USDT modal > lets a verified-email Buyer without a verified phone create a trade without contact fields",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1665,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Disconnected Discord account connection is visible by default at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 409,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Failed Discord unlink preserves connected state at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 686,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Disconnected Discord account connection is visible by default at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 406,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Failed Discord unlink preserves connected state at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1457,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Disconnected Discord account connection is visible by default at 1280px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 522,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Failed Discord unlink preserves connected state at 1280px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 910,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-account-settings.spec.ts",
+      "title": "discord-account-settings.spec.ts > Confirm disconnect sends exactly one DELETE to the application route",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 833,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-listing-sharing.spec.ts",
+      "title": "discord-listing-sharing.spec.ts > Discord listing cooldown is responsive and preserves seller actions at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 933,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-listing-sharing.spec.ts",
+      "title": "discord-listing-sharing.spec.ts > Discord listing cooldown is responsive and preserves seller actions at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1197,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-listing-sharing.spec.ts",
+      "title": "discord-listing-sharing.spec.ts > Discord listing cooldown is responsive and preserves seller actions at 430px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1224,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-listing-sharing.spec.ts",
+      "title": "discord-listing-sharing.spec.ts > Discord listing cooldown is responsive and preserves seller actions at 1280px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1319,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-management-dashboard.spec.ts",
+      "title": "discord-management-dashboard.spec.ts > Discord Management has no overflow and accessible controls at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 477,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-management-dashboard.spec.ts",
+      "title": "discord-management-dashboard.spec.ts > Discord Management has no overflow and accessible controls at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 432,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-management-dashboard.spec.ts",
+      "title": "discord-management-dashboard.spec.ts > Discord Management has no overflow and accessible controls at 430px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 448,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-management-dashboard.spec.ts",
+      "title": "discord-management-dashboard.spec.ts > Discord Management has no overflow and accessible controls at 1280px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 636,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "discord-management-dashboard.spec.ts",
+      "title": "discord-management-dashboard.spec.ts > reconciliation confirmation sends no arbitrary Discord target",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 797,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller refresh stability @ 390x844",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1699,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller refresh stability @ 375x667",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1687,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller refresh stability @ 1366x768",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1862,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller refresh stability @ 1920x1080",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1981,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard refresh stability @ 390x844",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1781,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard refresh stability @ 375x667",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1703,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard refresh stability @ 1366x768",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1845,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard refresh stability @ 1920x1080",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2001,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > performance: first useful marketplace interaction timings + bootstrap duplication check",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2919,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > important navigation and CTA audit",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2944,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller navigation audit: dashboard, listings, profile/settings/notifications",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1423,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller listing position and navigation paths @ 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 4034,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller listing position and navigation paths @ 1366px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 3286,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > route protection matrix for guest, buyer, seller, owner",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1643,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > mobile viewport integrity @ 320x568",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 445,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > mobile viewport integrity @ 360x800",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 440,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > mobile viewport integrity @ 375x667",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 456,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > mobile viewport integrity @ 390x844",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 487,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > mobile viewport integrity @ 430x932",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 506,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 320x568",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 535,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 320x568",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 386,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 360x800",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 561,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 360x800",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 360,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 375x667",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 533,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 375x667",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 548,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 390x844",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 520,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 390x844",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 369,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 430x932",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 547,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 430x932",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 564,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 1366x768",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 540,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 1366x768",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 636,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > buyer dashboard workspace integrity @ 1920x1080",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 662,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > seller dashboard workspace integrity @ 1920x1080",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 584,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > desktop viewport integrity @ 1366x768",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 807,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "final-hardening-audit.spec.ts",
+      "title": "final-hardening-audit.spec.ts > Final hardening audit > desktop viewport integrity @ 1920x1080",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 896,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full en lockup visible at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 359,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full en lockup visible at 360px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 337,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full en lockup visible at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 330,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full en lockup visible at 430px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 358,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full en lockup visible at 1366px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 536,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full ar lockup visible at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 369,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full ar lockup visible at 360px",
+      "project": "chromium",
+      "outcome": "unexpected",
+      "attempts": [
+        {
+          "status": "timedOut",
+          "duration": 33422,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full ar lockup visible at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 733,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full ar lockup visible at 430px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 388,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "header-brand-lockup.spec.ts",
+      "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full ar lockup visible at 1366px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 485,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "listing-publication-notifications.spec.ts",
+      "title": "listing-publication-notifications.spec.ts > listing publication notification regression > publishing approved listing notifies every eligible buyer exactly once without duplicates after edit",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 7881,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > buyer workspace replaces Quick Actions and routes cards to canonical destinations",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 883,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > buyer direct /trade-room navigation resolves to a stable non-dashboard destination",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 601,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > buyer dashboard refresh keeps the canonical workspace route",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 503,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > seller refresh keeps the approved workspace stable",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1107,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > guest protected trade-room route redirects to login with redirectTo",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 300,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > mobile menu can navigate to Alpha Exchange without refresh loops",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 453,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "navigation-hardening.spec.ts",
+      "title": "navigation-hardening.spec.ts > Navigation hardening > locale switch updates document language and direction without a reload",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 997,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "new-buyer-seller-application.spec.ts",
+      "title": "new-buyer-seller-application.spec.ts > a strict orphaned legacy seller applicant can reapply without gaining seller privileges",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1063,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "new-buyer-seller-application.spec.ts",
+      "title": "new-buyer-seller-application.spec.ts > buyer without phone verification can submit and retain a pending seller application",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1713,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "new-buyer-seller-application.spec.ts",
+      "title": "new-buyer-seller-application.spec.ts > manual admin approval requires a complete identity attestation before the applicant becomes a seller",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 70,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "new-buyer-seller-application.spec.ts",
+      "title": "new-buyer-seller-application.spec.ts > manual rejection leaves the applicant a buyer and permits a later resubmission",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 164,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Mobile > no horizontal scroll + centered modal + reachable action @ 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2378,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Mobile > no horizontal scroll + centered modal + reachable action @ 360px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1071,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Mobile > no horizontal scroll + centered modal + reachable action @ 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2403,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Mobile > no horizontal scroll + centered modal + reachable action @ 430px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1000,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Mobile > primary tap targets are >=44px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 608,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Marketplace Pulse > tiles reflect the real pulse API; no fabricated/placeholder values",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 738,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Marketplace Pulse > pulse reflects real backend changes (delta)",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 92,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Seller cards > presence: online green / recent / offline grey",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 759,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Seller cards > countdown: urgent <4h, neutral 4-12h, hidden >12h",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 744,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Seller cards > Verified Email badge only when verified",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 694,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Seller cards > Approved Seller badge present on visible listings",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 671,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Forms required treatment > Buy USDT: aria-invalid toggles red->green; required asterisks present",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2279,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Forms required treatment > Create Listing: required border red when empty, green when valid, asterisk present",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1083,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Header > sticky on scroll (desktop)",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1003,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Header > mobile drawer opens",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 579,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Journeys > guest redirected to login for marketplace",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 305,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Journeys > buyer opens Buy modal in one tap",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1056,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Journeys > seller sees workspace with Create Listing",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 821,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Journeys > admin reaches Listing Reliability panel",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1005,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "production-verification.spec.ts",
+      "title": "production-verification.spec.ts > Performance > measure render / buy modal / seller profile timings",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1088,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Seller flow \u00b7 listing accountability > blocks an amount/availability edit without a reason",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 45,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Seller flow \u00b7 listing accountability > accepts the edit with a reason + explanation and records the audit trail",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 52,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Seller flow \u00b7 listing accountability > blocks removal without a reason, then records it with one",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 56,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Admin flow \u00b7 Listing Reliability > admin dashboard exposes the Listing Reliability panel",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 800,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Admin flow \u00b7 mobile commission settlement > keeps each commission and its Mark Paid action together on an iPhone viewport",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1277,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Buyer flow \u00b7 Buy modal validation > surfaces accessible validation and gates submit on required fields",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1130,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Mobile flow \u00b7 responsive integrity > marketplace has no horizontal overflow at 320px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 545,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Mobile flow \u00b7 responsive integrity > marketplace has no horizontal overflow at 360px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 554,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Mobile flow \u00b7 responsive integrity > marketplace has no horizontal overflow at 390px",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 565,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "qa-flows.spec.ts",
+      "title": "qa-flows.spec.ts > Mobile flow \u00b7 responsive integrity > Buy modal at 320px keeps the form reachable without overflow",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 896,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > listing publish failures stay visible beside the mobile submit action",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1927,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > bank-transfer listing requires selected seller bank account and preserves privacy in public listings",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 5679,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > seller dashboard and exchange route consolidate recent work, exact commission actions, and listing management",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 5554,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > owner listing notification destination survives login, refresh, and history navigation",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2719,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > seller listing lifecycle is enforced end-to-end",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 7271,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > listing expiration, renewal, vacation mode, timeout notifications, and audit history work end-to-end",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 3940,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "seller-listing-lifecycle.spec.ts",
+      "title": "seller-listing-lifecycle.spec.ts > admin dashboard listing overrides update state, notifications, and audit history",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 8533,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "trade-room-guided-flow-hardening.spec.ts",
+      "title": "trade-room-guided-flow-hardening.spec.ts > authenticated purchase creation is durable and duplicate-safe before UI navigation",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 172,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "trade-room-guided-flow-hardening.spec.ts",
+      "title": "trade-room-guided-flow-hardening.spec.ts > mobile guided cash flow: no photos, wallet privacy, seller-only completion",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 4894,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "trade-room-guided-flow-hardening.spec.ts",
+      "title": "trade-room-guided-flow-hardening.spec.ts > trade-room Pay Now opens the canonical commission flow without an external generic-wallet destination",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1824,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "trade-room-guided-flow-hardening.spec.ts",
+      "title": "trade-room-guided-flow-hardening.spec.ts > action transition matrix: destination query/hash + focused section + CTA across required states",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 8143,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "trade-room-guided-flow-hardening.spec.ts",
+      "title": "trade-room-guided-flow-hardening.spec.ts > mobile targeted notification open keeps correct section and CTA without overflow",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 1374,
+          "retry": 0
+        }
+      ]
+    },
+    {
+      "file": "trade-room-guided-flow-hardening.spec.ts",
+      "title": "trade-room-guided-flow-hardening.spec.ts > Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and mobile-visible",
+      "project": "chromium",
+      "outcome": "expected",
+      "attempts": [
+        {
+          "status": "passed",
+          "duration": 2842,
+          "retry": 0
+        }
+      ]
+    }
+  ],
+  "followUp": {
+    "explanation": "The one page-load timeout passed unchanged on an isolated rerun. The complete run still had one failure; it is not represented as a clean 148/148 run.",
+    "command": "CI=1 PLAYWRIGHT_JSON_OUTPUT_NAME=header-recheck.json node node_modules/playwright/cli.js test --config=<local prebuilt-server config> --grep=\"keeps the full ar lockup visible at 360px\" --retries=0 --reporter=list,json --trace=on",
+    "stats": {
+      "startTime": "2026-09-19T23:05:46.939Z",
+      "duration": 9352.139,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "tests": [
+      {
+        "file": "header-brand-lockup.spec.ts",
+        "title": "header-brand-lockup.spec.ts > Header brand lockup > keeps the full ar lockup visible at 360px",
+        "project": "chromium",
+        "outcome": "expected",
+        "attempts": [
+          {
+            "status": "passed",
+            "duration": 879,
+            "retry": 0
+          }
+        ]
+      }
+    ],
+    "rawJsonSha256": "ecaf6d664fe7690f16cedd7c1b693c7ad29a5be3ba6a89b85b96c2a716ef894f"
+  }
+}

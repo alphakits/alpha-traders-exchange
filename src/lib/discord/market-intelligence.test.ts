@@ -307,6 +307,8 @@ describe("Discord market intelligence content", () => {
       averageResponseMinutes: null,
     });
     expect(capturedSql).toContain("seller_status = 'approved_seller'");
+    expect(capturedSql).toContain("users.seller_status = 'approved_seller'");
+    expect(capturedSql).not.toContain("sellerApprovalVerification");
     expect(capturedSql).toContain("isProfileHidden");
     expect(capturedSql).toContain("approvalStatus");
     expect(capturedSql).toContain("payment_status <> 'paid'");
@@ -551,6 +553,7 @@ describe("Discord public seller profile boundary", () => {
     const serialized = JSON.stringify({ profile, card });
 
     expect(capturedSql).toContain("seller_status = 'approved_seller'");
+    expect(capturedSql).toContain("users.seller_status = 'approved_seller'");
     expect(capturedSql).toContain("discord_identities");
     expect(capturedSql).toContain("isProfileHidden");
     expect(profile).toMatchObject({

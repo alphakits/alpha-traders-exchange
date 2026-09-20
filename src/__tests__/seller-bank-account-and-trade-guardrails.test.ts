@@ -16,6 +16,7 @@ import {
   runAlphaExchangeMaintenance,
   runTradeActionReminders,
   TRADE_ACTION_REMINDER_INTERVAL_MS,
+  updateSellerBankAccount,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
@@ -231,6 +232,37 @@ describe("seller bank accounts and trade guardrails", () => {
         actorRole: "buyer",
       }),
     ).rejects.toThrow("not allowed");
+  });
+
+  it("keeps accepted bank-transfer instructions immutable for the buyer", async () => {
+    seedAcceptedBankTransferTrade("req-immutable-bank");
+    const before = await getTradeRoomBankDetails({
+      purchaseRequestId: "req-immutable-bank",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+    });
+
+    await expect(updateSellerBankAccount({
+      sellerId: SELLER_ID,
+      actorUserId: SELLER_ID,
+      bankAccountId: "bank-1",
+      accountHolderName: "Different Recipient",
+      bankName: "Bank Leumi",
+      branchNumber: "999",
+      accountNumber: "9999999999",
+    })).rejects.toThrow("locked to an active trade");
+
+    const after = await getTradeRoomBankDetails({
+      purchaseRequestId: "req-immutable-bank",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+    });
+    expect(after).toMatchObject({
+      accountHolderName: before.accountHolderName,
+      bankName: before.bankName,
+      branchNumber: before.branchNumber,
+      accountNumber: before.accountNumber,
+    });
   });
 
   it("never reveals bank details from a cached trade state after another instance cancels it", async () => {
@@ -579,6 +611,19 @@ describe("seller bank accounts and trade guardrails", () => {
       nextStatus: "cancelled",
     })).resolves.toMatchObject({ request: { status: "cancelled" } });
 
+    seedAcceptedBankTransferTrade("req-cancel-after-bank-details");
+    await expect(getTradeRoomBankDetails({
+      purchaseRequestId: "req-cancel-after-bank-details",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+    })).resolves.toMatchObject({ accountLast4: "7890" });
+    await expect(updatePurchaseRequestStatus({
+      requestId: "req-cancel-after-bank-details",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    })).resolves.toMatchObject({ request: { status: "cancelled" } });
+
     currentSnapshot().purchaseRequests.push({
       id: "req-cancel-evidence-accepted",
       listingId: "listing-req-cancel-evidence-accepted",
@@ -614,7 +659,10 @@ describe("seller bank accounts and trade guardrails", () => {
       actorUserId: BUYER_ID,
       actorRole: "buyer",
       nextStatus: "cancelled",
-    })).rejects.toMatchObject({ code: "payment-evidence-exists" });
+    })).rejects.toMatchObject({
+      code: "payment-progress-exists",
+      message: "This trade cannot be cancelled after payment or payment evidence is submitted.",
+    });
 
     for (const status of ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {
       const requestId = `req-cancel-locked-${status}`;

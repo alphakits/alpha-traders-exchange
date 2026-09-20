@@ -11,7 +11,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getWalletAddressValidationError, type MobileTradeDetailResponse } from "@alpha-traders/contracts";
+import {
+  getWalletAddressValidationError,
+  normalizeLocalizedDecimalInput,
+  normalizeTradeAmountInput,
+  type MobileTradeDetailResponse,
+} from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileTrade,
@@ -23,13 +28,13 @@ import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
 import {
+  currencyPriceFromUsdInput,
   financialNumber,
   formatCurrencyAmountAsUsd,
   formatFinancialNumber,
   formatFinancialText,
   formatUsd,
   priceForUsdInput,
-  usdAmountToCurrency,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -37,11 +42,15 @@ function numericValue(value: string) {
   return financialNumber(value);
 }
 
-function normalizeDecimalInput(value: string, decimalPlaces: number) {
-  const raw = value.replace(/[^\d.]/g, "");
-  const dot = raw.indexOf(".");
-  if (dot === -1) return raw.slice(0, 9);
-  return `${raw.slice(0, dot).slice(0, 9)}.${raw.slice(dot + 1).replace(/\./g, "").slice(0, decimalPlaces)}`;
+const PRICE_INPUT_OPTIONS = { maximumFractionDigits: 4, maximumWholeDigits: 9 } as const;
+
+function canonicalListingPrice(value: string) {
+  const match = value.trim().match(/^(?:0|[1-9]\d{0,6})(?:\.(\d{1,6}))?$/);
+  if (!match) return value;
+  const [wholePart, decimalPart = ""] = value.trim().split(".");
+  let cents = Number(wholePart) * 100 + Number(decimalPart.slice(0, 2).padEnd(2, "0"));
+  if ((decimalPart[2] ?? "0") >= "5") cents += 1;
+  return (cents / 100).toFixed(2);
 }
 
 export function TradeFormScreen({
@@ -96,20 +105,35 @@ export function TradeFormScreen({
 
   useEffect(() => {
     if (!listing) return;
-    setAmount((current) => current || listing.minimumTrade);
+    setAmount((current) => current || normalizeTradeAmountInput(listing.minimumTrade));
     setPaymentMethod((current) => current || listing.paymentMethods[0] || "");
     if (mode === "offer") {
-      const listingPriceUsd = numericValue(priceForUsdInput(listing.price, listing.currency, usdIlsRate));
-      setOfferedPrice((current) => current || Math.max(0.01, listingPriceUsd - 0.01).toFixed(2));
+      const listingPrice = numericValue(canonicalListingPrice(listing.price));
+      const defaultOfferPrice = Math.max(0.01, listingPrice - 0.01).toFixed(2);
+      setOfferedPrice((current) => current || priceForUsdInput(defaultOfferPrice, listing.currency, usdIlsRate));
     }
   }, [listing, mode, usdIlsRate]);
 
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
   const listingPriceUsd = listing
-    ? numericValue(priceForUsdInput(listing.price, listing.currency, usdIlsRate))
+    ? numericValue(priceForUsdInput(canonicalListingPrice(listing.price), listing.currency, usdIlsRate))
     : 0;
-  const selectedPriceUsd = mode === "offer" ? numericValue(offeredPrice) : listingPriceUsd;
-  const estimatedTotalUsd = numericValue(amount) * selectedPriceUsd * 1.01;
+  const canonicalOfferPrice = listing
+    ? currencyPriceFromUsdInput(offeredPrice, listing.currency, usdIlsRate)
+    : "0.00";
+  const selectedPriceUsd = mode === "offer"
+    ? numericValue(priceForUsdInput(canonicalOfferPrice, listing?.currency, usdIlsRate))
+    : listingPriceUsd;
+  const estimatedTotalUsd = numericValue(amount) * selectedPriceUsd;
+  const offerRangeUsd = listing?.currency === "ILS"
+    ? (() => {
+        const listingPriceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
+        if (listingPriceCents <= 1) return "";
+        const minimumOffer = (Math.max(1, listingPriceCents - 35) / 100).toFixed(2);
+        const maximumOffer = ((listingPriceCents - 1) / 100).toFixed(2);
+        return `${formatUsd(priceForUsdInput(minimumOffer, listing.currency, usdIlsRate), 4)}–${formatUsd(priceForUsdInput(maximumOffer, listing.currency, usdIlsRate), 4)}`;
+      })()
+    : "";
   const walletValidationError = listing
     ? getWalletAddressValidationError(listing.network, walletAddress)
     : null;
@@ -132,12 +156,12 @@ export function TradeFormScreen({
     if (value <= 0 || value < minimum || value > maximum) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
     if (mode === "offer") {
-      const offer = usdAmountToCurrency(offeredPrice, listing.currency, usdIlsRate);
-      const price = numericValue(listing.price);
-      if (listing.currency !== "ILS" || offer <= 0 || offer >= price || offer < price - 0.35) return false;
+      const offerCents = Math.round(numericValue(canonicalOfferPrice) * 100);
+      const priceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
+      if (listing.currency !== "ILS" || offerCents <= 0 || offerCents >= priceCents || offerCents < priceCents - 35) return false;
     }
     return true;
-  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, usdIlsRate, user, walletValidationError]);
+  }, [amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -161,7 +185,7 @@ export function TradeFormScreen({
         paymentMethod,
         priceMode: mode === "offer" ? "buyer_offer" : "listing_price",
         offeredPrice: mode === "offer"
-          ? usdAmountToCurrency(offeredPrice, listing.currency, usdIlsRate).toFixed(2)
+          ? canonicalOfferPrice
           : undefined,
         safetyAcknowledged,
       }));
@@ -281,7 +305,7 @@ export function TradeFormScreen({
               editable={!isSubmitting}
               inputMode="decimal"
               onBlur={() => setAmount(formatFinancialNumber(amount, { maximumFractionDigits: 6 }))}
-              onChangeText={(value) => setAmount(normalizeDecimalInput(value, 6))}
+              onChangeText={(value) => setAmount(normalizeTradeAmountInput(value))}
               placeholder={listing.minimumTrade}
               placeholderTextColor={colors.textMuted}
               style={[styles.input, isRTL && styles.inputRtl]}
@@ -294,17 +318,17 @@ export function TradeFormScreen({
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("offerPrice")}</Text>
               <TextInput
-                accessibilityHint={t("priceOfferHint")}
+                accessibilityHint={`${t("priceOfferHint")} ${offerRangeUsd}`.trim()}
                 accessibilityLabel={t("offerPrice")}
                 editable={!isSubmitting}
                 inputMode="decimal"
-                onChangeText={(value) => setOfferedPrice(normalizeDecimalInput(value, 2))}
+                onChangeText={(value) => setOfferedPrice(normalizeLocalizedDecimalInput(value, PRICE_INPUT_OPTIONS))}
                 placeholder="0.00"
                 placeholderTextColor={colors.textMuted}
                 style={[styles.input, isRTL && styles.inputRtl]}
                 value={offeredPrice}
               />
-              <Text style={[styles.hint, isRTL && styles.rtlText]}>{t("priceOfferHint")}</Text>
+              <Text style={[styles.hint, isRTL && styles.rtlText]}>{t("priceOfferHint")} {offerRangeUsd}</Text>
             </View>
           ) : null}
 

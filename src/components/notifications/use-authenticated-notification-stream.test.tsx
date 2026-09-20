@@ -92,21 +92,21 @@ describe("useAuthenticatedNotificationStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
-  it("waits for canonical auth before opening the notification stream", async () => {
+  it("opens immediately from a server-authenticated session while canonical verification runs", async () => {
     let resolveSession: ((response: Response) => void) | undefined;
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise<Response>((resolve) => { resolveSession = resolve; })));
     vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
 
     render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
-    expect(MockEventSource.instances).toHaveLength(0);
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(MockEventSource.instances[0]?.url).toBe("/api/alpha-exchange/notifications/stream");
 
     await act(async () => {
       resolveSession?.({ ok: true, json: async () => ({ user: seller }) } as Response);
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
-    expect(MockEventSource.instances[0]?.url).toBe("/api/alpha-exchange/notifications/stream");
+    expect(MockEventSource.instances).toHaveLength(1);
   });
 
   it("closes an errored stream and stops instead of retrying after canonical auth is lost", async () => {

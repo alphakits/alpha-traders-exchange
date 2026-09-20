@@ -300,6 +300,34 @@ describe("Trade Room client stability helpers", () => {
     expect(confirmedMessages.map((entry) => entry.id)).toEqual(["counterparty-update", "server-message-1"]);
   });
 
+  it("replaces an optimistic bubble when the committed message arrives before the send response", () => {
+    const optimistic = message("optimistic-msg-attempt-1", "2026-08-22T12:00:00.000Z", {
+      clientMessageId: "attempt-1", message: "Hello",
+    });
+    const confirmed = message("server-message-1", "2026-08-22T12:00:01.000Z", {
+      clientMessageId: "attempt-1", message: "Hello",
+    });
+    const reconciled = mergeTradeRoomSnapshotPreservingOptimisticMessages(
+      room({ messages: [optimistic] }), room({ messages: [confirmed] }),
+    );
+    expect(reconciled.messages).toEqual([confirmed]);
+  });
+
+  it.each([
+    { clientMessageId: "another-attempt" },
+    { senderUserId: "seller-1" },
+    { purchaseRequestId: "another-trade" },
+  ])("does not merge distinct messages with identical text: %j", (difference) => {
+    const optimistic = message("optimistic-msg-attempt-1", "2026-08-22T12:00:00.000Z", {
+      clientMessageId: "attempt-1", message: "Hello",
+    });
+    const other = { ...optimistic, id: "server-message", ...difference };
+    const reconciled = mergeTradeRoomSnapshotPreservingOptimisticMessages(
+      room({ messages: [optimistic] }), room({ messages: [other] }),
+    );
+    expect(reconciled.messages).toHaveLength(2);
+  });
+
   it("returns the incoming snapshot unchanged when no optimistic chat message exists", () => {
     const current = room({ messages: [message("earlier", "2026-08-22T12:00:00.000Z")] });
     const incoming = room({ status: "payment_sent", messages: [message("server", "2026-08-22T12:00:01.000Z")] });
@@ -351,7 +379,7 @@ describe("Trade Room client stability helpers", () => {
     Object.defineProperty(window, "scrollY", { configurable: true, value: 150 });
     Object.defineProperty(header, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ height: 80 }) as DOMRect,
+      value: () => ({ bottom: 80, height: 80 }) as DOMRect,
     });
     Object.defineProperty(target, "getBoundingClientRect", {
       configurable: true,

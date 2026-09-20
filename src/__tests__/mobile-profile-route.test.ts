@@ -7,6 +7,7 @@ import type {
   SellerAccountStats,
 } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const mocks = vi.hoisted(() => ({
   checkSharedRateLimit: vi.fn(),
@@ -44,6 +45,7 @@ const user = {
   role: "approved_seller",
   roles: ["approved_seller", "buyer"],
   sellerStatus: "approved_seller",
+  sellerApprovalVerification: createTestSellerApprovalVerification(),
   emailVerified: true,
   emailVerificationTokenHash: "never-return-verification-token",
   isFoundingMember: true,

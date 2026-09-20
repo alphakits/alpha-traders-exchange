@@ -36,10 +36,10 @@ const STATS: StatItem[] = [
     icon: <ShieldCheck className="h-5 w-5" aria-hidden="true" />,
     titleEn: "Marketplace",
     titleAr: "السوق",
-    subtitleEn: "Always available",
-    subtitleAr: "متاح دائماً",
+    subtitleEn: "Structured access",
+    subtitleAr: "وصول منظم",
     numericValue: 0,
-    staticDisplay: "24/7",
+    staticDisplay: "On demand",
   },
   {
     icon: <Globe className="h-5 w-5" aria-hidden="true" />,
@@ -51,12 +51,12 @@ const STATS: StatItem[] = [
   },
   {
     icon: <Sparkles className="h-5 w-5" aria-hidden="true" />,
-    titleEn: "Premium Experience",
-    titleAr: "تجربة متميزة",
-    subtitleEn: "Designed for serious traders",
-    subtitleAr: "مصمم للمتداولين الجادين",
-    numericValue: 100,
-    suffix: "%",
+    titleEn: "Cross-device",
+    titleAr: "متعدد الأجهزة",
+    subtitleEn: "Phone & desktop",
+    subtitleAr: "هاتف وكمبيوتر",
+    numericValue: 0,
+    staticDisplay: "Web + App",
   },
 ];
 

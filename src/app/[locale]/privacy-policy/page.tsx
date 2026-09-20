@@ -28,6 +28,10 @@ const privacySections = {
       body: "We process information to provide accounts and marketplace features, coordinate trades, display appropriate public seller signals, deliver notifications, investigate disputes and abuse, secure the platform, enforce rules, maintain records, improve reliability, and meet applicable legal obligations.",
     },
     {
+      title: "Seller identity review",
+      body: "Seller applicants provide their identity document and identity video to the owner through the official WhatsApp review channel. The applicant should be told the channel, purpose, and applicable retention terms before sending sensitive media. The website stores the application and admin approval or rejection audit trail; identity documents and videos remain outside the website. Do not upload identity documents or identity videos to a public profile, Trade Room, Discord, or an unsolicited message.",
+    },
+    {
       title: "Trade-stage disclosure",
       body: "Sensitive trade information is disclosed according to the trade stage and participant role. Only submit information needed for the transaction. Do not place identity documents, bank details, payment evidence, passwords, recovery codes, or wallet secrets in public profiles, Discord, social channels, or unsolicited private messages.",
     },
@@ -64,6 +68,10 @@ const privacySections = {
     {
       title: "كيف نستخدم المعلومات",
       body: "نعالج المعلومات لتقديم الحساب وميزات السوق، وتنسيق الصفقات، وإظهار إشارات البائع العامة المناسبة، وإرسال الإشعارات، والتحقيق في النزاعات والإساءة، وحماية المنصة، وتطبيق القواعد، وحفظ السجلات، وتحسين الاعتمادية، والوفاء بالمتطلبات القانونية المعمول بها.",
+    },
+    {
+      title: "مراجعة هوية البائع",
+      body: "يقدّم صاحب طلب البائع الهوية وفيديو الهوية إلى المالك عبر قناة المراجعة الرسمية على واتساب. يجب إبلاغ مقدم الطلب بالقناة والغرض وشروط الاحتفاظ المعمول بها قبل إرسال الوسائط الحساسة. يحفظ الموقع الطلب وسجل قرار القبول أو الرفض الإداري، وتبقى وثائق الهوية والفيديو خارج الموقع. لا ترفع وثائق الهوية أو فيديو الهوية إلى ملف عام أو غرفة التداول أو Discord أو رسالة غير مطلوبة.",
     },
     {
       title: "إظهار البيانات حسب مرحلة الصفقة",

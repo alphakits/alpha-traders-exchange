@@ -154,6 +154,34 @@ describe("CanonicalSessionProvider", () => {
     });
   });
 
+  it("keeps a server-authenticated workspace interactive while verifying the session in the background", async () => {
+    const response = deferred<Response>();
+    const fetchMock = vi.fn().mockReturnValue(response.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const initialUser = {
+      id: "ready-seller", fullName: "Ready Seller", email: "ready@example.test", role: "approved_seller" as const,
+      roles: ["approved_seller" as const], sellerStatus: "approved_seller" as const, whatsappNumber: "", preferredNetworks: [],
+      profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline" as const, createdAt: "2026-01-01",
+    };
+
+    render(
+      <CanonicalSessionProvider initialSessionUser={initialUser}>
+        <Probe />
+      </CanonicalSessionProvider>,
+    );
+
+    expect(screen.getByText("ready-seller")).toBeTruthy();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("ready-seller")).toBeTruthy();
+
+    await act(async () => {
+      response.resolve({ ok: true, json: async () => ({ user: initialUser }) } as Response);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("ready-seller")).toBeTruthy();
+  });
+
   it("clears a stale bootstrap user and safely routes to sign-in when the canonical session is anonymous", async () => {
     const replaceSpy = vi.fn();
     const originalLocation = window.location;

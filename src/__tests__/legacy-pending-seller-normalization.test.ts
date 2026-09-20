@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { hasRole } from "@/lib/roles";
 import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const loadSnapshot = vi.fn();
 const loadUnpaidCommissionSellerIds = vi.fn(async () => [] as string[]);
@@ -65,7 +66,8 @@ it("verifies only the matching legacy local account with a single-use store toke
 it("does not normalize without a matching pending application", async () => { loadSnapshot.mockResolvedValue(base(legacy())); expect(hasRole((await findUserById("edge"))!, "buyer")).toBe(false); });
 it("does not normalize another user's application", async () => { loadSnapshot.mockResolvedValue(base(legacy(), [pending("other")])); expect(hasRole((await findUserById("edge"))!, "buyer")).toBe(false); });
 it("does not normalize rejected applications", async () => { loadSnapshot.mockResolvedValue(base(legacy(), [pending("edge", "rejected")])); expect(hasRole((await findUserById("edge"))!, "buyer")).toBe(false); });
-it("preserves approved sellers", async () => { const u = { ...legacy("approved"), role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller" }; loadSnapshot.mockResolvedValue(base(u)); const r = await findUserById("approved"); expect(hasRole(r!, "approved_seller")).toBe(true); expect(r?.sellerStatus).toBe("approved_seller"); });
+it("preserves verified approved sellers", async () => { const u = { ...legacy("approved"), role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerification: createTestSellerApprovalVerification() }; loadSnapshot.mockResolvedValue(base(u)); const r = await findUserById("approved"); expect(hasRole(r!, "approved_seller")).toBe(true); expect(r?.sellerStatus).toBe("approved_seller"); });
+it("preserves existing owner-approved seller access without a second identity record", async () => { const u = { ...legacy("legacy-approved"), role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller" }; loadSnapshot.mockResolvedValue(base(u)); const r = await findUserById("legacy-approved"); expect(hasRole(r!, "approved_seller")).toBe(true); expect(r?.role).toBe("approved_seller"); expect(r?.sellerStatus).toBe("approved_seller"); expect(r?.sellerApprovalVerification).toBeUndefined(); });
 
 it("repairs cardless support for an approved seller's existing bank listing", async () => {
   const now = new Date().toISOString();
@@ -79,6 +81,7 @@ it("repairs cardless support for an approved seller's existing bank listing", as
   const application = {
     ...pending("approved-cardless", "approved"),
     preferredNetworks: ["USDT (BEP20)", "Cardless Withdrawal"],
+    verification: createTestSellerApprovalVerification(now),
   };
   const listing = {
     id: "listing-approved-cardless",
@@ -125,6 +128,7 @@ it("repairs a configured Bank Hapoalim listing when legacy submission lost only 
     role: "approved_seller",
     roles: ["buyer", "approved_seller"],
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: createTestSellerApprovalVerification(now),
     availabilityStatus: "available",
     preferredPaymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)"],
   };
@@ -173,6 +177,7 @@ it("does not add cardless to an intentionally bank-only listing", async () => {
     role: "approved_seller",
     roles: ["buyer", "approved_seller"],
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: createTestSellerApprovalVerification(now),
     availabilityStatus: "available",
     preferredPaymentMethods: ["Bank Transfer"],
   };

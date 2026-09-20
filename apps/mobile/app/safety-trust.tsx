@@ -9,23 +9,23 @@ export default function SafetyTrustScreen() {
   const { locale } = useLocale();
   const isAr = locale === "ar";
   const controls = isAr ? [
-    "يمكن فقط للبائعين الذين وافقت عليهم Alpha Traders يدويًا نشر عروض السوق.",
+    "يمكن فقط للبائعين الذين سجّل مراجع مخول اكتمال مراجعة الهوية والفيديو المباشر وملكية وسيلة التواصل وقواعد السوق نشر العروض.",
     "تظهر إشارات البائع وحدود الصفقة ووسائل الدفع وتفاصيل الشبكة قبل فتح الطلب.",
     "يحصل كل طلب على معرّف ثابت وسجل مراحل وأدوات أدلة وإشعارات وضوابط وقت.",
     "تظهر التفاصيل الحساسة حسب مرحلة الصفقة ودور المشارك، مع مسارات للنزاع والبلاغ.",
   ] : [
-    "Only sellers manually approved by Alpha Traders can publish marketplace listings.",
+    "Only sellers whose identity, live-video, contact-ownership, and marketplace-rules checks were recorded by an authorized reviewer can publish marketplace listings.",
     "Seller signals, trade limits, payment methods, and network details appear before a buyer opens a request.",
     "Every request receives a fixed ID, staged status history, evidence tools, notifications, and time controls.",
     "Sensitive details are disclosed by trade stage and participant role, with dispute and report paths available.",
   ];
   const limits = isAr ? [
-    "البائع المعتمد هو قرار صلاحية للمنصة، وليس ضمانًا للهوية أو السلوك المستقبلي أو الربح.",
+    "البائع المعتمد هو قرار صلاحية بعد تسجيل ضوابط المراجعة المطلوبة، وليس ضمانًا للسلوك المستقبلي أو الربح أو نجاح الصفقة.",
     "لا تستطيع Alpha Traders إلغاء مخاطر الاحتيال أو عكس الدفعات أو أخطاء المحفظة أو البلوكشين.",
     "محتوى الأكاديمية تعليمي وليس نصيحة مالية أو قانونية أو ضريبية شخصية ولا يعد بعوائد.",
     "الشعار أو الحساب الاجتماعي أو الرسالة الخاصة أو وثيقة الهوية لا تثبت بمفردها ترخيصًا ماليًا.",
   ] : [
-    "Approved Seller is a platform-access decision, not a guarantee of identity, future conduct, profit, or success.",
+    "Approved Seller is a platform-access decision after the required review controls are recorded; it is not a guarantee of future conduct, profit, or success.",
     "Alpha Traders cannot eliminate fraud, payment reversals, counterparty mistakes, wallet errors, or blockchain risk.",
     "Academy content is educational, not personalized financial, legal, or tax advice, and it does not promise returns.",
     "A logo, social profile, private message, or identity document is not by itself proof of a financial-services licence.",

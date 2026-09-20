@@ -2,6 +2,7 @@ import { test, expect, request, type APIRequestContext, type Page } from "@playw
 import { randomUUID } from "node:crypto";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
 
@@ -9,6 +10,7 @@ let buyerFixture: BuyerFixture | undefined;
 let originalBuyerRecord: Record<string, unknown> | null = null;
 const sellerId = `seller-e2e-${randomUUID()}`;
 const listingId = `listing-e2e-${randomUUID()}`;
+const sellerBankAccountId = `bank-${sellerId}`;
 const sellerPrivateEmail = "e2e-modal-seller-private@example.test";
 
 async function readRuntimeDb(request: APIRequestContext) {
@@ -38,6 +40,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
       role: "approved_seller",
       roles: ["approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
       whatsappNumber: "+972500000055",
       preferredNetworks: ["TRC20"],
       preferredPaymentMethods: ["Bank Transfer"],
@@ -54,6 +57,18 @@ async function seedSellerAndListing(request: APIRequestContext) {
       onlineStatus: "online",
       availabilityStatus: "available",
       isProfileHidden: false,
+      sellerBankAccounts: [{
+        id: sellerBankAccountId,
+        sellerId,
+        accountHolderName: "E2E Modal Seller",
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000055",
+        accountLast4: "0055",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
     },
   ];
   const listings = Array.isArray(db.marketplaceListings) ? db.marketplaceListings : [];
@@ -71,6 +86,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
       network: "TRC20",
       paymentMethod: "Bank Transfer",
       paymentMethods: ["Bank Transfer"],
+      bankAccountId: sellerBankAccountId,
       bankName: "Bank Hapoalim",
       minimumTrade: "100",
       maximumTrade: "1000",
@@ -233,11 +249,12 @@ test.describe("Direct Buy USDT modal", () => {
     const requests = Array.isArray(db.purchaseRequests) ? db.purchaseRequests : [];
     const submitted = requests.find((entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).listingId === listingId) as Record<string, unknown> | undefined;
     expect(submitted).toMatchObject({
+      usdtAmount: "100",
       listingPriceAtRequest: "3.60",
       pricePerUsdt: "3.25",
       priceMode: "buyer_offer",
       priceOfferDiscount: "0.35",
-      fiatAmount: "3250.00",
+      fiatAmount: "325.00",
       status: "pending",
     });
   });

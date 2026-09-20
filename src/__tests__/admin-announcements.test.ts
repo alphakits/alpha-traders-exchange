@@ -15,6 +15,7 @@ import {
   selectPendingAdminAnnouncementBatch,
 } from "@/lib/alpha-exchange-store";
 import type { AdminAnnouncementRecipient, AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const content: AdminAnnouncementEmailContent = composeAdminAnnouncementEmailContent({
   ar: {
@@ -38,6 +39,7 @@ function user(input: {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus?: AlphaExchangeUser["sellerStatus"];
+  sellerApprovalVerification?: AlphaExchangeUser["sellerApprovalVerification"];
   emailVerified?: boolean;
   disabled?: boolean;
 }): AlphaExchangeUser {
@@ -57,6 +59,7 @@ function user(input: {
     role: input.role,
     roles: input.roles,
     sellerStatus: input.sellerStatus ?? "buyer",
+    sellerApprovalVerification: input.sellerApprovalVerification,
     emailVerified: input.emailVerified ?? true,
     disabled: input.disabled,
     createdAt: timestamp,
@@ -294,7 +297,7 @@ describe("admin announcement email", () => {
 describe("admin announcement audiences", () => {
   const users = [
     user({ id: "buyer", email: "buyer@example.com", role: "buyer" }),
-    user({ id: "seller", email: "seller@example.com", role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller" }),
+    user({ id: "seller", email: "seller@example.com", role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerification: createTestSellerApprovalVerification() }),
     user({ id: "admin", email: "admin@example.com", role: "admin", roles: ["admin"] }),
     user({ id: "owner", email: "owner@example.com", role: "owner", roles: ["owner", "admin"] }),
     user({ id: "unverified", email: "unverified@example.com", role: "buyer", emailVerified: false }),

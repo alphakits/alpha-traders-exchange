@@ -250,11 +250,13 @@ export async function claimDiscordListingShare(input: {
 
     const actor = await client.query<{
       seller_status: string;
+      payload: Record<string, unknown>;
       disabled: boolean;
       profile_hidden: boolean;
       linked: boolean;
     }>(
       `select users.seller_status,
+              users.payload,
               coalesce((users.payload ->> 'disabled')::boolean, false) as disabled,
               coalesce(users.payload ->> 'isProfileHidden', 'false') = 'true' as profile_hidden,
               exists (
@@ -267,7 +269,11 @@ export async function claimDiscordListingShare(input: {
       [input.sellerId],
     );
     const seller = actor.rows[0];
-    if (!seller || seller.disabled || seller.seller_status !== "approved_seller") {
+    if (
+      !seller
+      || seller.disabled
+      || seller.seller_status !== "approved_seller"
+    ) {
       return deny(
         client,
         input.sellerId,

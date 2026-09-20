@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import {
   ALPHA_TRADERS_WEB_ORIGIN,
+  MAX_WEBSITE_NAVIGATION_URL_LENGTH,
   isTrustedWebsiteDocumentUrl,
   trustedWebsiteResumeUrl,
   trustedWebsiteReturnPath,
@@ -107,6 +108,9 @@ describe("website-backed mobile shell", () => {
     expect(isTrustedWebsiteDocumentUrl(`${ALPHA_TRADERS_WEB_ORIGIN}/en`)).toBe(true);
     expect(isTrustedWebsiteDocumentUrl("https://www.alphatraders.co.il:444/en")).toBe(false);
     expect(isTrustedWebsiteDocumentUrl("https://discord.com/oauth2/authorize")).toBe(false);
+    const oversizedFirstPartyUrl = `${ALPHA_TRADERS_WEB_ORIGIN}/en/?q=${"%".repeat(MAX_WEBSITE_NAVIGATION_URL_LENGTH)}`;
+    expect(websiteNavigationDecision(oversizedFirstPartyUrl)).toBe("block");
+    expect(isTrustedWebsiteDocumentUrl(oversizedFirstPartyUrl)).toBe(false);
   });
 
   it("resumes only a localized first-party website URL", () => {
@@ -122,6 +126,9 @@ describe("website-backed mobile shell", () => {
     expect(trustedWebsiteResumeUrl("https://www.alphatraders.co.il:444/en/profile", "en")).toBe(
       `${ALPHA_TRADERS_WEB_ORIGIN}/en`,
     );
+    const oversizedFirstPartyUrl = `${ALPHA_TRADERS_WEB_ORIGIN}/en/?q=${"%".repeat(MAX_WEBSITE_NAVIGATION_URL_LENGTH)}`;
+    expect(trustedWebsiteResumeUrl(oversizedFirstPartyUrl, "en")).toBe(`${ALPHA_TRADERS_WEB_ORIGIN}/en`);
+    expect(trustedWebsiteReturnPath(oversizedFirstPartyUrl)).toBeNull();
   });
 
   it("uses a cold-start push destination once without forwarding session headers", () => {

@@ -1,6 +1,6 @@
 import type { AppLocale } from "@/i18n/routing";
 
-export const PUBLIC_TRUST_LAST_UPDATED = "2026-09-12";
+export const PUBLIC_TRUST_LAST_UPDATED = "2026-09-20";
 
 export type PublicTrustFaq = {
   id: string;
@@ -32,7 +32,7 @@ const PUBLIC_TRUST_FAQS: Record<AppLocale, PublicTrustFaq[]> = {
       id: "approved-seller-meaning",
       question: "What does Approved Seller mean?",
       answer:
-        "Only sellers approved by Alpha Traders can publish listings. Applications are manually reviewed and additional information may be requested. Approval is a platform access decision made at the time of review; it is not a guarantee of identity, future conduct, profit, or a risk-free transaction.",
+        "Only approved sellers can publish listings. Applicants submit the application on the website, complete identity-document and video review with the owner through WhatsApp, and receive an approval or rejection decision on the website. Approval is a platform-access decision made at the time of review; it is not a guarantee of future conduct, profit, or a risk-free transaction.",
     },
     {
       id: "how-to-trade-safely",
@@ -88,7 +88,7 @@ const PUBLIC_TRUST_FAQS: Record<AppLocale, PublicTrustFaq[]> = {
       id: "approved-seller-meaning",
       question: "ماذا يعني بائع معتمد؟",
       answer:
-        "يمكن فقط للبائعين الذين وافقت عليهم Alpha Traders نشر العروض. تُراجع الطلبات يدويًا وقد تُطلب معلومات إضافية. الاعتماد قرار لمنح صلاحية استخدام المنصة وقت المراجعة، وليس ضمانًا للهوية أو السلوك المستقبلي أو الربح أو صفقة بلا مخاطر.",
+        "يمكن فقط للبائعين المعتمدين نشر العروض. يقدّم المستخدم الطلب على الموقع، وتتم مراجعة الهوية والفيديو مع المالك عبر واتساب، ثم يُقبل الطلب أو يُرفض على الموقع. الاعتماد قرار لمنح صلاحية استخدام المنصة وقت المراجعة، وليس ضمانًا للسلوك المستقبلي أو الربح أو صفقة بلا مخاطر.",
     },
     {
       id: "how-to-trade-safely",

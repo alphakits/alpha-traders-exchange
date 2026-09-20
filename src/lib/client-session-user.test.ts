@@ -24,6 +24,7 @@ describe("toClientSessionUser", () => {
       email: "buyer@example.test",
       role: "buyer",
       sellerStatus: "buyer",
+      sellerApprovalVerified: false,
       preferredNetworks: ["TRC20"],
       preferredLocale: "en",
       emailVerified: false,
@@ -74,6 +75,7 @@ describe("toClientSessionUser", () => {
       id: "seller-1", fullName: "Seller User", email: "seller@example.test", passwordHash: "secret-password-hash", whatsappNumber: "+972500000000",
       preferredNetworks: ["TRC20"], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "online", availabilityStatus: "available",
       role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", createdAt: "2026-01-01", updatedAt: "2026-01-02",
+      sellerApprovalVerification: { method: "manual_authorized_reviewer_v1", identityDocumentReviewed: true, liveIdentityVideoReviewed: true, contactOwnershipConfirmed: true, marketplaceRulesAccepted: true, verifiedAt: "2026-01-02", verifiedByUserId: "admin-1" },
       lifetimeCompletedVolumeUsdt: 2500, sellerPrestigeRank: "gold", sellerRankOverride: { rank: "gold", reason: "Manual review", setAt: "2026-01-02", setByUserId: "admin-1" },
       phoneOtpHash: "secret-otp-hash", phoneOtpSalt: "secret-otp-salt", verifiedPhone: "+972522222222", phoneVerifiedAt: "2026-01-02",
       emailVerificationTokenHash: "secret-email-token-hash", sellerBankAccounts: [{ accountNumber: "secret-account-number", id: "bank-1" }],
@@ -92,6 +94,7 @@ describe("toClientSessionUser", () => {
       role: "approved_seller",
       roles: ["buyer", "approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerified: true,
       availabilityStatus: "available",
       sellerPrestigeRank: "gold",
     });

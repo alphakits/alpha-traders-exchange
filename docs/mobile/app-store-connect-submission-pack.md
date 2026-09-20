@@ -18,6 +18,11 @@ Use `docs/mobile/full-exchange-app-review-evidence.md` as the evidence dossier.
 Use `docs/mobile/app-review-response-playbook.md` for every Apple information
 request or review objection; it separates verified answers from legal and
 account-holder questions that must be escalated.
+For the 2026-09-19 Guideline 2.1 information request on version `1.2.0` build
+`7`, use `docs/mobile/app-review-information-request-2026-09-19.md`. Its
+machine-checked Review Notes replace the incomplete two-paragraph notes from
+the rejected submission and must be completed without bracketed placeholders
+before resubmission.
 Create the controlled evidence/case record from
 `docs/mobile/app-review-private-record-template.md`; never populate the
 repository template with credentials, identity documents, or user data.
@@ -148,14 +153,23 @@ The app does not request App Tracking Transparency permission and has no ad SDK.
 | Financial info | Seller bank details and buyer receiving-wallet address needed for a trade | Yes; stage- and role-restricted | No |
 | Purchase history | Listings, P2P trade requests, amounts, states, commissions, and dispute history | Yes | No |
 | User content | Profile image/bio, listings, Trade Room messages, receipt evidence, reviews, reports, and support messages | Yes | No |
+| Sensitive information / photos or videos | Government-ID and live identity-video material for seller applicants when collected through the designated review channel; raw media stays outside the Exchange account record, but the collection, channel, retention, and deletion practice must still be declared exactly | Yes, seller applicants only | No |
 | Identifiers | Account ID, random installation/device ID, session records, and Expo push token | Yes | No |
-| Usage data | Lesson progress, notification state/preferences, marketplace and Trade Room state changes | Yes | No |
+| Usage data | Notification state/preferences, marketplace and Trade Room state changes | Yes | No |
 | Diagnostics | Request IDs, delivery state, and bounded technical/security logs | May be linked for security | No |
 
+Academy lesson progress and notes use account-scoped storage on the native device
+and browser storage on the website. The web-only correction in PR #177 removes
+an unused, failing remote progress write; no cloud restore path exists. Do not
+describe these local progress records as a working synchronization feature or
+combine them with the separate server-held marketplace activity in this worksheet.
+
 Verify retention, provider processing, and deletion behavior against Vercel,
-Supabase, Expo Push, email/SMS providers, and any production-only service before
-submission. If production behavior differs, update both the public privacy
-policy and App Store answers before uploading the build.
+Supabase, Expo Push, email/SMS providers, the seller identity-review channel,
+and any production-only service before submission. Keeping raw seller identity
+media outside the app database does not by itself remove the disclosure duty.
+If production behavior differs, update both the public privacy policy and App
+Store answers before uploading the build.
 
 Account deletion is initiated inside the full app from the Account Deletion
 page. It also remains available on the public web URL when the app has been
@@ -303,7 +317,10 @@ Alpha Traders brand.
 4. Merge the exact approved release commit and deploy the matching backend.
 5. Run `npm ci`, `npm run mobile:review-rehearsal`,
    `npm run mobile:scale-rehearsal`,
-   `npm run verify:release`, and `npm run mobile:verify`.
+   `npm run verify:release:full`, and `npm run mobile:verify`. The full release
+   command must complete all 148 Chromium flows on the exact release commit;
+   archive the immutable workflow run URL and browser report. A job that stops
+   before checkout or before the test command is **blocked**, not passed.
 6. Run `npm run mobile:review-surface` against production and archive its
    timestamped output with the deployment identifier.
 7. Create the signed iOS production build and upload it to TestFlight.
@@ -317,7 +334,9 @@ Alpha Traders brand.
     gate for that controlled shell session and run
     `npm run mobile:store-readiness:submission:ios`. Use the combined
     `npm run mobile:store-readiness:submission` only when the Android handoff is
-    also ready from the same exact commit.
+    also ready from the same exact commit. Never set
+    `ALPHA_BROWSER_RELIABILITY_APPROVED=1` until the archived 148-flow result
+    identifies and passes that exact commit.
 13. Submit the exact tested build; keep the backend and review accounts live.
 14. Release only the behavior Apple reviewed. Submit later material features,
     including the economic calendar, with accurate update notes and access for

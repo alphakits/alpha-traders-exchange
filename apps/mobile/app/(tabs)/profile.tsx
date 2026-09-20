@@ -3,6 +3,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../../src/auth/auth-context";
+import { canUseSellerTools } from "../../src/auth/seller-access";
 import { GoldButton } from "../../src/components/gold-button";
 import { LanguageSwitch } from "../../src/components/language-switch";
 import { NativeSiteHeader } from "../../src/components/native-site-header";
@@ -16,8 +17,7 @@ export default function ProfileScreen() {
   const { isRTL, t } = useLocale();
   const biometric = useBiometricLock();
   if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
-  const canUseSellerWorkspace = user.sellerStatus === "approved_seller"
-    || user.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner");
+  const canUseSellerWorkspace = canUseSellerTools(user);
   const canApplyToSell = !canUseSellerWorkspace
     && user.sellerStatus !== "pending_seller_approval"
     && (user.role === "buyer" || user.roles.includes("buyer"));

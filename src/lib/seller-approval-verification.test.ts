@@ -15,7 +15,7 @@ const verification = {
   verifiedByUserId: "owner-1",
 };
 
-describe("approved-seller identity verification gate", () => {
+describe("optional historical identity metadata and seller access", () => {
   it("accepts only the complete four-part manual verification checklist", () => {
     expect(isSellerApprovalChecklistComplete(COMPLETE_SELLER_APPROVAL_CHECKLIST)).toBe(true);
     expect(isSellerApprovalChecklistComplete({
@@ -52,7 +52,7 @@ describe("approved-seller identity verification gate", () => {
     expect(normalizeSellerApprovalVerification(undefined)).toBeUndefined();
   });
 
-  it("allows only attested approved sellers while retaining explicit admin and owner access", () => {
+  it("allows owner-approved sellers without an extra record and retains admin access", () => {
     expect(hasSellerOperationalAccess({
       role: "approved_seller",
       roles: ["buyer", "approved_seller"],
@@ -63,13 +63,25 @@ describe("approved-seller identity verification gate", () => {
       role: "approved_seller",
       roles: ["buyer", "approved_seller"],
       sellerStatus: "approved_seller",
-    })).toBe(false);
+    })).toBe(true);
     expect(hasSellerOperationalAccess({
       role: "owner",
       roles: ["owner", "admin"],
       sellerStatus: "buyer",
     })).toBe(true);
   });
+
+  it.each(["buyer", "pending_seller_approval", "rejected", "suspended"] as const)(
+    "denies seller operations for %s even with a historical verification record",
+    (sellerStatus) => {
+      expect(hasSellerOperationalAccess({
+        role: "approved_seller",
+        roles: ["buyer", "approved_seller"],
+        sellerStatus,
+        sellerApprovalVerification: verification,
+      })).toBe(false);
+    },
+  );
 
   it("rejects an incomplete attestation", () => {
     expect(() => createSellerApprovalVerification({

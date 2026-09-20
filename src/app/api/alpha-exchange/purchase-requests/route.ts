@@ -1,5 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
+import { createPurchaseRequest, getMyPurchaseRequests, sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -13,7 +13,10 @@ export async function GET() {
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   const requests = await getMyPurchaseRequests(user.id, user.role);
-  return NextResponse.json({ requests }, { status: 200 });
+  return NextResponse.json({ requests }, {
+    status: 200,
+    headers: { "Cache-Control": "private, no-store, max-age=0", Pragma: "no-cache" },
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -143,6 +146,7 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
     });
     const { request: purchase, metrics } = created;
+    const responsePurchase = sanitizePurchaseRequestForActor(purchase, user.id, user.role);
     after(async () => {
       try {
         const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
@@ -172,10 +176,12 @@ export async function POST(request: NextRequest) {
       metadata: { requestId, listingId, paymentMethod: purchase.paymentMethod },
     });
     return NextResponse.json(
-      { purchase, requestId, metrics, destination: tradeDestination(purchase, user.id) },
+      { purchase: responsePurchase, requestId, metrics, destination: tradeDestination(responsePurchase, user.id) },
       {
         status: 201,
         headers: withRequestIdHeaders({
+          "Cache-Control": "private, no-store, max-age=0",
+          Pragma: "no-cache",
           "X-Trade-Route-Ms": String(routeMs),
           "X-Trade-Queue-Ms": String(queueMs),
           "X-Trade-Db-Ms": String(metrics.totalMs),

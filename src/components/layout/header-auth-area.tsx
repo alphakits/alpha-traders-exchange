@@ -15,7 +15,7 @@ import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu
 import { LocaleSwitcher } from "@/components/layout/locale-switcher";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 
-type SessionUserSummary = Pick<ClientSessionUser, "id" | "fullName" | "role" | "roles" | "sellerStatus">;
+type SessionUserSummary = Pick<ClientSessionUser, "id" | "fullName" | "role" | "roles" | "sellerStatus" | "sellerApprovalVerified">;
 
 type HeaderAuthLabels = {
   signIn: string;

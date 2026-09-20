@@ -59,7 +59,7 @@ export default async function HelpCenterPage({ params }: { params: Promise<{ loc
             </div>
             <div>
               <h3 className="font-semibold text-white">{isAr ? "ماذا يعني بائع معتمد؟" : "What does Approved Seller mean?"}</h3>
-              <p>{isAr ? "يعني أن Alpha Traders راجعت طلبه وسمحت له بنشر العروض. لا يعني ذلك ضمان الهوية أو السلوك المستقبلي أو نجاح كل صفقة." : "It means Alpha Traders reviewed the application and allowed that seller to publish listings. It does not guarantee identity, future behavior, or the outcome of every trade."}</p>
+              <p>{isAr ? "يعني أن المالك أو مسؤولًا مخولًا وافق على طلب البائع بالموقع بعد مراجعة الهوية والفيديو عبر واتساب. لا يضمن ذلك السلوك المستقبلي أو نجاح كل صفقة." : "It means the owner or an authorized administrator approved the website application after identity-document and video review through WhatsApp. This does not guarantee future conduct or the outcome of every trade."}</p>
             </div>
             <div>
               <h3 className="font-semibold text-white">{isAr ? "ماذا أفعل عند وجود مشكلة؟" : "What should I do when there is a problem?"}</h3>

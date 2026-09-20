@@ -6,7 +6,9 @@ export type SellerApplicationEligibility = "loading" | "retry" | "buyer_setup_re
 export function getSellerApplicationEligibility(input: {
   isCanonicalUserLoading: boolean;
   canonicalUserError: boolean;
-  canonicalUser: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus"> | null;
+  canonicalUser: (Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">
+    & Partial<Pick<AlphaExchangeUser, "sellerApprovalVerification">>
+    & { sellerApprovalVerified?: boolean }) | null;
   application: Pick<SellerApplication, "status"> | null;
   applicationSubmitted: boolean;
 }): SellerApplicationEligibility {

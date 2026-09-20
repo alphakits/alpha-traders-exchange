@@ -32,6 +32,7 @@ vi.mock("@/lib/action-destinations", () => ({
 vi.mock("@/lib/alpha-exchange-store", () => ({
   createPurchaseRequest: mocks.createPurchaseRequest,
   getMyPurchaseRequests: vi.fn(),
+  sanitizePurchaseRequestForActor: (purchase: Record<string, unknown>) => purchase,
 }));
 
 import { POST } from "@/app/api/alpha-exchange/purchase-requests/route";

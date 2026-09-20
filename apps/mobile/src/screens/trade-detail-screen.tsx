@@ -34,6 +34,7 @@ import {
   MobileApiError,
   openMobileTradeDispute,
   sendMobileTradeMessage,
+  submitMobileCardlessCode,
   submitMobileBuyerReview,
   submitMobileSellerReviewResponse,
   updateMobileTrade,
@@ -161,6 +162,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
+  const [cardlessWithdrawalCode, setCardlessWithdrawalCode] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
@@ -202,6 +204,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setNotice(null);
     setBankDetails(null);
     setDraftMessage("");
+    setCardlessWithdrawalCode("");
     setDisputeReason("");
     setReviewRating(5);
     setReviewComment("");
@@ -328,6 +331,40 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     }
   }
 
+  async function submitCardlessCode() {
+    if (busyAction) return;
+    const code = cardlessWithdrawalCode.replace(/\s+/g, "");
+    if (!/^\d{4,12}$/.test(code)) {
+      setError(t("withdrawalCodeInvalid"));
+      return;
+    }
+    const operationScope = activeTradeScopeRef.current;
+    setError(null);
+    setNotice(null);
+    setBusyAction("payment_sent");
+    try {
+      const response = await requestWithSession((tokens, requestLocale) =>
+        submitMobileCardlessCode(tokens, requestLocale, requestId, code, Crypto.randomUUID()));
+      if (activeTradeScopeRef.current !== operationScope) return;
+      setCardlessWithdrawalCode("");
+      applyTradeMutation(response);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
+    } finally {
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
+    }
+  }
+
+  function confirmCardlessCode() {
+    if (busyAction) return;
+    Alert.alert(t("actionConfirmation"), t("withdrawalCodeSentConfirmation"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("confirm"), onPress: () => void submitCardlessCode() },
+    ]);
+  }
+
   function confirmStatus(status: MobileTradeStatus, message: string, safetyAcknowledged = false, destructive = false) {
     if (busyAction) return;
     Alert.alert(t("actionConfirmation"), message, [
@@ -381,6 +418,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         getMobileTradeBankDetails(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
       setBankDetails(response.bankDetails);
+      await query.refetch();
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
         setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -388,6 +426,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     } finally {
       if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
+  }
+
+  function confirmRevealBankDetails() {
+    if (busyAction) return;
+    Alert.alert(t("bankDetails"), t("revealBankDetailsConfirmation"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("confirm"), onPress: () => void revealBankDetails() },
+    ]);
   }
 
   async function uploadEvidence(side: "buyer" | "seller") {
@@ -709,7 +755,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                 <DetailRow isRTL={isRTL} label={t("accountNumber")} value={bankDetails.accountNumber} />
               </View>
             ) : (
-              <GoldButton disabled={actionsDisabled} loading={busyAction === "bank-details"} onPress={() => void revealBankDetails()} variant="outline">
+              <GoldButton disabled={actionsDisabled} loading={busyAction === "bank-details"} onPress={confirmRevealBankDetails} variant="outline">
                 {t("revealBankDetails")}
               </GoldButton>
             )}
@@ -768,13 +814,30 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
             </GoldButton>
           ) : null}
           {actions.canMarkPaymentSent ? (
-            <GoldButton
-              disabled={actionsDisabled}
-              loading={busyAction === "payment_sent"}
-              onPress={() => confirmStatus("payment_sent", isCardlessAtm ? t("withdrawalCodeSentConfirmation") : t("cashHandoverConfirmation"))}
-            >
-              {isCardlessAtm ? t("sentWithdrawalCode") : t("handedOverCash")}
-            </GoldButton>
+            <View style={styles.actionGroup}>
+              {isCardlessAtm ? (
+                <TextInput
+                  accessibilityLabel={t("withdrawalCodeLabel")}
+                  editable={!actionsDisabled}
+                  inputMode="numeric"
+                  keyboardType="number-pad"
+                  maxLength={12}
+                  onChangeText={(value) => setCardlessWithdrawalCode(value.replace(/\D/g, "").slice(0, 12))}
+                  placeholder={t("withdrawalCodePlaceholder")}
+                  placeholderTextColor={colors.textMuted}
+                  secureTextEntry
+                  style={styles.input}
+                  value={cardlessWithdrawalCode}
+                />
+              ) : null}
+              <GoldButton
+                disabled={actionsDisabled || (isCardlessAtm && !/^\d{4,12}$/.test(cardlessWithdrawalCode))}
+                loading={busyAction === "payment_sent"}
+                onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("payment_sent", t("cashHandoverConfirmation"))}
+              >
+                {isCardlessAtm ? t("sendAndConfirmWithdrawalCode") : t("handedOverCash")}
+              </GoldButton>
+            </View>
           ) : null}
           {actions.canUploadPaymentEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-buyer" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("buyer")}>
@@ -963,6 +1026,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={[styles.noMessages, isRTL && styles.rtlText]}>{t("noMessages")}</Text>
             )}
           </View>
+          {isCardlessAtm && trade.side === "buyer" && trade.status === "accepted" ? (
+            <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("cardlessProtectedCodeHint")}</Text>
+          ) : (
           <View style={[styles.composer, isRTL && styles.rowReverse]}>
             <TextInput
               accessibilityLabel={t("messagePlaceholder")}
@@ -987,6 +1053,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {t("send")}
             </GoldButton>
           </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -1044,6 +1111,8 @@ const styles = StyleSheet.create({
   safetyNote: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   faceToFaceCard: { backgroundColor: "rgba(67, 205, 138, 0.08)", borderColor: "rgba(67, 205, 138, 0.38)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   actions: { gap: spacing.md },
+  actionGroup: { gap: spacing.sm },
+  input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 52, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   policyWarningCard: { backgroundColor: "rgba(240, 106, 106, 0.08)", borderColor: "rgba(240, 106, 106, 0.35)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   policyWarningText: { color: colors.danger, fontSize: typography.caption, lineHeight: 19 },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },

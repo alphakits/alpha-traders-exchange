@@ -21,6 +21,9 @@ describe("seller application eligibility", () => {
     expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: buyer, application: { status: "pending" }, applicationSubmitted: false })).toBe("application_pending");
   });
   it("preserves the approved seller state", () => {
-    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller" }, application: null, applicationSubmitted: false })).toBe("approved_seller");
+    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerified: true }, application: null, applicationSubmitted: false })).toBe("approved_seller");
+  });
+  it("preserves prior owner approvals without an extra verification record", () => {
+    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerified: false }, application: null, applicationSubmitted: false })).toBe("approved_seller");
   });
 });

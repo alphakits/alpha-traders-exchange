@@ -323,7 +323,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.queryByText("Seller application pending")).toBeNull();
   });
 
-  it("serializes owner seller-application decisions and surfaces a failed action", async () => {
+  it("routes seller-application decisions to the full review screen", async () => {
     const item = notification({
       id: "seller-application-action",
       createdAt: "2026-08-27T10:00:00.000Z",
@@ -333,36 +333,26 @@ describe("NotificationsPage mobile hierarchy", () => {
       actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
       actionLabel: "Review Application",
     });
-    let finishDecision: ((value: { ok: boolean; status: number }) => void) | undefined;
-    const decisionResponse = new Promise<{ ok: boolean; status: number }>((resolve) => {
-      finishDecision = resolve;
-    });
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
         return Promise.resolve(notificationsResponse([item]));
       }
-      if (url.endsWith("/api/alpha-exchange/admin/seller-applications/application-1/approve") && init?.method === "POST") {
-        return decisionResponse;
+      if (url.endsWith("/api/alpha-exchange/notifications/seller-application-action") && init?.method === "PATCH") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<NotificationsPage locale="en" userId="user-1" />);
-    const approve = await screen.findByRole("button", { name: "Approve application" }) as HTMLButtonElement;
-    const reject = screen.getByRole("button", { name: "Reject application" }) as HTMLButtonElement;
-    fireEvent.click(approve);
+    fireEvent.click(await screen.findByRole("button", { name: "Review Application" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/alpha-exchange/admin/seller-applications/application-1/approve",
-      expect.objectContaining({ method: "POST" }),
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith(
+      "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
     ));
-    expect(approve.disabled).toBe(true);
-    expect(reject.disabled).toBe(true);
-
-    finishDecision?.({ ok: false, status: 500 });
-    expect(await screen.findByText("Failed to update seller application.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approve application" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject application" })).toBeNull();
   });
 
   it("reconciles streamed unread items and preserves mark-all-read behavior", async () => {

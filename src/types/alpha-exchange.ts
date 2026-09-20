@@ -131,7 +131,7 @@ export interface AlphaExchangeUser {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
-  /** Server-owned attestation required before a seller can publish or accept new marketplace work. */
+  /** Optional historical identity-review metadata; canonical sellerStatus controls seller access. */
   sellerApprovalVerification?: SellerApprovalVerification;
   emailVerified?: boolean;
   emailVerifiedAt?: string;
@@ -488,6 +488,7 @@ export type TradeTimelineEventType =
   | "trade_locked"
   | "review_unlocked"
   | "dispute_opened"
+  | "dispute_resolved"
   | "commission_recorded"
   | "commission_paid"
   | "buyer_evidence_uploaded"
@@ -543,11 +544,16 @@ export interface TradeEvidenceFile {
 
 export interface TradeChatMessage {
   id: string;
+  /** Opaque send-attempt ID for matching a live snapshot before POST acknowledgement. */
+  clientMessageId?: string;
   purchaseRequestId: string;
   kind: "user" | "system";
   senderUserId: string;
   senderRole: UserRole;
   message: string;
+  credentialKind?: "cardless_code";
+  confidential?: boolean;
+  payloadHash?: string;
   imageUrl?: string;
   imageName?: string;
   imageMimeType?: string;
@@ -693,6 +699,9 @@ export interface TradeDisputeCase {
   buyerEvidenceId?: string;
   sellerEvidenceId?: string;
   status: "open" | "resolved";
+  resolvedAt?: string;
+  resolvedByUserId?: string;
+  resolutionNotes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -850,10 +859,21 @@ export interface PurchaseRequest {
   buyerSafetyAcknowledged?: boolean;
   sellerSafetyAcknowledged?: boolean;
   sellerBankAccountId?: string;
+  /** Server-only immutable payment instructions captured with the request. */
+  sellerBankAccountSnapshot?: {
+    accountHolderName: string;
+    bankName: string;
+    branchNumber: string;
+    accountNumber: string;
+    accountLast4: string;
+  };
   bankName?: string;
   timeline: TradeTimelineEntry[];
   tradeCreatedAt?: string;
   paymentSentAt?: string;
+  /** First sensitive payment-detail disclosure, retained for audit and redaction decisions. */
+  sensitivePaymentSharedAt?: string;
+  sensitivePaymentKind?: "bank_details" | "cardless_code";
   fundsReceivedAt?: string;
   usdtReleaseStartedAt?: string;
   usdtReleaseDeadlineAt?: string;
@@ -1056,6 +1076,7 @@ export type AuditAction =
   | "trade_evidence_viewed_by_owner"
   | "trade_evidence_viewed_by_moderator"
   | "trade_evidence_downloaded"
+  | "marketplace_compliance_evidence_downloaded"
   | "seller_prestige_promoted"
   | "seller_prestige_overridden"
   | "marketplace_enforcement_fee_issued"
@@ -1067,7 +1088,8 @@ export type AuditAction =
   | "seller_bank_account_deleted"
   | "trade_closed_manually"
   | "trade_inactivity_warning_sent"
-  | "trade_bank_details_revealed";
+  | "trade_bank_details_revealed"
+  | "trade_dispute_resolved";
 
 export interface AuditLogEntry {
   id: string;

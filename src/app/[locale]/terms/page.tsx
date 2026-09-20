@@ -35,7 +35,7 @@ const sections = {
       id: "seller-approval",
       title: "3. Seller approval",
       paragraphs: [
-        "Only sellers approved by Alpha Traders may publish listings. Applications are reviewed manually, and additional information may be requested. Approval is a revocable platform access decision; it is not a guarantee of identity, future conduct, solvency, profit, or a risk-free transaction.",
+        "Only approved sellers may publish listings. Applicants submit the application on the website, complete identity-document and video review with the owner through WhatsApp, and receive an approval or rejection decision on the website. Approval is a revocable platform-access decision; it is not a guarantee of future conduct, solvency, profit, or a risk-free transaction.",
       ],
     },
     {
@@ -96,7 +96,7 @@ const sections = {
       id: "seller-approval",
       title: "3. اعتماد البائع",
       paragraphs: [
-        "يمكن فقط للبائعين الذين وافقت عليهم Alpha Traders نشر العروض. تُراجع الطلبات يدويًا وقد تُطلب معلومات إضافية. الاعتماد صلاحية استخدام قابلة للسحب، وليس ضمانًا للهوية أو السلوك المستقبلي أو الملاءة أو الربح أو صفقة بلا مخاطر.",
+        "يمكن فقط للبائعين المعتمدين نشر العروض. يقدّم المستخدم الطلب على الموقع، وتتم مراجعة الهوية والفيديو مع المالك عبر واتساب، ثم يُقبل الطلب أو يُرفض على الموقع. الاعتماد صلاحية استخدام قابلة للسحب، وليس ضمانًا للسلوك المستقبلي أو الملاءة أو الربح أو صفقة بلا مخاطر.",
       ],
     },
     {

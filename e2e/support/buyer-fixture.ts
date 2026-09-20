@@ -1,6 +1,7 @@
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { E2E_BASE_URL } from "./base-url";
+import { createE2eSellerApprovalVerification } from "./seller-verification";
 
 const TEST_SUPPORT_HEADERS = {
   "content-type": "application/json",
@@ -12,6 +13,7 @@ const FIXTURE_BUYER_EMAIL = "e2e-buyer-fixture@example.test";
 const FIXTURE_BUYER_PASSWORD = "E2eBuyer!Launch2026";
 const FIXTURE_SELLER_ID = "e2e-buyer-fixture-seller";
 const FIXTURE_LISTING_ID = "e2e-buyer-fixture-listing";
+const FIXTURE_BANK_ACCOUNT_ID = "bank-e2e-buyer-fixture-seller";
 
 export type BuyerFixture = {
   email: string;
@@ -144,6 +146,7 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       role: "approved_seller",
       roles: ["approved_seller"],
       sellerStatus: "approved_seller",
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
       whatsappNumber: "+972500000098",
       preferredNetworks: ["TRC20"],
       preferredPaymentMethods: ["Bank Transfer"],
@@ -160,6 +163,18 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       onlineStatus: "online",
       availabilityStatus: "available",
       isProfileHidden: false,
+      sellerBankAccounts: [{
+        id: FIXTURE_BANK_ACCOUNT_ID,
+        sellerId,
+        accountHolderName: "E2E Marketplace Seller",
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000098",
+        accountLast4: "0098",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
     },
   ];
   const listings = Array.isArray(db.marketplaceListings)
@@ -185,6 +200,7 @@ function seedEligibleListing(db: Record<string, unknown>, now: string) {
       network: "TRC20",
       paymentMethod: "Bank Transfer",
       paymentMethods: ["Bank Transfer"],
+      bankAccountId: FIXTURE_BANK_ACCOUNT_ID,
       bankName: "Bank Hapoalim",
       minimumTrade: "100",
       maximumTrade: "1000",

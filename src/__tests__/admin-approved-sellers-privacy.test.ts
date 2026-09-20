@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getApprovedSellersForAdmin } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
+import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 function sensitiveSeller(): AlphaExchangeUser {
   return {
@@ -18,6 +19,7 @@ function sensitiveSeller(): AlphaExchangeUser {
     role: "approved_seller",
     roles: ["buyer", "approved_seller"],
     sellerStatus: "approved_seller",
+    sellerApprovalVerification: createTestSellerApprovalVerification(),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-02T00:00:00.000Z",
     phoneOtpHash: "secret-otp-hash",

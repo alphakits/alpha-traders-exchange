@@ -23,11 +23,11 @@ export default function HelpCenterScreen() {
   ];
   const faqs = isAr ? [
     ["هل صفقة Alpha Exchange مضمونة؟", "لا. ضوابط المنصة تقلل المخاطر وتحسن إمكانية مراجعة الصفقة، لكنها لا تلغي كل مخاطر الدفع أو الطرف المقابل أو البلوكشين."],
-    ["ماذا يعني بائع معتمد؟", "يعني أن Alpha Traders راجعت الطلب وسمحت للبائع بنشر العروض. لا يعني ضمان الهوية أو السلوك المستقبلي أو نجاح كل صفقة."],
+    ["ماذا يعني بائع معتمد؟", "يعني أن مراجعًا مخولًا سجّل اكتمال مراجعة وثيقة هوية حكومية، ومطابقة الشخص في فيديو مباشر، وملكية وسيلة التواصل، وقبول قواعد السوق. لا يضمن ذلك السلوك المستقبلي أو نجاح كل صفقة."],
     ["ماذا أفعل عند وجود مشكلة؟", "توقف قبل إرسال أو تحرير القيمة، احتفظ بالأدلة داخل الصفقة، افتح نزاعًا أو بلاغًا، وتواصل مع الدعم الرسمي."],
   ] : [
     ["Is an Alpha Exchange trade guaranteed?", "No. Platform controls reduce risk and improve reviewability, but they cannot eliminate every payment, counterparty, or blockchain risk."],
-    ["What does Approved Seller mean?", "Alpha Traders reviewed the application and allowed that seller to publish listings. It does not guarantee identity, future conduct, or every trade outcome."],
+    ["What does Approved Seller mean?", "An authorized reviewer recorded completion of the government-ID, live-video identity match, contact-ownership, and marketplace-rules checks. This does not guarantee future conduct or every trade outcome."],
     ["What should I do when there is a problem?", "Stop before sending or releasing value, preserve evidence inside the trade, open a dispute or report, and contact official support."],
   ];
   return (

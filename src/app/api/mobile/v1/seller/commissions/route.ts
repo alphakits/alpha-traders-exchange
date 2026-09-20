@@ -76,7 +76,10 @@ async function requireSeller(request: NextRequest, requestId: string) {
   }
   const auth = await requireMobileApiUser(request, requestId, metadata);
   if (!auth.user) return { response: auth.unauthorized };
-  const canSettleCommission = hasRole(auth.user, "approved_seller")
+  // Paying an already-issued obligation is remediation, not permission to
+  // publish or accept new trades. Keep it available to legacy approved and
+  // suspended accounts while all seller operations remain verification-gated.
+  const canSettleCommission = auth.user.sellerStatus === "approved_seller"
     || hasRole(auth.user, "pending_seller_approval")
     || hasRole(auth.user, "admin")
     || hasRole(auth.user, "owner")

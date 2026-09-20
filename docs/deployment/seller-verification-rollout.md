@@ -1,49 +1,44 @@
-# Seller verification rollout
+# Seller approval: preserve the existing WhatsApp workflow
 
-The full Exchange hardening release in PR #173 requires a server-recorded
-seller verification attestation. Existing approved sellers must be reconciled
-before that requirement and its Discord migration are deployed.
+Owner direction on 2026-09-20 supersedes the additional attestation rollout
+previously proposed for PR #173. Preserve the existing workflow:
 
-## Preparation release
+1. The applicant submits a seller application on the website.
+2. The owner reviews the identity document and identity video through WhatsApp.
+3. The authorized owner or administrator approves or rejects the application on
+   the website. The existing decision and reason audit trail remains.
 
-This prerequisite adds an authenticated administrator action to record a prior
-review for an already approved seller application. It stores the same minimal
-verification object on the application and user and creates an audit entry.
-The reviewer and timestamp come from the server. Raw identity documents and
-videos are not accepted by this action.
+No additional on-site identity checklist, identity upload, or retrospective
+verification entry is required. Existing approved sellers retain their access.
+Do not manufacture verification metadata or copy identity documents or videos
+into the website, source repository, logs, or review notes.
 
-The preparation release does not activate the new seller authorization checks
-or the Discord reconciliation migration. Reading an old approved record never
-creates an attestation. Recording a review preserves the existing seller status
-and roles, including suspension. Pending and rejected applications cannot be
-approved through this action.
+## Authorization and compatibility
 
-## Reconcile retained evidence
+The canonical `sellerStatus` controls seller access. Pending, rejected, and
+suspended sellers remain ineligible; stale role labels or client flags cannot
+override that status. Suspension and reactivation retain their existing admin
+controls. Generic role management cannot grant seller approval or owner access.
 
-In Owner Control Center > Seller Applications, filter to Approved. For each
-seller whose previous review can be confirmed, use **Record Verification** and
-enter a meaningful reason. The authorized reviewer must personally confirm all
-four checks:
+The `sellerApprovalVerified` response field remains for existing mobile clients
+and reflects the canonical approval decision. It does not assert the existence
+of a separate four-part verification record. Historical optional metadata is
+preserved, but is not a prerequisite for approval or seller operations.
 
-- government identity document reviewed;
-- applicant matched in a live identity video;
-- ownership of the application contact confirmed;
-- marketplace rules accepted.
+Discord follows the same approval status. The proposed attestation-enforcement
+migration is removed from this release; there is no verification backfill or
+new verification migration to apply.
 
-Do not infer these checks from the old approval label, fill missing evidence
-with a blanket attestation, or store the raw identity material in the reason.
-Resolve incomplete reviews through the ordinary seller review process. Keep a
-private record of unresolved sellers and the planned operational treatment.
+## Release checks
 
-## Enforcement release
+Verify existing approved sellers retain access without additional metadata,
+new applications require an authorized admin decision, rejected/pending/
+suspended sellers stay restricted, and ordinary approval creates no fabricated
+identity-review record. Retain the other Exchange hardening and privacy work.
 
-Reconcile both user and application attestations before merging PR #173.
-Deploy its matching web/backend code and apply the verified-seller Discord
-migration only after this prerequisite is complete. Confirm suspended users
-remain suspended and approved, attested sellers retain their intended access.
-Then validate the production review accounts and signed iPhone build against
-the deployed backend. TestFlight upload alone does not deploy that backend.
-
-The preparation step is complete only when its production release and visible
-admin controls have been verified. The enforcement and App Review steps remain
-separate until their evidence is available.
+Publish the matching backend before validating the final signed mobile build.
+A TestFlight upload is not proof that the backend was deployed or that Apple
+approved the submission. The existing signed native shell is preserved. Its root layout renders the
+canonical website for every route, so the deployed website supplies the visible
+approval screen. Backend compatibility fields keep the delivered build working
+without a new identity-record requirement.

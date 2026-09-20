@@ -4,6 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { hasRole } from "@/lib/roles";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -32,15 +33,17 @@ export default async function OnboardingPage({
     redirect(`/${locale}/login?redirectTo=/${locale}/onboarding`);
   }
   const hasSelectedRole = Boolean(user.onboardingSelection || user.onboardingCompletedAt);
+  const isVerifiedApprovedSeller = user.sellerStatus === "approved_seller"
+    && isOwnerApprovedSeller(user);
   const canManageRoles = !hasRole(user, "owner") && !hasRole(user, "admin");
   const shouldShowOnboarding = !hasSelectedRole && hasRole(user, "guest");
   if (!canManageRoles) {
     if (hasRole(user, "admin") || hasRole(user, "owner")) redirect(`/${locale}/admin/alpha-exchange`);
-    if (hasRole(user, "approved_seller")) redirect(`/${locale}/dashboard/seller`);
+    if (isVerifiedApprovedSeller) redirect(`/${locale}/dashboard/seller`);
     redirect(`/${locale}/usdt-exchange`);
   }
   if (!shouldShowOnboarding && !manageMode) {
-    if (hasRole(user, "approved_seller")) redirect(`/${locale}/dashboard/seller`);
+    if (isVerifiedApprovedSeller) redirect(`/${locale}/dashboard/seller`);
     redirect(`/${locale}/usdt-exchange`);
   }
 
@@ -49,6 +52,7 @@ export default async function OnboardingPage({
       locale={locale as "ar" | "en"}
       isBuyer={hasRole(user, "buyer")}
       sellerStatus={user.sellerStatus}
+      sellerApprovalVerified={isOwnerApprovedSeller(user)}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
     />
   );

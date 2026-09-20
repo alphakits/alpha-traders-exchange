@@ -43,6 +43,7 @@ the evidence locator, verifier, and UTC time—not a verbal assumption.
 | AML/KYC/sanctions procedure approved | `[required]` | `[required]` | `[required]` | Policy/vendor change |
 | Operating-history claims reconciled | `[required]` | `[required]` | `[required]` | Submitted wording changes |
 | Exact source gate passed | `[required]` | `[required]` | `[required]` | Commit changes |
+| 148-flow browser reliability suite passed | `[required]` | `[workflow run URL and report/artifact locator]` | `[required]` | Commit, dependency, browser, or workflow change |
 | Exact backend deployed and healthy | `[required]` | `[required]` | `[required]` | Deployment/config changes |
 | Fictional reviewer accounts tested | `[required]` | `[required]` | `[required]` | Credential/fixture/backend changes |
 | Bilingual device matrix passed | `[required]` | `[required]` | `[required]` | Build or backend changes |
@@ -91,7 +92,8 @@ real financial data, or private customer data.
 
 | Evidence | Exact artifact / locator | UTC | Result | Recheck trigger |
 | --- | --- | --- | --- | --- |
-| `npm run verify:release` | `[required]` | `[required]` | `[required]` | Commit changes |
+| `npm run verify:release:full` | `[required]` | `[required]` | `[required]` | Commit changes |
+| 148-flow Chromium browser suite | `[exact commit, workflow run URL, report/artifact locator]` | `[required]` | `[required]` | Commit, dependency, browser, or workflow change |
 | `npm run mobile:review-rehearsal` | `[required]` | `[required]` | `[required]` | Commit changes |
 | `npm run mobile:scale-rehearsal` | `[required]` | `[required]` | `[required]` | Commit changes |
 | Production review-surface preflight | `[required]` | `[required]` | `[required]` | Deployment/config changes |

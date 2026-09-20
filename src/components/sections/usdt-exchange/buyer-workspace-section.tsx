@@ -127,13 +127,18 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("section") !== "trade-history") return;
-    const frame = window.requestAnimationFrame(() => {
+    const focusTarget = () => {
       const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
       if (!target) return;
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       target.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    };
+    const frame = window.requestAnimationFrame(focusTarget);
+    const timer = window.setTimeout(focusTarget, 250);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [BUYER_TRADE_HISTORY_SECTION_ID]);
 
   return (
@@ -308,7 +313,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                               <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
                             </div>
                             <div className="text-sm text-[#D1D5DB]">
-                              <p>{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
+                              <p>{toNumber(request.usdtAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</p>
                               <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</p>
                             </div>
                             <p className="text-sm text-[#D1D5DB]">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod, isAr)}</p>

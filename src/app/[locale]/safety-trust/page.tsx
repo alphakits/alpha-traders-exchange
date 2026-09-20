@@ -24,14 +24,14 @@ const content = {
       "Alpha Traders uses structured trade controls to reduce risk and make marketplace activity easier to review. Those controls matter, but no peer-to-peer or blockchain transaction is risk-free.",
     controlsTitle: "Controls built into Alpha Exchange",
     controls: [
-      "Only sellers manually approved by Alpha Traders can publish marketplace listings.",
+      "Only sellers whose identity, live-video, contact-ownership, and marketplace-rules checks were recorded by an authorized reviewer can publish marketplace listings.",
       "Current seller signals, trade limits, payment methods, and network details are shown before a buyer opens a request.",
       "Every request receives a fixed trade ID, staged status history, evidence tools, notifications, and time controls.",
       "Sensitive trade details are disclosed according to the trade stage, with dispute and report paths available.",
     ],
     limitsTitle: "What these controls do not guarantee",
     limits: [
-      "Approved Seller is a platform access decision, not a guarantee of identity, future conduct, profit, or a successful transaction.",
+      "Approved Seller is a platform-access decision after the required review controls are recorded; it is not a guarantee of future conduct, profit, or a successful transaction.",
       "Alpha Traders cannot eliminate fraud, bank-payment reversals, counterparty mistakes, wallet errors, or blockchain risk.",
       "Academy content is educational; it is not personalized financial, legal, or tax advice and does not promise returns.",
       "A logo, domain, social profile, private message, or identity document is not by itself proof of registration or a financial-services licence.",
@@ -56,14 +56,14 @@ const content = {
       "تستخدم Alpha Traders ضوابط منظمة لتقليل المخاطر وتسهيل مراجعة نشاط السوق. هذه الضوابط مهمة، لكن لا توجد معاملة نظير إلى نظير أو معاملة بلوكشين بلا مخاطر.",
     controlsTitle: "الضوابط المدمجة في Alpha Exchange",
     controls: [
-      "يمكن فقط للبائعين الذين وافقت عليهم Alpha Traders يدويًا نشر عروض السوق.",
+      "يمكن فقط للبائعين الذين سجّل مراجع مخول اكتمال مراجعة الهوية والفيديو المباشر وملكية وسيلة التواصل وقواعد السوق نشر العروض.",
       "تظهر إشارات البائع الحالية وحدود الصفقة ووسائل الدفع وتفاصيل الشبكة قبل فتح الطلب.",
       "يحصل كل طلب على معرّف صفقة ثابت وسجل مراحل وأدوات أدلة وإشعارات وضوابط وقت.",
       "تظهر تفاصيل الصفقة الحساسة حسب مرحلتها، مع توفر مسارات للنزاع والبلاغ.",
     ],
     limitsTitle: "ما الذي لا تضمنه هذه الضوابط",
     limits: [
-      "البائع المعتمد هو قرار لمنح صلاحية استخدام المنصة، وليس ضمانًا للهوية أو السلوك المستقبلي أو الربح أو نجاح الصفقة.",
+      "البائع المعتمد هو قرار لمنح صلاحية استخدام المنصة بعد تسجيل ضوابط المراجعة المطلوبة، وليس ضمانًا للسلوك المستقبلي أو الربح أو نجاح الصفقة.",
       "لا تستطيع Alpha Traders إلغاء مخاطر الاحتيال أو عكس الدفعات البنكية أو أخطاء الطرف المقابل أو المحفظة أو البلوكشين.",
       "محتوى الأكاديمية تعليمي، وليس نصيحة مالية أو قانونية أو ضريبية شخصية ولا يعد بعوائد.",
       "الشعار أو النطاق أو الحساب الاجتماعي أو الرسالة الخاصة أو وثيقة الهوية لا يثبت بمفرده تسجيل النشاط أو وجود ترخيص خدمات مالية.",

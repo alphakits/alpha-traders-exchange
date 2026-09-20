@@ -49,13 +49,13 @@ const nextConfig: NextConfig = {
       {
         source: "/uploads/:path*",
         headers: [
-          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" },
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400, stale-if-error=604800" },
         ],
       },
       {
         source: "/files/:path*",
         headers: [
-          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" },
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400, stale-if-error=604800" },
         ],
       },
       // Only trusted, public course documents may be framed by our own lessons.

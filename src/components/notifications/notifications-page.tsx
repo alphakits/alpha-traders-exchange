@@ -564,33 +564,6 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     router.push(destination);
   }
 
-  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
-    const applicationId = extractSellerApplicationId(notification);
-    if (!applicationId) return;
-    const actionKey = `${decision}:${notification.id}`;
-    if (itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`]) return;
-    setItemLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
-      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) {
-        setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-        return;
-      }
-      // A completed decision archives the matching owner/admin action alert on
-      // the server. Reload it instead of marking it read and resurrecting it.
-      await loadNotifications();
-    } catch {
-      setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
-    } finally {
-      setItemLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
-  }
-
   async function handleMarkOneRead(notificationId: string) {
     const key = `read:${notificationId}`;
     if (itemLoading[key]) return;
@@ -881,33 +854,9 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="default"
-                                  className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
-                                  loading={Boolean(itemLoading[`approve:${notification.id}`])}
-                                  loadingLabel={isAr ? "جاري القبول..." : "Approving..."}
-                                  onClick={() => void handleSellerApplicationDecision(notification, "approve")}
-                                >
-                                  {isAr ? "قبول الطلب" : "Approve application"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="destructive"
-                                  className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
-                                  loading={Boolean(itemLoading[`reject:${notification.id}`])}
-                                  loadingLabel={isAr ? "جاري الرفض..." : "Rejecting..."}
-                                  onClick={() => void handleSellerApplicationDecision(notification, "reject")}
-                                >
-                                  {isAr ? "رفض الطلب" : "Reject application"}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
                                   variant="ghost"
                                   className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
-                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`] || itemLoading[`dismiss:${notification.id}`])}
+                                  disabled={Boolean(itemLoading[`dismiss:${notification.id}`])}
                                   loading={Boolean(itemLoading[`dismiss:${notification.id}`])}
                                   loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
                                   onClick={() => void handleDismissNotification(notification)}

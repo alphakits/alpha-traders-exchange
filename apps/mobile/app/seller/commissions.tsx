@@ -7,6 +7,7 @@ import type { MobileCommissionNetwork } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileSellerCommissions, submitMobileSellerCommissionPayment } from "../../src/api/mobile-api";
 import { useAuth } from "../../src/auth/auth-context";
+import { canUseSellerTools } from "../../src/auth/seller-access";
 import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
@@ -32,9 +33,7 @@ export default function SellerCommissionsScreen() {
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
   const isAr = locale === "ar";
-  const canSell = user?.sellerStatus === "approved_seller"
-    || user?.sellerStatus === "suspended"
-    || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
+  const canSell = canUseSellerTools(user) || user?.sellerStatus === "suspended";
   const queryKey = ["mobile-seller-commissions", user?.id ?? "anonymous", locale] as const;
   const query = useQuery({
     enabled: status === "authenticated" && canSell,

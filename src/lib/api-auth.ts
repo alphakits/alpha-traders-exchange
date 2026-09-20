@@ -1,23 +1,32 @@
 import { NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
+import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 
 export async function requireApiUser() {
-  const user = await getCurrentSessionUser();
-  if (!user) {
+  const user = await getCurrentSessionUserForAuthorization();
+  if (!user || user.disabled === true) {
     const token = await getCurrentSessionToken();
     if (token) {
       await clearUserSession(token);
     }
+    const accountDisabled = user?.disabled === true;
     logEvent("warn", {
       event: "permission_denied",
+      actorUserId: user?.id,
+      actorRole: user?.role,
       outcome: "denied",
-      reason: "Unauthenticated request",
+      reason: accountDisabled ? "Disabled account" : "Unauthenticated request",
     });
-    const unauthorized = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const unauthorized = NextResponse.json(
+      accountDisabled
+        ? { error: "This account is disabled.", code: "ACCOUNT_DISABLED" }
+        : { error: "Unauthorized" },
+      { status: accountDisabled ? 403 : 401 },
+    );
     if (token) {
       unauthorized.cookies.delete(AUTH_COOKIE_NAME);
       unauthorized.cookies.delete(AUTH_VERIFIED_COOKIE_NAME);
@@ -172,7 +181,7 @@ export async function requireApiStudent() {
 export async function requireApiSeller() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return { user: null, unauthorized };
-  if (!hasRole(user, "approved_seller")) {
+  if (!hasSellerOperationalAccess(user)) {
     logEvent("warn", {
       event: "permission_denied",
       actorUserId: user.id,
@@ -197,7 +206,7 @@ export async function requireApiSellerWorkspaceActor() {
     return { user: null, unauthorized: emailVerificationRequired };
   }
   const isSellerWorkspaceUser =
-    hasRole(user, "approved_seller") ||
+    user.sellerStatus === "approved_seller" ||
     hasRole(user, "pending_seller_approval") ||
     user.sellerStatus === "suspended";
 

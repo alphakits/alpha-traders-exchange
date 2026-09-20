@@ -117,6 +117,15 @@ export function SellerApplicationSection({
             <div className="space-y-3" aria-label={isAr ? "جارٍ تحميل حالة الحساب" : "Loading account status"}><div className="h-4 w-44 animate-pulse rounded bg-white/10" /><div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" /></div>
           ) : eligibility === "retry" ? (
             <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5"><p className="font-semibold text-white">{isAr ? "تعذر تحديث حالة الحساب" : "Unable to refresh account status"}</p><Button type="button" className="mt-4" onClick={() => window.location.reload()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></div>
+          ) : eligibility === "approved_seller" ? (
+            <div className="rounded-2xl border border-emerald-500/35 bg-emerald-500/10 p-5">
+              <p className="font-semibold text-white">{isAr ? "صلاحية البائع المعتمد مفعّلة" : "Approved Seller Access Is Active"}</p>
+              <p className="mt-2 text-sm text-[#E5E7EB]">
+                {isAr
+                  ? "تمت الموافقة على طلبك. استخدم لوحة البائع لإدارة العروض والصفقات."
+                  : "Your seller application is approved. Use the seller dashboard to manage listings and trades."}
+              </p>
+            </div>
           ) : eligibility === "buyer_setup_required" ? (
             <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
               <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><div><p className="font-semibold text-white">{isAr ? "أكمل إعداد حساب المشتري أولاً" : "Complete Buyer Setup First"}</p><p className="mt-2 text-sm text-[#E5E7EB]">{isAr ? "يجب أن يكون لديك حساب مشترٍ قبل التقديم كبائع. ستتم مراجعة طلبات البائعين يدويًا وقد تُطلب معلومات إضافية للطلب." : "You need a buyer account before applying as a seller. Seller applications are reviewed manually and may require additional application information."}</p><Button type="button" className="mt-4 w-full" onClick={onSetUpBuyer}>{isAr ? "إعداد حساب مشترٍ" : "Set Up Buyer Account"}</Button></div></div>

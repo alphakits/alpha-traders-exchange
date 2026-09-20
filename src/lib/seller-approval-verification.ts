@@ -59,8 +59,7 @@ export function hasSellerOperationalAccess(user: {
   if (user.role === "admin" || user.role === "owner" || roles.includes("admin") || roles.includes("owner")) {
     return true;
   }
-  return user.sellerStatus === "approved_seller"
-    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  return user.sellerStatus === "approved_seller";
 }
 
 export function createSellerApprovalVerification(

@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import type { FullConfig } from "@playwright/test";
 import alphaExchangeSeed from "../data/alpha-exchange-db.json";
 import { resolveBuyerFixture } from "./support/buyer-fixture";
+import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -116,6 +117,7 @@ function upsertUser(db: RuntimeDb, input: {
     return email !== input.email.toLowerCase() && String(user.id ?? "") !== input.id;
   });
   const now = nowIso();
+  const bankAccountId = `bank-${input.id}`;
   users.push({
     id: input.id,
     fullName: input.fullName,
@@ -124,6 +126,9 @@ function upsertUser(db: RuntimeDb, input: {
     role: input.role,
     roles: input.roles,
     sellerStatus: input.sellerStatus,
+    ...(input.sellerStatus === "approved_seller" ? {
+      sellerApprovalVerification: createE2eSellerApprovalVerification(now),
+    } : {}),
     whatsappNumber: "+972500000111",
     preferredNetworks: ["TRC20"],
     preferredPaymentMethods: ["Bank Transfer"],
@@ -147,6 +152,20 @@ function upsertUser(db: RuntimeDb, input: {
     availabilityStatus: "available",
     notificationPreferences: { inApp: true, email: false, sms: false },
     isFoundingSeller: input.isFoundingSeller ?? false,
+    ...(input.role === "approved_seller" || input.role === "owner" ? {
+      sellerBankAccounts: [{
+        id: bankAccountId,
+        sellerId: input.id,
+        accountHolderName: input.fullName,
+        bankName: "Bank Hapoalim",
+        branchNumber: "123",
+        accountNumber: "9000000111",
+        accountLast4: "0111",
+        isDefault: true,
+        createdAt: now,
+        updatedAt: now,
+      }],
+    } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -168,6 +187,7 @@ function upsertSellerListing(db: RuntimeDb, sellerId: string) {
     network: "TRC20",
     paymentMethod: "Bank Transfer",
     paymentMethods: ["Bank Transfer"],
+    bankAccountId: `bank-${sellerId}`,
     bankName: "Bank Hapoalim",
     minimumTrade: "100",
     maximumTrade: "1500",

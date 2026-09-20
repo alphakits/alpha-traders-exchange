@@ -148,7 +148,9 @@ export async function POST(request: NextRequest) {
       }
     } else if (target === "seller_application" && (decision === "approve" || decision === "reject")) {
       if (reason.length < 3) return mobileError("INVALID_REQUEST", requestId, locale, 400);
-      if (decision === "approve") await approveSellerApplicationByAdmin(id, auth.user.id, reason);
+      if (decision === "approve") {
+        await approveSellerApplicationByAdmin(id, auth.user.id, reason);
+      }
       else await rejectSellerApplicationByAdmin(id, auth.user.id, reason);
     } else {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);

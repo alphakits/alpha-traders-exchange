@@ -43,11 +43,11 @@ function statusRequest(status: string) {
   });
 }
 
-function actionRequest(action: string) {
+function actionRequest(action: string, payload: Record<string, unknown> = {}) {
   return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests/purchase-1", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, ...payload }),
   });
 }
 
@@ -149,6 +149,29 @@ describe("Trade Room status route post-commit reliability", () => {
       actorUserId: "seller-1",
       nextStatus: "completed",
       completionMode: "cash_trade",
+    }));
+  });
+
+  it("maps Cardless ATM code submission to one atomic payment confirmation", async () => {
+    mocks.requireApiUser.mockResolvedValueOnce({
+      user: { id: "buyer-1", role: "buyer", emailVerified: true },
+      unauthorized: null,
+    });
+    const response = await PATCH(actionRequest("submit_cardless_code", {
+      withdrawalCode: "482913",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
+    }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1",
+      actorUserId: "buyer-1",
+      actorRole: "buyer",
+      nextStatus: "payment_sent",
+      cardlessWithdrawalCode: "482913",
+      clientOperationId: "0123456789abcdef0123456789abcdef",
     }));
   });
 

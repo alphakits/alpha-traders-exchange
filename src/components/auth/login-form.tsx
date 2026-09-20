@@ -35,7 +35,7 @@ export function LoginForm({
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => { setHydrated(true); }, []);
   const defaultRedirectByRole = (
-    user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
+    user: { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
   ) => {
     const roles = user?.roles ?? [];
     const isOwner = roles.includes("owner") || user?.role === "owner";
@@ -44,13 +44,13 @@ export function LoginForm({
     if (isAdmin) return "/admin/alpha-exchange";
     const hasOnboardingChoice = Boolean(user?.onboardingSelection || user?.onboardingCompletedAt);
     if (!hasOnboardingChoice && ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest"))) return "/onboarding";
-    if (!isAdmin && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
+    if (!isAdmin && user?.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true) return "/dashboard/seller";
     return "/usdt-exchange";
   };
 
   function resolveLoginRedirectTarget(
     rawRedirect: string | undefined,
-    user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
+    user: { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
   ) {
     const fallback = defaultRedirectByRole(user);
     const roles = user?.roles ?? [];
@@ -223,7 +223,7 @@ export function LoginForm({
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                   <p className="text-xs text-[#9CA3AF]">{isAr ? "أمان الحساب" : "Account Security"}</p>
-                  <p className="mt-1 text-lg font-semibold text-white">24/7</p>
+                  <p className="mt-1 text-lg font-semibold text-white">{isAr ? "محمي" : "PROTECTED"}</p>
                 </div>
               </div>
             </div>
