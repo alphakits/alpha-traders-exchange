@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
+import { createSellerApprovalVerification, normalizeSellerApprovalVerification, type SellerApprovalChecklist } from "@/lib/seller-approval-verification";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
@@ -2642,6 +2643,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         roles: normalizedRoles,
         role: normalizedRole,
         sellerStatus: effectiveSellerStatus,
+        sellerApprovalVerification: normalizeSellerApprovalVerification(user.sellerApprovalVerification),
         preferredNetworks: Array.isArray((user as { preferredNetworks?: string[] }).preferredNetworks)
           ? ((user as { preferredNetworks: string[] }).preferredNetworks.filter((network) => isSupportedNetwork(network)) as SupportedNetwork[])
           : [],
@@ -2778,6 +2780,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
       ...application,
+      verification: normalizeSellerApprovalVerification(application.verification),
       displayNumber: normalizeDisplayNumber((application as { displayNumber?: unknown }).displayNumber),
       status: isValidSellerApplicationStatus(application.status) ? application.status : "pending",
     })),
@@ -7093,6 +7096,64 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   publishArchivedNotifications(archivedAdminNotifications);
+  return db.sellerApplications[applicationIndex];
+}
+
+export async function recordApprovedSellerVerificationByAdmin(
+  applicationId: string,
+  adminUserId: string,
+  reason: string,
+  verificationChecklist: SellerApprovalChecklist,
+) {
+  const db = await readDb();
+  const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
+  if (applicationIndex === -1) throw new Error("Seller application not found.");
+
+  const application = db.sellerApplications[applicationIndex];
+  if (application.status !== "approved") {
+    throw new Error("Verification can be recorded only for an approved seller application.");
+  }
+  const userIndex = db.users.findIndex((user) => user.id === application.userId);
+  if (userIndex === -1) throw new Error("Application user not found.");
+  const user = db.users[userIndex];
+  if (user.sellerStatus !== "approved_seller" && user.sellerStatus !== "suspended") {
+    throw new Error("Verification can be recorded only for an approved or suspended seller.");
+  }
+
+  const verifiedAt = nowIso();
+  const verification = createSellerApprovalVerification(
+    verificationChecklist,
+    adminUserId,
+    verifiedAt,
+  );
+  db.sellerApplications[applicationIndex] = {
+    ...application,
+    verification,
+    updatedAt: verifiedAt,
+  };
+  db.users[userIndex] = {
+    ...user,
+    sellerApprovalVerification: verification,
+    updatedAt: verifiedAt,
+  };
+
+  await appendAuditLog(db, {
+    action: "seller_verification_recorded",
+    actorUserId: adminUserId,
+    targetUserId: application.userId,
+    details: `Recorded identity verification for approved seller application ${application.id}`,
+    reason,
+    newValue: {
+      verificationMethod: verification.method,
+      identityDocumentReviewed: true,
+      liveIdentityVideoReviewed: true,
+      contactOwnershipConfirmed: true,
+      marketplaceRulesAccepted: true,
+      verifiedAt: verification.verifiedAt,
+    },
+  });
+
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   return db.sellerApplications[applicationIndex];
 }
 

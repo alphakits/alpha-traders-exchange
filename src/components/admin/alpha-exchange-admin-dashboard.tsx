@@ -28,6 +28,7 @@ import type {
   MarketplaceOperationalSnapshot,
 } from "@/lib/marketplace-operational-health";
 import { isMarketplaceSmokeTestListing } from "@/lib/marketplace-smoke-test";
+import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
@@ -1969,6 +1970,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     <span className={`rounded-full px-2.5 py-1 text-xs ${application.status === "approved" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : application.status === "rejected" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]"}`}>
                                       {application.status === "approved" ? t("Approved", "مقبول") : application.status === "rejected" ? t("Rejected", "مرفوض") : t("Pending", "قيد الانتظار")}
                                     </span>
+                                    {application.verification ? (
+                                      <p className="mt-2 text-xs text-emerald-300">
+                                        {t("Identity and live-video review recorded", "تم تسجيل مراجعة الهوية والفيديو المباشر")}
+                                      </p>
+                                    ) : null}
                                   </td>
                                   <td className="px-4 py-3">
                                     <div className="flex items-center gap-2">
@@ -1985,6 +1991,33 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       >
                                         {t("Approve", "قبول")}
                                       </Button>
+                                      {application.status === "approved" && !application.verification ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          onClick={() => {
+                                            if (!window.confirm(t(
+                                              "Record the prior seller verification only if you personally confirm that the government identity document, live identity video, contact ownership, and marketplace-rules acceptance were all reviewed. Raw identity documents must stay outside the Exchange record. Continue?",
+                                              "سجّل التحقق السابق من البائع فقط إذا كنت تؤكد شخصيًا مراجعة وثيقة الهوية الحكومية وفيديو الهوية المباشر وملكية وسيلة التواصل والموافقة على قواعد السوق. يجب أن تبقى وثائق الهوية الأصلية خارج سجل المنصة. هل تريد المتابعة؟",
+                                            ))) return;
+                                            const reason = requestReason(
+                                              t("Reason for recording this prior verification:", "سبب تسجيل هذا التحقق السابق:"),
+                                              t("Existing approved seller verification reconciled", "تمت مطابقة تحقق البائع المعتمد الحالي"),
+                                            );
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/verification`, {
+                                              method: "POST",
+                                              headers: { "content-type": "application/json" },
+                                              body: JSON.stringify({
+                                                reason,
+                                                verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
+                                              }),
+                                            }), t("Seller verification recorded.", "تم تسجيل تحقق البائع."));
+                                          }}
+                                        >
+                                          {t("Record Verification", "تسجيل التحقق")}
+                                        </Button>
+                                      ) : null}
                                       <Button
                                         type="button"
                                         size="sm"
