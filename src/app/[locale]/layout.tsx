@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { notFound } from "next/navigation";
+import { notFound, unstable_rethrow } from "next/navigation";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
@@ -14,6 +14,8 @@ import { CanonicalSessionProvider } from "@/components/auth/canonical-session-pr
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
 import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
+import { SessionUnavailable } from "@/components/auth/session-unavailable";
+import { logEvent } from "@/lib/structured-logging";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -51,10 +53,31 @@ export default async function LocaleLayout({
   const appLocale = locale as AppLocale;
   // Translation and session resolution are independent. Starting both here
   // removes a serial database round trip from every authenticated navigation.
-  const [messages, sessionUser] = await Promise.all([
+  const [messages, sessionResult] = await Promise.all([
     getMessages(),
-    getCurrentSessionUser(),
+    getCurrentSessionUser().then(
+      (user) => ({ available: true as const, user }),
+      (error: unknown) => {
+        // Preserve Next's redirect/dynamic-rendering control flow. A failed
+        // database read is not an anonymous session and must not clear cookies.
+        unstable_rethrow(error);
+        logEvent("error", {
+          event: "layout_session_unavailable",
+          outcome: "failed",
+          reason: "session_read_failed",
+          metadata: { errorName: error instanceof Error ? error.name : typeof error },
+        });
+        return { available: false as const };
+      },
+    ),
   ]);
+
+  if (!sessionResult.available) {
+    // Errors in this layout bypass [locale]/error.tsx. Keep a minimal recovery
+    // surface alive without rendering protected children or guessing a user.
+    return <SessionUnavailable locale={appLocale} />;
+  }
+  const sessionUser = sessionResult.user;
 
   return (
     <NextIntlClientProvider messages={messages}>
