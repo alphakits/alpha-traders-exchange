@@ -3,7 +3,7 @@ import { requireApiUser } from "@/lib/api-auth";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 const PROFILE_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -44,7 +44,7 @@ function toRoleBadgeVariant(user: { role: string; roles?: string[]; sellerStatus
   if (roles.includes("admin") || user.role === "admin") return "administrator";
   if (
     (roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller")
-    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification)
+    && isOwnerApprovedSeller(user)
   ) return "approved_seller";
   if (roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval") return "pending_seller";
   if (roles.includes("buyer") || user.role === "buyer") return "buyer";

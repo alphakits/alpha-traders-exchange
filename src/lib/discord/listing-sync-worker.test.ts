@@ -348,11 +348,11 @@ describe("Discord listing lifecycle decisions", () => {
     }, now)).toBe("delete");
   });
 
-  it("deletes Discord visibility when the seller approval attestation is absent", () => {
+  it("preserves an approved listing without an additional seller identity record", () => {
     expect(determineDiscordListingLifecycle({
       ...active,
       userPayload: {},
-    }, now)).toBe("delete");
+    }, now)).toBe("active");
   });
 
   it("deletes closed, expired, and unapproved listings even when their amount is zero", () => {

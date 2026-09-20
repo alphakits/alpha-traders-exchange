@@ -14,7 +14,7 @@ import type { DiscordPublicSellerProfile } from "@/lib/discord/seller-profile-ca
 import { isSafeDiscordImageUrl } from "@/lib/discord/listing-publisher";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { deriveSellerPresence } from "@/lib/seller-presence";
-import { sellerApprovalVerificationSql } from "@/lib/discord/seller-authorization-sql";
+import { ownerApprovedSellerSql } from "@/lib/discord/seller-authorization-sql";
 
 export const MARKET_PRESENCE_WINDOW_MINUTES = 10;
 export const MARKET_ACTIVITY_WINDOW_HOURS = 24;
@@ -91,7 +91,7 @@ type LeaderboardRow = {
 
 const PUBLIC_SELLER_SQL = `
   users.seller_status = 'approved_seller'
-  and ${sellerApprovalVerificationSql("users.payload")}
+  and ${ownerApprovedSellerSql("users.seller_status")}
   and coalesce((users.payload ->> 'disabled')::boolean, false) = false
   and coalesce((users.payload ->> 'isProfileHidden')::boolean, false) = false
   and coalesce((users.payload ->> 'allowProfileSearch')::boolean, true) = true
@@ -174,7 +174,7 @@ async function readPulse(
                from alpha_exchange.users users
               where not (
                   users.seller_status = 'approved_seller'
-                  and ${sellerApprovalVerificationSql("users.payload")}
+                  and ${ownerApprovedSellerSql("users.seller_status")}
                 )
                 and users.role not in ('admin', 'owner')
                  and coalesce((users.payload ->> 'disabled')::boolean, false) = false

@@ -169,7 +169,7 @@ describe("requireApiSellerWorkspaceActor", () => {
 });
 
 describe("requireApiSeller", () => {
-  it("denies a legacy Approved Seller status without the recorded attestation", async () => {
+  it("allows an owner-approved seller without an additional identity record", async () => {
     mockGetCurrentSessionUser.mockResolvedValue({
       ...makeUser({ role: "approved_seller" }),
       roles: ["approved_seller"],
@@ -178,8 +178,8 @@ describe("requireApiSeller", () => {
 
     const { user, unauthorized } = await requireApiSeller();
 
-    expect(user).toBeNull();
-    expect(unauthorized?.status).toBe(403);
+    expect(user?.sellerStatus).toBe("approved_seller");
+    expect(unauthorized).toBeNull();
   });
 
   it("allows an Approved Seller with the complete recorded attestation", async () => {
@@ -196,6 +196,18 @@ describe("requireApiSeller", () => {
     expect(user).toEqual(seller);
     expect(unauthorized).toBeNull();
   });
+  it.each(["buyer", "pending_seller_approval", "rejected", "suspended"])("denies a %s seller despite stale roles and historical proof", async (sellerStatus) => {
+    mockGetCurrentSessionUser.mockResolvedValue({
+      ...makeUser({ role: "approved_seller" }),
+      roles: ["approved_seller"],
+      sellerStatus,
+      sellerApprovalVerification: createTestSellerApprovalVerification(),
+    } as never);
+    const { user, unauthorized } = await requireApiSeller();
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(403);
+  });
+
 });
 
 describe("requirePhoneVerificationForTrading", () => {

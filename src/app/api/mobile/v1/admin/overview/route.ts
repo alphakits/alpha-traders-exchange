@@ -19,7 +19,6 @@ import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
-import { isSellerApprovalChecklistComplete } from "@/lib/seller-approval-verification";
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const ACTIVE_TRADE_STATUSES = new Set([
@@ -150,10 +149,7 @@ export async function POST(request: NextRequest) {
     } else if (target === "seller_application" && (decision === "approve" || decision === "reject")) {
       if (reason.length < 3) return mobileError("INVALID_REQUEST", requestId, locale, 400);
       if (decision === "approve") {
-        if (!isSellerApprovalChecklistComplete(body?.verification)) {
-          return mobileError("INVALID_REQUEST", requestId, locale, 400);
-        }
-        await approveSellerApplicationByAdmin(id, auth.user.id, reason, body.verification);
+        await approveSellerApplicationByAdmin(id, auth.user.id, reason);
       }
       else await rejectSellerApplicationByAdmin(id, auth.user.id, reason);
     } else {

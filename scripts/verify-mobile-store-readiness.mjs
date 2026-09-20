@@ -121,7 +121,7 @@ const sellerApprovalRoute = readText("src/app/api/alpha-exchange/admin/seller-ap
 const sellerVerificationReconciliationRoute = readText("src/app/api/alpha-exchange/admin/seller-applications/[applicationId]/verification/route.ts");
 const sellerRoles = readText("src/lib/roles.ts");
 const genericRoleRoute = readText("src/app/api/alpha-exchange/admin/users/[userId]/role/route.ts");
-const verifiedSellerAuthorizationMigration = readText("supabase/migrations/20260919130000_verified_seller_authorization.sql");
+const sellerApprovalPolicy = readText("src/lib/seller-approval.ts");
 const discordSellerAuthorizationSql = readText("src/lib/discord/seller-authorization-sql.ts");
 const mobileAdminOverviewRoute = readText("src/app/api/mobile/v1/admin/overview/route.ts");
 const adminExchangeDashboard = readText("src/components/admin/alpha-exchange-admin-dashboard.tsx");
@@ -336,16 +336,17 @@ check(
   "The approved-seller identity checklist is incomplete.",
 );
 check(
-  sellerApprovalRoute.includes("isSellerApprovalChecklistComplete")
-    && mobileAdminOverviewRoute.includes("isSellerApprovalChecklistComplete")
-    && exchangeStore.includes("createSellerApprovalVerification"),
-  "A seller-approval API or persistence path can bypass the identity checklist.",
+  sellerApprovalRoute.includes("requireApiAdmin")
+    && mobileAdminOverviewRoute.includes("await requireAdmin(request, requestId)")
+    && !sellerApprovalRoute.includes("isSellerApprovalChecklistComplete")
+    && !mobileAdminOverviewRoute.includes("isSellerApprovalChecklistComplete"),
+  "Seller approval must remain an authenticated admin decision after WhatsApp review without an extra checklist.",
 );
 check(
-  sellerRoles.includes("role !== \"approved_seller\" || sellerApprovalVerified")
-    && sellerRoles.includes("isSellerApprovalVerificationComplete(user.sellerApprovalVerification)")
+  sellerRoles.includes("isOwnerApprovedSeller(user)")
+    && sellerApprovalPolicy.includes('user.sellerStatus === "approved_seller"')
     && exchangeStore.includes("hasSellerOperationalAccess(user)"),
-  "A legacy Approved Seller marker can still grant seller authorization without the attestation.",
+  "Seller operations must require canonical approval and deny pending, rejected, or suspended sellers.",
 );
 check(
   sellerVerificationReconciliationRoute.includes("requireApiAdmin")
@@ -357,27 +358,26 @@ check(
   !genericRoleRoute.includes('"approved_seller"')
     && !genericRoleRoute.includes('"pending_seller_approval"')
     && !genericRoleRoute.includes('"owner"'),
-  "Generic role management can bypass seller verification or assign owner access.",
+  "Generic role management can bypass seller approval or assign owner access.",
 );
 check(
-  verifiedSellerAuthorizationMigration.includes("after update of seller_status, payload")
-    && verifiedSellerAuthorizationMigration.includes("verification_policy_migration")
-    && verifiedSellerAuthorizationMigration.includes("liveIdentityVideoReviewed")
-    && discordSellerAuthorizationSql.includes("sellerApprovalVerification")
+  discordSellerAuthorizationSql.includes("ownerApprovedSellerSql")
+    && discordSellerAuthorizationSql.includes("= 'approved_seller'")
     && discordSellerAuthorizationSql.includes("else 'none'"),
-  "Discord seller authorization is not fail-closed for legacy or incomplete verification records.",
+  "Discord seller access must follow the canonical approval status.",
 );
 check(
-  adminExchangeDashboard.includes("Raw identity documents must remain outside the Exchange record")
-    && adminExchangeDashboard.includes("COMPLETE_SELLER_APPROVAL_CHECKLIST"),
-  "The owner seller-approval action is missing its explicit identity attestation.",
+  adminExchangeDashboard.includes("after your WhatsApp review")
+    && !adminExchangeDashboard.includes("COMPLETE_SELLER_APPROVAL_CHECKLIST")
+    && !adminExchangeDashboard.includes("Record Verification"),
+  "The admin dashboard must retain approve/reject after WhatsApp review without additional attestation controls.",
 );
 check(
   !notificationBell.includes("handleSellerApplicationDecision")
     && !notificationsPage.includes("handleSellerApplicationDecision")
     && !notificationBell.includes("/admin/seller-applications/")
     && !notificationsPage.includes("/admin/seller-applications/"),
-  "A notification surface can bypass the full seller identity-review screen.",
+  "A notification surface can bypass the admin seller-application review screen.",
 );
 check(responsePlaybook.includes("## Response rules"), "The App Review response rules are missing.");
 check(responsePlaybook.includes("## Question-and-evidence matrix"), "The App Review question-and-evidence matrix is missing.");

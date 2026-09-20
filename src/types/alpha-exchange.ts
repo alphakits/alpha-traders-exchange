@@ -131,7 +131,7 @@ export interface AlphaExchangeUser {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
-  /** Server-owned attestation required before a seller can publish or accept new marketplace work. */
+  /** Optional historical identity-review metadata; canonical sellerStatus controls seller access. */
   sellerApprovalVerification?: SellerApprovalVerification;
   emailVerified?: boolean;
   emailVerifiedAt?: string;

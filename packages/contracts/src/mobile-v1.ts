@@ -89,6 +89,7 @@ export interface MobileSessionUser {
   roles: MobileUserRole[];
   sellerStatus: MobileSellerStatus;
   /** Server-computed seller authorization; no identity document data is exposed. */
+  /** Compatibility flag for the canonical operator-approved seller status. */
   sellerApprovalVerified: boolean;
   preferredLocale: MobileLocale;
   profilePhotoUrl: string;
@@ -730,7 +731,8 @@ export type MobileAdminReviewRequest =
       id: string;
       decision: "approve";
       reason: string;
-      verification: {
+      /** Legacy clients may send this field; approval does not require or store it. */
+      verification?: {
         identityDocumentReviewed: true;
         liveIdentityVideoReviewed: true;
         contactOwnershipConfirmed: true;

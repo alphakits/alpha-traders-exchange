@@ -10,14 +10,14 @@ import {
   updateUserSellerSettings,
 } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import type { SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
   const sellerOperationAllowed = canPublishListings(user);
-  const sellerApprovalVerified = isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  const sellerApprovalVerified = isOwnerApprovedSeller(user);
   const bankAccounts = sellerOperationAllowed ? await getSellerBankAccountsForUser(user.id) : [];
 
   return NextResponse.json({
@@ -55,7 +55,7 @@ export async function PATCH(request: NextRequest) {
     const action = typeof body.action === "string" ? body.action.trim() : "";
     const sellerOperationAllowed = canPublishListings(user);
     const sellerOperationDenied = () => NextResponse.json(
-      { error: "Completed seller identity verification is required for this marketplace setting." },
+      { error: "Seller approval is required for this marketplace setting." },
       { status: 403 },
     );
 

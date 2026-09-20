@@ -38,19 +38,12 @@ describe("admin seller approval route", () => {
     mocks.approveSellerApplicationByAdmin.mockResolvedValue({
       id: "application-1",
       status: "approved",
-      verification: {
-        method: "manual_authorized_reviewer_v1",
-        ...COMPLETE_SELLER_APPROVAL_CHECKLIST,
-        verifiedAt: "2026-09-19T20:00:00.000Z",
-        verifiedByUserId: "owner-1",
-      },
     });
   });
 
-  it("binds a complete identity attestation to the authenticated reviewer", async () => {
+  it("approves after WhatsApp review using the authenticated owner and reason", async () => {
     const response = await POST(request({
       reason: " Verified identity and seller eligibility. ",
-      verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
     }), context);
 
     expect(response.status).toBe(200);
@@ -58,28 +51,34 @@ describe("admin seller approval route", () => {
       "application-1",
       "owner-1",
       "Verified identity and seller eligibility.",
-      COMPLETE_SELLER_APPROVAL_CHECKLIST,
     );
     await expect(response.json()).resolves.toMatchObject({
       application: { id: "application-1", status: "approved" },
     });
   });
 
-  it.each([
-    { name: "a missing reason", body: { verification: COMPLETE_SELLER_APPROVAL_CHECKLIST } },
-    { name: "a missing checklist", body: { reason: "Verified identity." } },
-    {
-      name: "an incomplete checklist",
-      body: {
-        reason: "Verified identity.",
-        verification: { ...COMPLETE_SELLER_APPROVAL_CHECKLIST, liveIdentityVideoReviewed: false },
-      },
-    },
-  ])("rejects $name before approval", async ({ body }) => {
+  it.each([{}, { reason: "   " }])("requires an admin audit reason", async (body) => {
     const response = await POST(request(body), context);
-
     expect(response.status).toBe(400);
     expect(mocks.approveSellerApplicationByAdmin).not.toHaveBeenCalled();
+  });
+
+  it("accepts legacy clients without treating their checklist as identity evidence", async () => {
+    const response = await POST(request({
+      reason: "Reviewed through WhatsApp.",
+      verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
+    }), context);
+    expect(response.status).toBe(200);
+    expect(mocks.approveSellerApplicationByAdmin).toHaveBeenCalledWith(
+      "application-1", "owner-1", "Reviewed through WhatsApp.",
+    );
+  });
+
+  it("returns the store rejection for an application no longer pending", async () => {
+    mocks.approveSellerApplicationByAdmin.mockRejectedValueOnce(new Error("Seller application is no longer pending review."));
+    const response = await POST(request({ reason: "Reviewed through WhatsApp." }), context);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "Seller application is no longer pending review." });
   });
 
   it("returns the admin auth response without approving an applicant", async () => {
@@ -90,7 +89,6 @@ describe("admin seller approval route", () => {
 
     const response = await POST(request({
       reason: "Verified identity.",
-      verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
     }), context);
 
     expect(response.status).toBe(401);

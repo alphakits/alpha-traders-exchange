@@ -23,7 +23,7 @@ describe("seller application eligibility", () => {
   it("preserves the approved seller state", () => {
     expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerified: true }, application: null, applicationSubmitted: false })).toBe("approved_seller");
   });
-  it("does not treat legacy status alone as completed seller approval", () => {
-    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerified: false }, application: null, applicationSubmitted: false })).toBe("verification_reconciliation_required");
+  it("preserves prior owner approvals without an extra verification record", () => {
+    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", sellerApprovalVerified: false }, application: null, applicationSubmitted: false })).toBe("approved_seller");
   });
 });

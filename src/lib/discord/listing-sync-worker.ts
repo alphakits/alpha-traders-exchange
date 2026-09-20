@@ -17,7 +17,6 @@ import { deriveSellerPresence } from "@/lib/seller-presence";
 import { getSiteUrl } from "@/lib/site-url";
 import { logEvent } from "@/lib/structured-logging";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 
 const POLL_INTERVAL_MS = 5_000;
 const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
@@ -156,10 +155,7 @@ function hasDiscordSellerAuthorization(
     : [];
   const isPrivilegedOperator = role === "admin" || role === "owner"
     || roles.includes("admin") || roles.includes("owner");
-  return isPrivilegedOperator || (
-    sellerStatus === "approved_seller"
-    && isSellerApprovalVerificationComplete(userPayload.sellerApprovalVerification)
-  );
+  return isPrivilegedOperator || sellerStatus === "approved_seller";
 }
 
 export function buildAuthoritativeDiscordListingSnapshot(input: {

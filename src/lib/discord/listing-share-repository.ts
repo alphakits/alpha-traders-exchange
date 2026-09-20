@@ -3,7 +3,6 @@ import "server-only";
 import type { Pool, PoolClient } from "pg";
 
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
 
 const SHARE_COOLDOWN_HOURS = 12;
 const CURRENT_MAPPING_STATES = ["queued", "publishing", "active", "update_pending"] as const;
@@ -274,9 +273,6 @@ export async function claimDiscordListingShare(input: {
       !seller
       || seller.disabled
       || seller.seller_status !== "approved_seller"
-      || !isSellerApprovalVerificationComplete(
-        seller.payload.sellerApprovalVerification,
-      )
     ) {
       return deny(
         client,

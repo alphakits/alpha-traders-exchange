@@ -1,5 +1,5 @@
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import type { AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
 
 export const ROLE_PRIORITY: UserRole[] = [
@@ -34,9 +34,7 @@ export function normalizeRolesForUser(input: {
   sellerStatus?: string;
   sellerApprovalVerification?: AlphaExchangeUser["sellerApprovalVerification"];
 }) {
-  const sellerApprovalVerified = isSellerApprovalVerificationComplete(
-    input.sellerApprovalVerification,
-  );
+  const sellerApprovalVerified = isOwnerApprovedSeller(input);
   const roles = [...(input.roles ?? [])].filter(
     (role) => role !== "approved_seller" || sellerApprovalVerified,
   );
@@ -67,14 +65,9 @@ export function hasRole(
   role: UserRole,
 ) {
   if (role === "approved_seller") {
-    const hasApprovedSellerMarker = user.sellerStatus === "approved_seller"
-      || user.role === "approved_seller"
-      || (user.roles ?? []).includes("approved_seller");
-    return hasApprovedSellerMarker
-      && (
-        user.sellerApprovalVerified === true
-        || isSellerApprovalVerificationComplete(user.sellerApprovalVerification)
-      );
+    // Stale role labels and client compatibility flags cannot override a
+    // pending, rejected or suspended canonical approval status.
+    return isOwnerApprovedSeller(user);
   }
   if (role === "pending_seller_approval") {
     return user.sellerStatus === "pending_seller_approval" || (user.roles ?? []).includes("pending_seller_approval");

@@ -2,7 +2,7 @@ import type { MobileSessionUser } from "@alpha-traders/contracts";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 
 /** Native allowlist. Persistence credentials, contact numbers, bank accounts,
@@ -22,7 +22,7 @@ export function toMobileSessionUser(user: AlphaExchangeUser): MobileSessionUser 
     role: resolvePrimaryRole(roles),
     roles,
     sellerStatus: user.sellerStatus,
-    sellerApprovalVerified: isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
+    sellerApprovalVerified: isOwnerApprovedSeller(user),
     preferredLocale: normalizePreferredLocale(user.preferredLocale),
     profilePhotoUrl: safeMobileMediaUrl(user.profilePhotoUrl),
     emailVerified: user.emailVerified === true,

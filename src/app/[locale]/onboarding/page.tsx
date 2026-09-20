@@ -4,7 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { hasRole } from "@/lib/roles";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,7 @@ export default async function OnboardingPage({
   }
   const hasSelectedRole = Boolean(user.onboardingSelection || user.onboardingCompletedAt);
   const isVerifiedApprovedSeller = user.sellerStatus === "approved_seller"
-    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+    && isOwnerApprovedSeller(user);
   const canManageRoles = !hasRole(user, "owner") && !hasRole(user, "admin");
   const shouldShowOnboarding = !hasSelectedRole && hasRole(user, "guest");
   if (!canManageRoles) {
@@ -52,7 +52,7 @@ export default async function OnboardingPage({
       locale={locale as "ar" | "en"}
       isBuyer={hasRole(user, "buyer")}
       sellerStatus={user.sellerStatus}
-      sellerApprovalVerified={isSellerApprovalVerificationComplete(user.sellerApprovalVerification)}
+      sellerApprovalVerified={isOwnerApprovedSeller(user)}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
     />
   );

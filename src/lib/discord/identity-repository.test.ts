@@ -113,7 +113,7 @@ describe("Discord identity repository", () => {
     expect(userLock).toBeLessThan(identityRead);
   });
 
-  it("never grants an Approved Seller Discord role from legacy status alone", async () => {
+  it("retains the Approved Seller Discord role for an owner-approved seller without extra metadata", async () => {
     const calls: Array<{ sql: string; values?: unknown[] }> = [];
     const query = vi.fn(async (sql: string, values?: unknown[]) => {
       calls.push({ sql, values });
@@ -138,7 +138,7 @@ describe("Discord identity repository", () => {
 
     const outbox = calls.find(({ sql }) =>
       sql.includes("insert into alpha_exchange.discord_role_sync_outbox"));
-    expect(outbox?.values?.[2]).toBe("none");
+    expect(outbox?.values?.[2]).toBe("approved");
   });
 
   it("deletes the identity transactionally so the database revocation trigger can queue removal", async () => {

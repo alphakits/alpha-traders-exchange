@@ -113,8 +113,8 @@ describe("Discord role sync worker", () => {
     });
     const authorizationRead = fixture.clientQueries.find(({ sql }) =>
       sql.includes("where identity.discord_user_id = $1"));
-    expect(authorizationRead?.sql).toContain("sellerApprovalVerification");
-    expect(authorizationRead?.sql).toContain("liveIdentityVideoReviewed");
+    expect(authorizationRead?.sql).toContain("users.seller_status = 'approved_seller'");
+    expect(authorizationRead?.sql).toContain("users.seller_status = 'suspended'");
     expect(fixture.clientQueries.some(({ sql }) =>
       sql.includes("status = 'completed'"))).toBe(true);
   });

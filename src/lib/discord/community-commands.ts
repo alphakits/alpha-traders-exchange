@@ -35,7 +35,7 @@ import {
   SELLER_PRESTIGE_TIERS,
 } from "@/lib/seller-prestige";
 import { MAX_ACTIVE_LISTINGS_PER_SELLER } from "@/lib/marketplace-policy";
-import { sellerApprovalVerificationSql } from "@/lib/discord/seller-authorization-sql";
+import { ownerApprovedSellerSql } from "@/lib/discord/seller-authorization-sql";
 
 const RESPONSE_TIMEOUT_MS = 2_500;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -419,13 +419,13 @@ export async function buildLinkedSellerStatusMessage(input: {
     active_listings: number;
   }>(
     `select users.seller_status,
-            ${sellerApprovalVerificationSql("users.payload")} as seller_approval_verified,
+            ${ownerApprovedSellerSql("users.seller_status")} as seller_approval_verified,
             users.availability_status,
             count(listings.id) filter (
               where listings.status = 'active'
                 and listings.payload ->> 'approvalStatus' = 'approved'
                 and (listings.expires_at is null or listings.expires_at > now())
-                and ${sellerApprovalVerificationSql("users.payload")}
+                and ${ownerApprovedSellerSql("users.seller_status")}
             )::int as active_listings
        from alpha_exchange.discord_identities identity
        join alpha_exchange.users users
@@ -454,12 +454,10 @@ export async function buildLinkedSellerStatusMessage(input: {
       }],
     };
   }
-  const verifiedApprovedSeller = row.seller_status === "approved_seller"
-    && row.seller_approval_verified;
+  const verifiedApprovedSeller = row.seller_status === "approved_seller";
   const nextAction = verifiedApprovedSeller
     ? "Open your seller dashboard to manage listings and requests."
-    : row.seller_status === "approved_seller"
-    ? "Your seller verification record requires administrator reconciliation before seller tools can be used."
+
     : row.seller_status === "pending_seller_approval"
     ? "Your application is pending authoritative website review."
     : row.seller_status === "suspended"
@@ -468,9 +466,7 @@ export async function buildLinkedSellerStatusMessage(input: {
     ? "Review your website account details before applying again."
     : "Complete buyer verification, then apply on the website.";
   const dashboard = verifiedApprovedSeller;
-  const displayedStatus = row.seller_status === "approved_seller" && !row.seller_approval_verified
-    ? "verification record required"
-    : row.seller_status.replaceAll("_", " ");
+  const displayedStatus = row.seller_status.replaceAll("_", " ");
   return {
     allowed_mentions: { parse: [] },
     embeds: [{
@@ -523,7 +519,7 @@ export async function buildLinkedSellerRankMessage(input: {
          on trust.seller_id = users.id
       where identity.discord_user_id = $1
         and users.seller_status = 'approved_seller'
-        and ${sellerApprovalVerificationSql("users.payload")}
+        and ${ownerApprovedSellerSql("users.seller_status")}
         and coalesce((users.payload ->> 'disabled')::boolean, false) = false
       limit 1`,
     [input.discordUserId],
@@ -653,7 +649,7 @@ async function listingMessage(input: {
        left join alpha_exchange.discord_identities identity
          on identity.platform_user_id = users.id
       where users.seller_status = 'approved_seller'
-        and ${sellerApprovalVerificationSql("users.payload")}
+        and ${ownerApprovedSellerSql("users.seller_status")}
         and coalesce((users.payload ->> 'disabled')::boolean, false) = false
         and coalesce((users.payload ->> 'isProfileHidden')::boolean, false) = false
         and coalesce((users.payload ->> 'allowProfileSearch')::boolean, true) = true

@@ -17,15 +17,18 @@ documents, bank details, wallet secrets, or production-user data.
 | Submission ID | `0a2470dc-4f2a-4c7e-8d4f-1b0a8d46cbe2` |
 | Submitted | 2026-09-16 02:38 (App Store Connect display time) |
 | Submitted by | Mark Jozen |
-| Replacement build | `13` |
-| Exact Git commit | `1d7bbc14499ae00de62952f2276c91461c427169` |
+| Last delivered build | `15` (replacement selection requires confirmation) |
+| Build 15 source | `04ca88536a3236c6edf109cb177e893d87da2c3f` |
 | Production deployment | `[VERCEL_DEPLOYMENT_ID]` |
 
 ## Evidence reconciliation — 20 September 2026 UTC
 
-Build **1.2.0 (13)** is signed, delivered to TestFlight, and selected in the
-saved App Store draft. Its application source is the commit above. The complete
-technical results are in the [candidate verification record](../audits/2026-09-19-sdk57-candidate-verification.md).
+Build **1.2.0 (15)** was signed and uploaded to TestFlight. The owner reported
+selecting it, but Apple authentication prevented independent confirmation of the
+saved selection. The website approval correction is a later source revision;
+its native-source edits require a new signed build for exact-source submission
+evidence. Do not substitute an earlier build's test or recording evidence.
+The original technical results remain in the [candidate verification record](../audits/2026-09-19-sdk57-candidate-verification.md).
 
 The previously uploaded Israeli VAT business registration certificate has been
 located and visually inspected. It is available in the private release evidence;
@@ -40,10 +43,17 @@ claims of approved-seller access do not establish its current state. Keep the
 reviewer credentials and fixture placeholders below until both roles are tested
 against the final backend.
 
-[PR #174](https://github.com/alphakits/alpha-traders-exchange/pull/174) prepares
-admin reconciliation controls before PR #173 activates the verification
-requirement. Do not treat this prerequisite as the completed enforcement release.
-The preparation controls are deployed in production at `70b155d470b247eb96acc7530271f1d5e542baa9`; the protected Website Health view reports healthy. The Approved filter contains 36 applications, all currently offering Record Verification and none showing a recorded attestation. No attestations were created. The physical-iPhone recording, current reviewer access, and appropriate service permission/content-rights evidence remain outstanding. The reply below is an
+Owner direction on 2026-09-20 supersedes the additional on-site attestation
+controls introduced by [PR #174](https://github.com/alphakits/alpha-traders-exchange/pull/174).
+Preserve application on the website, identity-document and video review through
+WhatsApp, and the ordinary authorized approve/reject decision on the website.
+No retrospective verification entries or additional website identity checks are
+required. Earlier inspection found 36 approved applications and created no
+verification attestations. This observation is not independent review of their
+private WhatsApp identity evidence.
+
+The physical-iPhone recording, current reviewer access, and appropriate service
+permission/content-rights evidence remain outstanding. The reply below is an
 unsent template and must not be presented as a completed-evidence statement.
 
 ## Apple policy basis verified on 2026-09-20
@@ -85,7 +95,7 @@ resolved and the named attachments have been checked.
 
 > Thank you for reviewing Alpha Traders 1.2.0 and for requesting additional
 > information under Guideline 2.1. We have prepared replacement build
-> 13 and expanded the App Review Information so every core
+> [FINAL_BUILD_NUMBER] and expanded the App Review Information so every core
 > feature can be reviewed without using real money, cryptocurrency, identity
 > documents, or customer data.
 >
@@ -133,7 +143,7 @@ resolved and the named attachments have been checked.
 >
 > The production backend, support contact, review listing, Trade Room, and both
 > reviewer accounts will remain available throughout review. We respectfully
-> request review of build 13, and we are ready to answer any
+> request review of build [FINAL_BUILD_NUMBER], and we are ready to answer any
 > specific follow-up question.
 
 ## App Review Notes (4,000-character field)
@@ -143,7 +153,7 @@ limit. Add credentials only in App Store Connect immediately before submission;
 do not put them in this file.
 
 <!-- APP_REVIEW_NOTES_START -->
-Alpha Traders 1.2.0 build 13 is a final public iPhone app for adults 18+ in Israel. It combines bilingual Arabic/English trading education with a structured direct-settlement peer-to-peer USDT marketplace. Approved sellers publish owner-reviewed listings; buyers submit requests; both sides use a staged Trade Room with in-platform chat, evidence, status guidance, notifications, disputes, reporting, blocking, and verified post-trade reviews. Alpha Traders does not custody buyer fiat or seller USDT. The parties settle directly. A 1% seller service commission is recorded only after a completed marketplace trade; the app does not sell digital content or cryptocurrency through Apple In-App Purchase.
+Alpha Traders 1.2.0 build [FINAL_BUILD_NUMBER] is a final public iPhone app for adults 18+ in Israel. It combines bilingual Arabic/English trading education with a structured direct-settlement peer-to-peer USDT marketplace. Approved sellers publish owner-reviewed listings; buyers submit requests; both sides use a staged Trade Room with in-platform chat, evidence, status guidance, notifications, disputes, reporting, blocking, and verified post-trade reviews. Alpha Traders does not custody buyer fiat or seller USDT. The parties settle directly. A 1% seller service commission is recorded only after a completed marketplace trade; the app does not sell digital content or cryptocurrency through Apple In-App Purchase.
 
 The Academy material available in this build is not sold or unlocked inside the app. There are no In-App Purchase products or paid digital-feature unlocks in this version.
 
@@ -154,7 +164,7 @@ Both accounts are fictional, email-verified, fully onboarded, and contain no rea
 
 Suggested path: launch > English or Arabic > sign in as Buyer > Exchange > marked review listing > prepared Trade Room > Notifications > Profile/Settings > Support > Account Deletion. Sign out and use the Approved Seller account > Seller Workspace > My Listings/Purchase Requests > the same prepared Trade Room. Native push, badge routing, camera/photo evidence permissions, offline recovery, update enforcement, and app-switcher privacy masking are demonstrated in the attached physical-iPhone recording. The iOS rating prompt is requested only after a verified completed trade and iOS decides whether to display it.
 
-External services: Vercel (first-party app/API hosting); Supabase (authentication, PostgreSQL, object storage); Expo (native push); Resend (transactional email); TRON/TronGrid (read-only verification of submitted commission transaction IDs); and bounded Academy video hosting. No advertising SDK or cross-app tracking is used. [RECONCILE_OPTIONAL_PRODUCTION_SERVICES_BEFORE_SUBMISSION].
+External services: Vercel (first-party app/API hosting); Supabase (authentication, PostgreSQL, object storage); Expo (native push); Resend (transactional email); TRON/TronGrid (read-only verification of submitted commission transaction IDs); and bounded Academy video hosting. No advertising SDK or cross-app tracking is used. Website market references use Binance/Coinbase and open.er-api/Frankfurter; charts use TradingView. SMS and automated WhatsApp sending were inactive at the last production check. Recheck optional Discord before submission.
 
 Region: Israel storefront only. English and Arabic have the same features. The native app presents monetary values in USD/USDT; ILS-denominated listing and settlement values are normalized using the live USD/ILS reference before display. Supported payment flows are Israeli bank transfer, cardless ATM, and face-to-face. No feature is hidden or remotely enabled after review.
 
@@ -172,7 +182,7 @@ Support: support@alphatraders.co.il. The production backend and reviewer fixture
 | Israel permission/legal analysis | Exact P2P USDT model, commissions, direct settlement, territory, issuing authority or qualified legal conclusion, date, and validity | `[required]` |
 | Content-rights statement | Owner authorization for every Academy course/video/document included in the build | `[required]` |
 | Redacted operational sample | Canonical Trade Room export with immutable reference, timestamps, payment method, lifecycle, completion state, and commission reconciliation; no direct identifiers, bank data, wallet address, chat, location, or evidence media | `[optional support; never a legal substitute]` |
-| Redacted seller-approval process | Application; government-ID review; live-video identity match; contact-ownership confirmation; marketplace-rules acceptance; server-recorded reviewer/time/method attestation; listing authorization; monitoring; suspension; and appeal stages using a fictional or permanently redacted example. Include no raw seller identity document or video. | `[optional support]` |
+| Redacted seller-approval process | Website application; government-ID review and live-video identity match through WhatsApp; ordinary admin approval/rejection audit trail; listing authorization; monitoring; suspension; and appeal stages using a fictional or permanently redacted example. Include no raw seller identity document or video. | `[optional support]` |
 | Optional architecture summary | Direct-settlement diagram and list of providers, with no secrets or customer data | `[recommended]` |
 
 ### Operational-evidence boundary

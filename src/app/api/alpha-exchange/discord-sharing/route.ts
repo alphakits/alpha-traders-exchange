@@ -12,7 +12,7 @@ export async function GET() {
   if (!user) return unauthorized;
   if (!canPublishListings(user)) {
     return NextResponse.json(
-      { error: "Completed seller identity verification is required before sharing listings.", code: "SELLER_VERIFICATION_REQUIRED" },
+      { error: "Seller approval is required before sharing listings.", code: "SELLER_VERIFICATION_REQUIRED" },
       { status: 403, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }

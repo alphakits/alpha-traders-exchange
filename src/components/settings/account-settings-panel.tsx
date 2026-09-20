@@ -297,7 +297,7 @@ export function AccountSettingsPanel({
     }
   }, [initialTab, isAr]);
 
-  // The server computes this from the seller's persisted approval attestation.
+  // The server computes this from the seller's canonical approval and access policy.
   // Do not infer access again from a client-visible role or status.
   const canManageSellerBankAccounts = initialSellerBankAccess === true;
   const hasMaxBankAccounts = bankAccounts.length >= 2;

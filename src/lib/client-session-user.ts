@@ -10,7 +10,7 @@ import type {
   UserRole,
 } from "@/types/alpha-exchange";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 
 /**
@@ -113,7 +113,7 @@ export function toAdminSellerSummary(user: AlphaExchangeUser): AdminSellerSummar
     role: resolvePrimaryRole(roles),
     roles,
     sellerStatus: user.sellerStatus,
-    sellerApprovalVerified: isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
+    sellerApprovalVerified: isOwnerApprovedSeller(user),
     availabilityStatus: user.availabilityStatus,
     lifetimeCompletedVolumeUsdt: user.lifetimeCompletedVolumeUsdt,
     sellerPrestigeRank: user.sellerPrestigeRank,
@@ -150,7 +150,7 @@ export function toClientSessionUser(
     role: resolvePrimaryRole(roles),
     roles,
     sellerStatus: user.sellerStatus,
-    sellerApprovalVerified: isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
+    sellerApprovalVerified: isOwnerApprovedSeller(user),
     whatsappNumber: user.whatsappNumber,
     preferredNetworks: user.preferredNetworks,
     profilePhotoUrl: user.profilePhotoUrl,

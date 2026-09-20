@@ -4,7 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import { toClientSessionUser } from "@/lib/client-session-user";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/admin/alpha-exchange`);
   }
 
-  if ((user.sellerStatus === "approved_seller" && isSellerApprovalVerificationComplete(user.sellerApprovalVerification)) || user.sellerStatus === "suspended") {
+  if ((user.sellerStatus === "approved_seller" && isOwnerApprovedSeller(user)) || user.sellerStatus === "suspended") {
     redirect(`/${locale}/dashboard/seller`);
   }
 

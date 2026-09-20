@@ -1,3 +1,4 @@
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
@@ -31,7 +32,6 @@ import { checkSharedRateLimit } from "@/lib/rate-limit";
 import {
   createSellerApprovalVerification,
   hasSellerOperationalAccess,
-  isSellerApprovalVerificationComplete,
   normalizeSellerApprovalVerification,
   type SellerApprovalChecklist,
 } from "@/lib/seller-approval-verification";
@@ -1652,7 +1652,7 @@ function buildPublicUserProfileDataForUser(input: {
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const canViewSensitiveProfileDetails = canBypassVisibility;
   const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
-  const sellerApprovalVerified = isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  const sellerApprovalVerified = isOwnerApprovedSeller(user);
   const fallbackPublicTradingName = sellerApprovalVerified
     ? "Verified Seller"
     : user.emailVerified === true
@@ -1759,8 +1759,7 @@ export function matchesPublicProfileUsername(
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
-  return (user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended")
-    && isSellerApprovalVerificationComplete(user.sellerApprovalVerification);
+  return user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
@@ -7247,25 +7246,21 @@ export async function approveSellerApplicationByAdmin(
   applicationId: string,
   adminUserId: string,
   reason: string | undefined,
-  verificationChecklist: SellerApprovalChecklist,
+  _legacyVerificationChecklist?: SellerApprovalChecklist,
 ) {
+  // Older clients may still send a checklist; approval does not create identity evidence.
+  void _legacyVerificationChecklist;
   const db = await readDb();
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
 
   const application = db.sellerApplications[applicationIndex];
   if (application.status !== "pending") throw new Error("Seller application is no longer pending review.");
-  const verifiedAt = nowIso();
-  const verification = createSellerApprovalVerification(
-    verificationChecklist,
-    adminUserId,
-    verifiedAt,
-  );
+  const approvedAt = nowIso();
   db.sellerApplications[applicationIndex] = {
     ...application,
     status: "approved",
-    verification,
-    updatedAt: verifiedAt,
+    updatedAt: approvedAt,
   };
 
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
@@ -7277,7 +7272,6 @@ export async function approveSellerApplicationByAdmin(
     roles: nextRoles,
     role: resolvePrimaryRole(nextRoles),
     sellerStatus: "approved_seller",
-    sellerApprovalVerification: verification,
     preferredPaymentMethods: Array.from(new Set([
       ...(db.users[userIndex].preferredPaymentMethods ?? []),
       ...applicationPaymentMethods,
@@ -7292,14 +7286,7 @@ export async function approveSellerApplicationByAdmin(
     targetUserId: application.userId,
     details: `Approved seller application ${application.id}`,
     reason: reason?.trim() || undefined,
-    newValue: {
-      verificationMethod: verification.method,
-      identityDocumentReviewed: true,
-      liveIdentityVideoReviewed: true,
-      contactOwnershipConfirmed: true,
-      marketplaceRulesAccepted: true,
-      verifiedAt: verification.verifiedAt,
-    },
+    newValue: { sellerStatus: "approved_seller", applicationStatus: "approved" },
   });
   pushNotification(db, {
     userId: application.userId,
@@ -7473,8 +7460,8 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
   if (userIndex === -1) throw new Error("User not found.");
   const user = db.users[userIndex];
   if (hasRole(user, "owner")) throw new Error("Owner account cannot be modified.");
-  if (!normalizeSellerApprovalVerification(user.sellerApprovalVerification)) {
-    throw new Error("Seller identity verification must be recorded before reactivation.");
+  if (user.sellerStatus !== "suspended") {
+    throw new Error("Only a suspended seller can be reactivated.");
   }
   const nextRoles = addRole(removeRole(user.roles ?? [user.role], "pending_seller_approval"), "approved_seller");
   db.users[userIndex] = {
@@ -17217,7 +17204,7 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
     usersCount: db.users.length,
     approvedSellersCount: db.users.filter(
       (user) => user.sellerStatus === "approved_seller"
-        && isSellerApprovalVerificationComplete(user.sellerApprovalVerification),
+        && isOwnerApprovedSeller(user),
     ).length,
     pendingApplicationsCount: db.sellerApplications.filter((item) => item.status === "pending").length,
     pendingListingsCount: db.marketplaceListings.filter((item) => isListingPendingApproval(item)).length,

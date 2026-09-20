@@ -30,7 +30,6 @@ import type {
   MarketplaceOperationalSnapshot,
 } from "@/lib/marketplace-operational-health";
 import { isMarketplaceSmokeTestListing } from "@/lib/marketplace-smoke-test";
-import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
@@ -2002,11 +2001,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     <span className={`rounded-full px-2.5 py-1 text-xs ${application.status === "approved" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : application.status === "rejected" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]"}`}>
                                       {application.status === "approved" ? t("Approved", "مقبول") : application.status === "rejected" ? t("Rejected", "مرفوض") : t("Pending", "قيد الانتظار")}
                                     </span>
-                                    {application.verification ? (
-                                      <p className="mt-2 text-xs text-emerald-300">
-                                        {t("Identity and live-video review recorded", "تم تسجيل مراجعة الهوية والفيديو المباشر")}
-                                      </p>
-                                    ) : null}
                                   </td>
                                   <td className="px-4 py-3">
                                     <div className="flex items-center gap-2">
@@ -2016,8 +2010,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         disabled={application.status !== "pending"}
                                         onClick={() => {
                                           if (!window.confirm(t(
-                                            "Attest that you personally reviewed the applicant's government identity document, matched the applicant in a live identity video, confirmed the application contact belongs to the applicant, and confirmed acceptance of the marketplace rules. Raw identity documents must remain outside the Exchange record. Approve this seller application?",
-                                            "أقرّ بأنني راجعت شخصيًا وثيقة الهوية الحكومية لمقدّم الطلب، وطابقت هويته في فيديو مباشر، وأكدت أن وسيلة التواصل تخصه، وأكدت موافقته على قواعد السوق. يجب أن تبقى وثائق الهوية الأصلية خارج سجل المنصة. هل تريد اعتماد هذا البائع؟",
+                                            "Approve this seller application after your WhatsApp review?",
+                                            "هل تريد قبول طلب هذا البائع بعد مراجعة التوثيق عبر واتساب؟",
                                           ))) return;
                                           const reason = requestReason(t("Reason for approving this seller application:", "سبب قبول طلب البائع:"), t("Seller approved for launch", "تم اعتماد البائع للعمل"));
                                           if (!reason) return;
@@ -2026,40 +2020,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             headers: { "content-type": "application/json" },
                                             body: JSON.stringify({
                                               reason,
-                                              verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
                                             }),
                                           }), t("Application approved.", "تم قبول الطلب."));
                                         }}
                                       >
                                         {t("Approve", "قبول")}
                                       </Button>
-                                      {application.status === "approved" && !application.verification ? (
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          onClick={() => {
-                                            if (!window.confirm(t(
-                                              "Record the prior seller verification only if you personally confirm that the government identity document, live identity video, contact ownership, and marketplace-rules acceptance were all reviewed. Raw identity documents must stay outside the Exchange record. Continue?",
-                                              "سجّل التحقق السابق من البائع فقط إذا كنت تؤكد شخصيًا مراجعة وثيقة الهوية الحكومية وفيديو الهوية المباشر وملكية وسيلة التواصل والموافقة على قواعد السوق. يجب أن تبقى وثائق الهوية الأصلية خارج سجل المنصة. هل تريد المتابعة؟",
-                                            ))) return;
-                                            const reason = requestReason(
-                                              t("Reason for recording this prior verification:", "سبب تسجيل هذا التحقق السابق:"),
-                                              t("Existing approved seller verification reconciled", "تمت مطابقة تحقق البائع المعتمد الحالي"),
-                                            );
-                                            if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/verification`, {
-                                              method: "POST",
-                                              headers: { "content-type": "application/json" },
-                                              body: JSON.stringify({
-                                                reason,
-                                                verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
-                                              }),
-                                            }), t("Seller verification recorded.", "تم تسجيل تحقق البائع."));
-                                          }}
-                                        >
-                                          {t("Record Verification", "تسجيل التحقق")}
-                                        </Button>
-                                      ) : null}
                                       <Button
                                         type="button"
                                         size="sm"
@@ -2169,18 +2135,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">{t("Suspended", "موقوف")}</span>
                                       ) : (
                                         <div className="flex flex-wrap gap-2">
-                                          {seller.sellerApprovalVerified ? (
-                                            <RoleBadge variant="approved_seller" locale={locale} />
-                                          ) : (
-                                            <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 text-xs text-amber-200">
-                                              {t("Legacy approved status", "حالة اعتماد قديمة")}
-                                            </span>
-                                          )}
-                                          {!seller.sellerApprovalVerified ? (
-                                            <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 text-xs text-amber-200">
-                                              {t("Verification record required", "سجل التحقق مطلوب")}
-                                            </span>
-                                          ) : null}
+                                          <RoleBadge variant="approved_seller" locale={locale} />
                                           <span className={`rounded-full px-2.5 py-1 text-xs ${isOnVacation ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300"}`}>
                                             {isOnVacation ? t("Vacation", "إجازة") : seller.availabilityStatus === "away" ? t("Away", "غير متاح مؤقتًا") : t("Available", "متاح")}
                                           </span>
@@ -2199,7 +2154,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             {t("Suspend", "إيقاف")}
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" disabled={!seller.sellerApprovalVerified} onClick={() => {
+                                          <Button type="button" size="sm" onClick={() => {
                                             if (!window.confirm(t("Reactivate this seller?", "هل تريد إعادة تفعيل هذا البائع؟"))) return;
                                             const reason = requestReason(t("Reason for reactivating this seller:", "سبب إعادة تفعيل البائع:"), t("Seller reactivated", "تمت إعادة تفعيل البائع"));
                                             if (!reason) return;

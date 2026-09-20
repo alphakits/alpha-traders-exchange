@@ -6,6 +6,7 @@ vi.mock("@/lib/postgres-runtime", () => ({
 }));
 
 import {
+  approveSellerApplicationByAdmin,
   findUserById,
   getAllSellerApplicationsForAdmin,
   invalidateAlphaExchangeStoreCache,
@@ -116,16 +117,48 @@ describe("approved seller verification reconciliation", () => {
     )).rejects.toThrow("Seller identity verification checklist is incomplete.");
   });
 
-  it("blocks reactivation until the verification attestation is recorded", async () => {
+  it("reactivates a previously approved suspended seller without an extra identity record", async () => {
     globalThis.__alphaExchangeMemorySnapshot = seed("suspended") as never;
     invalidateAlphaExchangeStoreCache();
 
-    await expect(reactivateSellerByAdmin(
-      "legacy-seller",
-      "owner-1",
-      "Reactivation requested.",
-    )).rejects.toThrow("Seller identity verification must be recorded before reactivation.");
+    await reactivateSellerByAdmin("legacy-seller", "owner-1", "Reactivation requested.");
+    const seller = await findUserById("legacy-seller");
+    expect(seller?.sellerStatus).toBe("approved_seller");
+    expect(seller?.sellerApprovalVerification).toBeUndefined();
   });
+  it("approves a pending application after WhatsApp review without inventing identity evidence", async () => {
+    const initial = seed();
+    initial.users[0].sellerStatus = "pending_seller_approval";
+    initial.users[0].role = "pending_seller_approval";
+    initial.users[0].roles = ["buyer", "pending_seller_approval"];
+    initial.sellerApplications[0].status = "pending";
+    globalThis.__alphaExchangeMemorySnapshot = initial as never;
+    invalidateAlphaExchangeStoreCache();
+    await approveSellerApplicationByAdmin("legacy-application", "owner-1", "Reviewed through WhatsApp.");
+    const seller = await findUserById("legacy-seller");
+    const [application] = await getAllSellerApplicationsForAdmin();
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(seller?.sellerStatus).toBe("approved_seller");
+    expect(seller?.roles).toContain("approved_seller");
+    expect(seller?.sellerApprovalVerification).toBeUndefined();
+    expect(application.status).toBe("approved");
+    expect(application.verification).toBeUndefined();
+    expect(snapshot.auditLogs).toEqual(expect.arrayContaining([expect.objectContaining({
+      actorUserId: "owner-1",
+      targetUserId: "legacy-seller",
+      reason: "Reviewed through WhatsApp.",
+      newValue: { sellerStatus: "approved_seller", applicationStatus: "approved" },
+    })]));
+  });
+
+  it.each(["buyer", "pending_seller_approval", "rejected"] as const)("cannot bypass application approval by reactivating a %s user", async (status) => {
+    const initial = seed();
+    initial.users[0].sellerStatus = status;
+    globalThis.__alphaExchangeMemorySnapshot = initial as never;
+    invalidateAlphaExchangeStoreCache();
+    await expect(reactivateSellerByAdmin("legacy-seller", "owner-1", "Invalid reactivation.")).rejects.toThrow("Only a suspended seller can be reactivated.");
+  });
+
   it("preserves suspension and roles when recording a prior review", async () => {
     globalThis.__alphaExchangeMemorySnapshot = seed("suspended") as never;
     invalidateAlphaExchangeStoreCache();

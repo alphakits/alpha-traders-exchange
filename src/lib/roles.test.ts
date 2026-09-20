@@ -1,51 +1,35 @@
 import { describe, expect, it } from "vitest";
-
 import { hasRole, normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 describe("seller role authorization", () => {
-  it("removes a legacy Approved Seller role when no attestation exists", () => {
-    const roles = normalizeRolesForUser({
-      email: "legacy@example.test",
-      role: "approved_seller",
-      roles: ["buyer", "approved_seller"],
-      sellerStatus: "approved_seller",
-    });
-
-    expect(roles).toEqual(["buyer"]);
-    expect(resolvePrimaryRole(roles)).toBe("buyer");
-  });
-
-  it("retains Approved Seller only with the complete recorded attestation", () => {
-    const verification = createTestSellerApprovalVerification();
-    const roles = normalizeRolesForUser({
-      email: "verified@example.test",
-      role: "approved_seller",
-      roles: ["buyer", "approved_seller"],
-      sellerStatus: "approved_seller",
-      sellerApprovalVerification: verification,
-    });
-
+  it("preserves owner-approved sellers without an additional identity record", () => {
+    const user = {
+      email: "approved@example.test",
+      role: "approved_seller" as const,
+      roles: ["buyer" as const, "approved_seller" as const],
+      sellerStatus: "approved_seller" as const,
+    };
+    const roles = normalizeRolesForUser(user);
     expect(roles).toEqual(["buyer", "approved_seller"]);
-    expect(hasRole({
-      role: "approved_seller",
-      roles,
-      sellerStatus: "approved_seller",
-      sellerApprovalVerification: verification,
-    }, "approved_seller")).toBe(true);
+    expect(resolvePrimaryRole(roles)).toBe("approved_seller");
+    expect(hasRole(user, "approved_seller")).toBe(true);
+    expect(hasRole({ ...user, sellerApprovalVerified: false }, "approved_seller")).toBe(true);
   });
 
-  it("fails closed for old client projections without a verification result", () => {
-    expect(hasRole({
-      role: "approved_seller",
-      roles: ["approved_seller"],
-      sellerStatus: "approved_seller",
-    }, "approved_seller")).toBe(false);
-    expect(hasRole({
-      role: "approved_seller",
-      roles: ["approved_seller"],
-      sellerStatus: "approved_seller",
-      sellerApprovalVerified: true,
-    }, "approved_seller")).toBe(true);
-  });
+  it.each(["buyer", "pending_seller_approval", "rejected", "suspended"] as const)(
+    "denies stale approved roles and compatibility flags when status is %s",
+    (sellerStatus) => {
+      const user = {
+        email: "stale@example.test",
+        role: "approved_seller" as const,
+        roles: ["buyer" as const, "approved_seller" as const],
+        sellerStatus,
+        sellerApprovalVerified: true,
+        sellerApprovalVerification: createTestSellerApprovalVerification(),
+      };
+      expect(hasRole(user, "approved_seller")).toBe(false);
+      expect(normalizeRolesForUser(user)).not.toContain("approved_seller");
+    },
+  );
 });

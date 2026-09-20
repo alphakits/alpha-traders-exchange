@@ -62,7 +62,7 @@ function patchRequest(body: Record<string, unknown>) {
   });
 }
 
-describe("seller settings verification boundary", () => {
+describe("seller settings approval boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireApiSellerWorkspaceActor.mockResolvedValue({ user, unauthorized: null });
@@ -71,8 +71,9 @@ describe("seller settings verification boundary", () => {
     mocks.addSellerBankAccount.mockResolvedValue({ id: "bank-2" });
   });
 
-  it("does not expose seller bank accounts before the approval attestation is recorded", async () => {
+  it("does not expose bank accounts when the seller is suspended", async () => {
     mocks.canPublishListings.mockReturnValue(false);
+    mocks.requireApiSellerWorkspaceActor.mockResolvedValue({ user: { ...user, sellerStatus: "suspended" }, unauthorized: null });
 
     const response = await GET();
 
@@ -84,8 +85,9 @@ describe("seller settings verification boundary", () => {
     expect(mocks.getSellerBankAccountsForUser).not.toHaveBeenCalled();
   });
 
-  it("rejects bank-account and availability mutations for an unverified legacy seller", async () => {
+  it("rejects bank-account and availability mutations for a suspended seller", async () => {
     mocks.canPublishListings.mockReturnValue(false);
+    mocks.requireApiSellerWorkspaceActor.mockResolvedValue({ user: { ...user, sellerStatus: "suspended" }, unauthorized: null });
 
     const bankResponse = await PATCH(patchRequest({
       action: "add_bank_account",
@@ -102,7 +104,14 @@ describe("seller settings verification boundary", () => {
     expect(mocks.updateSellerAvailabilityStatus).not.toHaveBeenCalled();
   });
 
-  it("allows a verified seller to manage a payout account", async () => {
+  it("returns the approved seller compatibility flag without requiring new identity metadata", async () => {
+    mocks.canPublishListings.mockReturnValue(true);
+    const response = await GET();
+    await expect(response.json()).resolves.toMatchObject({ bankAccounts: [{ id: "bank-1" }], sellerApprovalVerified: true });
+    expect(mocks.getSellerBankAccountsForUser).toHaveBeenCalledWith(user.id);
+  });
+
+  it("allows an approved seller to manage a payout account without extra identity metadata", async () => {
     mocks.canPublishListings.mockReturnValue(true);
 
     const response = await PATCH(patchRequest({

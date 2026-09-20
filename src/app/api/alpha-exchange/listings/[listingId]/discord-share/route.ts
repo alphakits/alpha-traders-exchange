@@ -21,7 +21,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!user) return unauthorized;
   if (!canPublishListings(user)) {
     return NextResponse.json(
-      { error: "Completed seller identity verification is required before sharing listings.", code: "SELLER_VERIFICATION_REQUIRED" },
+      { error: "Seller approval is required before sharing listings.", code: "SELLER_VERIFICATION_REQUIRED" },
       { status: 403 },
     );
   }

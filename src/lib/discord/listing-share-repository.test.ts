@@ -2,7 +2,6 @@
 
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { describe, expect, it, vi } from "vitest";
-import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 vi.mock("server-only", () => ({}));
 
@@ -22,9 +21,7 @@ function result<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
 }
 
 describe("Discord listing share repository", () => {
-  const verifiedSellerPayload = {
-    sellerApprovalVerification: createTestSellerApprovalVerification(),
-  };
+  const verifiedSellerPayload = {};
   it("reports unavailable status without treating a missing runtime database as a request failure", async () => {
     const sharing = await getDiscordListingSharingStatus("seller-1", null);
     expect(sharing).toMatchObject({
@@ -191,13 +188,13 @@ describe("Discord listing share repository", () => {
     })).rejects.toMatchObject({ code: "INVALID_REQUEST_KEY", status: 400 });
   });
 
-  it("rejects a legacy status-only seller before reading the listing", async () => {
+  it.each(["buyer", "pending_seller_approval", "rejected", "suspended"])("rejects a %s seller before reading the listing", async (sellerStatus) => {
     const query = vi.fn(async (sql: string) => {
       if (sql === "begin" || sql === "commit") return result([]);
       if (sql.includes("select pg_advisory_xact_lock")) return result([]);
       if (sql.includes("from alpha_exchange.users users")) {
         return result([{
-          seller_status: "approved_seller",
+          seller_status: sellerStatus,
           payload: {},
           disabled: false,
           profile_hidden: false,

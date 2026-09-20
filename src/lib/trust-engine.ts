@@ -1,6 +1,6 @@
 import type { AlphaExchangeUser, CommissionRecord, MarketplaceListing, PurchaseRequest, SellerBadge, SellerLevel, SellerReputationSnapshot } from "@/types/alpha-exchange";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank } from "@/lib/seller-prestige";
-import { isSellerApprovalVerificationComplete } from "@/lib/seller-approval-verification";
+import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -90,7 +90,7 @@ export function calculateSellerTrustSnapshot(input: {
     0,
     100,
   );
-  const verificationScore = isSellerApprovalVerificationComplete(input.seller.sellerApprovalVerification) ? 100 : 0;
+  const verificationScore = isOwnerApprovedSeller(input.seller) ? 100 : 0;
   const marketplaceViolations = input.seller.sellerStatus === "suspended" ? 2 : 0;
   const disputesLost = Math.round(cancelled.length * 0.15);
   const listingQualityScore = clamp(

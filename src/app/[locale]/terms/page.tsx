@@ -35,7 +35,7 @@ const sections = {
       id: "seller-approval",
       title: "3. Seller approval",
       paragraphs: [
-        "Only sellers whose required review controls were recorded by an authorized reviewer may publish listings. Those controls cover a government-issued identity document, live-video identity match, application-contact ownership, and marketplace-rules acceptance. Approval is a revocable platform-access decision; it is not a guarantee of future conduct, solvency, profit, or a risk-free transaction.",
+        "Only approved sellers may publish listings. Applicants submit the application on the website, complete identity-document and video review with the owner through WhatsApp, and receive an approval or rejection decision on the website. Approval is a revocable platform-access decision; it is not a guarantee of future conduct, solvency, profit, or a risk-free transaction.",
       ],
     },
     {
@@ -96,7 +96,7 @@ const sections = {
       id: "seller-approval",
       title: "3. اعتماد البائع",
       paragraphs: [
-        "يمكن فقط للبائعين الذين سجّل مراجع مخول ضوابط مراجعتهم المطلوبة نشر العروض. تشمل الضوابط وثيقة هوية حكومية، ومطابقة الشخص في فيديو مباشر، وملكية وسيلة التواصل المستخدمة في الطلب، وقبول قواعد السوق. الاعتماد صلاحية استخدام قابلة للسحب، وليس ضمانًا للسلوك المستقبلي أو الملاءة أو الربح أو صفقة بلا مخاطر.",
+        "يمكن فقط للبائعين المعتمدين نشر العروض. يقدّم المستخدم الطلب على الموقع، وتتم مراجعة الهوية والفيديو مع المالك عبر واتساب، ثم يُقبل الطلب أو يُرفض على الموقع. الاعتماد صلاحية استخدام قابلة للسحب، وليس ضمانًا للسلوك المستقبلي أو الملاءة أو الربح أو صفقة بلا مخاطر.",
       ],
     },
     {
