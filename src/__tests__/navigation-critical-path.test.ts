@@ -22,9 +22,9 @@ describe("authenticated navigation critical path", () => {
     expect(sessionFunction).toContain("getSessionUserForRequest(token, false)");
     expect(sessionFunction).not.toContain("getSessionByToken(token)");
     expect(sessionFunction).toContain("getSessionUserForRequest(token, true)");
-    expect(layout).toContain("const [messages, sessionUser] = await Promise.all([");
+    expect(layout).toContain("const [messages, sessionResult] = await Promise.all([");
     expect(layout).toContain("getMessages(),");
-    expect(layout).toContain("getCurrentSessionUser(),");
+    expect(layout).toContain("getCurrentSessionUser().then(");
   });
 
   it("keeps authenticated user lookup on the stable two-table snapshot path", () => {
