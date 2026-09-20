@@ -41,6 +41,7 @@ export default async function LessonPage({ params }: { params: Promise<{ locale:
 
   return (
     <LessonInterface
+      key={lesson.id}
       lesson={lesson}
       courseLessons={courseLessons}
       lessonNarrative={lessonNarratives[lesson.slug] ?? null}

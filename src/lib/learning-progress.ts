@@ -43,7 +43,7 @@ type LearningMeta = {
   totalStudyMinutes: number;
 };
 
-function defaultState(lessonId: string, courseId: string, lessonSlug: string): LessonProgressState {
+export function createDefaultLessonProgress(lessonId: string, courseId: string, lessonSlug: string): LessonProgressState {
   return {
     lessonId,
     courseId,
@@ -115,7 +115,7 @@ function writeLearningMeta(meta: LearningMeta) {
 
 export function getLessonProgressState(lessonId: string, courseId: string, lessonSlug: string) {
   const all = readAllProgress();
-  return all[lessonId] ?? defaultState(lessonId, courseId, lessonSlug);
+  return all[lessonId] ?? createDefaultLessonProgress(lessonId, courseId, lessonSlug);
 }
 
 export function getCourseProgressPercent(_courseId: string, courseLessonIds: string[]) {
@@ -246,7 +246,7 @@ export async function updateLessonProgress({
   updater: (current: LessonProgressState) => LessonProgressState;
 }) {
   const all = readAllProgress();
-  const current = all[lessonId] ?? defaultState(lessonId, courseId, lessonSlug);
+  const current = all[lessonId] ?? createDefaultLessonProgress(lessonId, courseId, lessonSlug);
   const nextBase = updater(current);
 
   const next = {
@@ -274,7 +274,10 @@ export async function updateLessonProgress({
   try {
     await persistToSupabase(next, eventType);
   } catch (error) {
-    console.error("Failed to persist lesson progress to Supabase", error);
+    // Expose only a bounded provider code in the diagnostic line.
+    const rawCode = error && typeof error === "object" && "code" in error ? error.code : null;
+    const code = typeof rawCode === "string" && /^[A-Z0-9_]{1,40}$/i.test(rawCode) ? rawCode : "unknown";
+    console.error(`Failed to persist lesson progress to Supabase (${code})`, error);
   }
 
   return next;
