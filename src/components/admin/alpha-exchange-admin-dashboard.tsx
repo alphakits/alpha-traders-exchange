@@ -1,5 +1,7 @@
 "use client";
 
+import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
@@ -102,7 +104,7 @@ type AdminPayload = {
     };
   };
   privateBeta: OwnerPrivateBetaDashboardData;
-  users: Array<{ id: string; fullName: string; email: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
+  users: Array<{ id: string; fullName: string; email: string; whatsappNumber: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
   sellerReviews: SellerReviewRecord[];
   listingReliability: ListingReliabilityReport[];
   smsDeliveries: AdminSmsDelivery[];
@@ -1024,11 +1026,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }, [betaFeedbackStatusFilter, data?.privateBeta.feedback]);
 
   const usersRows = useMemo(() => {
+    const query = usersQuery.trim().toLowerCase();
+    const contactQuery = normalizeRegistrationWhatsApp(query);
     const items = (data?.users ?? []).filter((user) => {
       if (usersRoleFilter !== "all" && user.role !== usersRoleFilter) return false;
-      const query = usersQuery.trim().toLowerCase();
       if (!query) return true;
-      return `${user.fullName} ${user.email} ${user.role}`.toLowerCase().includes(query);
+      const contact = user.whatsappNumber ?? "";
+      return `${user.fullName} ${user.email} ${user.role} ${contact}`.toLowerCase().includes(query)
+        || (contactQuery !== null && contactQuery === normalizeRegistrationWhatsApp(contact));
     });
     return paginate(items, usersPage);
   }, [data?.users, usersPage, usersQuery, usersRoleFilter]);
@@ -3687,13 +3692,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                     <Card className="border-white/10 bg-[#0B0B0B]/90">
                       <CardHeader>
                         <CardTitle>{t("User Management", "إدارة المستخدمين")}</CardTitle>
-                        <CardDescription>{t("Manage all platform users, roles, and account states.", "أدر مستخدمي المنصة وأدوارهم وحالات حساباتهم.")}</CardDescription>
+                        <CardDescription>{t("Manage all platform users, private contact numbers, roles, and account states.", "أدر مستخدمي المنصة وأرقام التواصل الخاصة وأدوارهم وحالات حساباتهم.")}</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="grid gap-3 md:grid-cols-3">
                           <div className="relative md:col-span-2">
                             <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
-                            <Input className="ps-9" placeholder={t("Search name, email, role...", "ابحث بالاسم أو البريد أو الدور...")} value={usersQuery} onChange={(event) => { setUsersQuery(event.target.value); setUsersPage(1); }} />
+                            <Input className="ps-9" placeholder={t("Search name, email, WhatsApp, role...", "ابحث بالاسم أو البريد أو واتساب أو الدور...")} value={usersQuery} onChange={(event) => { setUsersQuery(event.target.value); setUsersPage(1); }} />
                           </div>
                           <select value={usersRoleFilter} onChange={(event) => { setUsersRoleFilter(event.target.value); setUsersPage(1); }} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="all">{t("Role: All", "الدور: الكل")}</option>
@@ -3712,6 +3717,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                               <tr>
                                 <th className="px-4 py-3">{t("Name", "الاسم")}</th>
                                 <th className="px-4 py-3">{t("Email", "البريد الإلكتروني")}</th>
+                                <th className="px-4 py-3">{t("WhatsApp", "واتساب")}</th>
                                 <th className="px-4 py-3">{t("Role", "الدور")}</th>
                                 <th className="px-4 py-3">{t("Status", "الحالة")}</th>
                                 <th className="px-4 py-3">{t("Joined", "تاريخ الانضمام")}</th>
@@ -3723,6 +3729,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <tr key={user.id} className="border-t border-white/10">
                                   <td className="px-4 py-3 font-medium text-white">{user.fullName}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{user.email}</td>
+                                  <td className="whitespace-nowrap px-4 py-3 text-[#D1D5DB]" dir="ltr">{user.whatsappNumber || t("Not provided", "غير مُقدّم")}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{roleLabel(user.role)}</td>
                                   <td className="px-4 py-3">
                                     {user.disabled ? (
@@ -3744,7 +3751,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   </td>
                                 </tr>
                               ))}
-                              {usersRows.rows.length === 0 ? renderEmptyTableRow(t("No users match your filters.", "لا يوجد مستخدمون يطابقون الفلاتر."), 6) : null}
+                              {usersRows.rows.length === 0 ? renderEmptyTableRow(t("No users match your filters.", "لا يوجد مستخدمون يطابقون الفلاتر."), 7) : null}
                             </tbody>
                           </table>
                         </div>

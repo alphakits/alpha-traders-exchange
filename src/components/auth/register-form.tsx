@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,8 @@ type RegistrationErrorCode =
   | "REQUIRED_FIELDS"
   | "FIELD_TOO_LONG"
   | "INVALID_EMAIL"
+  | "WHATSAPP_REQUIRED"
+  | "INVALID_WHATSAPP"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
   | "PASSWORD_TOO_SHORT"
@@ -40,6 +43,14 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
       REQUIRED_FIELDS: {
         ar: "الاسم الكامل والبريد الإلكتروني وكلمة المرور مطلوبة.",
         en: "Full name, email, and password are required.",
+      },
+      WHATSAPP_REQUIRED: {
+        ar: "رقم واتساب مطلوب للتواصل بشأن حسابك.",
+        en: "A WhatsApp number is required for account contact.",
+      },
+      INVALID_WHATSAPP: {
+        ar: "أدخل رقم واتساب صالحًا مثل 05XXXXXXXX أو رقمًا دوليًا يبدأ بـ + ورمز الدولة.",
+        en: "Enter a valid WhatsApp number, such as 05XXXXXXXX or an international number starting with + and country code.",
       },
       FIELD_TOO_LONG: {
         ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
@@ -93,6 +104,11 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
     setStatusMessage(null);
     setErrorMessage(null);
     if (isSubmitting) return;
+    const whatsappNumber = normalizeRegistrationWhatsApp(form.whatsappNumber);
+    if (!whatsappNumber) {
+      setErrorMessage(localizeRegistrationError(undefined, form.whatsappNumber.trim() ? "INVALID_WHATSAPP" : "WHATSAPP_REQUIRED"));
+      return;
+    }
     setIsSubmitting(true);
     try {
       const response = await fetch("/api/auth/register", {
@@ -101,7 +117,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           "Content-Type": "application/json",
           "X-Locale": locale,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, whatsappNumber }),
       });
       const payload = (await response.json()) as { error?: string; code?: RegistrationErrorCode; message?: string };
       if (!response.ok) {
@@ -131,7 +147,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
       <div className="surface-panel mx-auto w-full max-w-xl p-6 md:p-8">
         <h1 className="page-title">{isAr ? "إنشاء حساب" : "Register"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr ? "أنشئ حساب Alpha Traders الخاص بك. تحقّق من بريدك الإلكتروني لتفعيل الحساب." : "Create your Alpha Traders account. Verify your email to activate your account."}
+          {isAr ? "جميع الحقول مطلوبة. تحقّق من بريدك الإلكتروني لتفعيل الحساب." : "All fields are required. Verify your email to activate your account."}
         </p>
 
         <form className="mt-6 grid gap-3" onSubmit={handleSubmit}>
@@ -139,10 +155,14 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" maxLength={254} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
           <Input aria-label={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" minLength={8} required value={form.confirmPassword} onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} />
-          <Input aria-label={isAr ? "رقم واتساب اختياري" : "WhatsApp Number (optional)"} placeholder={isAr ? "رقم واتساب اختياري" : "WhatsApp Number (optional)"} autoComplete="tel" maxLength={30} value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
+          <Input aria-label={isAr ? "رقم واتساب" : "WhatsApp Number"} aria-describedby="registration-whatsapp-help" placeholder={isAr ? "رقم واتساب (مطلوب)" : "WhatsApp Number (required)"} type="tel" autoComplete="tel" maxLength={30} required dir="ltr" value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
+          <p id="registration-whatsapp-help" className="text-xs text-[#9CA3AF]">
+            {isAr ? "رقم واتساب مطلوب ليتواصل معك فريق Alpha Traders بشأن الحساب والدعم. لا يظهر للعامة افتراضيًا. أدخل رقمًا محليًا يبدأ بـ 05 أو رقمًا دوليًا مع رمز الدولة." : "Your WhatsApp number is required so Alpha Traders can contact you about your account and support. It is not public by default. Use an Israeli 05 number or include the international country code."}
+          </p>
           <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
             <input
               type="checkbox"
+              required
               checked={form.agreedToTerms}
               onChange={(event) => setForm((prev) => ({ ...prev, agreedToTerms: event.target.checked }))}
               className="mt-0.5 h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]"

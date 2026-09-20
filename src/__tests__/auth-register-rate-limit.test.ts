@@ -128,20 +128,48 @@ describe("auth register route", () => {
     }));
   });
 
-  it("allows registration without a phone number and keeps the optional value out of auth metadata", async () => {
-    const response = await POST(makeRequest("no-phone@example.com", "en", { whatsappNumber: "" }));
+  it.each([undefined, null, "", "   ", 501234567, { number: "+972501234567" }])("rejects a missing contact before creating an account: %j", async (whatsappNumber) => {
+    const response = await POST(makeRequest("no-phone@example.com", "en", { whatsappNumber }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: "WHATSAPP_REQUIRED" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
 
+  it.each(["not-a-phone", "0000000000", "+123", "+1234567890123456", "call +972501234567"])("rejects an invalid contact before creating an account: %s", async (whatsappNumber) => {
+    const response = await POST(makeRequest("bad-phone@example.com", "en", { whatsappNumber }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: "INVALID_WHATSAPP" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it("enforces the same requirement for native clients with Arabic errors", async () => {
+    mocks.inferLocaleFromRequest.mockReturnValue("ar");
+    const request = makeRequest("native@example.com", "ar", { whatsappNumber: "" });
+    request.headers.set("x-platform", "ios");
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      code: "WHATSAPP_REQUIRED",
+      error: "رقم واتساب مطلوب للتواصل بشأن حسابك.",
+    });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+  });
+
+  it.each(["050-123-4567", "+972 (50) 123-4567", "٠٥٠١٢٣٤٥٦٧"])("stores a normalized contact in auth metadata and the private profile: %s", async (whatsappNumber) => {
+    const response = await POST(makeRequest("with-phone@example.com", "en", { whatsappNumber }));
     expect(response.status).toBe(200);
     expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({
-      email: "no-phone@example.com",
       options: expect.objectContaining({
-        data: { full_name: "Test User", preferred_locale: "en" },
+        data: { full_name: "Test User", preferred_locale: "en", whatsapp_number: "+972501234567" },
       }),
     }));
     expect(mocks.upsertUserProfileForAuth).toHaveBeenCalledWith(expect.objectContaining({
-      whatsappNumber: "",
-      preferredLocale: "en",
+      whatsappNumber: "+972501234567",
+      emailVerified: false,
     }));
+    expect(mocks.upsertUserProfileForAuth.mock.calls[0][0]).not.toHaveProperty("phoneVerifiedAt");
   });
 
   it("normalizes provider rate limits so they cannot reveal an unknown address", async () => {
