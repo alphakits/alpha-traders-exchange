@@ -11,6 +11,7 @@ import { resolveLessonPdfSource } from "@/lib/lesson-pdf";
 import { resolveLessonResourceUrl } from "@/lib/lesson-video";
 import {
   addStudyMinutes,
+  createDefaultLessonProgress,
   getCourseProgressPercent,
   getLessonProgressState,
   isQuizPassed,
@@ -76,16 +77,24 @@ export function LessonInterface({
 }) {
   const locale = useLocale();
   const isAr = locale === "ar";
-  const [progressState, setProgressState] = useState(() => getLessonProgressState(lesson.id, lesson.courseId, lesson.slug));
+  // Match the server snapshot before restoring browser-only saved progress.
+  const [progressState, setProgressState] = useState(() => createDefaultLessonProgress(lesson.id, lesson.courseId, lesson.slug));
+  const [courseProgress, setCourseProgress] = useState(0);
   const [notesDraft, setNotesDraft] = useState(progressState.notes);
   const [notesSyncState, setNotesSyncState] = useState<SyncState>("idle");
   const [showCelebration, setShowCelebration] = useState(false);
   const [selfHostedVideoErrored, setSelfHostedVideoErrored] = useState(false);
 
-  const courseProgress = getCourseProgressPercent(
-    lesson.courseId,
-    courseLessons.map((entry) => entry.id),
-  );
+  const refreshCourseProgress = useCallback(() => {
+    setCourseProgress(getCourseProgressPercent(lesson.courseId, courseLessons.map((entry) => entry.id)));
+  }, [courseLessons, lesson.courseId]);
+
+  useEffect(() => {
+    const saved = getLessonProgressState(lesson.id, lesson.courseId, lesson.slug);
+    setProgressState(saved);
+    setNotesDraft(saved.notes);
+    refreshCourseProgress();
+  }, [lesson.courseId, lesson.id, lesson.slug, refreshCourseProgress]);
 
   // Determine which completion checks are applicable for this lesson
   const hasQuiz = lesson.quiz.length > 0;
@@ -150,8 +159,9 @@ export function LessonInterface({
         updater,
       });
       setProgressState(next);
+      refreshCourseProgress();
     },
-    [lesson.courseId, lesson.id, lesson.slug],
+    [lesson.courseId, lesson.id, lesson.slug, refreshCourseProgress],
   );
 
   useEffect(() => {
