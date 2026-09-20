@@ -131,6 +131,8 @@ export interface AlphaExchangeUser {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
+  /** Server-owned attestation required before a seller can publish or accept new marketplace work. */
+  sellerApprovalVerification?: SellerApprovalVerification;
   emailVerified?: boolean;
   emailVerifiedAt?: string;
   emailVerificationTokenHash?: string;
@@ -221,6 +223,16 @@ export interface NotificationTradeSnapshot {
 
 export type SellerApplicationStatus = "pending" | "approved" | "rejected";
 
+export interface SellerApprovalVerification {
+  method: "manual_authorized_reviewer_v1";
+  identityDocumentReviewed: true;
+  liveIdentityVideoReviewed: true;
+  contactOwnershipConfirmed: true;
+  marketplaceRulesAccepted: true;
+  verifiedAt: string;
+  verifiedByUserId: string;
+}
+
 export interface SellerApplication {
   id: string;
   userId: string;
@@ -231,6 +243,11 @@ export interface SellerApplication {
   expectedMonthlyTradingVolume: string;
   additionalNotes: string;
   status: SellerApplicationStatus;
+  /**
+   * A minimal approval attestation. Raw identity documents and videos are
+   * intentionally not stored in the Exchange application record.
+   */
+  verification?: SellerApprovalVerification;
   displayNumber?: number;
   createdAt: string;
   updatedAt: string;
@@ -994,6 +1011,7 @@ export interface MarketplaceEnforcementAuditEntry {
 
 export type AuditAction =
   | "seller_approved"
+  | "seller_verification_recorded"
   | "seller_rejected"
   | "seller_suspended"
   | "seller_reactivated"
