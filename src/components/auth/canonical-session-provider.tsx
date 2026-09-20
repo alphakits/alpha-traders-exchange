@@ -17,6 +17,7 @@ const CanonicalSessionContext = createContext<CanonicalSessionContextValue | nul
 
 const CANONICAL_SESSION_RECOVERY_BASE_MS = 1_000;
 const CANONICAL_SESSION_RECOVERY_MAX_MS = 30_000;
+export const CANONICAL_SESSION_READ_TIMEOUT_MS = 30_000;
 
 export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
   const safeAttempt = Math.max(1, Math.floor(attempt));
@@ -50,6 +51,7 @@ export function CanonicalSessionProvider({
   const [isResolving, setIsResolving] = useState(initialSessionUser === null);
   const [error, setError] = useState(false);
   const requestRef = useRef<Promise<CanonicalSessionRefreshResult> | null>(null);
+  const cancelReadRef = useRef<(() => void) | null>(null);
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
   const hadAuthenticatedSessionRef = useRef(Boolean(initialSessionUser));
@@ -73,14 +75,22 @@ export function CanonicalSessionProvider({
       // result is no longer authoritative, so sequence a fresh canonical read.
       requestIdRef.current += 1;
       requestRef.current = null;
+      cancelReadRef.current?.();
     }
     if (requestRef.current) return requestRef.current;
     const requestId = ++requestIdRef.current;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CANONICAL_SESSION_READ_TIMEOUT_MS);
+    const cancelRead = () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+    cancelReadRef.current = cancelRead;
     const request = (async () => {
       if (shouldBlock) setIsResolving(true);
       setError(false);
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+        const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include", signal: controller.signal });
         const payload = (await response.json().catch(() => null)) as { user?: ClientSessionUser | null } | null;
         if (!response.ok) {
           const result: CanonicalSessionRefreshResult = response.status === 401 || response.status === 403 ? "anonymous" : "unavailable";
@@ -106,6 +116,8 @@ export function CanonicalSessionProvider({
         }
         return "unavailable" as const;
       } finally {
+        clearTimeout(timeout);
+        if (cancelReadRef.current === cancelRead) cancelReadRef.current = null;
         if (shouldBlock && mountedRef.current && requestId === requestIdRef.current) setIsResolving(false);
       }
     })();
@@ -165,6 +177,8 @@ export function CanonicalSessionProvider({
       clearSessionRecovery();
       requestIdRef.current += 1;
       requestRef.current = null;
+      cancelReadRef.current?.();
+      cancelReadRef.current = null;
       setUser(null);
       setError(false);
       setIsResolving(false);
@@ -179,6 +193,9 @@ export function CanonicalSessionProvider({
       recoveryNeededRef.current = false;
       clearSessionRecovery();
       requestIdRef.current += 1;
+      requestRef.current = null;
+      cancelReadRef.current?.();
+      cancelReadRef.current = null;
       window.removeEventListener("alpha-auth-changed", handleAuthChange);
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
       window.removeEventListener("online", resumeSessionRecovery);

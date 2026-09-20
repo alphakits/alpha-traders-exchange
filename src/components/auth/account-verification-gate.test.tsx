@@ -34,7 +34,7 @@ describe("AccountVerificationGate canonical session ownership", () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith("/api/auth/me", { cache: "no-store", credentials: "include" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/me", { cache: "no-store", credentials: "include", signal: expect.any(AbortSignal) });
   });
 
   it("shows email as the only verification method when phone verification is off", async () => {

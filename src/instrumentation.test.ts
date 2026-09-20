@@ -7,6 +7,21 @@ vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 import { onRequestError } from "./instrumentation";
 
 describe("request error instrumentation", () => {
+  it("records the server render digest as a number so it can match a browser report", () => {
+    mocks.logEvent.mockClear();
+    onRequestError(
+      Object.assign(new Error("private detail"), { digest: "1234567890" }),
+      { path: "/en/trade-room/private-id", method: "get" },
+      { routePath: "/[locale]/trade-room/[requestId]", routeType: "render", routerKind: "App Router" },
+    );
+    expect(mocks.logEvent).toHaveBeenLastCalledWith("error", expect.objectContaining({
+      metadata: expect.objectContaining({ digest: 1234567890 }),
+    }));
+    expect(JSON.stringify(mocks.logEvent.mock.calls)).not.toContain("private-id");
+    expect(JSON.stringify(mocks.logEvent.mock.calls)).not.toContain("private detail");
+    mocks.logEvent.mockClear();
+  });
+
   it("records a stable redacted error event without headers or request values", () => {
     onRequestError(
       new TypeError("private buyer data"),
