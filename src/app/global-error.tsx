@@ -2,10 +2,10 @@
 
 import "./globals.css";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { ShieldAlert, RefreshCcw, Home } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { reloadCurrentPage } from "@/lib/page-recovery";
 
 type ErrorLocale = "ar" | "en";
 
@@ -38,7 +38,6 @@ export function resolveGlobalErrorLocale(pathname: string, documentLanguage = ""
 
 export default function GlobalError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
@@ -99,7 +98,7 @@ export default function GlobalError({
               <div className="flex flex-wrap justify-center gap-2">
                 <button
                   type="button"
-                  onClick={reset}
+                  onClick={reloadCurrentPage}
                   className={buttonVariants()}
                 >
                   <RefreshCcw className="h-4 w-4" aria-hidden="true" />
@@ -111,7 +110,7 @@ export default function GlobalError({
                     </span>
                   )}
                 </button>
-                <Link
+                <a
                   href={locale ? `/${locale}` : "/"}
                   className={cn(buttonVariants({ variant: "secondary" }))}
                 >
@@ -123,7 +122,7 @@ export default function GlobalError({
                       <span lang="en" dir="ltr">{ERROR_COPY.en.home}</span>
                     </span>
                   )}
-                </Link>
+                </a>
               </div>
             </div>
           </div>

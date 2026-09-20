@@ -2,10 +2,10 @@
 
 import { useEffect } from "react";
 import { ErrorContent } from "@/components/errors/error-content";
+import { reloadCurrentPage } from "@/lib/page-recovery";
 
 export default function LocaleError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
@@ -14,5 +14,5 @@ export default function LocaleError({
     console.error("[locale-error]", error.message, error.digest);
   }, [error]);
 
-  return <ErrorContent reset={reset} />;
+  return <ErrorContent reset={reloadCurrentPage} />;
 }
