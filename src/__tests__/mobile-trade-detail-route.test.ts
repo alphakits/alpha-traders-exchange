@@ -261,6 +261,8 @@ describe("mobile trade detail route", () => {
     const response = await PATCH(request("PATCH", {
       action: "submit_cardless_code",
       withdrawalCode: "482913",
+      verificationKind: "id_number",
+      verificationValue: "012345678",
       clientOperationId: "0123456789abcdef0123456789abcdef",
     }), {
       params: Promise.resolve({ requestId: "purchase-1" }),
@@ -273,6 +275,8 @@ describe("mobile trade detail route", () => {
       actorRole: "buyer",
       nextStatus: "payment_sent",
       cardlessWithdrawalCode: "482913",
+      cardlessVerificationKind: "id_number",
+      cardlessVerificationValue: "012345678",
       clientOperationId: "0123456789abcdef0123456789abcdef",
     }));
   });

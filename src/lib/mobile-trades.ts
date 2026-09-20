@@ -5,6 +5,7 @@ import type {
   MobileTradeMessage,
   MobileTradeSummary,
 } from "@alpha-traders/contracts";
+import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
@@ -54,7 +55,9 @@ export function toMobileTradeMessage(
     sender,
     message: message.kind === "system"
       ? localizeTradeRoomSystemMessage(message.message, locale).text
-      : message.message,
+      : message.credentialKind === "cardless_code"
+        ? localizeCardlessWithdrawalMessage(message.message, locale)
+        : message.message,
     createdAt: message.createdAt,
   };
 }
@@ -172,6 +175,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
     : "";
   const isTradeBlocked = error instanceof Error && error.name === "TradeBlockedError";
   if (isTradeBlocked) {
+    if (code === "cardless-verification-required") return "CARDLESS_DETAILS_REQUIRED";
     if (code === "AWAITING_BUYER_CONFIRMATION") return "AWAITING_BUYER_CONFIRMATION";
     if (code === "ACTIVE_TRADE_EXISTS") return "ACTIVE_TRADE_EXISTS";
     if (code === "PURCHASE_REQUEST_ALREADY_SUBMITTED") return "PURCHASE_REQUEST_ALREADY_SUBMITTED";

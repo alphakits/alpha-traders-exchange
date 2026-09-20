@@ -26,6 +26,8 @@ import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/isra
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
+import { CardlessWithdrawalFields } from "./cardless-withdrawal-fields";
+import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
 
 type Locale = "ar" | "en";
 
@@ -314,17 +316,17 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
   if (isCashTrade && request.status === "accepted" && isBuyer) {
     return {
       label: isAtm
-        ? (isAr ? "أرسلت رمز السحب" : "I Sent the Withdrawal Code")
+        ? (isAr ? "إرسال بيانات السحب وتأكيدها" : "Send & Confirm Withdrawal Details")
         : (isAr ? "سلّمت النقد للبائع" : "I Handed Over the Cash"),
       successLabel: isAtm
-        ? (isAr ? "تم تأكيد إرسال رمز السحب" : "Withdrawal Code Confirmed")
+        ? (isAr ? "تم إرسال بيانات السحب" : "Withdrawal Details Sent")
         : (isAr ? "تم تأكيد تسليم النقد" : "Cash Handover Confirmed"),
       mode: "status",
       nextStatus: "payment_sent",
       confirmationMessage: isAtm
         ? (isAr
-            ? "أكد فقط بعد إرسال رمز السحب دون بطاقة الصحيح للبائع. لا يلزم رفع صورة. بعد التأكيد لا يمكن إلغاء الصفقة العادية."
-            : "Confirm only after sending the correct cardless-withdrawal code to the seller. No photo is required. Normal cancellation is locked after confirmation.")
+            ? "هل راجعت رمز السحب ورقم الهوية أو تاريخ الميلاد؟ سيتم إرسال البيانات للبائع الآن. بعد الإرسال لا يمكن الإلغاء العادي."
+            : "Have you checked the withdrawal code and ID number or date of birth? Both details will be sent to the seller now. Normal cancellation is locked after submission.")
         : (isAr
             ? "أكد فقط بعد تسليم النقد المتفق عليه للبائع وجهًا لوجه. لا يلزم رفع صورة. بعد التأكيد لا يمكن إلغاء الصفقة العادية."
             : "Confirm only after handing the agreed cash to the seller in person. No photo is required. Normal cancellation is locked after confirmation."),
@@ -1354,6 +1356,14 @@ function TradeRoomPageSession({
   const [actionBusy, setActionBusy] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [cardlessCode, setCardlessCode] = useState("");
+  const [cardlessVerificationKind, setCardlessVerificationKind] = useState<CardlessVerificationKind>("id_number");
+  const [cardlessVerificationValue, setCardlessVerificationValue] = useState("");
+  useEffect(() => {
+    setCardlessCode("");
+    setCardlessVerificationKind("id_number");
+    setCardlessVerificationValue("");
+  }, [actor.id, requestId]);
   const [completedActionLabel, setCompletedActionLabel] = useState<string | null>(null);
   const [stepPulse, setStepPulse] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
@@ -2071,15 +2081,11 @@ function TradeRoomPageSession({
         : "I confirm that I read the safe-meeting guidance and will meet in a safe public place without sharing unnecessary personal information.");
       if (!sellerSafetyAcknowledged) return;
     }
-    let cardlessWithdrawalCode = "";
+    const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
+    const isCardlessSubmission = nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod);
     if (nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod)) {
-      const enteredCode = window.prompt(isAr
-        ? "أدخل رمز السحب من 4 إلى 12 رقماً. سيتم إرساله للبائع وتأكيده في خطوة واحدة، وبعدها لا يمكن الإلغاء العادي."
-        : "Enter the 4–12 digit withdrawal code. It will be sent to the seller and confirmed in one step; simple cancellation ends afterward.");
-      if (enteredCode === null) return;
-      cardlessWithdrawalCode = enteredCode.replace(/\s+/g, "");
-      if (!/^\d{4,12}$/.test(cardlessWithdrawalCode)) {
-        setActionError(isAr ? "يجب أن يتكون رمز السحب من 4 إلى 12 رقماً." : "Withdrawal code must contain 4 to 12 digits.");
+      if (!cardlessDetails.ok) {
+        setActionError(isAr ? "أدخل رمز سحب صالحاً ورقم الهوية أو تاريخ الميلاد المطلوب من البنك." : "Enter a valid withdrawal code and the ID number or date of birth required by the bank.");
         return;
       }
     }
@@ -2087,10 +2093,10 @@ function TradeRoomPageSession({
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     const previousRoom = room;
     const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor, action.command);
-    const payload = cardlessWithdrawalCode
+    const payload = isCardlessSubmission && cardlessDetails.ok
       ? {
           action: "submit_cardless_code",
-          withdrawalCode: cardlessWithdrawalCode,
+          ...cardlessDetails.details,
           clientOperationId: globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(16).padStart(12, "0")}${Math.random().toString(16).slice(2).padEnd(20, "0").slice(0, 20)}`,
         }
       : action.command
@@ -2174,6 +2180,10 @@ function TradeRoomPageSession({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(responsePayload, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.", isAr));
       }
+      if (isCardlessSubmission) {
+        setCardlessCode("");
+        setCardlessVerificationValue("");
+      }
       if (responsePayload.request) {
         const nextRoom = applyRequestToRoom(roomRef.current ?? optimisticRoom, responsePayload.request);
         roomRef.current = nextRoom;
@@ -2201,6 +2211,10 @@ function TradeRoomPageSession({
       const refreshedRoom = await fetchRoom(true);
       const expectedStatus = nextStatus === "completed" ? "review_open" : nextStatus;
       if (refreshedRoom?.request.status === expectedStatus) {
+        if (isCardlessSubmission) {
+          setCardlessCode("");
+          setCardlessVerificationValue("");
+        }
         setActionNotice(null);
         setActionError(null);
         if (completedActionTimeoutRef.current) {
@@ -2249,7 +2263,7 @@ function TradeRoomPageSession({
       await fetchRoom(true);
       setActionBusy(false);
     }
-  }, [actor, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2556,6 +2570,16 @@ function TradeRoomPageSession({
 
   const handlePrimaryAction = useCallback(async () => {
     if (!primaryAction) return;
+    if (primaryAction.mode === "status" && primaryAction.nextStatus === "payment_sent" && isCardlessAtmTrade) {
+      const parsed = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
+      if (!parsed.ok) {
+        const inputId = parsed.field === "withdrawalCode" ? "cardless-withdrawal-code" : "cardless-verification-value";
+        document.getElementById(inputId)?.focus();
+        document.getElementById("cardless-withdrawal-details")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        setActionError(isAr ? "عبّئ خانتي بيانات السحب أولاً." : "Complete both withdrawal details first.");
+        return;
+      }
+    }
     setActionError(null);
     if (primaryAction.mode === "upload") {
       const side = primaryAction.uploadSide;
@@ -2572,7 +2596,7 @@ function TradeRoomPageSession({
     }
     if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
-  }, [buyerEvidenceFile, handleStatusUpdate, handleUploadEvidence, primaryAction, sellerEvidenceFile]);
+  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile]);
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
@@ -3318,6 +3342,17 @@ function TradeRoomPageSession({
                   ) : null}
                 </div>
 
+                {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" ? (
+                  <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
+                    verificationKind={cardlessVerificationKind} verificationValue={cardlessVerificationValue}
+                    onCodeChange={setCardlessCode} onKindChange={setCardlessVerificationKind} onValueChange={setCardlessVerificationValue} />
+                ) : null}
+                {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
+                  <div key={message.id} className="rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
+                    <p className="font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
+                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
+                  </div>
+                )) : null}
                 {completedActionLabel ? (
                   <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-4 text-center text-base font-semibold text-emerald-100">
                     <span className="inline-flex items-center gap-2">
@@ -3881,7 +3916,9 @@ function TradeRoomPageSession({
                   {room.messages.length ? (
                     room.messages.map((message) => {
                       const ownMessage = message.senderUserId === actor.id;
-                      const messageBody = message.message || (isAr ? "صورة مرفقة" : "Image attachment");
+                      const messageBody = message.credentialKind === "cardless_code"
+                        ? localizeCardlessWithdrawalMessage(message.message, locale)
+                        : message.message || (isAr ? "صورة مرفقة" : "Image attachment");
                       const localizedSystemMessage = message.kind === "system"
                         ? localizeTradeRoomSystemMessage(messageBody, locale)
                         : null;
@@ -3958,7 +3995,7 @@ function TradeRoomPageSession({
                 ) : null}
                 {isCardlessAtmTrade && !isSeller && request.status === "accepted" ? (
                   <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
-                    {isAr ? "استخدم زر رمز السحب المحمي أعلاه. سيتم إرسال الرمز وتأكيد الدفع معاً لمنع الإلغاء أو الرسائل المتأخرة." : "Use the protected withdrawal-code action above. It sends the code and confirms payment atomically, preventing cancellation or delayed-message races."}
+                    {isAr ? "عبّئ رمز السحب ورقم الهوية أو تاريخ الميلاد في قسم بيانات السحب أعلاه، ثم اضغط إرسال البيانات وتأكيدها." : "Enter the withdrawal code and ID number or date of birth in the withdrawal section above, then send and confirm both details."}
                   </div>
                 ) : (
                 <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>

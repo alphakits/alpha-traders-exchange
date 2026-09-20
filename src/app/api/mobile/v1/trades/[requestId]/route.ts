@@ -137,6 +137,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
       safetyAcknowledged: body?.safetyAcknowledged === true,
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(body?.withdrawalCode ?? "") : undefined,
+      cardlessVerificationKind: isCardlessCodeSubmission ? String(body?.verificationKind ?? "") : undefined,
+      cardlessVerificationValue: isCardlessCodeSubmission ? String(body?.verificationValue ?? "") : undefined,
       clientOperationId: isCardlessCodeSubmission ? String(body?.clientOperationId ?? "") : undefined,
     });
 

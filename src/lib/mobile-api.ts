@@ -25,6 +25,10 @@ const APP_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,49}$/;
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = {
+  CARDLESS_DETAILS_REQUIRED: {
+    ar: "أدخل رمز السحب ورقم الهوية أو تاريخ الميلاد المطلوب من البنك. إذا لم تظهر الخانة الثانية، افتح نفس الصفقة عبر موقع alphatraders.co.il.",
+    en: "Enter the withdrawal code and the ID number or date of birth required by the bank. If the second field is missing, open the same trade at alphatraders.co.il.",
+  },
   INVALID_REQUEST: {
     ar: "الطلب غير صالح.",
     en: "The request is invalid.",

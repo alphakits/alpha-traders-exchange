@@ -1,4 +1,5 @@
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, parseCardlessWithdrawalDetails } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
@@ -945,11 +946,11 @@ function sanitizeTradeRoomMessageForCounterparty(
   return {
     ...message,
     message: message.credentialKind === "cardless_code" && !canViewConfidentialCredential
-      ? "Cardless withdrawal code hidden after cash collection"
+      ? "Cardless withdrawal details hidden after cash collection"
       : message.credentialKind === "cardless_code"
         ? (() => {
-            const code = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
-            return code ? `Cardless withdrawal code: ${code}` : "Cardless withdrawal code unavailable";
+            const payload = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
+            return formatCardlessWithdrawalPayload(payload);
           })()
       : canViewPrivateContent ? message.message : redactExchangeUserContent(message.message),
     payloadHash: undefined,
@@ -12739,6 +12740,8 @@ type UpdatePurchaseRequestStatusInput = {
   completionReason?: string;
   safetyAcknowledged?: boolean;
   cardlessWithdrawalCode?: string;
+  cardlessVerificationKind?: string;
+  cardlessVerificationValue?: string;
   clientOperationId?: string;
   traceId?: string;
 };
@@ -12818,12 +12821,20 @@ async function updatePurchaseRequestStatusAttempt(
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isCashTrade = isCashTradePaymentMethod(requestPaymentMethod);
-  const cardlessWithdrawalCode = String(input.cardlessWithdrawalCode ?? "").replace(/\s+/g, "");
+  const cardlessWithdrawalCode = normalizeCardlessDigits(String(input.cardlessWithdrawalCode ?? "")).replace(/\s+/g, "");
+  const cardlessDetails = parseCardlessWithdrawalDetails({
+    withdrawalCode: cardlessWithdrawalCode,
+    verificationKind: input.cardlessVerificationKind,
+    verificationValue: input.cardlessVerificationValue,
+  });
+  const cardlessCredentialPayload = cardlessDetails.ok
+    ? JSON.stringify(cardlessDetails.details)
+    : cardlessWithdrawalCode;
   const cardlessOperationId = String(input.clientOperationId ?? "").trim().toLowerCase();
   const cardlessCodeIsValid = /^\d{4,12}$/.test(cardlessWithdrawalCode);
   const cardlessOperationIdIsValid = /^[a-f0-9]{32}$|^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cardlessOperationId);
   const cardlessPayloadHash = cardlessCodeIsValid
-    ? cardlessCredentialPayloadHash(request.id, cardlessWithdrawalCode)
+    ? cardlessCredentialPayloadHash(request.id, cardlessCredentialPayload)
     : "";
   // `face_to_face` remains accepted for already-installed clients. The server
   // validates the actual payment method before applying the shared cash flow.
@@ -12931,8 +12942,13 @@ async function updatePurchaseRequestStatusAttempt(
         throw new TradeBlockedError("cardless-code-invalid", "Withdrawal code must contain 4 to 12 digits.", request.id, { guard: "cardless-code-format" });
       }
       const existingCredential = (request.messages ?? []).find((message) => message.credentialKind === "cardless_code");
+      // Keep retries of already-sent legacy codes harmless, while requiring
+      // both fields for new submissions and preventing changes after disclosure.
+      if (!cardlessDetails.ok && existingCredential?.payloadHash !== cardlessPayloadHash) {
+        throw new TradeBlockedError("cardless-verification-required", "Enter the withdrawal code and the ID number or date of birth required by the bank. Refresh the Trade Room or use the website if the second field is missing.", request.id, { guard: "cardless-verification" });
+      }
       if (!existingCredential || existingCredential.payloadHash !== cardlessPayloadHash) {
-        throw new TradeBlockedError("cardless-code-conflict", "A different withdrawal code was already submitted for this trade.", request.id, { guard: "cardless-code-idempotency" });
+        throw new TradeBlockedError("cardless-code-conflict", "Different withdrawal details were already submitted for this trade.", request.id, { guard: "cardless-code-idempotency" });
       }
     }
     return {
@@ -13403,6 +13419,9 @@ async function updatePurchaseRequestStatusAttempt(
           guard: "atomic-cardless-code",
         });
       }
+      if (!cardlessDetails.ok) {
+        throw new TradeBlockedError("cardless-verification-required", "Enter the withdrawal code and the ID number or date of birth required by the bank. Refresh the Trade Room or use the website if the second field is missing.", request.id, { guard: "cardless-verification" });
+      }
       if (!cardlessOperationIdIsValid) {
         throw new TradeBlockedError("cardless-operation-id-invalid", "A valid withdrawal-code request id is required.", request.id, {
           guard: "cardless-code-idempotency-key",
@@ -13415,7 +13434,7 @@ async function updatePurchaseRequestStatusAttempt(
         kind: "user",
         senderUserId: request.buyerId,
         senderRole: "buyer",
-        message: encryptCardlessCredential(cardlessWithdrawalCode, request.id, credentialMessageId),
+        message: encryptCardlessCredential(cardlessCredentialPayload, request.id, credentialMessageId),
         credentialKind: "cardless_code",
         confidential: true,
         payloadHash: cardlessPayloadHash,
