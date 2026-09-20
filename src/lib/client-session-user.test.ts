@@ -58,6 +58,7 @@ describe("toClientSessionUser", () => {
       id: "admin-user",
       fullName: "Admin User",
       email: "admin@example.test",
+      whatsappNumber: "+972500000000",
       role: "admin",
       roles: ["admin"],
       disabled: false,
