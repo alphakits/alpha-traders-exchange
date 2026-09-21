@@ -19,7 +19,7 @@ import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { cn } from "@/lib/utils";
 import type { MarketSnapshot } from "@/types/market";
-import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus, SellerApplication, SellerReputationSnapshot, SupportedNetwork } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus, SellerApplication, PublicSellerReputationSnapshot, SupportedNetwork } from "@/types/alpha-exchange";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { ListingCreateResult, SellerBankAccount, SellerCommissionStatus, TradeQueueSectionKey } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
@@ -57,7 +57,7 @@ type SellerOverviewStats = {
   revenueGenerated: number;
   repeatBuyers: number;
   averageTradeSize: number;
-  reputation: SellerReputationSnapshot | null;
+  reputation: PublicSellerReputationSnapshot | null;
 };
 
 export type SellerWorkspaceSectionProps = {

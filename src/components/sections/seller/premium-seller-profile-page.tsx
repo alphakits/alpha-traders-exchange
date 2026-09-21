@@ -137,16 +137,7 @@ function countryLabel(country: string | undefined, isAr: boolean) {
   return ARABIC_COUNTRY_ALIASES[value] ?? (containsArabic(value) ? "Other country" : value);
 }
 
-function publicVolumeLabel(value: string, isAr: boolean) {
-  const trimmed = value.trim();
-  if (!isAr || !trimmed) return trimmed || "0+";
-  if (containsArabic(trimmed)) return trimmed;
-  const match = trimmed.match(/^([\d,.]+)\s*([KMB])?\s*(\+)?(?:\s+(USDT))?$/i);
-  if (!match) return "حجم موثّق";
-  const [, amount, unit, plus, currency] = match;
-  const unitLabel = unit ? ({ K: "ألف", M: "مليون", B: "مليار" } as const)[unit.toUpperCase() as "K" | "M" | "B"] : "";
-  return `${plus ? "+" : ""}${amount}${unitLabel ? ` ${unitLabel}` : ""}${currency ? " USDT" : ""}`;
-}
+
 
 function StatCard({ label, value, accent = false, isUsdt = false }: { label: string; value: string; accent?: boolean; isUsdt?: boolean }) {
   return (
@@ -255,11 +246,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
       value: profile.completedTrades.toLocaleString("en-IL"),
       icon: <HandCoins className="h-3.5 w-3.5" />,
     },
-    {
+    ...(profile.tradeVolume !== undefined ? [{
       label: isAr ? "الحجم" : "Trade Volume",
-      value: `${(profile.tradeVolume ?? profile.lifetimeCompletedVolumeUsdt).toLocaleString("en-IL")} USDT`,
+      value: `${profile.tradeVolume.toLocaleString("en-IL")} USDT`,
       icon: <WalletCards className="h-3.5 w-3.5" />,
-    },
+    }] : []),
     {
       label: isAr ? "الاستجابة" : "Response Time",
       value: `${profile.responseTimeMinutes.toFixed(0)} ${isAr ? "دقيقة" : "min"}`,
@@ -273,7 +264,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
       : (isAr ? "إجازة" : "Vacation");
   const stats: Array<{ label: string; value: string; isUsdt?: boolean }> = [
     { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
-    { label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT`, isUsdt: true },
+    ...(profile.tradeVolume !== undefined ? [{ label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume.toLocaleString("en-IL")} USDT`, isUsdt: true }] : []),
     { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}${isAr ? "٪" : "%"}` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}${isAr ? "٪" : "%"}` },
@@ -468,6 +459,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   <TrendingUp className="h-5 w-5 text-[#C9A227]" />
                   <h2 className="text-lg font-semibold text-white">{isAr ? "السمعة" : "Prestige"}</h2>
                 </div>
+                {profile.progressToNextRankPercent !== undefined ? (
                 <div className="mt-4">
                   <div className="mb-2 flex items-center justify-between text-sm text-[#D1D5DB]">
                     <span>{isAr ? "التقدم إلى المستوى التالي" : "Progress to next rank"}</span>
@@ -477,6 +469,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#FDE68A] to-[#C9A227]" style={{ width: `${Math.min(100, profile.progressToNextRankPercent)}%` }} />
                   </div>
                 </div>
+                ) : null}
                 <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "الرتبة الحالية" : "Current rank"}</p>
@@ -486,10 +479,12 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <p className="text-[#9CA3AF]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
                     <p className="mt-1 font-semibold text-[#C9A227]">{profile.nextRank ? formatSellerLevelLabel(profile.nextRank, isAr) : (isAr ? "أعلى مستوى" : "Top tier reached")}</p>
                   </div>
+                  {profile.amountToNextRankUsdt !== undefined ? (
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "المتبقي إلى الترقية" : "Remaining volume"}</p>
                     <p className="mt-1 font-semibold text-white"><bdi dir="ltr">{profile.amountToNextRankUsdt.toLocaleString("en-IL")} USDT</bdi></p>
                   </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -648,7 +643,6 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{sellerItem.sellerName.slice(0, 2).toUpperCase()}</div>
                   <div>
                     <p className="font-medium text-white"><bdi dir="auto">{sellerItem.sellerName}</bdi></p>
-                    <p className="inline-flex items-center gap-1 text-xs text-[#9CA3AF]"><UsdtIcon /><bdi dir="auto">{publicVolumeLabel(sellerItem.publicVolumeRange, isAr)}</bdi></p>
                   </div>
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>

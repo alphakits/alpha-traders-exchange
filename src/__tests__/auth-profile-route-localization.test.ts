@@ -15,6 +15,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   getAccountProfileData: mocks.getAccountProfileData,
 }));
 
+import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { PATCH } from "@/app/api/auth/profile/route";
 
 function request(locale: "ar" | "en", body: unknown) {
@@ -47,6 +48,15 @@ describe("auth profile route localization", () => {
       expect(payload.code).toBe("PROFILE_UPDATE_FAILED");
       expect(JSON.stringify(payload)).not.toContain("private database connection details");
       expect(payload.error).toMatch(locale === "ar" ? /تعذر/ : /Failed/);
+    }
+  });
+
+  it("returns a localized weekly limit and the next allowed date", async () => {
+    mocks.updateAccountProfileData.mockRejectedValue(new ProfileNameCooldownError("2026-09-28T12:00:00.000Z"));
+    for (const locale of ["ar", "en"] as const) {
+      const response = await PATCH(request(locale, { fullName: "New Name" }));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: "PROFILE_NAME_COOLDOWN", nextNameChangeAt: "2026-09-28T12:00:00.000Z", error: expect.stringContaining("7") });
     }
   });
 

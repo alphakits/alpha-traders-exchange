@@ -64,13 +64,6 @@ export function buildDiscordSellerProfileCard(
           value: profile.completedTrades.toLocaleString("en-IL"),
           inline: true,
         }]),
-    ...(profile.publicVolumeRange
-      ? [{
-          name: "Public volume",
-          value: escapeDiscordPlainText(profile.publicVolumeRange),
-          inline: true,
-        }]
-      : []),
     {
       name: "Member since",
       value: new Date(profile.memberSince).toLocaleDateString("en-IL", {

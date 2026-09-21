@@ -20,6 +20,7 @@ type AccountProfilePayload = {
     profilePhotoUrl: string;
     coverBannerUrl?: string;
     fullName: string;
+    nextNameChangeAt?: string;
     username: string;
     email: string;
     role: string;
@@ -634,14 +635,15 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       const response = await fetch("/api/auth/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, fullName: form.fullName.trim() === payload?.profile.fullName ? undefined : form.fullName }),
       });
       const data = (await response.json()) as AccountProfilePayload & { error?: string };
       if (!response.ok) {
-        setMessage(isAr ? "تعذر تحديث الهوية." : "Failed to update the profile. Please try again.");
+        setMessage(data.error ?? (isAr ? "تعذر تحديث الهوية." : "Failed to update the profile. Please try again."));
         return;
       }
-      setPayload(data);
+      applyProfilePayload(data);
+      void refreshCanonicalSession?.({ force: true });
       setMessage(isAr ? "تم حفظ الهوية بنجاح." : "Trading identity saved.");
     } catch {
       setMessage(isAr
@@ -968,7 +970,10 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                 </div>
               ) : null}
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
-                <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
+                <div>
+                <Input maxLength={100} value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
+                <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يمكنك تغيير اسمك مرة واحدة كل 7 أيام." : "You can change your name once every 7 days."}{payload.profile.nextNameChangeAt && Date.parse(payload.profile.nextNameChangeAt) > Date.now() ? ` ${isAr ? "التغيير التالي:" : "Next change:"} ${new Date(payload.profile.nextNameChangeAt).toLocaleString(isAr ? "ar" : "en-GB")}` : ""}</p>
+                </div>
                 <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
                 <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} />
                 <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />

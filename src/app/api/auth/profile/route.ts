@@ -1,3 +1,4 @@
+import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
@@ -7,9 +8,13 @@ import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 const PROFILE_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
-type ProfileErrorCode = "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
+type ProfileErrorCode = "PROFILE_NAME_COOLDOWN" | "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
 
 const PROFILE_ERROR_COPY: Record<ProfileErrorCode, { ar: string; en: string }> = {
+  PROFILE_NAME_COOLDOWN: {
+    ar: "يمكنك تغيير اسم ملفك الشخصي مرة واحدة كل 7 أيام.",
+    en: "You can change your profile name once every 7 days.",
+  },
   PROFILE_RATE_LIMITED: {
     ar: "تم إرسال طلبات تحديث كثيرة. انتظر قليلاً ثم حاول مرة أخرى.",
     en: "Too many profile update requests. Please wait and try again.",
@@ -113,6 +118,7 @@ export async function GET() {
     accountStatuses: accountStatuses(user),
   }, {
     headers: {
+      ...PROFILE_RESPONSE_HEADERS,
       "X-Auth-Profile-Route-Ms": String(routeMs),
       "X-Auth-Profile-Timeline": JSON.stringify(timeline),
       "Server-Timing": `route;dur=${routeMs}, auth;dur=${Math.max(0, authEndedAt - authStartedAt)}, profile;dur=${Math.max(0, profileLoadEndedAt - profileLoadStartedAt)}`,
@@ -188,13 +194,17 @@ export async function PATCH(request: NextRequest) {
       accountStatuses: accountStatuses(user),
     }, {
       headers: {
-        "X-Trade-Route-Ms": String(routeMs),
+        ...PROFILE_RESPONSE_HEADERS,
+      "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Validation-Ms": String(validationMs),
         "X-Trade-Logic-Ms": String(logicMs),
         "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
       },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProfileNameCooldownError) {
+      return NextResponse.json({ code: "PROFILE_NAME_COOLDOWN", error: PROFILE_ERROR_COPY.PROFILE_NAME_COOLDOWN[profileLocale(request)], nextNameChangeAt: error.nextAllowedAt }, { status: 409, headers: PROFILE_RESPONSE_HEADERS });
+    }
     return profileError(request, "PROFILE_UPDATE_FAILED", 400);
   }
 }

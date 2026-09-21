@@ -52,7 +52,7 @@ function toMobileSellerProfile(
     completionRate: profile.completionRate,
     repeatBuyersPercent: profile.repeatBuyersPercent,
     totalReviews: profile.totalReviews,
-    publicVolumeRange: profile.publicVolumeRange,
+    publicVolumeRange: "",
     badges: [...profile.badges],
     latestReviews: profile.latestReviews.map((review) => ({
       rating: review.rating,

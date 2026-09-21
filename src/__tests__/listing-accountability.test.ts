@@ -11,6 +11,8 @@ import {
   createPurchaseRequest,
   deleteMarketplaceListingForSeller,
   getUserBlockStatus,
+  getAccountProfileData,
+  getHallOfFameEntries,
   getListingReliabilityForAdmin,
   getMarketplaceListings,
   getNotificationsForUser,
@@ -256,6 +258,37 @@ describe("listing accountability: reason + audit + reliability", () => {
     expect(edit?.oldValue).toMatchObject({ price: "3.60" });
     expect(edit?.newValue).toMatchObject({ price: "3.70" });
     expect(edit?.details).toContain("Adjusted to match the market rate.");
+  });
+
+  it("keeps seller volume and reconstructable totals private across profile and listing responses", async () => {
+    await createApprovedListing("1000", "3.60");
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const seller = snapshot.users.find(user => user.id === SELLER_ID)!;
+    seller.lifetimeCompletedVolumeUsdt = 123456.78;
+    seller.sellerAchievements = [{ id: "volume", key: "volume_500k", title: "500K Volume", description: "Volume", earnedAt: new Date().toISOString(), source: "automatic", metadata: { lifetimeVolumeUsdt: 123456.78 } }];
+    invalidateAlphaExchangeStoreCache();
+    const privateKeys = ["totalUsdtVolume", "lifetimeCompletedVolumeUsdt", "prestigeVolumeUsdt", "tradeVolume", "exactTradeVolume", "commissionPaid", "estimatedCommissionPaid", "averageTradeSize", "revenueGenerated", "amountToNextRankUsdt", "remainingVolumeToNextRank", "progressToNextRankPercent", "prestigeProgressPercent", "lifetimeVolumeUsdt"];
+    for (const viewerUserId of [undefined, BUYER_ID, SELLER_TWO_ID]) {
+      const profile = await getPremiumSellerProfile({ sellerId: SELLER_ID, viewerUserId });
+      const serialized = JSON.stringify(profile);
+      for (const key of privateKeys) expect(serialized).not.toContain(`"${key}":`);
+      expect(profile?.sellerLevel).toBeTruthy();
+      expect(profile?.publicVolumeRange).toBe("");
+      expect(profile?.achievements).toEqual([]);
+      const listings = await getMarketplaceListings("active", undefined, viewerUserId);
+      expect(listings.length).toBeGreaterThan(0);
+      const json = JSON.stringify(listings);
+      for (const key of privateKeys) expect(json).not.toContain(`"${key}":`);
+      expect(listings[0].sellerReputation?.level).toBeTruthy();
+    }
+    const ownProfile = await getPremiumSellerProfile({ sellerId: SELLER_ID, viewerUserId: SELLER_ID });
+    expect(ownProfile?.lifetimeCompletedVolumeUsdt).toBe(123456.78);
+    expect((await getAccountProfileData(SELLER_ID)).stats.lifetimeCompletedVolumeUsdt).toBeTypeOf("number");
+    seller.sellerPrestigeRank = "elite";
+    invalidateAlphaExchangeStoreCache();
+    const hall = await getHallOfFameEntries();
+    expect(hall.length).toBeGreaterThan(0);
+    for (const key of privateKeys) expect(JSON.stringify(hall)).not.toContain(`"${key}":`);
   });
 
   it("records reason when a listing is removed", async () => {
