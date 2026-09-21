@@ -2176,6 +2176,18 @@ export class AlphaExchangeRepository {
       const changed = JSON.stringify(updated) !== beforeJson;
       if (changed) {
         await client.query("update alpha_exchange.purchase_requests set payload = $2::jsonb, updated_at = $3::timestamptz where id = $1", [updated.id, json(updated), updated.updatedAt]);
+        if (updated.buyerReview && !before.buyerReview) {
+          // One recipient/request-scoped update replaces the post-review client
+          // burst of full snapshot reads and individual notification writes.
+          await client.query(`update alpha_exchange.notifications
+            set is_read = true, payload = payload || jsonb_build_object('isRead', true, 'state', 'read', 'updatedAt', $3::text)
+            where user_id = $1 and payload->>'relatedRequestId' = $2 and is_read = false
+              and coalesce(payload->>'state', 'unread') <> 'archived'
+              and (lower(payload->>'title') like '%action required%'
+                or lower(payload->>'title') like '%confirm usdt receipt%'
+                or lower(payload->>'message') like '%confirm that you received your usdt%')`,
+          [updated.buyerId, updated.id, updated.updatedAt]);
+        }
         for (const name of ["notifications", "audit_logs", "activity_logs"] as const) {
           const table = getTable(name);
           await table.insert(client, table.values(next), { evidenceContentById: new Map() });

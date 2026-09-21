@@ -10175,10 +10175,11 @@ export async function createPurchaseRequest(input: {
   }
   const canonicalListingBanks = parseIsraeliBankSelection(listing.bankName);
   const requestedCardlessBanks = parseIsraeliBankSelection(input.bankName);
-  const canonicalCardlessBanks = requestedCardlessBanks.length
-    && requestedCardlessBanks.every((bank) => canonicalListingBanks.includes(bank))
-    ? requestedCardlessBanks
-    : canonicalListingBanks;
+  if (isCardlessAtmPaymentMethod(primaryPaymentMethod)
+    && (requestedCardlessBanks.length !== 1 || !canonicalListingBanks.includes(requestedCardlessBanks[0]))) {
+    throw new TradeBlockedError("CARDLESS_BANK_REQUIRED", "Choose the bank that issued your withdrawal code from this listing's supported banks.");
+  }
+  const canonicalCardlessBanks = requestedCardlessBanks;
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = calculateFiatAmount(usdtAmount, pricePerUsdt);
   if (!fiatAmount) throw new Error("Unable to calculate the trade total.");
@@ -12646,6 +12647,18 @@ export async function submitBuyerTradeReview(input: {
       };
       return snapshot;
     }
+
+    // Clear only this buyer's obsolete receipt reminders in the same save.
+    // The client must not fan out a separate full-snapshot write per reminder.
+    snapshot.notifications = snapshot.notifications.map((notification) => {
+      if (notification.userId !== input.buyerUserId || notification.relatedRequestId !== request.id
+        || notification.isRead || notification.state === "archived") return notification;
+      const title = notification.title.toLowerCase();
+      const message = notification.message.toLowerCase();
+      if (!title.includes("action required") && !title.includes("confirm usdt receipt")
+        && !message.includes("confirm that you received your usdt")) return notification;
+      return { ...notification, isRead: true, state: "read" as const, updatedAt: nowIso() };
+    });
 
     const sellerSnapshotBefore = computeSellerReputationSnapshot(snapshot, request.sellerId);
     const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });

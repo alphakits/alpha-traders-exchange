@@ -27,8 +27,8 @@ class MockEventSource {
     this.listeners.get(type)?.delete(listener);
   }
 
-  emit(type: string) {
-    for (const listener of this.listeners.get(type) ?? []) listener(new Event(type));
+  emit(type: string, event: Event = new Event(type)) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
 
@@ -90,6 +90,21 @@ describe("useAuthenticatedNotificationStream", () => {
     }
 
     expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("reconnects a database snapshot error without restarting the site session", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    await act(async () => {
+      MockEventSource.instances[0].emit("error", new MessageEvent("error", { data: '{"message":"Query read timeout"}' }));
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("opens immediately from a server-authenticated session while canonical verification runs", async () => {

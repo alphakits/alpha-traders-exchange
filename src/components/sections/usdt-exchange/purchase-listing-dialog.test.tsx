@@ -9,7 +9,7 @@ const noop = () => {};
 function Harness() {
   const [buyerInfo, setBuyerInfo] = useState<Props["buyerInfo"]>({ usdtAmount: "125", receivingNetwork: "TRC20", receivingWalletAddress: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8", cardlessVerificationKind: "date_of_birth" });
   const invalid = Boolean(getWalletAddressValidationError(buyerInfo.receivingNetwork!, buyerInfo.receivingWalletAddress));
-  return <PurchaseListingDialog locale="en" listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", network: "TRC20" } as Props["listing"]}
+  return <PurchaseListingDialog locale="en" listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", bankName: "Bank Hapoalim, Bank Leumi", network: "TRC20" } as Props["listing"]}
     sellerProfileData={null} isSellerProfileLoading={false} selectedAmount={1000} selectedPrice={3.2} estimatedTotal={Number(buyerInfo.usdtAmount) * 3.2}
     isOwnerViewer={false} isOwnerProfileActionLoading={false} purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
     selectedPaymentMethods={["Cardless ATM Withdrawal"]} selectedPaymentMethod="Cardless ATM Withdrawal" buyerTradeAmount={Number(buyerInfo.usdtAmount)} selectedMinTrade={10} selectedMaxTrade={1000} buyerTradeAmountInvalid={false}
@@ -34,6 +34,11 @@ describe("prepared cardless purchase form", () => {
     expect(Array.from(cash.options).slice(1).map((option) => Number(option.value))).toEqual(Array.from({ length: 100 }, (_, i) => (i + 1) * 100));
     fireEvent.change(cash, { target: { value: "500" } });
     expect((screen.getByLabelText(/USDT Amount/) as HTMLInputElement).value).toBe("156.25");
+    expect(submit.disabled).toBe(true);
+    const bank = screen.getByLabelText(/Bank that issued your withdrawal code/) as HTMLSelectElement;
+    expect(bank.required).toBe(true);
+    expect(Array.from(bank.options).slice(1).map((option) => option.value)).toEqual(["Bank Hapoalim", "Bank Leumi"]);
+    fireEvent.change(bank, { target: { value: "Bank Leumi" } });
     expect(submit.disabled).toBe(false);
     fireEvent.change(screen.getByLabelText("USDT receiving network"), { target: { value: "BEP20" } });
     expect(submit.disabled).toBe(true);

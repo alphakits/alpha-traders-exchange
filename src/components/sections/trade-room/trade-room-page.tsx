@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
+import type { MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
 import { formatTradeId } from "@/lib/format-id";
 import {
   acquireTradeRoomMutation,
@@ -1683,37 +1683,7 @@ function TradeRoomPageSession({
     }
   }, []);
 
-  const markOutstandingBuyerReminderCompleted = useCallback(async (purchaseRequestId: string) => {
-    try {
-      const response = await fetch("/api/alpha-exchange/notifications?category=trade&state=unread&limit=200", { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { notifications?: AlphaExchangeNotification[] };
-      const reminders = (payload.notifications ?? []).filter((notification) => {
-        if (notification.relatedRequestId !== purchaseRequestId) return false;
-        const title = notification.title.toLowerCase();
-        const message = notification.message.toLowerCase();
-        return (
-          title.includes("action required")
-          || title.includes("confirm usdt receipt")
-          || message.includes("confirm that you received your usdt")
-        );
-      });
-      if (!reminders.length) return;
-      await Promise.all(
-        reminders.map((notification) =>
-          fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ isRead: true }),
-          }),
-        ),
-      );
-    } catch {
-      // Keep completion UX smooth even if notification cleanup is delayed.
-    }
-  }, []);
-
-  const startBuyerCompletionSuccessFlow = useCallback((purchaseRequestId: string) => {
+  const startBuyerCompletionSuccessFlow = useCallback(() => {
     buyerCompletionLockRef.current = true;
     setBuyerCompletionSuccessActive(true);
     setBuyerRedirectPending(true);
@@ -1732,8 +1702,7 @@ function TradeRoomPageSession({
       }, 250);
       buyerRedirectTimeoutRef.current = null;
     }, 2000);
-    void markOutstandingBuyerReminderCompleted(purchaseRequestId);
-  }, [markOutstandingBuyerReminderCompleted, router]);
+  }, [router]);
 
   useEffect(() => {
     if (!room?.releaseDeadlineActive && !room?.poke?.cooldownUntil) return;
@@ -1813,13 +1782,13 @@ function TradeRoomPageSession({
       streamReconnectAttemptsRef.current = 0;
       setStreamConnected(true);
     };
-    const onError = () => {
+    const onError = (event: Event) => {
       if (closed) return;
       setStreamConnected(false);
       stream.close();
       streamReconnectAttemptsRef.current += 1;
-      if (refreshCanonicalSession) {
-        void refreshCanonicalSession({ force: true });
+      if (!(event instanceof MessageEvent) && refreshCanonicalSession) {
+        void refreshCanonicalSession({ background: true });
       }
       // Keep retrying with a bounded backoff. A phone can move between Wi-Fi
       // and mobile data more than three times during a long trade, so a fixed
@@ -2242,7 +2211,7 @@ function TradeRoomPageSession({
       }, 2000);
       const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview;
       if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
-        startBuyerCompletionSuccessFlow(request.id);
+        startBuyerCompletionSuccessFlow();
       }
       setActionNotice(null);
       setStatusMessage(isAr ? "تم تحديث حالة الصفقة." : "Trade status updated.");
@@ -2269,7 +2238,7 @@ function TradeRoomPageSession({
         }, 2000);
         const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview;
         if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
-          startBuyerCompletionSuccessFlow(request.id);
+          startBuyerCompletionSuccessFlow();
         }
         setStatusMessage(isAr ? "تم تحديث حالة الصفقة بعد تأكيد الخادم." : "Trade status updated after server confirmation.");
       } else {
@@ -2874,7 +2843,7 @@ function TradeRoomPageSession({
       } else {
         setStatusMessage(isAr ? "تم إرسال تقييم البائع." : "Seller rating submitted.");
       }
-      startBuyerCompletionSuccessFlow(currentRequest.id);
+      startBuyerCompletionSuccessFlow();
     } catch (error) {
       logReviewDiagnostic("error-handler-executed", { error: error instanceof Error ? error.message : "unknown-error" });
       const message = error instanceof TradeReviewTimeoutError
@@ -3442,6 +3411,7 @@ function TradeRoomPageSession({
                 {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
                   <div key={message.id} className="rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
                     <p className="font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
+                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified")}</strong></p>
                     <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
                   </div>
                 )) : null}

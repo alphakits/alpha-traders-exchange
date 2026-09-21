@@ -78,6 +78,7 @@ export function TradeFormScreen({
   const [amount, setAmount] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [receivingNetwork, setReceivingNetwork] = useState<MobileSupportedNetwork | null>(null);
+  const [withdrawalBank, setWithdrawalBank] = useState("");
   const [withdrawalCode, setWithdrawalCode] = useState("");
   const [verificationKind, setVerificationKind] = useState<CardlessVerificationKind>("id_number");
   const [verificationValue, setVerificationValue] = useState("");
@@ -103,7 +104,7 @@ export function TradeFormScreen({
   useEffect(() => {
     setAmount("");
     setWalletAddress("");
-    setReceivingNetwork(null); setWithdrawalCode(""); setVerificationValue(""); setCashAmount("");
+    setReceivingNetwork(null); setWithdrawalBank(""); setWithdrawalCode(""); setVerificationValue(""); setCashAmount("");
     setPaymentMethod("");
     setOfferedPrice("");
     setSafetyAcknowledged(false);
@@ -169,7 +170,7 @@ export function TradeFormScreen({
     const maximum = Math.min(configuredMaximum, available);
     if (value <= 0 || value < minimum || value > maximum) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
-    if (isCardless && (!parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
+    if (isCardless && (!listing.bankName?.split(",").map((bank) => bank.trim()).includes(withdrawalBank) || !parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
       || !validateCardlessIlsAmount(cashAmount, (value * numericValue(mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price))).toFixed(2)))) return false;
     if (mode === "offer") {
       const offerCents = Math.round(numericValue(canonicalOfferPrice) * 100);
@@ -177,7 +178,7 @@ export function TradeFormScreen({
       if (listing.currency !== "ILS" || offerCents <= 0 || offerCents >= priceCents || offerCents < priceCents - 35) return false;
     }
     return true;
-  }, [cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
+  }, [withdrawalBank, cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -198,7 +199,7 @@ export function TradeFormScreen({
         listingId: listing.id,
         usdtAmount: numericValue(amount).toString(),
         receivingWalletAddress: walletAddress.trim(), receivingNetwork: chosenNetwork,
-        ...(isCardless ? { cardlessWithdrawalCode: withdrawalCode, cardlessVerificationKind: verificationKind, cardlessVerificationValue: verificationValue, cardlessIlsAmount: cashAmount } : {}),
+        ...(isCardless ? { bankName: withdrawalBank, cardlessWithdrawalCode: withdrawalCode, cardlessVerificationKind: verificationKind, cardlessVerificationValue: verificationValue, cardlessIlsAmount: cashAmount } : {}),
         paymentMethod,
         priceMode: mode === "offer" ? "buyer_offer" : "listing_price",
         offeredPrice: mode === "offer"
@@ -399,6 +400,15 @@ export function TradeFormScreen({
           </View>
 
           {isCardless ? <View style={styles.field}>
+            <Text style={styles.label}>{locale === "ar" ? "البنك الذي أصدرت منه رمز السحب *" : "Bank that issued your withdrawal code *"}</Text>
+            <View accessibilityRole="radiogroup">
+              {(listing.bankName ?? "").split(",").map((bank) => bank.trim()).filter(Boolean).map((bank) => (
+                <Pressable key={bank} disabled={isSubmitting} accessibilityRole="radio" accessibilityState={{ checked: withdrawalBank === bank, disabled: isSubmitting }} onPress={() => setWithdrawalBank(bank)} style={[styles.option, withdrawalBank === bank && styles.optionSelected]}>
+                  <Text style={styles.optionLabel}>{bank}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.hint}>{locale === "ar" ? "سيظهر البنك للبائع ليعرف من أي صراف آلي يسحب المبلغ." : "The seller will see which bank’s ATM to visit."}</Text>
             <Text style={styles.label}>{locale === "ar" ? "جهّز السحب من البنك أولاً. البيانات مخفية حتى يقبل البائع." : "Prepare the bank withdrawal first. Details stay hidden until seller acceptance."}</Text>
             <TextInput accessibilityLabel={locale === "ar" ? "رمز السحب" : "Withdrawal code"} placeholder={locale === "ar" ? "رمز السحب" : "Withdrawal code"} placeholderTextColor={colors.textMuted} keyboardType="number-pad" maxLength={12} value={withdrawalCode} onChangeText={setWithdrawalCode} style={styles.input} editable={!isSubmitting} />
             {(["id_number", "date_of_birth"] as const).map((kind) => <Pressable key={kind} onPress={() => { setVerificationKind(kind); setVerificationValue(""); }} style={[styles.option, verificationKind === kind && styles.optionSelected]} accessibilityRole="radio" accessibilityState={{ checked: verificationKind === kind }}><Text style={styles.optionLabel}>{kind === "id_number" ? (locale === "ar" ? "رقم الهوية" : "ID number") : (locale === "ar" ? "تاريخ الميلاد" : "Date of birth")}</Text></Pressable>)}

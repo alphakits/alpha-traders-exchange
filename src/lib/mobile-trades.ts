@@ -36,6 +36,7 @@ export function toMobileTradeSummary(request: PurchaseRequest, userId: string): 
     currency: request.currency,
     network: request.network,
     paymentMethod: request.paymentMethod,
+    bankName: request.bankName,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
   };
