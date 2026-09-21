@@ -1153,6 +1153,19 @@ function buildOptimisticEvidenceRoom(
   return applyRequestToRoom(room, nextRequest);
 }
 
+export function resolveTradeRoomGuidanceTarget(input: {
+  priorState: string | null;
+  currentState: string;
+  status: PurchaseRequest["status"];
+  action: string | null;
+  hash: string | null;
+}): TradeRoomDeepLinkTarget {
+  const currentTarget = COMPLETED_TRADE_STATUSES.has(input.status) ? "status-banner" : "action-required";
+  // A live transition supersedes the URL that originally opened the room.
+  if (input.priorState && input.priorState !== input.currentState) return currentTarget;
+  return resolveDeepLinkTarget(input.action, input.hash) ?? currentTarget;
+}
+
 function resolveDeepLinkTarget(actionParam: string | null, hash: string | null): TradeRoomDeepLinkTarget | null {
   const normalizedHash = hash?.trim().replace(/^#/, "") || "";
   if (normalizedHash === "status-banner" || normalizedHash === "action-required" || normalizedHash === "evidence" || normalizedHash === "chat") {
@@ -1438,6 +1451,7 @@ function TradeRoomPageSession({
   const roomRef = useRef<TradeRoomData | null>(null);
   const deferredSseRoomRef = useRef<TradeRoomData | null>(null);
   const lastDeepLinkHandledRef = useRef<string | null>(null);
+  const lastGuidedTradeStateRef = useRef<string | null>(null);
   const buyerCompletionLockRef = useRef(false);
   const reviewSubmitInFlightRef = useRef(false);
   const reviewFormVisibleRef = useRef(false);
@@ -1576,7 +1590,8 @@ function TradeRoomPageSession({
     if (isLoading || !deepLinkRequestId || !deepLinkRequestStatus) return;
     const action = searchParams.get("action")?.trim() || null;
     const hash = typeof window !== "undefined" ? window.location.hash : null;
-    const target = resolveDeepLinkTarget(action, hash) ?? "action-required";
+    const currentState = `${deepLinkRequestId}:${deepLinkRequestStatus}`;
+    const target = resolveTradeRoomGuidanceTarget({ priorState: lastGuidedTradeStateRef.current, currentState, status: deepLinkRequestStatus, action, hash });
     if (!target) return;
 
     const marker = `${deepLinkRequestId}:${deepLinkRequestStatus}:${action ?? ""}:${hash ?? ""}`;
@@ -1594,6 +1609,7 @@ function TradeRoomPageSession({
       : ref;
     if (!resolvedRef) return;
     lastDeepLinkHandledRef.current = marker;
+    lastGuidedTradeStateRef.current = currentState;
 
     let stopped = false;
     const timeoutIds: number[] = [];

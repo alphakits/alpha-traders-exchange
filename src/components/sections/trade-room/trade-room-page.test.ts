@@ -20,6 +20,7 @@ import {
   mergeTradeRoomSnapshotPreservingOptimisticMessages,
   mergeTradeRoomMessages,
   resolveTradeRoomChatAttempt,
+  resolveTradeRoomGuidanceTarget,
   revealTradeRoomDeepLinkTarget,
   shouldRestartTradeRoomStreamAfterPageShow,
   shouldAutoScrollTradeRoomChat,
@@ -208,6 +209,12 @@ describe("Trade Room client stability helpers", () => {
       expect(inputMarkup, accessibleName).toContain('type="file"');
       expect(inputMarkup, accessibleName).toContain("tabIndex={-1}");
     }
+  });
+
+  it("advances past stale receipt links when USDT arrives and past stale action links at completion", () => {
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:payment_sent", currentState: "r:usdt_sent", status: "usdt_sent", action: "upload-payment-receipt", hash: "#evidence" })).toBe("action-required");
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:usdt_sent", currentState: "r:review_open", status: "review_open", action: "complete-cash-trade", hash: "#action-required" })).toBe("status-banner");
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:payment_sent", currentState: "r:payment_sent", status: "payment_sent", action: null, hash: "#chat" })).toBe("chat");
   });
 
   it("mirrors server text limits and handles clipboard failures inside the Trade Room", () => {
