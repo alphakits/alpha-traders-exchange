@@ -108,6 +108,53 @@ describe("alpha-exchange listing route validation", () => {
     expect(mocks.updateMarketplaceListingForSeller).not.toHaveBeenCalled();
   });
 
+  it("pauses legacy partially sold listings without waiting for market quotes or revalidating bank details", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue({
+      id: "listing-1", availableAmount: "33709.67742", maximumTrade: "35000",
+      minimumTrade: "200", paymentMethod: "Bank Transfer", bankName: "",
+    });
+    mocks.fetchUsdIlsMarketRate.mockRejectedValue(new Error("Market service unavailable"));
+    const response = await PATCH(new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
+      method: "PATCH", body: JSON.stringify({ status: "paused" }),
+    }), { params: Promise.resolve({ listingId: "listing-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.fetchUsdIlsMarketRate).not.toHaveBeenCalled();
+    expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalledWith({
+      listingId: "listing-1", sellerId: "seller-1", actorUserId: "seller-1", status: "paused",
+    });
+  });
+
+  it.each([{ status: "active" }, { sellerDescription: "Available this evening" }])(
+    "permits a status or description update after a legacy partial sale: %j", async (body) => {
+      mocks.getMarketplaceListingById.mockResolvedValue({
+        id: "listing-1", price: "3.3", currency: "ILS", availableAmount: "2011.285267",
+        minimumTrade: "600", maximumTrade: "7,000", paymentMethod: "Face-to-Face (Meet in Person)",
+      });
+      const response = await PATCH(new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
+        method: "PATCH", body: JSON.stringify(body),
+      }), { params: Promise.resolve({ listingId: "listing-1" }) });
+      expect(response.status).toBe(200);
+      expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalled();
+    },
+  );
+
+  it("saves existing displayed terms after a partial sale without a spurious reason requirement", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue({
+      id: "listing-1", price: "3.3", currency: "ILS", availableAmount: "2011.285267",
+      minimumTrade: "600", maximumTrade: "7,000", paymentMethod: "Face-to-Face (Meet in Person)",
+    });
+    const response = await PATCH(new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
+      method: "PATCH", body: JSON.stringify({
+        availableAmount: "2011.285267", maximumTrade: "2011.285267", minimumTrade: "600",
+        price: "3.30", sellerDescription: "Updated payment instructions",
+      }),
+    }), { params: Promise.resolve({ listingId: "listing-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalledWith(expect.objectContaining({
+      maximumTrade: "2011.285267", changeReason: undefined,
+    }));
+  });
+
   it("accepts all three supported payment methods on a listing", async () => {
     mocks.getMarketplaceListingById.mockResolvedValue({
       id: "listing-1",

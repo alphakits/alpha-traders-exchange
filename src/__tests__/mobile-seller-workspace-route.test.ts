@@ -114,6 +114,17 @@ beforeEach(() => {
 });
 
 describe("mobile seller workspace routes", () => {
+  it("returns editable limits based on remaining inventory after a legacy partial sale", async () => {
+    mocks.getMyMarketplaceListings.mockResolvedValue([
+      listing({ availableAmount: "2011.285267", maximumTrade: "7,000" }),
+    ]);
+    const response = await GET(collectionRequest());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      listings: [{ availableAmount: "2011.285267", maximumTrade: "2011.285267" }],
+    });
+  });
+
   it("returns only the authenticated seller's bounded privacy-safe listings", async () => {
     mocks.getMyMarketplaceListings.mockResolvedValue([
       listing(),

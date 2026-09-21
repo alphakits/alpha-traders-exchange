@@ -602,6 +602,7 @@ describe("partial listing preservation", () => {
           id: listing.id,
           status: "active",
           availableAmount: "750",
+          maximumTrade: "750",
         }),
       ]),
     );
