@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUserForAuthorization } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
@@ -7,7 +8,27 @@ import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification"
 import { isVerified } from "@/lib/verification-bypass";
 
 export async function requireApiUser() {
-  const user = await getCurrentSessionUserForAuthorization();
+  let user: Awaited<ReturnType<typeof getCurrentSessionUserForAuthorization>>;
+  try {
+    user = await getCurrentSessionUserForAuthorization();
+  } catch (error) {
+    unstable_rethrow(error);
+    logEvent("error", {
+      event: "api_session_unavailable",
+      outcome: "failed",
+      reason: "session_read_failed",
+      metadata: { errorName: error instanceof Error ? error.name : typeof error },
+    });
+    // Refuse the action without revoking a valid cookie during a database or
+    // connection failure. Clients can retry the read instead of logging out.
+    return {
+      user: null,
+      unauthorized: NextResponse.json({ error: "Account temporarily unavailable. Please try again.", code: "SESSION_TEMPORARILY_UNAVAILABLE" }, {
+        status: 503,
+        headers: { "Cache-Control": "no-store, max-age=0", "Retry-After": "3" },
+      }),
+    };
+  }
   if (!user || user.disabled === true) {
     const token = await getCurrentSessionToken();
     if (token) {

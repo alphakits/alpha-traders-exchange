@@ -1,10 +1,30 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+
+type RedirectUser = { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined;
+
+function loginDestination(locale: "ar" | "en", rawRedirect: string | undefined, user: RedirectUser) {
+  const roles = user?.roles ?? [];
+  const owner = roles.includes("owner") || user?.role === "owner";
+  const admin = roles.includes("admin") || user?.role === "admin";
+  const needsOnboarding = !user?.onboardingSelection && !user?.onboardingCompletedAt
+    && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
+  const fallback = owner ? "/" : admin ? "/admin/alpha-exchange"
+    : user?.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true ? "/dashboard/seller" : "/usdt-exchange";
+  const candidate = rawRedirect?.startsWith("/") && !rawRedirect.startsWith("//") && !rawRedirect.includes("\\")
+    && !/^\/(?:ar\/|en\/)?(?:login|register)(?:[/?#]|$)/.test(rawRedirect) ? rawRedirect : null;
+  if (needsOnboarding && candidate) {
+    try { sessionStorage.setItem("post_onboarding_redirect", candidate.replace(/^\/(ar|en)(?=\/|$)/, "") || "/"); } catch { /* Storage can be unavailable. */ }
+  }
+  const path = needsOnboarding ? "/onboarding" : candidate ?? fallback;
+  return /^\/(ar|en)(?:\/|$)/.test(path) ? path : path === "/" ? `/${locale}` : `/${locale}${path}`;
+}
 
 export function LoginForm({
   locale,
@@ -18,6 +38,9 @@ export function LoginForm({
   sessionExpired?: boolean;
 }) {
   const isAr = locale === "ar";
+  const canonicalSession = useOptionalCanonicalSession();
+  const recoveredUser = canonicalSession && !canonicalSession.isResolving && !canonicalSession.error ? canonicalSession.user : null;
+  const redirectStartedRef = useRef(false);
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
   const [statusMessage, setStatusMessage] = useState<string | null>(
     sessionExpired
@@ -34,56 +57,13 @@ export function LoginForm({
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => { setHydrated(true); }, []);
-  const defaultRedirectByRole = (
-    user: { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
-  ) => {
-    const roles = user?.roles ?? [];
-    const isOwner = roles.includes("owner") || user?.role === "owner";
-    const isAdmin = roles.includes("admin") || user?.role === "admin";
-    if (isOwner) return "/";
-    if (isAdmin) return "/admin/alpha-exchange";
-    const hasOnboardingChoice = Boolean(user?.onboardingSelection || user?.onboardingCompletedAt);
-    if (!hasOnboardingChoice && ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest"))) return "/onboarding";
-    if (!isAdmin && user?.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true) return "/dashboard/seller";
-    return "/usdt-exchange";
-  };
-
-  function resolveLoginRedirectTarget(
-    rawRedirect: string | undefined,
-    user: { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
-  ) {
-    const fallback = defaultRedirectByRole(user);
-    const roles = user?.roles ?? [];
-    const needsOnboarding = !user?.onboardingSelection && !user?.onboardingCompletedAt && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
-    if (needsOnboarding) {
-      // Preserve the intended destination through onboarding via sessionStorage
-      const intendedPath = normalizeRedirectPath(rawRedirect);
-      if (intendedPath) {
-        try { sessionStorage.setItem("post_onboarding_redirect", intendedPath); } catch { /* ignore */ }
-      }
-      return "/onboarding";
-    }
-    if (!rawRedirect) return fallback;
-    return normalizeRedirectPath(rawRedirect) ?? fallback;
-  }
-
-  function normalizeRedirectPath(rawRedirect: string | undefined): string | null {
-    if (!rawRedirect) return null;
-    if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return null;
-    if (rawRedirect === `/${locale}`) return "/";
-    if (rawRedirect.startsWith(`/${locale}/`)) {
-      const localePath = rawRedirect.slice(`/${locale}`.length);
-      return localePath || "/";
-    }
-    if (/^\/(ar|en)\/(?:login|register)(?:\/|$)/.test(rawRedirect)) return null;
-    return rawRedirect;
-  }
-
-  function toLocaleHref(path: string) {
-    if (/^\/(ar|en)(?:\/|$)/.test(path)) return path;
-    if (path === "/") return `/${locale}`;
-    return `/${locale}${path}`;
-  }
+  useEffect(() => {
+    // A restored phone document can still show Login even though its HttpOnly
+    // cookie is valid. Return only after a fresh server session check succeeds.
+    if (!recoveredUser || isLoginSubmitting || redirectStartedRef.current) return;
+    redirectStartedRef.current = true;
+    window.location.replace(loginDestination(locale, redirectTo, recoveredUser));
+  }, [isLoginSubmitting, locale, recoveredUser, redirectTo]);
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     const clickStartedAt = Date.now();
@@ -142,10 +122,11 @@ export function LoginForm({
         return;
       }
 
-      const target = resolveLoginRedirectTarget(redirectTo, userForRedirect);
+      const target = loginDestination(locale, redirectTo, userForRedirect);
       noteLoginJourneyRedirectStart(Date.now());
       window.dispatchEvent(new Event("alpha-auth-changed"));
-      window.location.replace(toLocaleHref(target));
+      redirectStartedRef.current = true;
+      window.location.replace(target);
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {

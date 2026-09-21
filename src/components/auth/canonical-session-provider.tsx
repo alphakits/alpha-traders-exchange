@@ -18,6 +18,7 @@ const CanonicalSessionContext = createContext<CanonicalSessionContextValue | nul
 const CANONICAL_SESSION_RECOVERY_BASE_MS = 1_000;
 const CANONICAL_SESSION_RECOVERY_MAX_MS = 30_000;
 export const CANONICAL_SESSION_READ_TIMEOUT_MS = 30_000;
+const CANONICAL_SESSION_RESUME_INTERVAL_MS = 15_000;
 
 export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
   const safeAttempt = Math.max(1, Math.floor(attempt));
@@ -53,6 +54,7 @@ export function CanonicalSessionProvider({
   const requestRef = useRef<Promise<CanonicalSessionRefreshResult> | null>(null);
   const cancelReadRef = useRef<(() => void) | null>(null);
   const requestIdRef = useRef(0);
+  const lastReadStartedAtRef = useRef(0);
   const mountedRef = useRef(true);
   const hadAuthenticatedSessionRef = useRef(Boolean(initialSessionUser));
   const expiryRedirectStartedRef = useRef(false);
@@ -69,7 +71,7 @@ export function CanonicalSessionProvider({
     force = false,
     background = false,
   }: { force?: boolean; background?: boolean } = {}) => {
-    const shouldBlock = !background || force;
+    const shouldBlock = !background;
     if (force) {
       // An auth boundary changed while a request may still be in flight. Its
       // result is no longer authoritative, so sequence a fresh canonical read.
@@ -78,6 +80,7 @@ export function CanonicalSessionProvider({
       cancelReadRef.current?.();
     }
     if (requestRef.current) return requestRef.current;
+    lastReadStartedAtRef.current = Date.now();
     const requestId = ++requestIdRef.current;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CANONICAL_SESSION_READ_TIMEOUT_MS);
@@ -88,14 +91,13 @@ export function CanonicalSessionProvider({
     cancelReadRef.current = cancelRead;
     const request = (async () => {
       if (shouldBlock) setIsResolving(true);
-      setError(false);
       try {
         const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include", signal: controller.signal });
         const payload = (await response.json().catch(() => null)) as { user?: ClientSessionUser | null } | null;
         if (!response.ok) {
           const result: CanonicalSessionRefreshResult = response.status === 401 || response.status === 403 ? "anonymous" : "unavailable";
           if (mountedRef.current && requestId === requestIdRef.current) {
-            setUser(null);
+            if (result === "anonymous") setUser(null);
             setError(result === "unavailable");
           }
           return result;
@@ -103,15 +105,18 @@ export function CanonicalSessionProvider({
         if (!payload || !("user" in payload)) throw new Error("Unable to refresh account status.");
         const result: CanonicalSessionRefreshResult = payload.user ? "authenticated" : "anonymous";
         if (mountedRef.current && requestId === requestIdRef.current) {
-          setUser(payload.user ?? null);
+          const nextUser = payload.user ?? null;
+          // Preserve identity for an unchanged account. Background checks must
+          // not remount its streams or reload every workspace panel.
+          setUser((current) => JSON.stringify(current) === JSON.stringify(nextUser) ? current : nextUser);
           setError(false);
         }
         return result;
       } catch {
         if (mountedRef.current && requestId === requestIdRef.current) {
-          // A bootstrap snapshot is never authoritative after the canonical
-          // read fails. Hide privileged UI until the server can confirm it.
-          setUser(null);
+          // A timeout is not a logout. Retain the last confirmed account and
+          // its current screen while recovering; every server action still
+          // verifies the session and permissions independently.
           setError(true);
         }
         return "unavailable" as const;
@@ -141,7 +146,6 @@ export function CanonicalSessionProvider({
     if (
       !mountedRef.current
       || !recoveryNeededRef.current
-      || !hadAuthenticatedSessionRef.current
       || expiryRedirectStartedRef.current
       || recoveryTimeoutRef.current !== null
       || document.visibilityState === "hidden"
@@ -153,7 +157,7 @@ export function CanonicalSessionProvider({
       recoveryTimeoutRef.current = null;
       if (!mountedRef.current || !recoveryNeededRef.current) return;
       if (document.visibilityState === "hidden" || navigator.onLine === false) return;
-      void refresh({ force: true }).then((result) => {
+      void refresh({ background: true }).then((result) => {
         if (!mountedRef.current) return;
         if (result === "unavailable") {
           scheduleRecoveryRef.current();
@@ -183,10 +187,21 @@ export function CanonicalSessionProvider({
       setError(false);
       setIsResolving(false);
     };
-    const resumeSessionRecovery = () => scheduleRecoveryRef.current();
+    const resumeSessionRecovery = () => {
+      if (document.visibilityState === "hidden" || navigator.onLine === false || expiryRedirectStartedRef.current) return;
+      if (recoveryNeededRef.current) {
+        scheduleRecoveryRef.current();
+      } else if (Date.now() - lastReadStartedAtRef.current >= CANONICAL_SESSION_RESUME_INTERVAL_MS) {
+        // iOS can restore a suspended web app without remounting React. Check
+        // the cookie on resume, coalescing pageshow/focus/visibility events.
+        void refresh({ background: true });
+      }
+    };
     window.addEventListener("alpha-auth-changed", handleAuthChange);
     window.addEventListener("alpha-auth-signed-out", handleSignedOut);
     window.addEventListener("online", resumeSessionRecovery);
+    window.addEventListener("pageshow", resumeSessionRecovery);
+    window.addEventListener("focus", resumeSessionRecovery);
     document.addEventListener("visibilitychange", resumeSessionRecovery);
     return () => {
       mountedRef.current = false;
@@ -199,6 +214,8 @@ export function CanonicalSessionProvider({
       window.removeEventListener("alpha-auth-changed", handleAuthChange);
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
       window.removeEventListener("online", resumeSessionRecovery);
+      window.removeEventListener("pageshow", resumeSessionRecovery);
+      window.removeEventListener("focus", resumeSessionRecovery);
       document.removeEventListener("visibilitychange", resumeSessionRecovery);
     };
   }, [clearSessionRecovery, hasInitialSession, refresh]);
@@ -235,12 +252,12 @@ export function CanonicalSessionProvider({
   }, [canonicalPreferredLocale, canonicalUserId, locale]);
 
   useEffect(() => {
-    if (user || (!error && !isResolving)) {
+    if (!error) {
       recoveryNeededRef.current = false;
       clearSessionRecovery();
       return;
     }
-    if (!error || isResolving || !hadAuthenticatedSessionRef.current || expiryRedirectStartedRef.current) return;
+    if (isResolving || expiryRedirectStartedRef.current) return;
     recoveryNeededRef.current = true;
     scheduleRecoveryRef.current();
   }, [clearSessionRecovery, error, isResolving, user]);

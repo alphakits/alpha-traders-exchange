@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginForm } from "@/components/auth/login-form";
+import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
@@ -11,6 +12,38 @@ vi.mock("@/i18n/navigation", () => ({
 describe("LoginForm", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each(["/ar/trade-room/trade-1", "//outside.test", "/ar/login", "/login"])("restores a valid cookie session from Login with safe destination %s", async (redirectTo) => {
+    const originalLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace: replaceSpy } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { id: "buyer-1", role: "buyer", roles: ["buyer"] } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={null}><LoginForm locale="ar" redirectTo={redirectTo} /></CanonicalSessionProvider>);
+      await act(async () => { await Promise.resolve(); });
+      expect(replaceSpy).toHaveBeenCalledWith(redirectTo.includes("trade-room") ? redirectTo : "/ar/usdt-exchange");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/me");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("keeps Login available when the session is anonymous or unavailable", async () => {
+    const originalLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace: replaceSpy } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({}) }));
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={null}><LoginForm locale="en" /></CanonicalSessionProvider>);
+      await act(async () => { await Promise.resolve(); });
+      expect(replaceSpy).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Login" })).toBeTruthy();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
   });
 
   it("redirects immediately after a successful login without waiting for the profile check", async () => {

@@ -1,5 +1,6 @@
 import { buildPageMetadata } from "@/lib/seo";
 import { LoginForm } from "@/components/auth/login-form";
+import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -21,11 +22,13 @@ export default async function LoginPage({
   const { locale } = await params;
   const { redirectTo, reset, sessionExpired } = await searchParams;
   return (
+    <CanonicalSessionProvider initialSessionUser={null}>
     <LoginForm
       locale={locale as "ar" | "en"}
       redirectTo={typeof redirectTo === "string" ? redirectTo : undefined}
       passwordResetSuccess={typeof reset === "string" && reset === "success"}
       sessionExpired={typeof sessionExpired === "string" && sessionExpired === "1"}
     />
+    </CanonicalSessionProvider>
   );
 }
