@@ -21,6 +21,7 @@ import {
   releaseTradeRoomMutation,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
+import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
 import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradeCompletionAvailable, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -2765,37 +2766,45 @@ function TradeRoomPageSession({
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       logReviewDiagnostic("api-request-started", { endpoint: requestUrl, diagnosticId });
-      const requestPromise = fetch(requestUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Review-Diagnostic-Id": diagnosticId,
-        },
-        body: JSON.stringify({
-          mode: "buyer_review",
-          rating: reviewRating,
-          comment: trimmedComment,
-        }),
+      const requestPromise = postTradeReview({
+        requestId: currentRequest.id,
+        rating: reviewRating,
+        comment: trimmedComment,
+        diagnosticId,
       });
       logReviewDiagnostic("api-request-dispatched", { endpoint: requestUrl, diagnosticId });
-      const response = await requestPromise;
+      const { response, payload } = await requestPromise;
       logReviewDiagnostic("api-response-received", { status: response.status, ok: response.ok });
-      const payload = (await response.json()) as {
-        error?: string;
-        message?: string;
-        sellerProgress?: {
-          promoted?: boolean;
-          previousRank?: string;
-          newRank?: string;
-          nextRank?: string;
-          remainingVolumeToNextRank?: number;
-          progressPercent?: number;
-        };
-      };
       if (!response.ok) {
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr));
+        throw new Error(response.status >= 500
+          ? (isAr ? "تعذر تأكيد حفظ التقييم الآن. تعليقك محفوظ هنا؛ حاول الإرسال مجددًا." : "Could not confirm your review was saved. Your feedback is kept here; please submit again.")
+          : readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr));
+      }
+      if (!payload.review || payload.review.buyerId !== actor.id
+        || payload.review.tradeId !== (currentRequest.tradeId ?? currentRequest.id)) {
+        throw new Error(isAr ? "تعذر تأكيد حفظ التقييم. حاول الإرسال مجددًا." : "Could not confirm your review was saved. Please submit again.");
       }
       logReviewDiagnostic("success-handler-executed", { status: response.status });
+      // The committed review is authoritative. A slow secondary room refresh
+      // must not leave the buyer stuck behind a review form after a successful save.
+      const latestRoom = roomRef.current;
+      if (latestRoom?.request.id === currentRequest.id) {
+        const savedReview = payload.review;
+        const nextRoom = applyRequestToRoom(latestRoom, {
+          ...latestRoom.request,
+          buyerReview: {
+            reviewerUserId: savedReview.buyerId,
+            rating: savedReview.rating,
+            comment: savedReview.comment,
+            createdAt: savedReview.createdAt,
+            hidden: savedReview.hidden,
+          },
+          updatedAt: savedReview.updatedAt,
+        });
+        roomRef.current = nextRoom;
+        setRoom(nextRoom);
+        writeTradeRoomCache(currentRequest.id, actor.id, nextRoom);
+      }
       setReviewComment("");
       setReviewDeferred(false);
       if (payload.sellerProgress?.promoted) {
@@ -2809,16 +2818,19 @@ function TradeRoomPageSession({
       } else {
         setStatusMessage(isAr ? "تم إرسال تقييم البائع." : "Seller rating submitted.");
       }
-      await fetchRoom(true);
       startBuyerCompletionSuccessFlow(currentRequest.id);
     } catch (error) {
       logReviewDiagnostic("error-handler-executed", { error: error instanceof Error ? error.message : "unknown-error" });
-      setStatusMessage(localizedCaughtError(error, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr));
+      const message = error instanceof TradeReviewTimeoutError
+        ? (isAr ? "استغرق تأكيد التقييم وقتًا طويلًا. تعليقك محفوظ هنا؛ حاول الإرسال مجددًا." : "Review confirmation took too long. Your feedback is kept here; please submit again.")
+        : localizedCaughtError(error, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr);
+      setReviewCommentError(message);
+      setStatusMessage(message);
     } finally {
       reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
     }
-  }, [actionBusy, fetchRoom, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
+  }, [actionBusy, actor.id, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
 
   const handleReviewFormSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4123,7 +4135,9 @@ function TradeRoomPageSession({
         {statusMessage ? (
           <div id="trade-action-result" tabIndex={-1} role="status" aria-live="polite" className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#D1D5DB]">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+              {reviewCommentError ? <AlertTriangle className="h-4 w-4 text-red-300" />
+                : reviewBusy ? <LoaderCircle className="h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="h-4 w-4 text-emerald-300" />}
               <span>{statusMessage}</span>
             </div>
           </div>

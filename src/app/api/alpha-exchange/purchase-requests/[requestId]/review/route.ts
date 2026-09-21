@@ -10,7 +10,7 @@ type RouteContext = {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
-  const diagnosticId = request.headers.get("X-Review-Diagnostic-Id")?.trim() || null;
+  const diagnosticId = request.headers.get("X-Review-Diagnostic-Id")?.trim().slice(0, 100) || null;
   const { user, unauthorized } = await requireApiUser();
   if (!user) {
     logEvent("warn", {
@@ -149,12 +149,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     return NextResponse.json({ error: "Invalid review mode." }, { status: 400 });
   } catch (error) {
+    const errorCode = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+    const databaseUnavailable = (error instanceof Error && /query read timeout|statement timeout|timeout exceeded|connection terminated|connection closed|persistence.*unavailable/i.test(error.message))
+      || (errorCode !== undefined && ["57014", "55P03", "08000", "08003", "08006", "57P01", "57P02", "57P03", "ETIMEDOUT", "ECONNRESET"].includes(errorCode));
     logEvent("error", {
       event: "trade_review_submission",
       outcome: "failed",
-      reason: "submission_failed",
-      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+      reason: databaseUnavailable ? "database_unavailable" : "submission_failed",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error, errorCode, diagnosticId, routeMs: Date.now() - routeStartedAt },
     });
+    if (databaseUnavailable) {
+      return NextResponse.json({ error: "Could not confirm your review was saved. Please submit the same feedback again.", code: "REVIEW_SAVE_UNCONFIRMED" }, {
+        status: 503,
+        headers: { "Retry-After": "2", "Cache-Control": "no-store" },
+      });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit review." }, { status: 400 });
   }
 }

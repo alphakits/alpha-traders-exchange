@@ -72,12 +72,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
           retryAfterSeconds: rate.retryAfterSeconds,
         });
       }
-      await submitBuyerTradeReview({
+      const { review } = await submitBuyerTradeReview({
         requestId,
         buyerUserId: auth.user.id,
         rating,
         comment,
       });
+      room.request = {
+        ...room.request,
+        buyerReview: {
+          reviewerUserId: review.buyerId,
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: review.createdAt,
+          hidden: review.hidden,
+        },
+        updatedAt: review.updatedAt,
+      };
     } else {
       const message = typeof body?.message === "string" ? body.message.trim() : "";
       if (!message || message.length > 500) {
@@ -95,21 +106,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
           retryAfterSeconds: rate.retryAfterSeconds,
         });
       }
-      await submitSellerReviewResponse({
+      const review = await submitSellerReviewResponse({
         requestId,
         sellerUserId: auth.user.id,
         message,
       });
+      room.request = {
+        ...room.request,
+        sellerResponse: {
+          responderUserId: auth.user.id,
+          message: review.sellerReply ?? message,
+          createdAt: review.updatedAt,
+        },
+        updatedAt: review.updatedAt,
+      };
     }
 
-    const refreshed = await getTradeRoomData({
-      purchaseRequestId: requestId,
-      actorUserId: auth.user.id,
-      actorRole: auth.user.role,
-      markMessagesRead: false,
-      strongConsistency: true,
-    });
-    return mobileJson({ trade: toMobileTradeDetail(refreshed, auth.user.id, locale) }, responseRequestId);
+    // Return the committed review directly. A second DB read can fail after a
+    // successful save and incorrectly leave the installed app on its review form.
+    return mobileJson({ trade: toMobileTradeDetail(room, auth.user.id, locale) }, responseRequestId);
   } catch (error) {
     const code = mobileTradeErrorCode(error);
     if (code) return mobileError(code, responseRequestId, locale, mobileTradeErrorStatus(code));

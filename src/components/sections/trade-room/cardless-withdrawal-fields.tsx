@@ -41,11 +41,14 @@ export function CardlessWithdrawalFields(props: Props) {
           {isBirthDate ? (isAr ? "٢. تاريخ الميلاد" : "2. Date of birth") : (isAr ? "٢. رقم الهوية" : "2. ID number")}
         </label>
         <Input id="cardless-verification-value" name="verificationValue" required autoComplete="off" dir="ltr"
-          type={isBirthDate ? "date" : "text"} inputMode={isBirthDate ? undefined : "numeric"}
-          min={isBirthDate ? "1900-01-01" : undefined} max={isBirthDate ? new Date().toISOString().slice(0, 10) : undefined}
-          maxLength={isBirthDate ? undefined : 12} value={verificationValue}
-          placeholder={isAr ? "رقم الهوية المطلوب للسحب" : "ID number required for withdrawal"}
+          type="text" inputMode={isBirthDate ? "text" : "numeric"}
+          maxLength={isBirthDate ? 10 : 12} value={verificationValue}
+          aria-describedby={isBirthDate ? "cardless-birth-date-help" : undefined}
+          placeholder={isBirthDate ? "DD/MM/YYYY" : (isAr ? "رقم الهوية المطلوب للسحب" : "ID number required for withdrawal")}
           onChange={(event) => props.onValueChange(normalizeCardlessDigits(event.target.value))} />
+        {isBirthDate ? <p id="cardless-birth-date-help" className="text-xs text-[#D1D5DB]">
+          {isAr ? "اكتب يوم/شهر/سنة، مثال: 25/08/1995" : "Type day/month/year, for example: 25/08/1995"}
+        </p> : null}
       </div>
       <p className="text-xs text-[#D1D5DB]">{isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
     </fieldset>

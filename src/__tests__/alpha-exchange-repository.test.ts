@@ -1441,8 +1441,9 @@ describe("AlphaExchangeRepository", () => {
 
     await expect(repository.saveSnapshot(createEmptyDb())).resolves.toBeUndefined();
 
-    expect(firstClient.release).toHaveBeenCalled();
-    expect(secondClient.release).not.toHaveBeenCalled();
+    expect(firstClient.release).toHaveBeenCalledWith(true);
+    expect(firstClient.query.mock.calls.some(([sql]) => String(sql).startsWith("delete from"))).toBe(false);
+    expect(secondClient.release).toHaveBeenCalledOnce();
   });
 
   it("retries a failed snapshot save with a fresh client after an aborted transaction", async () => {
@@ -1466,5 +1467,59 @@ describe("AlphaExchangeRepository", () => {
 
     expect(firstClient.release).toHaveBeenCalledWith(true);
     expect(secondClient.release).toHaveBeenCalled();
+  });
+
+  it.each(["lock", "write", "commit"])("discards a timed-out %s connection without queuing rollback or publishing an unconfirmed version", async (stage) => {
+    const db = { ...createEmptyDb(), __runtimeVersion: 0 };
+    const client = {
+      query: vi.fn((sql: string) => {
+        if ((stage === "lock" && sql.includes("pg_advisory_xact_lock"))
+          || (stage === "write" && sql.startsWith("delete from"))
+          || (stage === "commit" && sql === "commit")) return Promise.reject(new Error("Query read timeout"));
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    };
+    const repository = new AlphaExchangeRepository({
+      query: vi.fn().mockResolvedValue({ rows: [] }), connect: vi.fn().mockResolvedValue(client), on: vi.fn(),
+    } as unknown as Pool);
+    await expect(repository.saveSnapshot(db, { selectedTables: ["purchase_requests"] })).rejects.toThrow("Query read timeout");
+    expect(client.release).toHaveBeenCalledExactlyOnceWith(true);
+    expect(client.query.mock.calls.some(([sql]) => sql === "rollback")).toBe(false);
+    expect(db.__runtimeVersion).toBe(0);
+    if (stage === "lock") expect(client.query.mock.calls.some(([sql]) => sql.startsWith("delete from"))).toBe(false);
+  });
+
+  it("rebases a stale review using its declared tables and preserves other buyers' reviews", async () => {
+    const requests = [
+      { id: "target", status: "review_open", createdAt: "2026-09-21T00:00:00.000Z", updatedAt: "2026-09-21T00:00:00.000Z" },
+      { id: "other", buyerReview: { comment: "Already saved" }, createdAt: "2026-09-21T00:00:00.000Z", updatedAt: "2026-09-21T00:00:00.000Z" },
+    ];
+    const client = {
+      query: vi.fn((sql: string) => {
+        if (sql.includes("jsonb_agg")) return Promise.resolve({ rows: [{ version: "2", purchase_requests: requests }] });
+        if (sql.includes("select version::text as version")) return Promise.resolve({ rows: [{ version: "2" }] });
+        return Promise.resolve({ rows: [] });
+      }), release: vi.fn(),
+    };
+    const repository = new AlphaExchangeRepository({
+      query: vi.fn().mockResolvedValue({ rows: [] }), connect: vi.fn().mockResolvedValue(client), on: vi.fn(),
+    } as unknown as Pool);
+    const db = { ...createEmptyDb(), __runtimeVersion: 1 };
+    await repository.saveSnapshot(db, {
+      selectedTables: ["purchase_requests"],
+      rebaseTables: ["purchase_requests", "users"],
+      rebaseOnLatest: (snapshot) => {
+        snapshot.purchaseRequests[0].buyerReview = { reviewerUserId: "buyer", rating: 5, comment: "Done", createdAt: "2026-09-21T00:00:00.000Z" };
+        return snapshot;
+      },
+    });
+    const sql = client.query.mock.calls.find(([query]) => query.includes("jsonb_agg"))?.[0] ?? "";
+    expect(sql).toContain('as "purchase_requests"');
+    expect(sql).not.toContain('as "sessions"');
+    expect(sql).not.toContain('as "evidence"');
+    expect(db.purchaseRequests[1].buyerReview?.comment).toBe("Already saved");
+    expect(db.purchaseRequests[0].buyerReview?.comment).toBe("Done");
+    expect(db.__runtimeVersion).toBe(3);
   });
 });
