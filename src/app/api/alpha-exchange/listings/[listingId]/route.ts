@@ -10,6 +10,7 @@ import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 import { normalizeListingPrice } from "@/lib/price-offer";
 import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "@/lib/trade-amount";
+import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -44,8 +45,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { listingId } = await context.params;
     const validationStartedAt = Date.now();
-    const existingListing = await getMarketplaceListingById(listingId);
     const body = await request.json();
+    // Hiding a listing must not depend on market quotes or old inventory/bank
+    // fields. Ownership, trade locks and seller restrictions stay in the store.
+    if (body?.status === "paused" && Object.keys(body).every((key) => key === "status")) {
+      const listing = await updateMarketplaceListingForSeller({
+        listingId, sellerId: user.id, actorUserId: user.id, status: "paused",
+      });
+      return NextResponse.json({ listing, destination: sellerListingWorkspaceDestination(listing) });
+    }
+    const existingListing = await getMarketplaceListingById(listingId);
     const action = body.action !== undefined ? String(body.action).trim() : "";
     if (action === "renew") {
       // Validate the existing listing's price against market rate before renewing.
@@ -109,7 +118,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const status = body.status;
     const effectiveAvailableAmount = availableAmount ?? existingListing?.availableAmount;
     const effectiveMinimumTrade = minimumTrade ?? existingListing?.minimumTrade ?? "0";
-    const effectiveMaximumTrade = maximumTrade ?? existingListing?.maximumTrade ?? effectiveAvailableAmount;
+    const effectiveMaximumTrade = maximumTrade ?? listingMaximumForAvailableAmount({
+      availableAmount: effectiveAvailableAmount, maximumTrade: existingListing?.maximumTrade,
+    });
 
     if (availableAmount !== undefined && !availableAmount) {
       return NextResponse.json({ error: "Available amount must be a valid positive USDT amount with no more than six decimal places." }, { status: 400 });
@@ -117,10 +128,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (rawPrice !== undefined && (!rawPrice || !price)) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
-    const marketRate = await fetchUsdIlsMarketRate();
     const effectiveCurrency = (currency ?? existingListing?.currency ?? "ILS").trim().toUpperCase();
     const shouldValidateStoredPrice = status === "active" || currency !== undefined;
     const effectivePrice = price ?? (shouldValidateStoredPrice ? existingListing?.price : undefined) ?? "";
+    const marketRate = effectivePrice ? await fetchUsdIlsMarketRate() : undefined;
     const priceValidationError = getListingPriceValidationError({ price: effectivePrice, currency: effectiveCurrency, marketRate });
     if (priceValidationError) {
       return NextResponse.json({ error: priceValidationError }, { status: 400 });
@@ -175,7 +186,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       && availableAmount === undefined && price === undefined
       && minimumTrade === undefined && maximumTrade === undefined;
     const reasonRequired = !isStatusOnlyChange && existingListing
-      ? listingEditRequiresReason(existingListing, { availableAmount, price, minimumTrade, maximumTrade })
+      ? listingEditRequiresReason({ ...existingListing, maximumTrade: listingMaximumForAvailableAmount(existingListing) }, { availableAmount, price, minimumTrade, maximumTrade })
       : false;
     let changeReason: string | undefined;
     let changeExplanation: string | undefined;
