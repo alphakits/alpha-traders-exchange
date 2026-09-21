@@ -187,14 +187,17 @@ describe("guided cash-trade completion", () => {
     return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
   }
 
-  it.each([undefined, "", "Discount", "Bank Hapoalim, Bank Leumi"])("requires one supported withdrawal bank (%s)", async (bankName) => {
+  it.each([undefined, "", "Unknown Bank", "Bank transfer", "Bank Hapoalim, Bank Leumi"])("requires one supported withdrawal bank (%s)", async (bankName) => {
     await expect(readyRequest({ bankName })).rejects.toThrow(/Choose the bank/);
     expect(currentSnapshot().purchaseRequests).toHaveLength(0);
   });
 
-  it("persists only the bank the buyer selected", async () => {
-    await readyRequest({ bankName: "Bank Leumi" });
-    expect(currentSnapshot().purchaseRequests[0].bankName).toBe("Bank Leumi");
+  it.each(["Bank Leumi", "Bank Hapoalim", "Mercantile", "Discount", "Mizrahi-Tefahot", "First International", "Yahav", "Massad", "Jerusalem", "ONE ZERO", "Esh"])("accepts the buyer's issuing bank independently of seller banks (%s)", async (bankName) => {
+    const { request } = await readyRequest({ bankName });
+    expect(currentSnapshot().purchaseRequests[0].bankName).toBe(bankName);
+    const projected = sanitizePurchaseRequestForActor(request, SELLER_ID, "approved_seller");
+    expect(projected.bankName).toBe(bankName);
+    expect(JSON.stringify(projected)).not.toContain("482913");
   });
 
   it.each([

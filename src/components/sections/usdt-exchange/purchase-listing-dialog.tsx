@@ -1,6 +1,6 @@
 "use client";
 
-import { parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import type { FormEventHandler } from "react";
@@ -91,10 +91,6 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
-function selectedMethodUsesBanks(method: string | null | undefined) {
-  return isBankTransferPaymentMethod(method) || isCardlessAtmPaymentMethod(method);
-}
-
 function shortTradeRef(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id">) {
   return `Trade ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`;
 }
@@ -161,7 +157,7 @@ export function PurchaseListingDialog({
   const receivingNetwork = buyerInfo.receivingNetwork ?? listing.network;
   const isCardless = isCardlessAtmPaymentMethod(selectedPaymentMethod);
   const cardlessInvalid = isCardless && (
-    !parseIsraeliBankSelection(listing.bankName).includes(buyerInfo.cardlessBankName ?? "")
+    !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
     || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
     || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
   );
@@ -306,7 +302,7 @@ export function PurchaseListingDialog({
                     })}
                   </div>
                   <p className={`mt-3 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : "text-left"}`}>{isAr ? "يمكن اختيار الطرق التي فعّلها البائع لهذا العرض فقط." : "Only payment methods enabled by this seller can be selected."}</p>
-                  {selectedMethodUsesBanks(selectedPaymentMethod) && parseIsraeliBankSelection(listing.bankName).length ? (
+                  {isBankTransferPaymentMethod(selectedPaymentMethod) && parseIsraeliBankSelection(listing.bankName).length ? (
                     <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</span></p>
                   ) : null}
                 </div>
@@ -365,7 +361,7 @@ export function PurchaseListingDialog({
                   <label htmlFor="cardless-bank" className="text-sm font-medium">{isAr ? "البنك الذي أصدرت منه رمز السحب" : "Bank that issued your withdrawal code"} <span className="text-red-300">*</span></label>
                   <select id="cardless-bank" required disabled={isSubmittingPurchase} value={buyerInfo.cardlessBankName ?? ""} onChange={(event) => onBuyerDetailsChange?.({ cardlessBankName: event.target.value })} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" aria-describedby="cardless-bank-help">
                     <option value="">{isAr ? "اختر بنك السحب" : "Choose the withdrawal bank"}</option>
-                    {parseIsraeliBankSelection(listing.bankName).map((bank) => <option key={bank} value={bank}>{getIsraeliBankDisplayName(bank, locale)}</option>)}
+                    {getCardlessWithdrawalBankOptions().map((bank) => <option key={bank.code} value={bank.name}>{locale === "ar" ? bank.nameAr : bank.name}</option>)}
                   </select>
                   <p id="cardless-bank-help" className="text-xs text-[#D1D5DB]">{isAr ? "اختر البنك الذي أنشأت فيه الرمز. سيظهر للبائع ليعرف من أي صراف آلي يسحب المبلغ." : "Choose the bank where you generated the code. The seller will see which bank’s ATM to visit."}</p>
                   <CardlessWithdrawalFields isAr={isAr} disabled={isSubmittingPurchase} phase="request"

@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount,
+  getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount,
   type CardlessVerificationKind, type MobileSupportedNetwork,
   getWalletAddressValidationError,
   normalizeLocalizedDecimalInput,
@@ -170,7 +170,7 @@ export function TradeFormScreen({
     const maximum = Math.min(configuredMaximum, available);
     if (value <= 0 || value < minimum || value > maximum) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
-    if (isCardless && (!listing.bankName?.split(",").map((bank) => bank.trim()).includes(withdrawalBank) || !parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
+    if (isCardless && (!isCardlessWithdrawalBank(withdrawalBank) || !parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
       || !validateCardlessIlsAmount(cashAmount, (value * numericValue(mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price))).toFixed(2)))) return false;
     if (mode === "offer") {
       const offerCents = Math.round(numericValue(canonicalOfferPrice) * 100);
@@ -402,9 +402,9 @@ export function TradeFormScreen({
           {isCardless ? <View style={styles.field}>
             <Text style={styles.label}>{locale === "ar" ? "البنك الذي أصدرت منه رمز السحب *" : "Bank that issued your withdrawal code *"}</Text>
             <View accessibilityRole="radiogroup">
-              {(listing.bankName ?? "").split(",").map((bank) => bank.trim()).filter(Boolean).map((bank) => (
-                <Pressable key={bank} disabled={isSubmitting} accessibilityRole="radio" accessibilityState={{ checked: withdrawalBank === bank, disabled: isSubmitting }} onPress={() => setWithdrawalBank(bank)} style={[styles.option, withdrawalBank === bank && styles.optionSelected]}>
-                  <Text style={styles.optionLabel}>{bank}</Text>
+              {getCardlessWithdrawalBankOptions().map((bank) => (
+                <Pressable key={bank.code} disabled={isSubmitting} accessibilityRole="radio" accessibilityState={{ checked: withdrawalBank === bank.name, disabled: isSubmitting }} onPress={() => setWithdrawalBank(bank.name)} style={[styles.option, withdrawalBank === bank.name && styles.optionSelected]}>
+                  <Text style={styles.optionLabel}>{locale === "ar" ? bank.nameAr : bank.name}</Text>
                 </Pressable>
               ))}
             </View>

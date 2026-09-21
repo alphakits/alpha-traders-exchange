@@ -4,3 +4,4 @@ export * from "./trade-amount";
 export * from "./wallet-address";
 export * from "./whatsapp-contact";
 export * from "./cardless-withdrawal";
+export * from "./israeli-banks";

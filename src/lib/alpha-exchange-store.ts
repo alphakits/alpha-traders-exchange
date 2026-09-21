@@ -2,7 +2,7 @@ import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-s
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
-import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
+import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
@@ -10186,11 +10186,10 @@ export async function createPurchaseRequest(input: {
       { guard: "bank-account-linked-at-request", listingId: listing.id },
     );
   }
-  const canonicalListingBanks = parseIsraeliBankSelection(listing.bankName);
   const requestedCardlessBanks = parseIsraeliBankSelection(input.bankName);
   if (isCardlessAtmPaymentMethod(primaryPaymentMethod)
-    && (requestedCardlessBanks.length !== 1 || !canonicalListingBanks.includes(requestedCardlessBanks[0]))) {
-    throw new TradeBlockedError("CARDLESS_BANK_REQUIRED", "Choose the bank that issued your withdrawal code from this listing's supported banks.");
+    && (requestedCardlessBanks.length !== 1 || !isCardlessWithdrawalBank(requestedCardlessBanks[0]))) {
+    throw new TradeBlockedError("CARDLESS_BANK_REQUIRED", "Choose the bank that issued your withdrawal code.");
   }
   const canonicalCardlessBanks = requestedCardlessBanks;
   const usdtAmount = requestedUsdtAmount;
