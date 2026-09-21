@@ -4063,6 +4063,14 @@ async function writeDb(
   }
 }
 
+async function commitFocusedTradeMutation(requestId: string, apply: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>) {
+  const repository = await getAlphaExchangeRepository();
+  if (typeof repository.mutateFocusedTrade !== "function") return null;
+  const result = await repository.mutateFocusedTrade(requestId, async (snapshot) => apply(normalizeDb(snapshot)));
+  if (result) { dbCache = null; dbReadInFlight = null; }
+  return result;
+}
+
 async function readDbForCriticalTradeMutation(tableNames: readonly SnapshotTableName[]) {
   // Mutations must observe another instance's latest evidence and lifecycle
   // state before validating. Use the targeted canonical read every time rather
@@ -9897,8 +9905,7 @@ export async function getWorkspaceBootstrapData(input: {
 }
 
 /** Recalculate only from the buyer's cash amount and the locked agreed rate. */
-export async function recalculateCardlessTradeAmount(input: { requestId: string; actorUserId: string }) {
-  const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
+export async function recalculateCardlessTradeAmount(input: { requestId: string; actorUserId: string; ilsAmount?: string }) {
   let committed: PurchaseRequest | undefined;
   const apply = async (snapshot: AlphaExchangeDb) => {
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
@@ -9911,13 +9918,22 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
       const payload = decryptCardlessCredential(credential.message, request.id, credential.id);
       try { cashAmount = JSON.parse(payload ?? "{}")?.ilsAmount ?? request.fiatAmount; } catch { throw new Error("Withdrawal details unavailable."); }
     }
-    const amount = calculateCardlessUsdtAmount(cashAmount, request.pricePerUsdt ?? "");
-    if (!amount) throw new Error("The buyer's withdrawal must be 100–10,000 ILS in multiples of 100.");
+    if (input.ilsAmount) {
+      const provided = validateCardlessIlsAmount(input.ilsAmount, input.ilsAmount);
+      if (!provided) throw new Error("Withdrawal must be 100–10,000 ILS in multiples of 100.");
+      const recorded = validateCardlessIlsAmount(cashAmount, cashAmount);
+      if (recorded && provided !== recorded) throw new Error("Use the withdrawal amount supplied by the buyer; the bank code amount cannot be changed by the seller.");
+      cashAmount = provided;
+    }
     const listing = snapshot.marketplaceListings.find((item) => item.id === request.listingId);
+    const agreedPrice = request.pricePerUsdt || request.listingPriceAtRequest || listing?.price || "";
+    const amount = calculateCardlessUsdtAmount(cashAmount, agreedPrice);
+    if (!amount) throw new Error("The buyer's withdrawal must be 100–10,000 ILS in multiples of 100.");
     if (!listing || listing.activeTradeRequestId !== request.id || Number(amount) > Number(listing.availableAmount)
       || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new Error("The adjusted amount exceeds this listing's available balance or trade limits.");
-    if (request.usdtAmount !== amount || Number(request.fiatAmount) !== Number(cashAmount)) {
+    if (request.usdtAmount !== amount || Number(request.fiatAmount) !== Number(cashAmount) || !request.pricePerUsdt) {
       request.usdtAmount = amount;
+      request.pricePerUsdt = agreedPrice;
       request.fiatAmount = Number(cashAmount).toFixed(2);
       request.updatedAt = nowIsoAfter(request.updatedAt);
       appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message: `USDT amount adjusted to ${amount} for ILS ${request.fiatAmount} at the agreed rate ${request.pricePerUsdt}.`, createdAt: request.updatedAt });
@@ -9926,8 +9942,12 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
     committed = request;
     return snapshot;
   };
-  await apply(db);
-  await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
+  const focused = await commitFocusedTradeMutation(input.requestId, apply);
+  if (!focused) {
+    const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
+    await apply(db);
+    await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
+  }
   if (!committed) throw new Error("Trade adjustment could not be confirmed.");
   const request = committed as PurchaseRequest;
   publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: request.id, request, status: request.status, timeline: request.timeline, publishedAtEpochMs: Date.now() } });
@@ -10971,10 +10991,9 @@ export async function getTradeRoomData(input: {
 }): Promise<TradeRoomData> {
   const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
-  // The SSE stream never mutates read receipts, so it only needs the records
-  // that belong to this Trade Room. Loading those records in one query avoids
-  // the previous 27-table snapshot fan-out on every live connection.
-  const useTargetedRead = input.strongConsistency === true && input.markMessagesRead === false;
+  // Room loads need only related records. Read receipts use a separate
+  // atomic single-trade update, avoiding full snapshots on every refresh.
+  const useTargetedRead = input.strongConsistency === true;
   const repository = useTargetedRead ? await getAlphaExchangeRepository() : null;
   const db = useTargetedRead && repository && typeof repository.loadTradeRoomSnapshot === "function"
     ? await repository.loadTradeRoomSnapshot(lookupCandidates)
@@ -11053,7 +11072,12 @@ export async function getTradeRoomData(input: {
       // Reapply this narrow receipt delta to the latest canonical request while
       // the repository lock is held. Opening a room can therefore never
       // overwrite a message or lifecycle update committed at the same moment.
-      await writeDb(db, {
+      const focused = await commitFocusedTradeMutation(request.id, applyReadReceiptsToCanonicalSnapshot);
+      if (focused) {
+        const saved = focused.purchaseRequests.find((item) => item.id === request.id);
+        if (saved) db.purchaseRequests[requestIndex] = saved;
+      }
+      else await writeDb(db, {
         selectedTables: PURCHASE_REQUEST_ONLY_TABLES,
         rebaseOnLatest: applyReadReceiptsToCanonicalSnapshot,
       });
@@ -12575,7 +12599,6 @@ export async function submitBuyerTradeReview(input: {
   assertNoExchangeDirectContact(comment);
   // Reviews must not load every exchange table or run marketplace maintenance
   // while the buyer is blocked from starting their next trade.
-  const { db } = await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES);
   type CommittedBuyerReview = {
     review: SellerReviewRecord;
     sellerProgress: {
@@ -12682,10 +12705,12 @@ export async function submitBuyerTradeReview(input: {
     return snapshot;
   };
 
-  await applyReviewToCanonicalSnapshot(db);
+  const focused = await commitFocusedTradeMutation(input.requestId, applyReviewToCanonicalSnapshot);
+  const db = focused ?? (await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES)).db;
+  if (!focused) await applyReviewToCanonicalSnapshot(db);
   let result = committed as CommittedBuyerReview | null;
   if (!result) throw new Error("Failed to prepare buyer review.");
-  if (result.created) {
+  if (result.created && !focused) {
     await writeDb(db, {
       selectedTables: TRADE_REVIEW_TABLES,
       rebaseOnLatest: applyReviewToCanonicalSnapshot,
@@ -12717,7 +12742,6 @@ export async function submitSellerBuyerReview(input: {
   if (!comment) throw new Error("Review comment is required.");
   if (comment.length > 500) throw new Error("Review comment is too long.");
   assertNoExchangeDirectContact(comment);
-  const { db } = await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES);
   type Result = { review: NonNullable<PurchaseRequest["sellerBuyerReview"]>; created: boolean; request: PurchaseRequest };
   let committed: Result | null = null;
   const apply = async (snapshot: AlphaExchangeDb) => {
@@ -12740,8 +12764,10 @@ export async function submitSellerBuyerReview(input: {
     committed = { review: request.sellerBuyerReview, created: true, request };
     return snapshot;
   };
-  await apply(db);
-  if ((committed as Result | null)?.created) {
+  const focused = await commitFocusedTradeMutation(input.requestId, apply);
+  const db = focused ?? (await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES)).db;
+  if (!focused) await apply(db);
+  if (!focused && (committed as Result | null)?.created) {
     await writeDb(db, {
       selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply,
       rebaseTables: TRADE_REVIEW_READ_TABLES, cacheResult: false,
@@ -12763,7 +12789,6 @@ export async function submitSellerReviewResponse(input: {
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
   assertNoExchangeDirectContact(message);
-  const { db } = await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES);
   type CommittedSellerResponse = { review: SellerReviewRecord; created: boolean; publication?: DeferredNotificationPublication | null };
   let committed: CommittedSellerResponse | null = null;
   const applyResponseToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
@@ -12822,10 +12847,12 @@ export async function submitSellerReviewResponse(input: {
     return snapshot;
   };
 
-  await applyResponseToCanonicalSnapshot(db);
+  const focused = await commitFocusedTradeMutation(input.requestId ?? input.reviewId?.replace(/^review-/, "") ?? "", applyResponseToCanonicalSnapshot);
+  const db = focused ?? (await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES)).db;
+  if (!focused) await applyResponseToCanonicalSnapshot(db);
   let result = committed as CommittedSellerResponse | null;
   if (!result) throw new Error("Failed to prepare seller response.");
-  if (result.created) {
+  if (result.created && !focused) {
     await writeDb(db, {
       selectedTables: TRADE_REVIEW_TABLES,
       rebaseOnLatest: applyResponseToCanonicalSnapshot,

@@ -684,62 +684,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 ) : null}
 
-                {/* ── Step 0: Payer type selection ── */}
-                {isLegacyPendingCommissionPayment ? null : !commissionPayerType ? (
-                  <div className="space-y-4">
-                    <p className="text-sm font-medium text-white">{isAr ? "كيف ستدفع العمولة؟" : "How are you paying your commission?"}</p>
-                    <div className="grid gap-3">
-                      {/* Personal Wallet */}
-                      <button
-                        type="button"
-                        onClick={() => { setCommissionPayerType("personal"); setCommissionAdvancedOpen(true); }}
-                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
-                      >
-                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/40 group-hover:border-emerald-400/60">
-                          <Wallet className="h-5 w-5 text-emerald-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
-                          <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically."}</p>
-                        </div>
-                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
-                      </button>
-                      {/* Exchange / Broker */}
-                      <button
-                        type="button"
-                        onClick={() => { setCommissionPayerType("exchange"); setCommissionAdvancedOpen(false); }}
-                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
-                      >
-                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-500/30 bg-blue-950/40 group-hover:border-blue-400/60">
-                          <Building2 className="h-5 w-5 text-blue-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-white text-sm">{isAr ? "منصة تداول أو وسيط" : "Crypto Exchange or Broker"}</p>
-                          <p className="text-xs text-[#6B7280] mt-0.5">Binance · Bybit · OKX · Coinbase · Kraken · Bitget · MEXC</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "بعد الإرسال، الصق رمز معاملة السحب للتحقق من دفعتك." : "After sending, paste the withdrawal transaction hash to verify your payment."}</p>
-                        </div>
-                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
-                      </button>
-                    </div>
-                    <Button type="button" variant="ghost" className="w-full text-[#6B7280] hover:text-white text-xs" onClick={() => setCommissionPayOpen(false)}>
-                      {isAr ? "إلغاء" : "Cancel"}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* ── Back + payer type badge ── */}
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => { setCommissionPayerType(null); setCommissionPayMessage(null); }} className="flex items-center gap-1 text-xs text-[#6B7280] hover:text-white transition-colors">
-                        <ChevronRight className="h-3.5 w-3.5 rotate-180" />
-                        {isAr ? "رجوع" : "Back"}
-                      </button>
-                      <span className="text-[#6B7280]">·</span>
-                      <span className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
-                        {commissionPayerType === "personal" ? <><Wallet className="h-3.5 w-3.5 text-emerald-400" />{isAr ? "محفظة شخصية" : "Personal Wallet"}</> : <><Building2 className="h-3.5 w-3.5 text-blue-400" />{isAr ? "منصة / وسيط" : "Exchange / Broker"}</>}
-                      </span>
-                    </div>
-
+                {!isLegacyPendingCommissionPayment ? <>
                     {/* ── Network selector ── */}
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "شبكة الدفع" : "Payment Network"}</p>
@@ -807,6 +752,64 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         {selectedCommissionWalletError}
                       </p>
                     )}
+
+                </> : null}
+
+                {/* ── Step 0: Payer type selection ── */}
+                {isLegacyPendingCommissionPayment ? null : !commissionPayerType ? (
+                  <div className="space-y-4">
+                    <p className="text-sm font-medium text-white">{isAr ? "كيف ستدفع العمولة؟" : "How are you paying your commission?"}</p>
+                    <div className="grid gap-3">
+                      {/* Personal Wallet */}
+                      <button
+                        type="button"
+                        onClick={() => { setCommissionPayerType("personal"); setCommissionAdvancedOpen(true); }}
+                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
+                      >
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/40 group-hover:border-emerald-400/60">
+                          <Wallet className="h-5 w-5 text-emerald-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
+                          <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically."}</p>
+                        </div>
+                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
+                      </button>
+                      {/* Exchange / Broker */}
+                      <button
+                        type="button"
+                        onClick={() => { setCommissionPayerType("exchange"); setCommissionAdvancedOpen(false); }}
+                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
+                      >
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-500/30 bg-blue-950/40 group-hover:border-blue-400/60">
+                          <Building2 className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-white text-sm">{isAr ? "منصة تداول أو وسيط" : "Crypto Exchange or Broker"}</p>
+                          <p className="text-xs text-[#6B7280] mt-0.5">Binance · Bybit · OKX · Coinbase · Kraken · Bitget · MEXC</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "بعد الإرسال، الصق رمز معاملة السحب للتحقق من دفعتك." : "After sending, paste the withdrawal transaction hash to verify your payment."}</p>
+                        </div>
+                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
+                      </button>
+                    </div>
+                    <Button type="button" variant="ghost" className="w-full text-[#6B7280] hover:text-white text-xs" onClick={() => setCommissionPayOpen(false)}>
+                      {isAr ? "إلغاء" : "Cancel"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* ── Back + payer type badge ── */}
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => { setCommissionPayerType(null); setCommissionPayMessage(null); }} className="flex items-center gap-1 text-xs text-[#6B7280] hover:text-white transition-colors">
+                        <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                        {isAr ? "رجوع" : "Back"}
+                      </button>
+                      <span className="text-[#6B7280]">·</span>
+                      <span className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
+                        {commissionPayerType === "personal" ? <><Wallet className="h-3.5 w-3.5 text-emerald-400" />{isAr ? "محفظة شخصية" : "Personal Wallet"}</> : <><Building2 className="h-3.5 w-3.5 text-blue-400" />{isAr ? "منصة / وسيط" : "Exchange / Broker"}</>}
+                      </span>
+                    </div>
 
                     {/* ── Instructions panel ── */}
                     {commissionPayerType === "personal" ? (

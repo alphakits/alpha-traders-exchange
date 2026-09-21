@@ -11,7 +11,10 @@ type RouteContext = {
 export async function POST(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const diagnosticId = request.headers.get("X-Review-Diagnostic-Id")?.trim().slice(0, 100) || null;
+  const tracePhase = (phase: string) => logEvent("info", { event: "trade_review_phase", outcome: "success", metadata: { phase, diagnosticId, elapsedMs: Date.now() - routeStartedAt } });
+  tracePhase("authentication_started");
   const { user, unauthorized } = await requireApiUser();
+  tracePhase("authentication_finished");
   if (!user) {
     logEvent("warn", {
       event: "trade_review_submission",
@@ -31,12 +34,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     return emailVerificationRequired;
   }
+  tracePhase("rate_limit_started");
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:review-submit",
     maxRequests: 20,
     windowMs: 60_000,
   });
+  tracePhase("rate_limit_finished");
   if (!rate.allowed) {
     logEvent("warn", {
       event: "trade_review_submission",
@@ -53,6 +58,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const validationStartedAt = Date.now();
     const body = await request.json();
     const mode = String(body.mode ?? "buyer_review").trim();
+    tracePhase("save_started");
 
     if (mode === "buyer_review") {
       const rating = Number(body.rating ?? 0);

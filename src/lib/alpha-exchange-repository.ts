@@ -2138,6 +2138,61 @@ export class AlphaExchangeRepository {
     };
   }
 
+  /** Commit one trade plus newly appended events without replacing shared tables. */
+  async mutateFocusedTrade(
+    requestId: string,
+    apply: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>,
+  ): Promise<AlphaExchangeDb | null> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) return null;
+    const client = await pool.connect();
+    let destroy = false;
+    try {
+      await client.query("begin");
+      // Keep the same lock/version protocol as snapshot writers. A later stale
+      // snapshot must rebase rather than erase this review or amount adjustment.
+      await client.query("select pg_advisory_xact_lock(61422917)");
+      const result = await client.query<{ payload: AlphaExchangeDb; target_id: string }>(`
+        select r.id as target_id, jsonb_build_object(
+          'purchaseRequests', (select coalesce(jsonb_agg(p.payload), '[]'::jsonb) from alpha_exchange.purchase_requests p where p.seller_id = r.seller_id),
+          'users', (select coalesce(jsonb_agg(u.payload), '[]'::jsonb) from alpha_exchange.users u where u.id in (r.buyer_id, r.seller_id)),
+          'marketplaceListings', (select coalesce(jsonb_agg(l.payload), '[]'::jsonb) from alpha_exchange.listings l where l.seller_id = r.seller_id),
+          'commissionRecords', (select coalesce(jsonb_agg(c.payload), '[]'::jsonb) from alpha_exchange.commissions c where c.seller_id = r.seller_id),
+          'trustSnapshots', (select coalesce(jsonb_agg(t.payload), '[]'::jsonb) from alpha_exchange.trust_snapshots t where t.seller_id = r.seller_id),
+          'disputes', (select coalesce(jsonb_agg(d.payload), '[]'::jsonb) from alpha_exchange.disputes d where d.purchase_request_id = r.id)
+        ) as payload
+        from alpha_exchange.purchase_requests r where r.id = $1 or r.trade_id = $1 limit 1`, [requestId]);
+      const row = result.rows[0];
+      if (!row) throw new Error("Trade not found.");
+      const snapshot = { ...emptySnapshotCollections(), ...row.payload };
+      const before = structuredClone(snapshot.purchaseRequests.find((request) => request.id === row.target_id)!);
+      const beforeJson = JSON.stringify(before);
+      const next = await apply(snapshot);
+      const updated = next.purchaseRequests.find((request) => request.id === row.target_id);
+      if (!updated || updated.status !== before.status || updated.buyerId !== before.buyerId || updated.sellerId !== before.sellerId || updated.listingId !== before.listingId) {
+        throw new Error("Focused trade updates cannot change lifecycle or participants.");
+      }
+      const changed = JSON.stringify(updated) !== beforeJson;
+      if (changed) {
+        await client.query("update alpha_exchange.purchase_requests set payload = $2::jsonb, updated_at = $3::timestamptz where id = $1", [updated.id, json(updated), updated.updatedAt]);
+        for (const name of ["notifications", "audit_logs", "activity_logs"] as const) {
+          const table = getTable(name);
+          await table.insert(client, table.values(next), { evidenceContentById: new Map() });
+        }
+        await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
+      }
+      await client.query("commit");
+      return next;
+    } catch (error) {
+      destroy = isTransientReadError(error);
+      try { await client.query("rollback"); } catch { destroy = true; }
+      throw error;
+    } finally {
+      client.release(destroy);
+    }
+  }
+
   /**
    * Loads complete rows for a small, explicit set of snapshot tables plus the
    * canonical runtime version. Critical trade mutations use this instead of

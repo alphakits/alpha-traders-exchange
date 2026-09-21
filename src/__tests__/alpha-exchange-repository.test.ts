@@ -25,7 +25,7 @@ vi.mock("@/lib/alpha-exchange-repository", async () => {
 });
 
 import { AlphaExchangeRepository, getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
-import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { submitBuyerTradeReview, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 
 const TEST_FALLBACK_DIR = `.next-runtime-test-${process.env.VITEST_WORKER_ID ?? "single"}-${process.pid}`;
 
@@ -80,6 +80,71 @@ describe("AlphaExchangeRepository", () => {
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     delete process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK;
     vi.unstubAllEnvs();
+  });
+
+  it("commits a review to only its canonical trade and makes an identical retry a no-op", async () => {
+    const db = createEmptyDb();
+    db.purchaseRequests = [{ id: "focused-trade", buyerId: "buyer", sellerId: "seller", listingId: "listing", status: "completed", updatedAt: "2026-09-21T00:00:00Z", sellerBuyerReview: { rating: 5, comment: "Existing seller review" } }] as AlphaExchangeDb["purchaseRequests"];
+    const query = vi.fn(async (sql: string, values?: unknown[]) => {
+      if (sql.includes("as target_id")) return { rows: [{ target_id: "focused-trade", payload: structuredClone(db) }] };
+      if (sql.startsWith("update alpha_exchange.purchase_requests")) db.purchaseRequests[0] = JSON.parse(String(values?.[1]));
+      return { rows: [] };
+    });
+    const release = vi.fn();
+    const repo = new AlphaExchangeRepository({ query: vi.fn(), connect: vi.fn().mockResolvedValue({ query, release }), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repo, "ensureReady").mockResolvedValue(undefined);
+    const apply = (snapshot: AlphaExchangeDb) => {
+      snapshot.purchaseRequests[0].buyerReview = { reviewerUserId: "buyer", rating: 5, comment: "Fast trade", createdAt: "2026-09-21T00:00:01Z" };
+      return snapshot;
+    };
+    await repo.mutateFocusedTrade("focused-trade", apply);
+    await repo.mutateFocusedTrade("focused-trade", apply);
+    const sql = query.mock.calls.map(([statement]) => statement);
+    expect(sql.filter((statement) => statement.startsWith("update alpha_exchange.purchase_requests"))).toHaveLength(1);
+    expect(sql.filter((statement) => statement.includes("version = version + 1"))).toHaveLength(1);
+    expect(sql.some((statement) => /delete from/i.test(statement))).toBe(false);
+    expect(db.purchaseRequests[0].sellerBuyerReview?.comment).toBe("Existing seller review");
+    expect(db.purchaseRequests[0].buyerReview?.comment).toBe("Fast trade");
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves and retries the review service through the focused database transaction", async () => {
+    const db = createEmptyDb();
+    db.purchaseRequests = [{ id: "focused-review", currency: "ILS", paymentMethod: "Bank Transfer", buyerId: "buyer", sellerId: "seller", buyerName: "Buyer", listingId: "listing", status: "completed", network: "TRC20", usdtAmount: "125", fiatAmount: "400", createdAt: "2026-09-21T00:00:00Z", completedAt: "2026-09-21T00:01:00Z", updatedAt: "2026-09-21T00:01:00Z", messages: [], timeline: [] }] as AlphaExchangeDb["purchaseRequests"];
+    const query = vi.fn(async (sql: string, values?: unknown[]) => {
+      if (sql.includes("as target_id")) return { rows: [{ target_id: "focused-review", payload: structuredClone(db) }] };
+      if (sql.startsWith("update alpha_exchange.purchase_requests")) db.purchaseRequests[0] = JSON.parse(String(values?.[1]));
+      return { rows: [] };
+    });
+    const repo = new AlphaExchangeRepository({ query: vi.fn(), connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repo, "ensureReady").mockResolvedValue(undefined);
+    const fullRead = vi.spyOn(repo, "loadSelectedSnapshot");
+    const fullSave = vi.spyOn(repo, "saveSnapshot");
+    vi.mocked(getAlphaExchangeRepository).mockResolvedValue(repo);
+    const input = { requestId: "focused-review", buyerUserId: "buyer", rating: 5, comment: "Quick exchange" };
+    await expect(submitBuyerTradeReview(input)).resolves.toMatchObject({ review: { rating: 5, comment: "Quick exchange" } });
+    await expect(submitBuyerTradeReview(input)).resolves.toMatchObject({ review: { rating: 5, comment: "Quick exchange" } });
+    expect(db.purchaseRequests[0].buyerReview?.comment).toBe("Quick exchange");
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(fullSave).not.toHaveBeenCalled();
+    expect(query.mock.calls.filter(([sql]) => sql.startsWith("update alpha_exchange.purchase_requests"))).toHaveLength(1);
+    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO alpha_exchange.audit_logs"))).toBe(true);
+  });
+
+  it("rolls back an in-place lifecycle change in a focused mutation", async () => {
+    const db = createEmptyDb();
+    db.purchaseRequests = [{ id: "focused-trade", buyerId: "buyer", sellerId: "seller", listingId: "listing", status: "completed" }] as AlphaExchangeDb["purchaseRequests"];
+    const query = vi.fn(async (sql: string) => ({ rows: sql.includes("as target_id") ? [{ target_id: "focused-trade", payload: structuredClone(db) }] : [] }));
+    const release = vi.fn();
+    const repo = new AlphaExchangeRepository({ query: vi.fn(), connect: vi.fn().mockResolvedValue({ query, release }), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repo, "ensureReady").mockResolvedValue(undefined);
+    await expect(repo.mutateFocusedTrade("focused-trade", (snapshot) => {
+      snapshot.purchaseRequests[0].status = "cancelled";
+      return snapshot;
+    })).rejects.toThrow("cannot change lifecycle");
+    expect(query).toHaveBeenCalledWith("rollback");
+    expect(query.mock.calls.some(([sql]) => sql.startsWith("update "))).toBe(false);
+    expect(release).toHaveBeenCalled();
   });
 
   it("skips runtime DDL when the current schema sentinel exists", async () => {

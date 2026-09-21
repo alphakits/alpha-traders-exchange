@@ -1922,7 +1922,23 @@ export function UsdtExchangePage({
         };
         setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
-        setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
+        setSellerCommissionStatus((current) => {
+          const incoming = myListingsJson.commissionStatus ?? null;
+          const selected = !options?.commissionId && current?.commissionId
+            ? incoming?.payableRecords?.find((record) => record.commissionId === current.commissionId)
+            : undefined;
+          // A slower general workspace response must not switch a payment
+          // panel from the requested trade to the oldest outstanding fee.
+          return incoming && selected ? { ...incoming,
+            commissionId: selected.commissionId,
+            payableAmountDue: selected.paymentAmountDue ?? selected.amountDue,
+            dueAt: selected.dueAt,
+            relatedRequestId: selected.relatedRequestId,
+            relatedTradeId: selected.relatedTradeId,
+            relatedTradeDisplayNumber: selected.relatedTradeDisplayNumber,
+            selectionError: undefined,
+          } : incoming;
+        });
         refreshedCommissionStatus = myListingsJson.commissionStatus ?? null;
         setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
@@ -2199,11 +2215,11 @@ export function UsdtExchangePage({
       return;
     }
 
-    // Do not decide commission eligibility from a bootstrap role or before the
-    // canonical seller workspace response has supplied the payable record.
-    if (isSessionResolving || isWorkspaceWidgetsLoading) return;
+    // Resolve the canonical actor, then load the exact payment independently
+    // of unrelated workspace widgets.
+    if (isSessionResolving) return;
 
-    const intentKey = commissionPaymentIntentId || "missing-record";
+    const intentKey = `${sessionUser?.id ?? "anonymous"}:${commissionPaymentIntentId || "missing-record"}`;
     if (commissionPayIntentHandledRef.current === intentKey) return;
     commissionPayIntentHandledRef.current = intentKey;
     commissionPayDeepLinkHandledRef.current = true;
@@ -2223,13 +2239,24 @@ export function UsdtExchangePage({
       setSellerWorkspaceMessage(isAr ? "رابط الدفع هذا لا يحتوي على سجل العمولة. افتح تذكير عمولة حاليًا." : "This payment link is missing its commission record. Please open a current commission reminder.");
       return;
     }
-    let cancelled = false;
+    const existingRecord = sellerCommissionStatus?.payableRecords?.find((record) => record.commissionId === requestedCommissionId);
+    if (existingRecord) { openCommissionPayment(requestedCommissionId); clearCommissionPayDeepLink(); return; }
     void (async () => {
       // The normal workspace response selects the oldest due record. A
       // commission deep link must instead revalidate its exact record on the
       // server and must never silently pay a different one.
-      const commissionStatus = await refreshSellerWorkspace({ commissionId: requestedCommissionId });
-      if (cancelled) return;
+      let commissionStatus: SellerCommissionStatus | null = null;
+      try {
+        const response = await fetch(`/api/alpha-exchange/my-listings?commissionId=${encodeURIComponent(requestedCommissionId)}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+        if (response.ok) {
+          const payload = await response.json();
+          commissionStatus = payload.commissionStatus ?? null;
+          if (commissionPayIntentHandledRef.current !== intentKey) return;
+          setSellerCommissionStatus(commissionStatus);
+          setCommissionWalletConfiguration(payload.commissionWalletConfiguration ?? null);
+        }
+      } catch { /* Show the retryable loading error below. */ }
+      if (commissionPayIntentHandledRef.current !== intentKey) return;
       clearCommissionPayDeepLink();
       if (!commissionStatus) {
         setSellerWorkspaceMessage(isAr ? "تعذر تحميل حالة العمولة. حاول مرة أخرى." : "Unable to load commission status. Please retry.");
@@ -2251,9 +2278,6 @@ export function UsdtExchangePage({
       openCommissionPaymentPanel();
       revealCommissionPaymentPanel();
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [
     clearCommissionPayDeepLink,
     commissionPaymentIntent,
@@ -2261,11 +2285,12 @@ export function UsdtExchangePage({
     isAr,
     hasSellerWorkspaceAccess,
     isSessionResolving,
-    isWorkspaceWidgetsLoading,
     openCommissionPaymentPanel,
     revealCommissionPaymentPanel,
     refreshSellerWorkspace,
     sessionUser,
+    sellerCommissionStatus,
+    openCommissionPayment,
   ]);
 
   const refreshNotifications = useCallback(async (options?: { category?: "all" | NotificationCategory; query?: string; unreadOnly?: boolean }) => {

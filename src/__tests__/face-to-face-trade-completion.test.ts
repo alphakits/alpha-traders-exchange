@@ -226,6 +226,29 @@ describe("guided cash-trade completion", () => {
     expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
   });
 
+  it("repairs a legacy non-hundred cash amount at its saved listing price", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    const persisted = currentSnapshot().purchaseRequests.find((item) => item.id === request.id)!;
+    persisted.fiatAmount = "540";
+    persisted.pricePerUsdt = "";
+    persisted.listingPriceAtRequest = "3.2";
+    invalidateAlphaExchangeStoreCache();
+    await expect(recalculateCardlessTradeAmount({ ...seller, ilsAmount: "794" })).rejects.toThrow();
+    const adjusted = await recalculateCardlessTradeAmount({ ...seller, ilsAmount: "500" });
+    expect(adjusted).toMatchObject({ fiatAmount: "500.00", usdtAmount: "156.25", pricePerUsdt: "3.2" });
+  });
+
+  it("does not let the seller replace a prepared bank code's cash amount", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await expect(recalculateCardlessTradeAmount({ ...seller, ilsAmount: "500" })).rejects.toThrow("bank code amount cannot be changed");
+    await expect(recalculateCardlessTradeAmount({ ...seller, ilsAmount: "400" })).resolves.toMatchObject({ usdtAmount: "125" });
+  });
+
   it("recalculates seller USDT at the locked price and accounts once for simultaneous completion", async () => {
     const { request } = await readyRequest();
     const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
