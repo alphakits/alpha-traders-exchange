@@ -486,6 +486,7 @@ function resolveNotificationPriority(notification: Pick<AlphaExchangeNotificatio
 }
 
 function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller: boolean) {
+  if (request.termsProposal?.status === "pending") return recipientIsSeller ? "Wait for buyer response to your proposal" : "Accept or decline the seller proposal";
   const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
   const cardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   if (request.status === "pending") {
@@ -9917,12 +9918,103 @@ export async function getWorkspaceBootstrapData(input: {
   };
 }
 
+/** Seller proposals never silently change the buyer's agreed financial terms. */
+export async function updateTradeTerms(input: {
+  requestId: string; actorUserId: string;
+  action: "counter_offer" | "propose_amount" | "accept_amount" | "decline_terms" | "withdraw_terms";
+  value?: string; proposalId?: string; expectedUpdatedAt?: string; safetyAcknowledged?: boolean;
+}) {
+  let committed: PurchaseRequest | undefined;
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
+    if (!request || ![request.sellerId, request.buyerId].includes(input.actorUserId)) throw new TradeBlockedError("trade-terms-invalid", "Trade not found.", input.requestId);
+    if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new TradeBlockedError("trade-terms-invalid", "Resolve the dispute before changing trade terms.", input.requestId);
+    const seller = request.sellerId === input.actorUserId;
+    const proposal = request.termsProposal;
+    const creating = input.action === "counter_offer" || input.action === "propose_amount";
+    if (!creating && proposal && proposal.id === input.proposalId && proposal.status !== "pending") {
+      const expected = input.action === "accept_amount" ? "accepted" : input.action === "withdraw_terms" ? "withdrawn" : "declined";
+      if (proposal.status === expected && (input.action === "withdraw_terms" ? seller : !seller)) { committed = request; return snapshot; }
+    }
+    if (creating && (!input.expectedUpdatedAt || request.updatedAt !== input.expectedUpdatedAt)) throw new TradeBlockedError("trade-terms-invalid", "Trade changed. Refresh before proposing new terms.", input.requestId);
+    const listing = snapshot.marketplaceListings.find((item) => item.id === request.listingId);
+    if (!listing) throw new TradeBlockedError("trade-terms-invalid", "Listing is no longer available.", input.requestId);
+    const now = nowIsoAfter(request.updatedAt);
+    let message: string;
+    if (creating) {
+      if (!seller) throw new TradeBlockedError("trade-terms-invalid", "Only the seller can propose new terms.", input.requestId);
+      if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
+      const counter = input.action === "counter_offer";
+      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["accepted", "payment_sent", "funds_received"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
+      if (listing.activeTradeRequestId && listing.activeTradeRequestId !== request.id) throw new TradeBlockedError("trade-terms-invalid", "The listing already has an active trade.", input.requestId);
+      if (!counter && listing.activeTradeRequestId !== request.id) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
+      if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
+      const raw = canonicalizeTradeAmount(input.value) || "";
+      if (!(counter ? /^\d{1,7}(?:\.\d{1,2})?$/ : /^\d{1,9}(?:\.\d{1,6})?$/).test(raw) || Number(raw) <= 0) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid positive amount.", input.requestId);
+      let price = normalizeListingPrice(request.pricePerUsdt || request.listingPriceAtRequest || listing.price) || "";
+      let amount = request.usdtAmount;
+      let fiat = request.fiatAmount;
+      if (counter) {
+        const bounds = getPriceOfferBounds(request.listingPriceAtRequest || listing.price);
+        if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.listingPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
+        price = Number(raw).toFixed(2);
+        if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
+          amount = calculateCardlessUsdtAmount(fiat, price) || "";
+          if (!amount) throw new TradeBlockedError("trade-terms-invalid", "The withdrawal amount is invalid.", input.requestId);
+        } else fiat = calculateFiatAmount(amount, price) || "";
+      } else {
+        amount = raw;
+        fiat = calculateFiatAmount(amount, price) || "";
+        if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
+          const canonical = calculateCardlessUsdtAmount(request.fiatAmount, price);
+          if (!canonical || Number(amount) !== Number(canonical)) throw new TradeBlockedError("trade-terms-invalid", "USDT must match the buyer's bank withdrawal at the agreed price. Use Match withdrawal amount.", input.requestId);
+          fiat = request.fiatAmount;
+        }
+      }
+      if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listing.availableAmount) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
+      request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
+      if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
+      message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
+    } else {
+      if (!proposal || proposal.id !== input.proposalId || proposal.status !== "pending") throw new TradeBlockedError("trade-terms-invalid", "This proposal is no longer current. Refresh the trade.", input.requestId);
+      if (input.action === "withdraw_terms" ? !seller : seller) throw new TradeBlockedError("trade-terms-invalid", "Only the intended participant can respond to this proposal.", input.requestId);
+      if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["accepted", "payment_sent", "funds_received"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
+      if (input.action === "accept_amount") {
+        if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
+        if (listing.activeTradeRequestId !== request.id || Number(proposal.usdtAmount) > Number(listing.availableAmount) || Number(proposal.usdtAmount) < Number(listing.minimumTrade) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
+        request.usdtAmount = proposal.usdtAmount;
+        request.fiatAmount = proposal.fiatAmount;
+        proposal.status = "accepted";
+      } else proposal.status = input.action === "withdraw_terms" ? "withdrawn" : "declined";
+      proposal.resolvedAt = now;
+      message = `Trade terms ${proposal.status}: ${proposal.usdtAmount} USDT for ${request.currency} ${proposal.fiatAmount}.`;
+    }
+    request.updatedAt = now;
+    appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message, createdAt: now });
+    pushNotification(snapshot, { userId: seller ? request.buyerId : request.sellerId, category: "trade", title: creating ? "Trade proposal — your response needed" : "Trade proposal updated", message, relatedRequestId: request.id, relatedTradeId: request.tradeId, relatedHref: requestDetailsHref(request.id), forceInApp: true });
+    await appendAuditLog(snapshot, { action: "admin_override", actorUserId: input.actorUserId, purchaseRequestId: request.id, details: message });
+    committed = request;
+    return snapshot;
+  };
+  const focused = await commitFocusedTradeMutation(input.requestId, apply);
+  if (!focused) {
+    const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
+    await apply(db);
+    await writeDb(db, { selectedTables: ["purchase_requests", "notifications", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
+  }
+  if (!committed) throw new TradeBlockedError("trade-terms-invalid", "Could not confirm the trade proposal.", input.requestId);
+  const request = committed as PurchaseRequest;
+  publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: request.id, request, status: request.status, timeline: request.timeline, publishedAtEpochMs: Date.now() } });
+  return request;
+}
+
 /** Recalculate only from the buyer's cash amount and the locked agreed rate. */
 export async function recalculateCardlessTradeAmount(input: { requestId: string; actorUserId: string; ilsAmount?: string }) {
   let committed: PurchaseRequest | undefined;
   const apply = async (snapshot: AlphaExchangeDb) => {
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
     if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
+    if (request.termsProposal?.status === "pending") throw new Error("Respond to the pending proposal first.");
     if (!isCardlessAtmPaymentMethod(request.paymentMethod) || !["payment_sent", "funds_received"].includes(request.status)) throw new Error("Adjust the amount after accepting and before confirming USDT sent.");
     if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new Error("Resolve the open dispute before adjusting the amount.");
     const credential = request.messages?.find((item) => item.credentialKind === "cardless_code");
@@ -12139,6 +12231,7 @@ async function uploadTradeEvidenceAttempt(
   const request = db.purchaseRequests[requestIndex];
 
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+  if (request.termsProposal?.status === "pending") throw new Error("Respond to the proposed terms before uploading payment or release evidence.");
   if (input.side === "buyer" && request.buyerId !== input.actorUserId) {
     throw new Error("Only the buyer can upload buyer evidence.");
   }
@@ -12394,6 +12487,8 @@ async function uploadTradeEvidenceAttempt(
         if (
           !canonicalRequest
           || canonicalRequest.status !== requestStatusAtRead
+          || JSON.stringify(canonicalRequest.termsProposal) !== JSON.stringify(request.termsProposal)
+          || canonicalRequest.usdtAmount !== request.usdtAmount
           || (canonicalEvidence?.id ?? null) !== existingEvidenceIdAtRead
         ) {
           throw new ConcurrentTradeMutationError();
@@ -12958,6 +13053,7 @@ type UpdatePurchaseRequestStatusInput = {
   cardlessVerificationValue?: string;
   clientOperationId?: string;
   traceId?: string;
+  acceptCounterOfferId?: string;
 };
 
 type UpdatePurchaseRequestStatusResult = {
@@ -13029,6 +13125,11 @@ async function updatePurchaseRequestStatusAttempt(
 
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
+  const acceptingCounter = isBuyer && input.nextStatus === "accepted" && Boolean(input.acceptCounterOfferId)
+    && request.termsProposal?.kind === "counter_offer" && request.termsProposal.id === input.acceptCounterOfferId
+    && ["pending", "accepted"].includes(request.termsProposal.status);
+  if (input.acceptCounterOfferId && !acceptingCounter) throw new TradeBlockedError("stale-counter-offer", "This counter-offer is no longer current. Refresh the trade.", request.id);
+  if (request.termsProposal?.status === "pending" && !acceptingCounter && !["cancelled", "declined"].includes(input.nextStatus)) throw new TradeBlockedError("trade-terms-pending", "Respond to the proposed terms before continuing this trade.", request.id);
   const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
   const isSystemActor = input.actorUserId === SYSTEM_ACTOR_USER_ID;
   const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
@@ -13141,7 +13242,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (isBuyer && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
+  if (isBuyer && !acceptingCounter && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
     throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can only set cancelled, payment_sent, or completed.", request.id, {
       guard: "buyer-next-status-allowlist",
       nextStatus: input.nextStatus,
@@ -13329,6 +13430,13 @@ async function updatePurchaseRequestStatusAttempt(
   };
 
   if (input.nextStatus === "accepted") {
+    if (acceptingCounter && request.termsProposal) {
+      next.usdtAmount = request.termsProposal.usdtAmount;
+      next.fiatAmount = request.termsProposal.fiatAmount;
+      next.pricePerUsdt = request.termsProposal.pricePerUsdt;
+      next.priceOfferDiscount = (Number(next.listingPriceAtRequest) - Number(next.pricePerUsdt)).toFixed(2);
+      next.termsProposal = { ...request.termsProposal, status: "accepted", resolvedAt: now };
+    }
     if (!listing) {
       throw new TradeBlockedError("listing-not-found", "Listing not found.", request.id, {
         guard: "listing-exists",
@@ -13336,7 +13444,7 @@ async function updatePurchaseRequestStatusAttempt(
         nextStatus: input.nextStatus,
       });
     }
-    if (listing.sellerId !== input.actorUserId && !isAdmin) {
+    if (listing.sellerId !== input.actorUserId && !isAdmin && !acceptingCounter) {
       throw new TradeBlockedError("seller-mismatch", "Only the seller can accept this trade.", request.id, {
         guard: "seller-ownership",
         listingId: listing.id,
@@ -13449,7 +13557,7 @@ async function updatePurchaseRequestStatusAttempt(
         { guard: "buyer-seller-commission-at-accept", commissionId: buyerSellerCommission.id },
       );
     }
-    if (toNumber(request.usdtAmount) > toNumber(listing.availableAmount)) {
+    if (toNumber(next.usdtAmount) > toNumber(listing.availableAmount) || toNumber(next.usdtAmount) < toNumber(listing.minimumTrade) || toNumber(next.usdtAmount) > toNumber(listing.maximumTrade || listing.availableAmount)) {
       throw new TradeBlockedError(
         "listing-amount-unavailable",
         "The listing no longer has enough USDT for this request.",
@@ -14117,6 +14225,7 @@ async function updatePurchaseRequestStatusAttempt(
   } else {
     next.status = input.nextStatus;
   }
+  if (["declined", "cancelled"].includes(next.status) && next.termsProposal?.status === "pending") next.termsProposal = { ...next.termsProposal, status: "withdrawn", resolvedAt: now };
   next.inactivityWarningSentAt = undefined;
   db.purchaseRequests[requestIndex] = next;
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation status-after", {
@@ -14171,7 +14280,10 @@ async function updatePurchaseRequestStatusAttempt(
       // accepting two buyers for one listing while preserving unrelated writes.
       validateLatestBeforeCommit: (canonicalSnapshot) => {
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
-        if (!canonicalRequest || canonicalRequest.status !== stateBefore) {
+        if (!canonicalRequest || canonicalRequest.status !== stateBefore
+          || JSON.stringify(canonicalRequest.termsProposal) !== JSON.stringify(request.termsProposal)
+          || canonicalRequest.usdtAmount !== request.usdtAmount || canonicalRequest.fiatAmount !== request.fiatAmount
+          || canonicalRequest.pricePerUsdt !== request.pricePerUsdt) {
           throw new ConcurrentTradeMutationError();
         }
         if (canonicalSnapshot.disputes.some((candidate) => (
@@ -14219,7 +14331,7 @@ async function updatePurchaseRequestStatusAttempt(
           ));
           if (
             !canonicalListing
-            || toNumber(request.usdtAmount) > toNumber(canonicalListing.availableAmount)
+            || toNumber(next.usdtAmount) > toNumber(canonicalListing.availableAmount)
             || !canonicalSeller
             || canonicalSeller.disabled === true
             || !canPublishListings(canonicalSeller)

@@ -206,7 +206,7 @@ export default function SellerCommissionsScreen() {
     >
       <View style={[styles.statusCard, query.data?.status === "overdue" && styles.overdueCard]}>
         <Text style={[styles.statusTitle, isRTL && styles.rtlText]}>{query.data?.status === "clear" ? `✓ ${isAr ? "لا توجد عمولات مستحقة" : "No commission due"}` : (isAr ? "عمولة تحتاج إلى الدفع" : "Commission payment required")}</Text>
-        <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsdt(query.data?.totalAmountDue ?? 0)}</Text>
+        <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsdt(query.data?.totalAmountDue ?? 0, 6)}</Text>
         <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "السجلات غير المدفوعة" : "Unpaid records"}: {formatCount(query.data?.pendingCount ?? 0)}</Text>
       </View>
 

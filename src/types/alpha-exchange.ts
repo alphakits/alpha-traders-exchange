@@ -835,6 +835,7 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;
   displayNumber?: number;

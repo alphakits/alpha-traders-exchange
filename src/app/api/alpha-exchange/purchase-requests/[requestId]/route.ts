@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
-import { recalculateCardlessTradeAmount, sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { updateTradeTerms, recalculateCardlessTradeAmount, sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
@@ -74,16 +74,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
+    if (["counter_offer", "propose_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
+      const updated = await updateTradeTerms({ requestId: requestId, actorUserId: user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(rawBody?.value ?? ""), proposalId: String(rawBody?.proposalId ?? ""), expectedUpdatedAt: String(rawBody?.expectedUpdatedAt ?? ""), safetyAcknowledged: rawBody?.safetyAcknowledged === true });
+      return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role) }, { headers: PRIVATE_NO_STORE_HEADERS });
+    }
     if (action === "recalculate_cardless_amount") {
       const updated = await recalculateCardlessTradeAmount({ requestId, actorUserId: user.id, ilsAmount: rawBody.ilsAmount == null ? undefined : String(rawBody.ilsAmount) });
       return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role), destination: tradeDestination(updated, user.id) }, { headers: PRIVATE_NO_STORE_HEADERS });
     }
-    if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
+    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return NextResponse.json({ error: "Invalid trade action.", stage: "action-invalid", code: "invalid-action", diagId }, { status: 400 });
     }
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
     const isCardlessCodeSubmission = action === "submit_cardless_code";
-    const status = isCashTradeCompletion ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
+    const status = action === "accept_counter_offer" ? "accepted" : isCashTradeCompletion ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
     const safetyAcknowledged = rawBody.safetyAcknowledged === true;
     if (routeDebug) {
       console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, action, parsedStatus: status, safetyAcknowledged });
@@ -131,6 +135,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
       nextStatus: status,
+      acceptCounterOfferId: action === "accept_counter_offer" ? String(rawBody.proposalId ?? "") : undefined,
       completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
       safetyAcknowledged,
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,

@@ -38,7 +38,7 @@ import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatFinancialNumber,
+  formatWholeUsdtNumber,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -231,7 +231,7 @@ export function SellerWorkspaceScreen() {
               <View style={styles.metricsRow}>
                 <View style={styles.metric}>
                   <Text style={styles.metricLabel}>{t("available")}</Text>
-                  <Text style={styles.metricValue}>{formatFinancialNumber(item.availableAmount, { maximumFractionDigits: 6 })} USDT</Text>
+                  <Text style={styles.metricValue}>{formatWholeUsdtNumber(item.availableAmount)} USDT</Text>
                 </View>
                 <View style={styles.metric}>
                   <Text style={styles.metricLabel}>{t("price")}</Text>
@@ -242,7 +242,7 @@ export function SellerWorkspaceScreen() {
                 {item.network} · {item.paymentMethods.join(" · ")}
               </Text>
               <Text style={[styles.detail, isRTL && styles.rtlText]}>
-                {t("minimum")}: {formatFinancialNumber(item.minimumTrade, { maximumFractionDigits: 6 })} · {t("maximum")}: {formatFinancialNumber(item.maximumTrade, { maximumFractionDigits: 6 })} USDT
+                {t("minimum")}: {formatWholeUsdtNumber(item.minimumTrade)} · {t("maximum")}: {formatWholeUsdtNumber(item.maximumTrade)} USDT
               </Text>
               {item.approvalStatus ? (
                 <Text style={[styles.detail, isRTL && styles.rtlText]}>

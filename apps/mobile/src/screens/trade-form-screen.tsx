@@ -37,6 +37,7 @@ import {
   formatFinancialText,
   formatUsd,
   priceForUsdInput,
+  formatWholeUsdtNumber,
 } from "../finance/financial-display";
 import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
@@ -159,7 +160,7 @@ export function TradeFormScreen({
       ? t("tronWalletHint")
       : t("solWalletHint");
   const amountRange = listing
-    ? `${formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 })}–${formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 })} USDT`
+    ? `${formatWholeUsdtNumber(listing.minimumTrade)}–${formatWholeUsdtNumber(listing.maximumTrade)} USDT`
     : "";
   const formIsValid = useMemo(() => {
     if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || walletValidationError) return false;
