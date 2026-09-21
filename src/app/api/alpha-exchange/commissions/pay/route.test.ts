@@ -77,7 +77,7 @@ describe("commission payment route network handling", () => {
     expect(response.status).toBe(400);
     expect(mocks.submit).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toEqual({
-      error: "Commission payments must use USDT on TRON (TRC20).",
+      error: "Commission payments must use USDT on TRON (TRC20) or BNB Smart Chain (BEP20).",
     });
   });
 

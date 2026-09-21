@@ -43,10 +43,10 @@ function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: str
   if (request.status === "usdt_sent" && isCashTradePaymentMethod(request.paymentMethod) && isSellerActor(request, actorUserId)) {
     return "complete-cash-trade";
   }
-  if (request.status === "usdt_sent" && !isCashTradePaymentMethod(request.paymentMethod) && isBuyerActor(request, actorUserId)) {
+  if (request.status === "usdt_sent" && isBuyerActor(request, actorUserId)) {
     return "confirm-usdt-received";
   }
-  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor(request, actorUserId)) {
+  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && (isBuyerActor(request, actorUserId) || isSellerActor(request, actorUserId))) {
     return "review-trade";
   }
   return "open-trade";

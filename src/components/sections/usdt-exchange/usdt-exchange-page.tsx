@@ -1,5 +1,6 @@
 "use client";
 
+import { parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
@@ -21,7 +22,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { getDefaultListingPaymentMethods, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { getDefaultListingPaymentMethods, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
@@ -274,6 +275,7 @@ export type SellerCommissionStatus = {
     paymentVerificationNotes?: string;
     paymentSignature?: string;
     paymentSubmittedAt?: string;
+    paymentNetwork?: string;
     paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
     dueAt?: string;
     relatedRequestId?: string;
@@ -767,6 +769,7 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
 }
 
 function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
+  if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "أكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
   if (!isAr) return englishMessage;
   if (code === "EMAIL_VERIFICATION_REQUIRED") return "يجب تأكيد البريد الإلكتروني قبل بدء صفقة.";
   if (code === "BUYER_ROLE_REQUIRED") return "يلزم تفعيل دور المشتري لبدء صفقة.";
@@ -1772,7 +1775,7 @@ export function UsdtExchangePage({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "", receivingNetwork: "TRC20" as SupportedNetwork, cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number" as CardlessVerificationKind, cardlessVerificationValue: "", cardlessIlsAmount: "" });
   const [sellerForm, setSellerForm] = useState<SellerApplicationForm>(() => ({
     firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
     lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
@@ -2141,6 +2144,7 @@ export function UsdtExchangePage({
       && (sellerCommissionStatus.payableAmountDue ?? 0) > 0;
     if (payableRecord || isCurrentPayableRecord) {
       if (payableRecord) {
+        if (payableRecord.paymentNetwork === "TRC20" || payableRecord.paymentNetwork === "BEP20") setCommissionNetwork(payableRecord.paymentNetwork);
         setSellerCommissionStatus((current) => current ? {
           ...current,
           commissionId: payableRecord.commissionId,
@@ -2726,7 +2730,7 @@ export function UsdtExchangePage({
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
-      receivingWalletAddress: "",
+      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
   }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
 
@@ -3025,7 +3029,7 @@ export function UsdtExchangePage({
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
-      receivingWalletAddress: "",
+      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
   }, [requireAuth, updateListingSelectionQuery]);
 
@@ -3111,9 +3115,16 @@ export function UsdtExchangePage({
         return;
       }
     }
-    const walletValidationError = getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress);
+    const walletValidationError = getWalletAddressValidationError(buyerInfo.receivingNetwork, buyerInfo.receivingWalletAddress);
     if (walletValidationError) {
-      setStatusMessage(localizeWalletValidationError(walletValidationError, selectedListing.network, isAr));
+      setStatusMessage(localizeWalletValidationError(walletValidationError, buyerInfo.receivingNetwork, isAr));
+      return;
+    }
+    if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
+      !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
+      || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, (requestedAmount * (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price))).toFixed(2))
+    )) {
+      setStatusMessage(isAr ? "أكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
       return;
     }
     const fallbackMessage = isAr
@@ -3129,6 +3140,13 @@ export function UsdtExchangePage({
           listingId: selectedListing.id,
           usdtAmount: tradeAmount,
           buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
+          receivingNetwork: buyerInfo.receivingNetwork,
+          ...(isCardlessAtmPaymentMethod(selectedListingPaymentMethod) ? {
+            cardlessWithdrawalCode: buyerInfo.cardlessWithdrawalCode,
+            cardlessVerificationKind: buyerInfo.cardlessVerificationKind,
+            cardlessVerificationValue: buyerInfo.cardlessVerificationValue,
+            cardlessIlsAmount: buyerInfo.cardlessIlsAmount,
+          } : {}),
           paymentMethod: selectedListingPaymentMethod ?? undefined,
           safetyAcknowledged: faceToFaceSafetyAcknowledged,
           priceMode: purchasePriceMode,
@@ -3375,7 +3393,7 @@ export function UsdtExchangePage({
     : 0;
   const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
   const buyerWalletValidationError = selectedListing
-    ? localizeWalletValidationError(getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress), selectedListing.network, isAr)
+    ? localizeWalletValidationError(getWalletAddressValidationError(buyerInfo.receivingNetwork, buyerInfo.receivingWalletAddress), buyerInfo.receivingNetwork, isAr)
     : null;
   const buyerWalletInvalid = buyerWalletValidationError !== null;
   const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
@@ -4707,8 +4725,8 @@ export function UsdtExchangePage({
       setCommissionPayMessage(isAr ? "مبلغ العمولة المحدد غير متاح. أعد فتح طلب الدفع." : "The exact commission amount is unavailable. Please reopen the payment request.");
       return;
     }
-    if (!/^(?:0x)?[a-fA-F0-9]{64}$/.test(commissionTxSignature.trim())) {
-      setCommissionPayMessage(isAr ? "ألصق معرّف معاملة TRON الكامل المكوّن من 64 رمزًا." : "Paste the full 64-character TRON TxID before confirming.");
+    if (!(commissionNetwork === "BEP20" ? /^0x[a-fA-F0-9]{64}$/ : /^(?:0x)?[a-fA-F0-9]{64}$/).test(commissionTxSignature.trim())) {
+      setCommissionPayMessage(isAr ? "ألصق معرّف المعاملة الكامل للشبكة المختارة." : "Paste the full transaction ID for the selected network.");
       return;
     }
     if (!selectedCommissionWalletAvailable) {
@@ -4751,7 +4769,7 @@ export function UsdtExchangePage({
       }
 
       setCommissionPayMessage(payload.verification?.pending
-        ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "⏳ Payment submitted. Alpha Traders will verify it automatically after TRON final confirmation.")
+        ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على الشبكة المختارة." : "⏳ Payment submitted. Alpha Traders will verify it automatically after blockchain final confirmation.")
         : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
       // Keep the panel bound to the exact record whose TxID was submitted.
       // A generic refresh would select the oldest unpaid commission and could
@@ -6127,6 +6145,7 @@ export function UsdtExchangePage({
           isOwnerProfileActionLoading={isOwnerProfileActionLoading}
           purchaseSubmitted={purchaseSubmitted}
           buyerInfo={buyerInfo}
+          onBuyerDetailsChange={(details) => setBuyerInfo((prev) => ({ ...prev, ...details }))}
           selectedPaymentMethods={selectedListingPaymentMethods}
           selectedPaymentMethod={selectedListingPaymentMethod}
           buyerTradeAmount={buyerTradeAmount}
@@ -6155,7 +6174,12 @@ export function UsdtExchangePage({
           }}
           onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
-          onOfferedPriceChange={(value) => setBuyerOfferedPrice(normalizePriceOfferInput(value))}
+          onOfferedPriceChange={(value) => {
+            const price = normalizePriceOfferInput(value);
+            setBuyerOfferedPrice(price);
+            const amount = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, price);
+            if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && amount) setBuyerInfo((prev) => ({ ...prev, usdtAmount: amount }));
+          }}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
           onGoToVerification={goToVerificationGate}
           onOwnerSellerProfileState={(sellerId, state, successMessage) => {

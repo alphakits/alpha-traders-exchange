@@ -363,7 +363,8 @@ describe("full Exchange App Review rehearsal", () => {
     ]);
     const created = await createPurchaseRequest({
       ...purchaseInput(listing.id),
-      paymentMethod: "Cardless ATM Withdrawal",
+      paymentMethod: "Cardless ATM Withdrawal", usdtAmount: "90.909091",
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "id_number", cardlessVerificationValue: "012345678", cardlessIlsAmount: "300",
     });
     expect(created.request).toMatchObject({
       status: "pending",
@@ -391,17 +392,7 @@ describe("full Exchange App Review rehearsal", () => {
     });
     expect(sellerRoomBeforeCash.request.buyerReceivingWalletAddress).toBeUndefined();
 
-    const buyerConfirmation = await updatePurchaseRequestStatus({
-      requestId: created.request.id,
-      actorUserId: BUYER_ID,
-      actorRole: "buyer",
-      nextStatus: "payment_sent",
-      cardlessWithdrawalCode: "482913",
-      cardlessVerificationKind: "id_number",
-      cardlessVerificationValue: "012345678",
-      clientOperationId: "abcdef0123456789abcdef0123456789",
-    });
-    expect(buyerConfirmation.request).toMatchObject({ status: "payment_sent", buyerEvidence: undefined });
+    expect(sellerRoomBeforeCash.request).toMatchObject({ status: "payment_sent", buyerEvidence: undefined });
     const persistedWithProtectedCode = snapshot().purchaseRequests.find((entry) => entry.id === created.request.id);
     expect(JSON.stringify(persistedWithProtectedCode)).not.toContain("482913");
     expect(persistedWithProtectedCode?.messages).toEqual(expect.arrayContaining([
@@ -414,7 +405,7 @@ describe("full Exchange App Review rehearsal", () => {
       markMessagesRead: false,
     });
     expect(sellerRoomWithProtectedCode.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ message: "Cardless withdrawal code: 482913\nID number: 012345678" }),
+      expect.objectContaining({ message: "ILS amount: 300.00\nCardless withdrawal code: 482913\nID number: 012345678" }),
     ]));
     await updatePurchaseRequestStatus({
       requestId: created.request.id,
@@ -469,7 +460,7 @@ describe("full Exchange App Review rehearsal", () => {
 
     const commission = (await getCommissionRecordsForAdmin())
       .find((entry) => entry.purchaseRequestId === created.request.id);
-    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 1 });
+    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 0.91 });
     await updateCommissionPaymentStatus({
       commissionId: commission!.id,
       actorUserId: OWNER_ID,
@@ -479,7 +470,7 @@ describe("full Exchange App Review rehearsal", () => {
 
     const saved = snapshot();
     expect(saved.marketplaceListings.find((entry) => entry.id === listing.id)).toMatchObject({
-      availableAmount: "900",
+      availableAmount: "909.090909",
       status: "active",
       activeTradeRequestId: undefined,
     });
@@ -501,7 +492,7 @@ describe("full Exchange App Review rehearsal", () => {
         "commission_paid",
       ]));
     expect((await getCommissionRecordsForAdmin()).filter((entry) => entry.purchaseRequestId === created.request.id))
-      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 1 })]);
+      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 0.91 })]);
     expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)).toMatchObject({
       buyerReview: { rating: 5 },
       sellerResponse: { message: "Thank you for completing the Cardless ATM trade." },

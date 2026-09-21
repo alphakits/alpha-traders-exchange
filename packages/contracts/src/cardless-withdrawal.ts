@@ -4,7 +4,36 @@ export type CardlessWithdrawalDetails = {
   withdrawalCode: string;
   verificationKind: CardlessVerificationKind;
   verificationValue: string;
+  ilsAmount?: string;
 };
+
+export function parseCardlessCashAmount(value: unknown) {
+  const normalized = typeof value === "string" ? normalizeCardlessDigits(value).trim() : "";
+  if (!/^\d{3,5}(?:\.00)?$/.test(normalized)) return null;
+  const amount = Number(normalized);
+  return amount >= 100 && amount <= 10000 && amount % 100 === 0 ? amount.toFixed(2) : null;
+}
+
+/** Divide the bank's cash amount by the agreed price using integer arithmetic. */
+export function calculateCardlessUsdtAmount(cash: unknown, price: string) {
+  const amount = parseCardlessCashAmount(cash);
+  if (!amount || !/^\d+(?:\.\d{1,2})?$/.test(price)) return null;
+  const [whole, fraction = ""] = price.split(".");
+  const priceCents = BigInt(whole!) * BigInt(100) + BigInt(fraction.padEnd(2, "0"));
+  if (priceCents <= BigInt(0)) return null;
+  const cashCents = BigInt(Math.round(Number(amount) * 100));
+  const micros = (cashCents * BigInt(1000000) + priceCents / BigInt(2)) / priceCents;
+  return `${micros / BigInt(1000000)}.${(micros % BigInt(1000000)).toString().padStart(6, "0")}`.replace(/\.?0+$/, "");
+}
+
+/** Cash must match the locked trade total exactly, to the agora. */
+export function validateCardlessIlsAmount(value: unknown, expectedTotal: string) {
+  const normalized = typeof value === "string" ? normalizeCardlessDigits(value).trim().replace("٫", ".") : "";
+  if (!parseCardlessCashAmount(normalized)) return null;
+  const cents = Math.round(Number(normalized) * 100);
+  return cents > 0 && Number.isSafeInteger(cents) && cents === Math.round(Number(expectedTotal) * 100)
+    ? (cents / 100).toFixed(2) : null;
+}
 
 export function normalizeCardlessDigits(value: string) {
   return value.normalize("NFKC")
@@ -53,7 +82,9 @@ export function formatCardlessWithdrawalPayload(value: string | null) {
       const label = verificationKind === "id_number" ? "ID number" : "Date of birth";
       const displayValue = verificationKind === "date_of_birth"
         ? verificationValue.split("-").reverse().join("/") : verificationValue;
-      return `Cardless withdrawal code: ${withdrawalCode}\n${label}: ${displayValue}`;
+      const raw = JSON.parse(value ?? "null");
+      const amount = validateCardlessIlsAmount(raw?.ilsAmount, String(raw?.ilsAmount ?? ""));
+      return `${amount ? `ILS amount: ${amount}\n` : ""}Cardless withdrawal code: ${withdrawalCode}\n${label}: ${displayValue}`;
     }
   } catch { /* Malformed or unavailable credentials are never displayed. */ }
   return "Cardless withdrawal details unavailable";
@@ -62,9 +93,11 @@ export function formatCardlessWithdrawalPayload(value: string | null) {
 export function localizeCardlessWithdrawalMessage(message: string, locale: string) {
   if (locale !== "ar") return message;
   return message
+    .replace(/^Cardless withdrawal details protected$/, "بيانات السحب محمية ولا تظهر إلا بعد القبول وقبل استلام النقد")
     .replace(/^Cardless withdrawal (?:code|details) hidden after cash collection$/, "تم إخفاء بيانات السحب بعد استلام النقد")
     .replace(/^Cardless withdrawal (?:code|details) unavailable$/, "بيانات السحب غير متاحة")
     .replace(/^Cardless withdrawal code: /m, "رمز السحب دون بطاقة: ")
     .replace(/^ID number: /m, "رقم الهوية: ")
+    .replace(/^ILS amount: /m, "مبلغ السحب بالشيكل: ")
     .replace(/^Date of birth: /m, "تاريخ الميلاد (يوم/شهر/سنة): ");
 }

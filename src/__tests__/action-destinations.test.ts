@@ -107,7 +107,7 @@ describe("canonical action destinations", () => {
     expect(tradeDestination(cashRequest("payment_sent"), "seller-1")).toContain("action=confirm-money-received#action-required");
     expect(tradeDestination(cashRequest("funds_received"), "seller-1")).toContain("action=confirm-usdt-sent#action-required");
     expect(tradeDestination(cashRequest("usdt_sent"), "seller-1")).toContain("action=complete-cash-trade#action-required");
-    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toBe("/trade-room/purchase-123?action=open-trade#status-banner");
+    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toContain("action=confirm-usdt-received#action-required");
   });
 
   it("resolves completed trades to history/review context", () => {

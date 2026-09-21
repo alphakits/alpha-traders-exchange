@@ -34,8 +34,8 @@ export async function POST(request: NextRequest) {
     if (!network) {
       return NextResponse.json({ error: "Commission payment network is required." }, { status: 400 });
     }
-    if (network !== "TRC20") {
-      return NextResponse.json({ error: "Commission payments must use USDT on TRON (TRC20)." }, { status: 400 });
+    if (network !== "TRC20" && network !== "BEP20") {
+      return NextResponse.json({ error: "Commission payments must use USDT on TRON (TRC20) or BNB Smart Chain (BEP20)." }, { status: 400 });
     }
     if (!TRON_TX_ID_PATTERN.test(paymentSignature)) {
       return NextResponse.json({ error: "Paste the full 64-character TRON TxID from the USDT withdrawal." }, { status: 400 });

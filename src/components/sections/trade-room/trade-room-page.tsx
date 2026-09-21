@@ -6,7 +6,6 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
 import { navigateOrRevealResult } from "@/lib/client-success-navigation";
-import { tradeDestination } from "@/lib/action-destinations";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -311,6 +310,7 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       successLabel: request.priceMode === "buyer_offer" ? (isAr ? "تم قبول عرض السعر" : "Price Offer Accepted") : (isAr ? "تم قبول الطلب" : "Trade Accepted"),
       mode: "status",
       nextStatus: "accepted",
+      confirmationMessage: isAr ? `سترسل ${request.usdtAmount} USDT على شبكة ${request.network}. ${isAtm ? "بعد القبول تظهر بيانات السحب ويبدأ جمع النقد؛ لا يتاح الإلغاء العادي." : "هل توافق؟"}` : `You will send ${request.usdtAmount} USDT on ${request.network}. ${isAtm ? "Acceptance reveals the withdrawal details and starts cash collection; normal cancellation is no longer available." : "Accept these terms?"}`,
     };
   }
 
@@ -377,7 +377,15 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
-  // Cash trades never use either evidence uploader or buyer-side completion.
+  if (isCashTrade && isBuyer && request.status === "usdt_sent") {
+    return {
+      label: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
+      successLabel: isAr ? "تم تأكيد الاستلام" : "Receipt Confirmed",
+      mode: "status", nextStatus: "completed",
+      confirmationMessage: isAr ? "أكد فقط بعد وصول كامل مبلغ USDT إلى محفظتك على الشبكة الصحيحة." : "Confirm only after the full USDT amount arrives in your wallet on the correct network.",
+    };
+  }
+  // Cash trades never use evidence uploaders.
   if (isCashTrade) return null;
 
   if (request.status === "accepted" && isBuyer) {
@@ -593,8 +601,8 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "⏳",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "أكد البائع إرسال USDT" : "Seller Confirmed USDT Sent",
-          detail: isAr ? "تحقق من محفظتك. البائع وحده سيكمل الصفقة الآن؛ لا يلزم منك زر تأكيد." : "Check your wallet. Only the seller will complete the trade now; you do not need to confirm receipt.",
-          yourAction: isAr ? "انتظر إكمال البائع" : "Wait for seller completion",
+          detail: isAr ? "تحقق من محفظتك ثم أكد استلام كامل USDT باستخدام الزر أدناه." : "Check your wallet, then confirm the full USDT receipt using the button below.",
+          yourAction: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
           counterpartyAction: isAr ? "البائع يكمل الصفقة" : "Seller completes the trade",
           tradeStatus: currentStatus,
         };
@@ -829,9 +837,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
           detail: isAr ? "تم تأكيد إرسال USDT. أكمل الصفقة الآن؛ لا تنتظر المشتري." : "USDT sent is confirmed. Complete the trade now; do not wait for the buyer.",
         }
       : {
-          isYourTurn: false,
-          title: isAr ? "بانتظار البائع" : "WAITING FOR SELLER",
-          detail: isAr ? "أكد البائع إرسال USDT وسيكمل الصفقة الآن. لا يلزم منك تأكيد." : "Seller confirmed USDT was sent and will complete the trade now. No confirmation is required from you.",
+          isYourTurn: true,
+          title: isAr ? "دورك الآن" : "YOUR TURN",
+          detail: isAr ? "تحقق من محفظتك ثم أكد استلام USDT." : "Check your wallet, then confirm USDT received.",
         };
   }
 
@@ -1336,17 +1344,13 @@ function TradeRoomPageSession({
   const canonicalSessionUserId = canonicalSession?.user?.id ?? null;
   const refreshCanonicalSession = canonicalSession?.refresh;
   const canonicalSessionReady = !hasCanonicalSession || (!canonicalSessionResolving && canonicalSessionUserId === actor.id);
-  const commissionPaymentNavigationRequestedRef = useRef(false);
   const openCommissionPayNow = useCallback((commissionId?: string) => {
     // Commission payment is intentionally handled by the single canonical
     // marketplace flow, which displays and verifies the selected rail's exact
     // network-specific destination. Do not retain an external generic-wallet
     // fallback here.
-    // Preserve an explicit seller action if the completed-trade convenience
-    // redirect is also eligible in the same render cycle.
     const payableCommissionId = commissionId?.trim();
     if (!payableCommissionId) return;
-    commissionPaymentNavigationRequestedRef.current = true;
     router.push(commissionPaymentDestination(payableCommissionId));
   }, [router]);
   const searchParams = useSearchParams();
@@ -1435,7 +1439,6 @@ function TradeRoomPageSession({
   const deferredSseRoomRef = useRef<TradeRoomData | null>(null);
   const lastDeepLinkHandledRef = useRef<string | null>(null);
   const buyerCompletionLockRef = useRef(false);
-  const sellerCompletionRedirectedRef = useRef(false);
   const reviewSubmitInFlightRef = useRef(false);
   const reviewFormVisibleRef = useRef(false);
 
@@ -1462,7 +1465,7 @@ function TradeRoomPageSession({
     }
     try {
       const startedAt = performance.now();
-      const response = await fetch(`/api/alpha-exchange/trade-room/${requestId}`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/trade-room/${requestId}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
       const payload = (await response.json()) as TradeRoomData & { error?: string; message?: string };
       if (!response.ok) {
         if (response.status === 401) void refreshCanonicalSession?.({ force: true });
@@ -1550,14 +1553,6 @@ function TradeRoomPageSession({
 
   useEffect(() => {
     const currentRequest = room?.request;
-    if (!currentRequest || currentRequest.sellerId !== actor.id || !COMPLETED_TRADE_STATUSES.has(currentRequest.status)) return;
-    if (commissionPaymentNavigationRequestedRef.current || sellerCompletionRedirectedRef.current) return;
-    sellerCompletionRedirectedRef.current = true;
-    router.replace(tradeDestination(currentRequest, actor.id));
-  }, [actor.id, room?.request, router]);
-
-  useEffect(() => {
-    const currentRequest = room?.request;
     if (!currentRequest) return;
     const nextStep = getStepId(currentRequest.status);
     const previousStatus = previousStatusRef.current;
@@ -1581,7 +1576,7 @@ function TradeRoomPageSession({
     if (isLoading || !deepLinkRequestId || !deepLinkRequestStatus) return;
     const action = searchParams.get("action")?.trim() || null;
     const hash = typeof window !== "undefined" ? window.location.hash : null;
-    const target = resolveDeepLinkTarget(action, hash);
+    const target = resolveDeepLinkTarget(action, hash) ?? "action-required";
     if (!target) return;
 
     const marker = `${deepLinkRequestId}:${deepLinkRequestStatus}:${action ?? ""}:${hash ?? ""}`;
@@ -1967,6 +1962,31 @@ function TradeRoomPageSession({
     }
   }, [isAr, sellerWalletAddress]);
 
+  const [adjustingAmount, setAdjustingAmount] = useState(false);
+  const recalculateCashAmount = useCallback(async () => {
+    if (adjustingAmount || actionInFlightRef.current || !roomRef.current) return;
+    setAdjustingAmount(true);
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recalculate_cardless_amount" }), signal: AbortSignal.timeout(15_000) });
+      const payload = await response.json() as { request?: PurchaseRequest; error?: string };
+      if (!response.ok || !payload.request) throw new Error(isAr ? "تعذر تعديل المبلغ. تحقق من مبلغ السحب وحدود العرض ثم حدّث الصفقة." : payload.error ?? "Could not adjust the trade amount.");
+      const nextRoom = applyRequestToRoom(roomRef.current!, payload.request);
+      roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom);
+      setStatusMessage(isAr ? "تمت مطابقة كمية USDT مع مبلغ السحب والسعر المتفق عليه." : "USDT now matches the withdrawal amount at the agreed price.");
+    } catch (error) {
+      setActionError(localizedCaughtError(error, isAr ? "تعذر تأكيد تعديل المبلغ. حدّث الصفقة." : "Could not confirm the adjustment. Refresh the trade.", isAr));
+    } finally { setAdjustingAmount(false); }
+  }, [adjustingAmount, actor.id, isAr, requestId]);
+
+  useEffect(() => {
+    const revealConfirmation = () => {
+      const trade = roomRef.current?.request;
+      if (document.visibilityState === "visible" && trade?.sellerId === actor.id && trade.status === "funds_received" && isCashTradePaymentMethod(trade.paymentMethod) && actionRequiredRef.current) revealTradeRoomDeepLinkTarget(actionRequiredRef.current);
+    };
+    document.addEventListener("visibilitychange", revealConfirmation);
+    return () => document.removeEventListener("visibilitychange", revealConfirmation);
+  }, [actor.id]);
+
   const canRevealBankDetails = canRevealTradeRoomBankDetails(request, isSeller);
   const bankDetailsRequestId = request?.id ?? null;
   const bankDetailsAccountId = request?.sellerBankAccountId ?? null;
@@ -2145,6 +2165,7 @@ function TradeRoomPageSession({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15_000),
       });
       const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; destination?: string; metrics?: { totalMs?: number } };
       const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
@@ -2205,7 +2226,7 @@ function TradeRoomPageSession({
       }
       setActionNotice(null);
       setStatusMessage(isAr ? "تم تحديث حالة الصفقة." : "Trade status updated.");
-      if (responsePayload.destination) {
+      if (responsePayload.destination && !(nextStatus === "completed" && request.sellerId === actor.id)) {
         navigateOrRevealResult(router, responsePayload.destination, "trade-action-result");
       }
     } catch (error) {
@@ -2261,8 +2282,8 @@ function TradeRoomPageSession({
           writeTradeRoomCache(requestId, actor.id, reconciledRoom);
         }
       }
-      await fetchRoom(true);
       setActionBusy(false);
+      void fetchRoom(true);
     }
   }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
 
@@ -2771,6 +2792,7 @@ function TradeRoomPageSession({
         rating: reviewRating,
         comment: trimmedComment,
         diagnosticId,
+        mode: currentRequest.sellerId === actor.id ? "seller_buyer_review" : "buyer_review",
       });
       logReviewDiagnostic("api-request-dispatched", { endpoint: requestUrl, diagnosticId });
       const { response, payload } = await requestPromise;
@@ -2779,6 +2801,20 @@ function TradeRoomPageSession({
         throw new Error(response.status >= 500
           ? (isAr ? "تعذر تأكيد حفظ التقييم الآن. تعليقك محفوظ هنا؛ حاول الإرسال مجددًا." : "Could not confirm your review was saved. Your feedback is kept here; please submit again.")
           : readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr));
+      }
+      if (currentRequest.sellerId === actor.id) {
+        const savedReview = payload.sellerBuyerReview;
+        if (!savedReview || savedReview.reviewerUserId !== actor.id) throw new Error(isAr ? "تعذر تأكيد حفظ التقييم." : "Could not confirm your review was saved.");
+        const latestRoom = roomRef.current;
+        if (latestRoom?.request.id === currentRequest.id) {
+          const nextRoom = applyRequestToRoom(latestRoom, { ...latestRoom.request, sellerBuyerReview: savedReview, updatedAt: savedReview.createdAt });
+          roomRef.current = nextRoom;
+          setRoom(nextRoom);
+          writeTradeRoomCache(currentRequest.id, actor.id, nextRoom);
+        }
+        setReviewComment("");
+        setStatusMessage(isAr ? "تم حفظ تقييم المشتري." : "Buyer review saved.");
+        return;
       }
       if (!payload.review || payload.review.buyerId !== actor.id
         || payload.review.tradeId !== (currentRequest.tradeId ?? currentRequest.id)) {
@@ -3213,6 +3249,30 @@ function TradeRoomPageSession({
                   </Button>
                 </div>
               ) : null}
+              {isActorBuyer && request.sellerBuyerReview ? <div className="rounded-xl border border-white/15 bg-black/20 p-3">
+                <p className="font-medium">{isAr ? "تقييم البائع لك" : "Seller feedback for you"} · {request.sellerBuyerReview.rating}/5</p>
+                <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{request.sellerBuyerReview.comment}</p>
+              </div> : null}
+              {isSeller ? (
+                <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-4">
+                  <p className="font-medium text-white">{isAr ? "تم إغلاق الصفقة كمكتملة" : "Trade closed as completed"}</p>
+                  <p className="mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
+                  {request.sellerBuyerReview ? <p className="mt-3">{isAr ? "تم حفظ تقييمك للمشتري" : "Your buyer review is saved"} · {request.sellerBuyerReview.rating}/5</p> : (
+                    <details className="mt-3">
+                      <summary className="cursor-pointer rounded-xl border border-white/20 p-3 font-semibold">{isAr ? "قيّم المشتري" : "Review buyer"}</summary>
+                      <form className="mt-3 space-y-3" onSubmit={handleReviewFormSubmit}>
+                        <select aria-label={isAr ? "تقييم المشتري" : "Buyer rating"} value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))} disabled={reviewBusy || actionBusy} className="min-h-11 w-full rounded-xl border border-white/20 bg-[#101010] px-3 text-white">
+                          {[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{"★".repeat(rating)} ({rating})</option>)}
+                        </select>
+                        <Textarea ref={reviewCommentInputRef} aria-label={isAr ? "تعليق عن المشتري" : "Buyer feedback"} placeholder={isAr ? "كيف كانت تجربتك مع المشتري؟" : "How was your experience with this buyer?"} maxLength={500} value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} disabled={reviewBusy || actionBusy} />
+                        {reviewCommentError ? <p role="alert" className="text-red-300">{reviewCommentError}</p> : null}
+                        <Button type="submit" disabled={reviewBusy || actionBusy}>{reviewBusy ? (isAr ? "جاري الحفظ..." : "Saving...") : (isAr ? "إرسال التقييم" : "Submit buyer review")}</Button>
+                      </form>
+                    </details>
+                  )}
+                  <Button type="button" variant="secondary" className="mt-3 min-h-11 w-full" disabled={actionBusy || reviewBusy} onClick={() => router.push("/usdt-exchange")}>{isAr ? "العودة للرئيسية" : "Return home"}</Button>
+                </div>
+              ) : null}
               {isActorBuyer && !request.buyerReview ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
                   <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
@@ -3365,60 +3425,12 @@ function TradeRoomPageSession({
                     <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
                   </div>
                 )) : null}
-                {completedActionLabel ? (
-                  <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-4 text-center text-base font-semibold text-emerald-100">
-                    <span className="inline-flex items-center gap-2">
-                      <CheckCircle2 className="h-5 w-5 text-emerald-300" />
-                      <span>{completedActionLabel}</span>
-                    </span>
-                  </div>
-                ) : primaryAction ? (
-                  <div className="hidden space-y-2 md:block">
-                    <Button
-                      type="button"
-                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 sm:text-base"
-                      disabled={primaryActionLoading || Boolean(primaryActionDisabledReason)}
-                      onClick={() => void handlePrimaryAction()}
-                    >
-                      {primaryActionLoading ? (
-                        <span className="inline-flex items-center gap-2">
-                          <LoaderCircle className="h-4 w-4 animate-spin" />
-                          <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
-                        </span>
-                      ) : primaryActionButtonLabel}
-                    </Button>
-                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
-                    {!isSeller && request.status === "accepted" && !isCashTrade ? (
-                      <p className="text-xs text-[#9CA3AF]">
-                        {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
-                )}
-                {isSeller && request.status === "accepted" && !isCashTrade ? (
-                  <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
-                    <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
-                    <p className="mt-1">
-                      {isAr
-                        ? "بانتظار المشتري لرفع إيصال الدفع. لا يمكنك المتابعة قبل إرسال الدفع."
-                        : "Waiting for the buyer to upload their payment receipt. You cannot continue until the buyer submits payment."}
-                    </p>
+                {isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
+                  <div className="rounded-xl border border-white/15 p-3 text-sm">
+                    <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${request.pricePerUsdt} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${request.pricePerUsdt} per USDT`}</p>
+                    <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
                   </div>
                 ) : null}
-
-                {request.inactivityWarningSentAt ? (
-                  <div className="rounded-xl border border-amber-500/35 bg-amber-500/12 p-3 text-sm text-amber-100">
-                    <p className="font-medium">{isAr ? "تحذير عدم النشاط" : "Inactivity warning"}</p>
-                    <p className="mt-1">
-                      {isAr
-                        ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. أكمل الخطوة الحالية لتجنب التأخير.`
-                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. Complete the current step to avoid delays.`}
-                    </p>
-                  </div>
-                ) : null}
-
                 {canRevealBankDetails ? (
                   <div className="rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4">
                     <p className="text-xs uppercase tracking-[0.14em] text-[#BFDBFE]">{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>
@@ -3476,6 +3488,60 @@ function TradeRoomPageSession({
                         </div>
                       ) : null}
                     </div>
+                  </div>
+                ) : null}
+
+                {completedActionLabel ? (
+                  <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-4 text-center text-base font-semibold text-emerald-100">
+                    <span className="inline-flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-emerald-300" />
+                      <span>{completedActionLabel}</span>
+                    </span>
+                  </div>
+                ) : primaryAction ? (
+                  <div className="space-y-2">
+                    <Button
+                      type="button"
+                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 sm:text-base"
+                      disabled={primaryActionLoading || Boolean(primaryActionDisabledReason)}
+                      onClick={() => void handlePrimaryAction()}
+                    >
+                      {primaryActionLoading ? (
+                        <span className="inline-flex items-center gap-2">
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                          <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
+                        </span>
+                      ) : primaryActionButtonLabel}
+                    </Button>
+                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
+                    {!isSeller && request.status === "accepted" && !isCashTrade ? (
+                      <p className="text-xs text-[#9CA3AF]">
+                        {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
+                )}
+                {isSeller && request.status === "accepted" && !isCashTrade ? (
+                  <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
+                    <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
+                    <p className="mt-1">
+                      {isAr
+                        ? "بانتظار المشتري لرفع إيصال الدفع. لا يمكنك المتابعة قبل إرسال الدفع."
+                        : "Waiting for the buyer to upload their payment receipt. You cannot continue until the buyer submits payment."}
+                    </p>
+                  </div>
+                ) : null}
+
+                {request.inactivityWarningSentAt ? (
+                  <div className="rounded-xl border border-amber-500/35 bg-amber-500/12 p-3 text-sm text-amber-100">
+                    <p className="font-medium">{isAr ? "تحذير عدم النشاط" : "Inactivity warning"}</p>
+                    <p className="mt-1">
+                      {isAr
+                        ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. أكمل الخطوة الحالية لتجنب التأخير.`
+                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. Complete the current step to avoid delays.`}
+                    </p>
                   </div>
                 ) : null}
 

@@ -29,6 +29,7 @@ import type {
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
+  recalculateMobileCardlessAmount,
   completeMobileCashTrade,
   getMobileTrade,
   getMobileTradeBankDetails,
@@ -383,6 +384,18 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }
 
+  async function recalculateCardlessAmount() {
+    if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
+    setBusyAction("adjust-amount"); setError(null);
+    try {
+      const response = await requestWithSession((tokens, requestLocale) => recalculateMobileCardlessAmount(tokens, requestLocale, requestId));
+      if (activeTradeScopeRef.current === operationScope) applyTradeMutation(response);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+    } finally { if (activeTradeScopeRef.current === operationScope) setBusyAction(null); }
+  }
+
   async function completeCashTrade() {
     if (busyAction) return;
     const operationScope = activeTradeScopeRef.current;
@@ -598,7 +611,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("review");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
-        submitMobileBuyerReview(tokens, requestLocale, requestId, reviewRating, comment));
+        submitMobileBuyerReview(tokens, requestLocale, requestId, reviewRating, comment, trade?.actions.canReviewBuyer ? "seller_buyer_review" : "buyer_review"));
       if (activeTradeScopeRef.current !== operationScope) return;
       queryClient.setQueryData(
         ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
@@ -874,6 +887,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {trade.hasBuyerEvidence ? t("receiptUploaded") : t("uploadPaymentReceipt")}
             </GoldButton>
           ) : null}
+          {trade.side === "seller" && isCardlessAtm && ["payment_sent", "funds_received"].includes(trade.status) ? <GoldButton disabled={actionsDisabled} loading={busyAction === "adjust-amount"} onPress={() => void recalculateCardlessAmount()}>{locale === "ar" ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</GoldButton> : null}
           {actions.canConfirmFunds ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", cashTradeKind ? (isCardlessAtm ? t("atmCashReceivedConfirmation") : t("cashReceivedConfirmation")) : t("fundsConfirmation"))}>
               {cashTradeKind ? (isCardlessAtm ? t("collectedAtmCash") : t("receivedCash")) : t("confirmFunds")}
@@ -939,12 +953,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {actions.canSubmitReview ? (
+        {actions.canSubmitReview || actions.canReviewBuyer ? (
           <View collapsable={false} onLayout={(event) => recordGuidanceLayout("review", event)} style={styles.section}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-              {t("reviewTitle")}
+              {actions.canReviewBuyer ? (isRTL ? "تقييم المشتري (اختياري)" : "Review buyer (optional)") : t("reviewTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("reviewBody")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{actions.canReviewBuyer ? (isRTL ? "الصفقة مكتملة. يمكنك تقييم المشتري أو العودة للرئيسية." : "The trade is completed. You can review the buyer or return home.") : t("reviewBody")}</Text>
             <RatingSelector
               disabled={actionsDisabled}
               isRTL={isRTL}

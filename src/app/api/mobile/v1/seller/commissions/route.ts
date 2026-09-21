@@ -27,7 +27,7 @@ const TRON_TX_ID_PATTERN = /^[A-Fa-f0-9]{64}$/;
 const EXACT_COMMISSION_AMOUNT_MIN_APP_VERSION = "1.2.0";
 
 function isCommissionNetwork(value: string): value is CommissionNetworkId {
-  return value === "TRC20";
+  return value === "TRC20" || value === "BEP20";
 }
 
 function paymentNetworks() {
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     const commissionId = String(body?.commissionId ?? "").trim();
     const network = String(body?.network ?? "").trim().toUpperCase();
     const paymentSignature = String(body?.paymentSignature ?? "").trim();
-    if (!RESOURCE_ID_PATTERN.test(commissionId) || !isCommissionNetwork(network) || !TRON_TX_ID_PATTERN.test(paymentSignature)) {
+    if (!RESOURCE_ID_PATTERN.test(commissionId) || !isCommissionNetwork(network) || !(network === "BEP20" ? /^0x[a-fA-F0-9]{64}$/ : TRON_TX_ID_PATTERN).test(paymentSignature)) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
     const submission = await submitSellerCommissionWalletPayment({

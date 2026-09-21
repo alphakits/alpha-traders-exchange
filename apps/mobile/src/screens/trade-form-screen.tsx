@@ -12,6 +12,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount,
+  type CardlessVerificationKind, type MobileSupportedNetwork,
   getWalletAddressValidationError,
   normalizeLocalizedDecimalInput,
   normalizeTradeAmountInput,
@@ -75,6 +77,11 @@ export function TradeFormScreen({
   const listing = market.data?.listings[0];
   const [amount, setAmount] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
+  const [receivingNetwork, setReceivingNetwork] = useState<MobileSupportedNetwork | null>(null);
+  const [withdrawalCode, setWithdrawalCode] = useState("");
+  const [verificationKind, setVerificationKind] = useState<CardlessVerificationKind>("id_number");
+  const [verificationValue, setVerificationValue] = useState("");
+  const [cashAmount, setCashAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [offeredPrice, setOfferedPrice] = useState("");
   const [safetyAcknowledged, setSafetyAcknowledged] = useState(false);
@@ -96,6 +103,7 @@ export function TradeFormScreen({
   useEffect(() => {
     setAmount("");
     setWalletAddress("");
+    setReceivingNetwork(null); setWithdrawalCode(""); setVerificationValue(""); setCashAmount("");
     setPaymentMethod("");
     setOfferedPrice("");
     setSafetyAcknowledged(false);
@@ -114,6 +122,8 @@ export function TradeFormScreen({
     }
   }, [listing, mode, usdIlsRate]);
 
+  const isCardless = paymentMethod === "Cardless ATM Withdrawal";
+  const chosenNetwork = receivingNetwork ?? listing?.network ?? "TRC20";
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
   const listingPriceUsd = listing
     ? numericValue(priceForUsdInput(canonicalListingPrice(listing.price), listing.currency, usdIlsRate))
@@ -125,6 +135,10 @@ export function TradeFormScreen({
     ? numericValue(priceForUsdInput(canonicalOfferPrice, listing?.currency, usdIlsRate))
     : listingPriceUsd;
   const estimatedTotalUsd = numericValue(amount) * selectedPriceUsd;
+  const cardlessPrice = listing ? mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price) : "";
+  useEffect(() => {
+    if (isCardless) { const calculated = calculateCardlessUsdtAmount(cashAmount, cardlessPrice); if (calculated) setAmount(calculated); }
+  }, [isCardless, cashAmount, cardlessPrice]);
   const offerRangeUsd = listing?.currency === "ILS"
     ? (() => {
         const listingPriceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
@@ -135,12 +149,12 @@ export function TradeFormScreen({
       })()
     : "";
   const walletValidationError = listing
-    ? getWalletAddressValidationError(listing.network, walletAddress)
+    ? getWalletAddressValidationError(chosenNetwork, walletAddress)
     : null;
   const walletIsInvalid = Boolean(walletAddress.trim() && walletValidationError);
-  const walletGuidance = listing?.network === "ERC20" || listing?.network === "BEP20"
+  const walletGuidance = chosenNetwork === "ERC20" || chosenNetwork === "BEP20"
     ? t("evmWalletHint")
-    : listing?.network === "TRC20"
+    : chosenNetwork === "TRC20"
       ? t("tronWalletHint")
       : t("solWalletHint");
   const amountRange = listing
@@ -155,13 +169,15 @@ export function TradeFormScreen({
     const maximum = Math.min(configuredMaximum, available);
     if (value <= 0 || value < minimum || value > maximum) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
+    if (isCardless && (!parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
+      || !validateCardlessIlsAmount(cashAmount, (value * numericValue(mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price))).toFixed(2)))) return false;
     if (mode === "offer") {
       const offerCents = Math.round(numericValue(canonicalOfferPrice) * 100);
       const priceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
       if (listing.currency !== "ILS" || offerCents <= 0 || offerCents >= priceCents || offerCents < priceCents - 35) return false;
     }
     return true;
-  }, [amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
+  }, [cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -181,7 +197,8 @@ export function TradeFormScreen({
       const response = await requestWithSession((tokens, requestLocale) => createMobileTrade(tokens, requestLocale, {
         listingId: listing.id,
         usdtAmount: numericValue(amount).toString(),
-        receivingWalletAddress: walletAddress.trim(),
+        receivingWalletAddress: walletAddress.trim(), receivingNetwork: chosenNetwork,
+        ...(isCardless ? { cardlessWithdrawalCode: withdrawalCode, cardlessVerificationKind: verificationKind, cardlessVerificationValue: verificationValue, cardlessIlsAmount: cashAmount } : {}),
         paymentMethod,
         priceMode: mode === "offer" ? "buyer_offer" : "listing_price",
         offeredPrice: mode === "offer"
@@ -288,7 +305,7 @@ export function TradeFormScreen({
         </Pressable>
         <View style={styles.heading}>
           <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{mode === "offer" ? t("offerTitle") : t("buyTitle")}</Text>
-          <Text style={[styles.seller, isRTL && styles.rtlText]}>{listing.seller.displayName} · {listing.network}</Text>
+          <Text style={[styles.seller, isRTL && styles.rtlText]}>{listing.seller.displayName} · {chosenNetwork}</Text>
         </View>
 
         <View style={styles.priceCard}>
@@ -356,9 +373,11 @@ export function TradeFormScreen({
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, isRTL && styles.rtlText]}>{t("receivingWallet")} · {listing.network}</Text>
+            <Text style={styles.label}>{locale === "ar" ? "شبكة الاستلام (يراها البائع قبل القبول)" : "Receiving network (shown before seller accepts)"}</Text>
+            {Array.from(new Set([listing.network, "TRC20", "BEP20"] as MobileSupportedNetwork[])).map((network) => <Pressable key={network} disabled={isSubmitting} onPress={() => { setReceivingNetwork(network); setWalletAddress(""); }} style={[styles.option, chosenNetwork === network && styles.optionSelected]} accessibilityRole="radio" accessibilityState={{ checked: chosenNetwork === network }}><Text style={styles.optionLabel}>{network}</Text></Pressable>)}
+            <Text style={[styles.label, isRTL && styles.rtlText]}>{t("receivingWallet")} · {chosenNetwork}</Text>
             <TextInput
-              accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}
+              accessibilityLabel={`${t("receivingWallet")} · ${chosenNetwork}`}
               accessibilityHint={walletGuidance}
               aria-invalid={walletIsInvalid}
               autoCapitalize="none"
@@ -379,6 +398,18 @@ export function TradeFormScreen({
             </Text>
           </View>
 
+          {isCardless ? <View style={styles.field}>
+            <Text style={styles.label}>{locale === "ar" ? "جهّز السحب من البنك أولاً. البيانات مخفية حتى يقبل البائع." : "Prepare the bank withdrawal first. Details stay hidden until seller acceptance."}</Text>
+            <TextInput accessibilityLabel={locale === "ar" ? "رمز السحب" : "Withdrawal code"} placeholder={locale === "ar" ? "رمز السحب" : "Withdrawal code"} placeholderTextColor={colors.textMuted} keyboardType="number-pad" maxLength={12} value={withdrawalCode} onChangeText={setWithdrawalCode} style={styles.input} editable={!isSubmitting} />
+            {(["id_number", "date_of_birth"] as const).map((kind) => <Pressable key={kind} onPress={() => { setVerificationKind(kind); setVerificationValue(""); }} style={[styles.option, verificationKind === kind && styles.optionSelected]} accessibilityRole="radio" accessibilityState={{ checked: verificationKind === kind }}><Text style={styles.optionLabel}>{kind === "id_number" ? (locale === "ar" ? "رقم الهوية" : "ID number") : (locale === "ar" ? "تاريخ الميلاد" : "Date of birth")}</Text></Pressable>)}
+            <TextInput accessibilityLabel={verificationKind === "date_of_birth" ? "DD/MM/YYYY" : "ID number"} placeholder={verificationKind === "date_of_birth" ? "DD/MM/YYYY" : (locale === "ar" ? "رقم الهوية" : "ID number")} placeholderTextColor={colors.textMuted} keyboardType={verificationKind === "date_of_birth" ? "default" : "number-pad"} value={verificationValue} onChangeText={setVerificationValue} style={styles.input} editable={!isSubmitting} />
+            <Text style={styles.label}>{locale === "ar" ? "مبلغ السحب بالشيكل: 100–10,000 بمضاعفات 100" : "Withdrawal ILS: 100–10,000 in multiples of 100"}</Text>
+            <TextInput accessibilityLabel="Withdrawal amount ILS" placeholder="100–10,000 ILS" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={cashAmount} onChangeText={(value) => {
+              setCashAmount(value);
+              const calculated = calculateCardlessUsdtAmount(value, mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price));
+              if (calculated) setAmount(calculated);
+            }} style={styles.input} editable={!isSubmitting} />
+          </View> : null}
           {isFaceToFace ? (
             <View style={styles.safetyCard}>
               <Text style={[styles.safetyTitle, isRTL && styles.rtlText]}>{t("faceSafetyTitle")}</Text>

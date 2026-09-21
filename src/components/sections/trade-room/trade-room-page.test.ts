@@ -137,7 +137,7 @@ describe("Trade Room client stability helpers", () => {
       nextStatus: "completed",
       command: "complete_cash_trade",
     });
-    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "usdt_sent" }, "buyer-1", false, true)).toBeNull();
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "usdt_sent" }, "buyer-1", false, true)).toMatchObject({ nextStatus: "completed", label: "Confirm USDT Received" });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "pending" }, "buyer-1", false, true)).toBeNull();
     expect(getPrimaryAction({ ...acceptedFaceToFace, paymentMethod: "Bank Transfer" }, "buyer-1", false, true)).toMatchObject({
       mode: "upload",
@@ -173,7 +173,7 @@ describe("Trade Room client stability helpers", () => {
       label: "تأكيد إرسال USDT",
       nextStatus: "usdt_sent",
     });
-    expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "buyer-1", false, false)).toBeNull();
+    expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "buyer-1", false, false)).toMatchObject({ nextStatus: "completed", label: "Confirm USDT Received" });
     expect(getPrimaryAction({ ...cardless, status: "usdt_sent" }, "seller-1", true, false)).toMatchObject({
       label: "تحديد الصفقة كمكتملة",
       nextStatus: "completed",
@@ -215,7 +215,7 @@ describe("Trade Room client stability helpers", () => {
 
     expect(source).toContain('maxLength={1200}');
     expect(source).toContain('maxLength={1000}');
-    expect(source.match(/maxLength=\{500\}/g)).toHaveLength(2);
+    expect(source.match(/maxLength=\{500\}/g)).toHaveLength(3);
     expect(source).toContain("await navigator.clipboard.writeText(chatDraft)");
     expect(source).toContain('setChatErrorMessage(isAr ? "تعذر نسخ الرسالة." : "Could not copy the message.")');
   });

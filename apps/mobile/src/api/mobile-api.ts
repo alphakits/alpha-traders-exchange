@@ -853,6 +853,10 @@ export function updateMobileTrade(
   });
 }
 
+export function recalculateMobileCardlessAmount(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body: { action: "recalculate_cardless_amount" } });
+}
+
 export function completeMobileCashTrade(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
@@ -967,6 +971,7 @@ export function submitMobileBuyerReview(
   requestId: string,
   rating: number,
   comment: string,
+  mode: "buyer_review" | "seller_buyer_review" = "buyer_review",
 ) {
   return mobileRequest<MobileTradeDetailResponse>(
     `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/review`,
@@ -974,7 +979,7 @@ export function submitMobileBuyerReview(
       locale,
       method: "POST",
       accessToken: tokens.accessToken,
-      body: { rating, comment },
+      body: { rating, comment, mode },
     },
   );
 }

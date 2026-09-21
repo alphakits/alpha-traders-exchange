@@ -355,6 +355,40 @@ describe("commission wallet payment routing", () => {
     expect(notification?.message).not.toMatch(/requires payment/i);
   });
 
+  it("persists BEP20 pending verification, rechecks the exact token transfer and credits it only once", async () => {
+    const hash = `0x${"e".repeat(64)}`;
+    const recipient = "0x7088a120cde7351dbf3e7831a9da3f74058c89a0";
+    let confirmed = false;
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init: RequestInit) => {
+      const { method } = JSON.parse(String(init.body));
+      const results: Record<string, unknown> = {
+        eth_chainId: "0x38", eth_blockNumber: "0x200",
+        eth_getTransactionReceipt: confirmed ? { transactionHash: hash, blockNumber: "0x100", blockHash: "0xblock", status: "0x1", logs: [{
+          address: "0x55d398326f99059ff775485246999027b3197955",
+          topics: [`0x${TRON_TRANSFER_TOPIC}`, `0x${"0".repeat(64)}`, `0x${"0".repeat(24)}${recipient.slice(2)}`],
+          data: `0x${(BigInt(5000001) * BigInt(1000000000000)).toString(16).padStart(64, "0")}`,
+        }] } : null,
+        eth_getBlockByNumber: { hash: "0xblock", timestamp: `0x${Math.floor(Date.now() / 1000).toString(16)}` },
+      };
+      return jsonResponse({ result: results[method] });
+    }));
+    const input = { sellerUserId: SELLER_ID, commissionId: COMMISSION_ID, network: "BEP20", payerWalletAddress: "", paymentSignature: hash };
+    expect((await submitSellerCommissionWalletPayment(input)).verification).toMatchObject({ verified: false, pending: true });
+    expect(currentCommission()).toMatchObject({ paymentStatus: "pending", paymentNetwork: "BEP20", recipientWalletAddress: recipient, paymentVerificationStatus: "pending_verification" });
+    confirmed = true;
+    await reverifyPendingCommissionPayments({ limit: 4 });
+    expect(currentCommission()).toMatchObject({ paymentStatus: "paid", paymentVerificationStatus: "verified", paymentExpectedAmount: 5.000001 });
+    const paidAt = currentCommission().paidAt;
+    await reverifyPendingCommissionPayments({ limit: 4 });
+    expect(currentCommission().paidAt).toBe(paidAt);
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommission(db, "commission-2", "request-2", "listing-2");
+    db.commissionRecords[1] = { ...db.commissionRecords[1], paymentStatus: "pending", paymentVerificationStatus: undefined, paymentSignature: undefined, paymentExpectedAmount: undefined, paymentExpectedAmountAssignedAt: undefined, paidAt: undefined };
+    invalidateAlphaExchangeStoreCache();
+    const duplicate = await submitSellerCommissionWalletPayment({ ...input, commissionId: "commission-2" });
+    expect(duplicate.verification).toMatchObject({ verified: false, notes: expect.stringMatching(/already|used/i) });
+  });
+
   it("verifies a solidified official USDT TRC20 transfer and unlocks the seller automatically", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
@@ -990,7 +1024,7 @@ describe("commission wallet payment routing", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each(["ERC20", "POLYGON", "SOL", "BEP20"])("rejects the legacy %s rail before mutating a new payment", async (network) => {
+  it.each(["ERC20", "POLYGON", "SOL"])("rejects the legacy %s rail before mutating a new payment", async (network) => {
     const original = structuredClone(currentCommission());
 
     await expect(submitSellerCommissionWalletPayment({

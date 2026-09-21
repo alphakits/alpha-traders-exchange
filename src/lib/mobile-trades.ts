@@ -101,14 +101,14 @@ export function toMobileTradeActions(
       && request.status === "usdt_release_pending"
       && !isCashTrade,
     canConfirmReceived: isBuyer
-      && request.status === "usdt_sent"
-      && !isCashTrade,
+      && request.status === "usdt_sent",
     canCompleteFaceToFace: isSeller
       && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
     canOpenDispute: isBuyer && context.canOpenDispute && !context.hasOpenDispute,
     canSubmitReview: isBuyer
       && ["review_open", "completed", "locked"].includes(request.status)
       && !request.buyerReview,
+    canReviewBuyer: isSeller && ["completed", "review_open", "locked"].includes(request.status) && !request.sellerBuyerReview,
     canRespondToReview: isSeller
       && Boolean(request.buyerReview)
       && request.buyerReview?.hidden !== true
@@ -162,6 +162,7 @@ export function toMobileTradeDetail(
     timeRemainingSeconds: room.timeRemainingSeconds,
     hasOpenDispute: room.hasOpenDispute,
     ...(buyerReview ? { buyerReview } : {}),
+    ...(request.sellerBuyerReview ? { sellerBuyerReview: { rating: request.sellerBuyerReview.rating, comment: request.sellerBuyerReview.comment, createdAt: request.sellerBuyerReview.createdAt } } : {}),
     actions: toMobileTradeActions(request, userId, {
       canOpenDispute: room.canOpenDispute,
       hasOpenDispute: room.hasOpenDispute,
@@ -175,7 +176,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
     : "";
   const isTradeBlocked = error instanceof Error && error.name === "TradeBlockedError";
   if (isTradeBlocked) {
-    if (code === "cardless-verification-required") return "CARDLESS_DETAILS_REQUIRED";
+    if (code === "cardless-verification-required" || code === "CARDLESS_DETAILS_REQUIRED") return "CARDLESS_DETAILS_REQUIRED";
     if (code === "AWAITING_BUYER_CONFIRMATION") return "AWAITING_BUYER_CONFIRMATION";
     if (code === "ACTIVE_TRADE_EXISTS") return "ACTIVE_TRADE_EXISTS";
     if (code === "PURCHASE_REQUEST_ALREADY_SUBMITTED") return "PURCHASE_REQUEST_ALREADY_SUBMITTED";

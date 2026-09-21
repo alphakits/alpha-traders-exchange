@@ -107,7 +107,7 @@ describe("mobile seller commission route", () => {
         network: "TRC20",
         available: true,
         walletAddress: CANONICAL_WALLET,
-      }],
+      }, { network: "BEP20", available: true, walletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0" }],
     });
   });
 

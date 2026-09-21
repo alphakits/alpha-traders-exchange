@@ -888,6 +888,7 @@ export interface PurchaseRequest {
   buyerEvidence?: TradeEvidenceFile;
   sellerEvidence?: TradeEvidenceFile;
   buyerReview?: TradeReview;
+  sellerBuyerReview?: TradeReview;
   sellerResponse?: TradeReviewResponse;
   closedAt?: string;
   closedByUserId?: string;
