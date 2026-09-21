@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { submitBuyerTradeReview, submitSellerReviewResponse } from "@/lib/alpha-exchange-store";
+import { submitBuyerTradeReview, submitSellerReviewResponse, submitSellerBuyerReview } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
@@ -106,6 +106,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
           "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
         },
       });
+    }
+
+    if (mode === "seller_buyer_review") {
+      const updated = await submitSellerBuyerReview({ requestId, sellerUserId: user.id,
+        rating: Number(body.rating), comment: String(body.comment ?? "") });
+      return NextResponse.json(updated, { headers: { "Cache-Control": "no-store" } });
     }
 
     if (mode === "seller_response") {

@@ -1,5 +1,6 @@
+import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
-import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, parseCardlessWithdrawalDetails } from "@alpha-traders/contracts";
+import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
@@ -515,7 +516,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
         : "Wait for seller USDT release";
   }
   if (request.status === "usdt_sent") {
-    if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Wait for seller completion";
+    if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Confirm USDT received";
     return recipientIsSeller ? "Wait for buyer completion confirmation" : "Confirm trade completed";
   }
   if (request.status === "review_open" || request.status === "completed") {
@@ -946,7 +947,7 @@ function sanitizeTradeRoomMessageForCounterparty(
   return {
     ...message,
     message: message.credentialKind === "cardless_code" && !canViewConfidentialCredential
-      ? "Cardless withdrawal details hidden after cash collection"
+      ? "Cardless withdrawal details protected"
       : message.credentialKind === "cardless_code"
         ? (() => {
             const payload = decryptCardlessCredential(message.message, message.purchaseRequestId, message.id);
@@ -2985,6 +2986,21 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
               hiddenReason:
                 typeof (request as { buyerReview: { hiddenReason?: string } }).buyerReview.hiddenReason === "string"
                   ? (request as { buyerReview: { hiddenReason: string } }).buyerReview.hiddenReason.trim()
+                  : undefined,
+            }
+          : undefined,
+      sellerBuyerReview:
+        (request as { sellerBuyerReview?: { reviewerUserId?: string; rating?: number; comment?: string; createdAt?: string; hidden?: boolean; hiddenReason?: string } }).sellerBuyerReview &&
+        typeof (request as { sellerBuyerReview: { reviewerUserId?: string } }).sellerBuyerReview.reviewerUserId === "string"
+          ? {
+              reviewerUserId: (request as { sellerBuyerReview: { reviewerUserId: string } }).sellerBuyerReview.reviewerUserId,
+              rating: Number((request as { sellerBuyerReview: { rating?: number } }).sellerBuyerReview.rating ?? 5),
+              comment: String((request as { sellerBuyerReview: { comment?: string } }).sellerBuyerReview.comment ?? "").trim(),
+              createdAt: String((request as { sellerBuyerReview: { createdAt?: string } }).sellerBuyerReview.createdAt ?? request.updatedAt),
+              hidden: (request as { sellerBuyerReview: { hidden?: boolean } }).sellerBuyerReview.hidden === true,
+              hiddenReason:
+                typeof (request as { sellerBuyerReview: { hiddenReason?: string } }).sellerBuyerReview.hiddenReason === "string"
+                  ? (request as { sellerBuyerReview: { hiddenReason: string } }).sellerBuyerReview.hiddenReason.trim()
                   : undefined,
             }
           : undefined,
@@ -9779,6 +9795,7 @@ export async function getSellerCommissionStatus(
       paymentVerificationNotes: record.paymentVerificationNotes,
       paymentSignature: record.paymentSignature,
       paymentSubmittedAt: record.paymentSubmittedAt,
+      paymentNetwork: record.paymentNetwork,
       paymentExpectedAmountMode: record.paymentExpectedAmountMode,
       dueAt: record.dueAt,
       relatedRequestId: record.purchaseRequestId,
@@ -9879,6 +9896,44 @@ export async function getWorkspaceBootstrapData(input: {
   };
 }
 
+/** Recalculate only from the buyer's cash amount and the locked agreed rate. */
+export async function recalculateCardlessTradeAmount(input: { requestId: string; actorUserId: string }) {
+  const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
+  let committed: PurchaseRequest | undefined;
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
+    if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
+    if (!isCardlessAtmPaymentMethod(request.paymentMethod) || !["payment_sent", "funds_received"].includes(request.status)) throw new Error("Adjust the amount after accepting and before confirming USDT sent.");
+    if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new Error("Resolve the open dispute before adjusting the amount.");
+    const credential = request.messages?.find((item) => item.credentialKind === "cardless_code");
+    let cashAmount = request.fiatAmount;
+    if (request.status === "payment_sent" && credential) {
+      const payload = decryptCardlessCredential(credential.message, request.id, credential.id);
+      try { cashAmount = JSON.parse(payload ?? "{}")?.ilsAmount ?? request.fiatAmount; } catch { throw new Error("Withdrawal details unavailable."); }
+    }
+    const amount = calculateCardlessUsdtAmount(cashAmount, request.pricePerUsdt ?? "");
+    if (!amount) throw new Error("The buyer's withdrawal must be 100–10,000 ILS in multiples of 100.");
+    const listing = snapshot.marketplaceListings.find((item) => item.id === request.listingId);
+    if (!listing || listing.activeTradeRequestId !== request.id || Number(amount) > Number(listing.availableAmount)
+      || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new Error("The adjusted amount exceeds this listing's available balance or trade limits.");
+    if (request.usdtAmount !== amount || Number(request.fiatAmount) !== Number(cashAmount)) {
+      request.usdtAmount = amount;
+      request.fiatAmount = Number(cashAmount).toFixed(2);
+      request.updatedAt = nowIsoAfter(request.updatedAt);
+      appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message: `USDT amount adjusted to ${amount} for ILS ${request.fiatAmount} at the agreed rate ${request.pricePerUsdt}.`, createdAt: request.updatedAt });
+      await appendAuditLog(snapshot, { action: "admin_override", actorUserId: input.actorUserId, purchaseRequestId: request.id, details: "Seller recalculated cardless USDT from the buyer cash amount at the locked trade price." });
+    }
+    committed = request;
+    return snapshot;
+  };
+  await apply(db);
+  await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
+  if (!committed) throw new Error("Trade adjustment could not be confirmed.");
+  const request = committed as PurchaseRequest;
+  publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: request.id, request, status: request.status, timeline: request.timeline, publishedAtEpochMs: Date.now() } });
+  return request;
+}
+
 export async function createPurchaseRequest(input: {
   buyerId: string;
   listingId: string;
@@ -9889,6 +9944,11 @@ export async function createPurchaseRequest(input: {
   buyerWhatsapp?: string;
   buyerNotes?: string;
   buyerReceivingWalletAddress: string;
+  receivingNetwork?: string;
+  cardlessWithdrawalCode?: string;
+  cardlessVerificationKind?: string;
+  cardlessVerificationValue?: string;
+  cardlessIlsAmount?: string;
   paymentMethod?: string;
   bankName?: string;
   safetyAcknowledged?: boolean;
@@ -9965,7 +10025,11 @@ export async function createPurchaseRequest(input: {
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
   const buyerReceivingWalletAddress = normalizeWalletAddress(input.buyerReceivingWalletAddress);
-  const walletValidationError = getWalletAddressValidationError(listing.network, buyerReceivingWalletAddress);
+  const requestedNetwork = input.receivingNetwork ?? listing.network;
+  if (!isSupportedNetwork(requestedNetwork) || ![listing.network, "TRC20", "BEP20"].includes(requestedNetwork)) {
+    throw new Error("Unsupported receiving network.");
+  }
+  const walletValidationError = getWalletAddressValidationError(requestedNetwork, buyerReceivingWalletAddress);
   if (walletValidationError) throw new Error(walletValidationError);
   const listingPaymentMethods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
   const suppliedPaymentMethod = String(input.paymentMethod ?? "").trim();
@@ -10098,6 +10162,15 @@ export async function createPurchaseRequest(input: {
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = calculateFiatAmount(usdtAmount, pricePerUsdt);
   if (!fiatAmount) throw new Error("Unable to calculate the trade total.");
+  const preparedCardless = isCardlessAtmPaymentMethod(primaryPaymentMethod) ? parseCardlessWithdrawalDetails({
+    withdrawalCode: input.cardlessWithdrawalCode,
+    verificationKind: input.cardlessVerificationKind,
+    verificationValue: input.cardlessVerificationValue,
+  }) : null;
+  const cardlessIlsAmount = validateCardlessIlsAmount(input.cardlessIlsAmount, fiatAmount);
+  if (preparedCardless && (!preparedCardless.ok || listing.currency !== "ILS" || !cardlessIlsAmount)) {
+    throw new TradeBlockedError("CARDLESS_DETAILS_REQUIRED", "Enter the withdrawal code, ID number or birth date, and the exact ILS withdrawal amount matching this trade before submitting.");
+  }
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
     id: `purchase-${randomUUID()}`,
@@ -10113,7 +10186,7 @@ export async function createPurchaseRequest(input: {
     priceMode: isPriceOffer ? "buyer_offer" : "listing_price",
     priceOfferDiscount: priceOffer?.ok ? priceOffer.discount : undefined,
     currency: listing.currency,
-    network: listing.network,
+    network: requestedNetwork,
     buyerReceivingWalletAddress,
     paymentMethod: primaryPaymentMethod,
     buyerSafetyAcknowledged,
@@ -10157,6 +10230,20 @@ export async function createPurchaseRequest(input: {
     createdAt: now,
     updatedAt: now,
   };
+  if (preparedCardless?.ok) {
+    const messageId = `trade-credential-${randomUUID()}`;
+    const payload = JSON.stringify({ ...preparedCardless.details, ilsAmount: cardlessIlsAmount });
+    // Keep encrypted details inside the request until acceptance. They are never
+    // included in notifications, logs, or a pending seller response.
+    request.messages = [{
+      id: messageId, purchaseRequestId: request.id, kind: "user",
+      senderUserId: request.buyerId, senderRole: "buyer",
+      message: encryptCardlessCredential(payload, request.id, messageId),
+      credentialKind: "cardless_code", confidential: true,
+      payloadHash: cardlessCredentialPayloadHash(request.id, payload),
+      createdAt: now, sentAt: now, readByUserIds: [request.buyerId],
+    }];
+  }
   db.purchaseRequests.push(request);
   await appendAuditLog(db, {
     action: "purchase_request_submitted",
@@ -10502,6 +10589,13 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
           hiddenReason: redactExchangeUserContent(request.buyerReview.hiddenReason),
         }
       : request.buyerReview,
+    sellerBuyerReview: request.sellerBuyerReview && !canViewPrivateContent
+      ? {
+          ...request.sellerBuyerReview,
+          comment: redactExchangeUserContent(request.sellerBuyerReview.comment),
+          hiddenReason: redactExchangeUserContent(request.sellerBuyerReview.hiddenReason),
+        }
+      : request.sellerBuyerReview,
     sellerResponse: request.sellerResponse && !canViewPrivateContent
       ? { ...request.sellerResponse, message: redactExchangeUserContent(request.sellerResponse.message) }
       : request.sellerResponse,
@@ -12611,6 +12705,54 @@ export async function submitBuyerTradeReview(input: {
   return { review: result.review, sellerProgress: result.sellerProgress };
 }
 
+export async function submitSellerBuyerReview(input: {
+  requestId: string;
+  sellerUserId: string;
+  rating: number;
+  comment: string;
+}) {
+  const { rating } = input;
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Rating must be a whole number between 1 and 5.");
+  const comment = String(input.comment ?? "").trim();
+  if (!comment) throw new Error("Review comment is required.");
+  if (comment.length > 500) throw new Error("Review comment is too long.");
+  assertNoExchangeDirectContact(comment);
+  const { db } = await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES);
+  type Result = { review: NonNullable<PurchaseRequest["sellerBuyerReview"]>; created: boolean; request: PurchaseRequest };
+  let committed: Result | null = null;
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
+    if (!request) throw new Error("Trade not found.");
+    if (request.sellerId !== input.sellerUserId) throw new Error("Only the seller can review this buyer.");
+    if (!["completed", "review_open", "locked"].includes(request.status)) throw new Error("Review unlocks only after trade completion.");
+    if (request.sellerBuyerReview) {
+      if (request.sellerBuyerReview.rating !== rating || request.sellerBuyerReview.comment !== comment) throw new Error("Seller review already submitted.");
+      committed = { review: request.sellerBuyerReview, created: false, request };
+      return snapshot;
+    }
+    request.sellerBuyerReview = { reviewerUserId: input.sellerUserId, rating, comment, createdAt: nowIsoAfter(request.updatedAt) };
+    request.updatedAt = request.sellerBuyerReview.createdAt;
+    await appendAuditLog(snapshot, {
+      action: "trade_review_submitted", actorUserId: input.sellerUserId, targetUserId: request.buyerId,
+      purchaseRequestId: request.id, listingId: request.listingId,
+      details: `Seller reviewed buyer for trade ${request.tradeId ?? request.id}`,
+    });
+    committed = { review: request.sellerBuyerReview, created: true, request };
+    return snapshot;
+  };
+  await apply(db);
+  if ((committed as Result | null)?.created) {
+    await writeDb(db, {
+      selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply,
+      rebaseTables: TRADE_REVIEW_READ_TABLES, cacheResult: false,
+    });
+  }
+  const result = committed as Result | null;
+  if (!result) throw new Error("Failed to save seller review.");
+  if (result.created) publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: result.request.id, request: result.request, status: result.request.status, publishedAtEpochMs: Date.now() } });
+  return { sellerBuyerReview: result.review };
+}
+
 export async function submitSellerReviewResponse(input: {
   requestId?: string;
   reviewId?: string;
@@ -12929,7 +13071,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (input.nextStatus === "completed" && isCashTrade && !isCashTradeCompletion && !isAdminCompletion) {
+  if (input.nextStatus === "completed" && isCashTrade && !isBuyer && !isCashTradeCompletion && !isAdminCompletion) {
     throw new TradeBlockedError("cash-trade-seller-completion-required", "Only the seller can complete a cash trade after sending USDT.", request.id, {
       guard: "cash-trade-seller-completion-command",
       currentStatus: request.status,
@@ -12954,7 +13096,7 @@ async function updatePurchaseRequestStatusAttempt(
   }
 
   let currentStatus = request.status;
-  if (currentStatus === input.nextStatus) {
+  if (currentStatus === input.nextStatus || (input.nextStatus === "accepted" && currentStatus === "payment_sent" && request.tradeCreatedAt && request.messages?.some((message) => message.credentialKind === "cardless_code"))) {
     if (isAtmTrade && input.nextStatus === "payment_sent" && cardlessWithdrawalCode) {
       if (!cardlessCodeIsValid) {
         throw new TradeBlockedError("cardless-code-invalid", "Withdrawal code must contain 4 to 12 digits.", request.id, { guard: "cardless-code-format" });
@@ -13286,7 +13428,24 @@ async function updatePurchaseRequestStatusAttempt(
         nextStatus: input.nextStatus,
       });
     }
-    next.status = "accepted";
+    const preparedCredential = isAtmTrade ? (next.messages ?? []).find((message) => message.credentialKind === "cardless_code") : undefined;
+    if (preparedCredential) {
+      const payload = decryptCardlessCredential(preparedCredential.message, request.id, preparedCredential.id);
+      let prepared: Record<string, unknown> = {};
+      try { prepared = JSON.parse(payload ?? "{}"); } catch { /* fail closed below */ }
+      if (!parseCardlessWithdrawalDetails(prepared).ok || !validateCardlessIlsAmount(prepared.ilsAmount, request.fiatAmount)) {
+        throw new TradeBlockedError("CARDLESS_DETAILS_UNAVAILABLE", "The protected withdrawal details are unavailable. Ask the buyer to cancel this pending request and submit again.", request.id);
+      }
+      next.paymentSentAt = now;
+      next.sensitivePaymentSharedAt = now;
+      next.sensitivePaymentKind = "cardless_code";
+      db.tradeMessages = [preparedCredential, ...(db.tradeMessages ?? []).filter((message) => message.id !== preparedCredential.id)];
+    }
+    next.status = preparedCredential ? "payment_sent" : "accepted";
+    if (preparedCredential) {
+      appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: request.buyerId, actorRole: "buyer", message: "Prepared withdrawal details shared after seller acceptance", createdAt: now });
+      pushNotification(db, { userId: request.sellerId, category: "trade", title: "Cardless withdrawal code ready", message: "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room.", relatedTradeId: next.tradeId, relatedRequestId: request.id, relatedHref: requestDetailsHref(request.id) });
+    }
     const isPriceOffer = next.priceMode === "buyer_offer";
     if (isPriceOffer) {
       next.priceOfferAcceptedAt = now;
@@ -13296,7 +13455,7 @@ async function updatePurchaseRequestStatusAttempt(
     }
     next.tradeId = next.tradeId ?? `trade-${randomUUID()}`;
     next.tradeCreatedAt = now;
-    listing.status = "matched";
+    listing.status = preparedCredential ? "in_trade" : "matched";
     listing.activeTradeRequestId = request.id;
     listing.lockedAt = now;
     listing.updatedAt = now;
@@ -13315,7 +13474,7 @@ async function updatePurchaseRequestStatusAttempt(
       message: isFaceToFaceTrade
         ? "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isAtmTrade
-          ? "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
+          ? preparedCredential ? "Seller accepted the Cardless ATM trade. The prepared withdrawal details are now available. Collect the ATM cash and confirm receipt to reveal the buyer wallet." : "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isPriceOffer
           ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
           : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
@@ -13367,7 +13526,7 @@ async function updatePurchaseRequestStatusAttempt(
         : isFaceToFaceTrade
           ? "Your meeting is ready. After handing over the cash, confirm it in the Trade Room. No photo is required."
           : isAtmTrade
-            ? "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
+            ? preparedCredential ? "The seller accepted and can now collect your prepared ATM withdrawal. Your wallet remains hidden until cash collection is confirmed." : "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
           : "Seller accepted your trade request. You can now upload your payment receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
@@ -15088,6 +15247,8 @@ async function verifyCommissionWalletPayment(input: {
         earliestPaymentTimestampMs: input.earliestPaymentTimestampMs,
         allowLegacyOverpayment: input.allowLegacyTronOverpayment,
       });
+    } else if (input.network === "BEP20") {
+      result = await verifyBep20Commission({ txHash, recipientWalletAddress: input.recipientWalletAddress, amountDueUsdt: input.amountDue, earliestPaymentTimestampMs: input.earliestPaymentTimestampMs });
     } else if (input.network === "ERC20" || input.network === "POLYGON") {
       result = await verifyEvmUsdtPayment({
         network: input.network,
@@ -15474,9 +15635,9 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
     .filter((record) => (
       record.paymentVerificationStatus === "pending_verification"
       && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid"
-      && record.paymentNetwork === "TRC20"
+      && (record.paymentNetwork === "TRC20" || record.paymentNetwork === "BEP20")
       && Boolean(record.paymentSignature)
-      && record.recipientWalletAddress === commissionWallet.walletAddress
+      && record.recipientWalletAddress === (() => { const rail = resolveCommissionWalletForNetwork(record.paymentNetwork); return rail.available ? rail.walletAddress : null; })()
     ))
     // Every retry updates updatedAt, moving a still-pending record to the back
     // so slow/stuck transactions cannot starve newer seller payments.
@@ -15492,7 +15653,7 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
       const result = await submitSellerCommissionWalletPayment({
         sellerUserId: record.sellerId,
         commissionId: record.id,
-        network: "TRC20",
+        network: record.paymentNetwork!,
         payerWalletAddress: record.payerWalletAddress ?? "",
         paymentSignature: record.paymentSignature as string,
         automaticReverification: true,
@@ -17679,7 +17840,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
     ))
     .map((r) => r.paymentSignature ? getCommissionPaymentSignatureKey(r.paymentSignature) : undefined)
     .filter((s): s is string => Boolean(s));
-  const amountDue = record.paymentNetwork === "TRC20"
+  const amountDue = (record.paymentNetwork === "TRC20" || record.paymentNetwork === "BEP20")
     ? (typeof record.paymentExpectedAmount === "number"
         ? getCommissionPaymentAmountDueUsdt(record)
         : getCommissionAmountDueUsdt(db, record))
@@ -17691,7 +17852,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
     Number.isFinite(createdAtMs) ? createdAtMs : 0,
     Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
   );
-  const earliestPaymentTimestampMs = record.paymentNetwork === "TRC20"
+  const earliestPaymentTimestampMs = (record.paymentNetwork === "TRC20" || record.paymentNetwork === "BEP20")
     ? (Number.isFinite(assignmentTimestampMs) && assignmentTimestampMs > 0
         ? assignmentTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS
         : legacyTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS)
@@ -17744,7 +17905,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
     ) {
       throw new Error("Commission payment details changed while admin verification was running. The newer state was preserved.");
     }
-    const canonicalAmountDue = canonicalRecord.paymentNetwork === "TRC20"
+    const canonicalAmountDue = (canonicalRecord.paymentNetwork === "TRC20" || canonicalRecord.paymentNetwork === "BEP20")
       ? (typeof canonicalRecord.paymentExpectedAmount === "number"
           ? getCommissionPaymentAmountDueUsdt(canonicalRecord)
           : getCommissionAmountDueUsdt(snapshot, canonicalRecord))

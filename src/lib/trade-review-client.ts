@@ -1,4 +1,4 @@
-import type { SellerReviewRecord } from "@/types/alpha-exchange";
+import type { SellerReviewRecord, TradeReview } from "@/types/alpha-exchange";
 
 export const TRADE_REVIEW_TIMEOUT_MS = 15_000;
 
@@ -6,6 +6,7 @@ export type TradeReviewResponse = {
   error?: string;
   message?: string;
   review?: SellerReviewRecord;
+  sellerBuyerReview?: TradeReview;
   sellerProgress?: {
     promoted?: boolean;
     previousRank?: string;
@@ -29,6 +30,7 @@ export async function postTradeReview(input: {
   rating: number;
   comment: string;
   diagnosticId: string;
+  mode?: "buyer_review" | "seller_buyer_review";
 }) {
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -44,7 +46,7 @@ export async function postTradeReview(input: {
         const response = await fetch(`/api/alpha-exchange/purchase-requests/${encodeURIComponent(input.requestId)}/review`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Review-Diagnostic-Id": input.diagnosticId },
-          body: JSON.stringify({ mode: "buyer_review", rating: input.rating, comment: input.comment }),
+          body: JSON.stringify({ mode: input.mode ?? "buyer_review", rating: input.rating, comment: input.comment }),
           signal: controller.signal,
         });
         const payload = await response.json().catch(() => ({})) as TradeReviewResponse;

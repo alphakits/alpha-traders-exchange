@@ -206,6 +206,7 @@ type PayableCommissionWithVerification = NonNullable<SellerCommissionStatus["pay
   paymentVerificationNotes?: string;
   paymentSignature?: string;
   paymentSubmittedAt?: string;
+  paymentNetwork?: string;
   paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
 };
 
@@ -632,8 +633,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <p className="font-semibold text-blue-200">{isAr ? "التحقق من الدفع قيد الانتظار" : "Payment verification pending"}</p>
                       <p className="text-xs leading-5">
                         {isAr
-                          ? "تم حفظ معرّف المعاملة، وستواصل Alpha Traders التحقق منه تلقائياً بعد التأكيد النهائي على شبكة TRON. لا ترسل دفعة أخرى أثناء الانتظار."
-                          : "Your TxID is saved. Alpha Traders will keep checking it automatically after TRON final confirmation. Do not send another payment while it is pending."}
+                          ? "تم حفظ معرّف المعاملة، وستواصل Alpha Traders التحقق منه تلقائياً بعد التأكيد النهائي على الشبكة المختارة. لا ترسل دفعة أخرى أثناء الانتظار."
+                          : "Your TxID is saved. Alpha Traders will keep checking it automatically after blockchain final confirmation. Do not send another payment while it is pending."}
                       </p>
                       {selectedCommissionPayment.paymentVerificationNotes ? (
                         <p className="rounded-lg border border-blue-400/20 bg-blue-950/40 px-2.5 py-2 text-xs text-blue-100">
@@ -653,8 +654,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             ? "معرّف المعاملة الأصلي مرتبط بهذه الدفعة القديمة ولا يمكن استبداله أثناء التحقق. سيستمر التحقق تلقائياً؛ لا تدفع مرة أخرى. إذا كان المعرّف المحفوظ غير صحيح، فتواصل مع دعم Alpha Traders."
                             : "The original TxID is bound to this pre-upgrade payment and cannot be replaced while verification is pending. Automatic verification will continue; do not pay again. If the saved TxID is wrong, contact Alpha Traders support.")
                           : (isAr
-                            ? "إذا كان المعرّف المحفوظ غير صحيح، الصق معرّف TRON البديل أدناه وأرسله للتحقق."
-                            : "If the saved TxID is wrong, paste a replacement TRON TxID below and submit it for verification.")}
+                            ? "إذا كان المعرّف المحفوظ غير صحيح، الصق معرّف المعاملة البديل أدناه وأرسله للتحقق."
+                            : "If the saved TxID is wrong, paste a replacement transaction ID below and submit it for verification.")}
                       </p>
                     </div>
                   </div>
@@ -677,7 +678,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </p>
                       ) : null}
                       <p className="text-xs font-semibold text-amber-200">
-                        {isAr ? "راجع السبب أعلاه، ثم الصق معرّف TRON الصحيح أدناه واضغط على التحقق من الدفع مرة أخرى." : "Review the reason above, then paste the correct TRON TxID below and select Verify Payment again."}
+                        {isAr ? "راجع السبب أعلاه، ثم الصق معرّف المعاملة الصحيح أدناه واضغط على التحقق من الدفع مرة أخرى." : "Review the reason above, then paste the correct transaction ID below and select Verify Payment again."}
                       </p>
                     </div>
                   </div>
@@ -860,8 +861,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </ol>
                         <p className="text-xs text-[#93C5FD] pt-1">
                           {isAr
-                            ? "إذا رفضت Binance المبلغ بسبب الحد الأدنى للسحب، استخدم محفظة TRC20 شخصية أو منصة أخرى. لا تغيّر أو تقرّب المبلغ المطلوب."
-                            : "If Binance rejects the amount because of its withdrawal minimum, use a personal TRC20 wallet or another exchange. Never change or round the required amount."}
+                            ? "إذا رفضت Binance المبلغ بسبب الحد الأدنى للسحب، استخدم محفظة على الشبكة المختارة أو منصة أخرى. لا تغيّر أو تقرّب المبلغ المطلوب."
+                            : "If Binance rejects the amount because of its withdrawal minimum, use a wallet on the selected network or another exchange. Never change or round the required amount."}
                         </p>
                       </div>
                     )}
@@ -874,14 +875,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           onClick={() => setCommissionAdvancedOpen((v) => !v)}
                           className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs text-[#9CA3AF] hover:text-white transition-colors"
                         >
-                          <span className="font-medium">{isAr ? "مطلوب — الصق معرّف معاملة TRON" : "Required — paste TRON transaction ID"}</span>
+                          <span className="font-medium">{isAr ? "مطلوب — الصق معرّف المعاملة" : "Required — paste transaction ID"}</span>
                           {commissionAdvancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </button>
                         {commissionAdvancedOpen ? (
                           <div className="mt-2 space-y-1 rounded-xl border border-white/8 bg-black/20 px-4 py-3">
                             <Input
                               dir="ltr"
-                              placeholder={isAr ? "معرّف TRON من 64 رمزًا" : "64-character TRON TxID"}
+                              placeholder={isAr ? "معرّف TRC20 أو BEP20 يبدأ بـ 0x" : "TRC20 TxID or BEP20 0x hash"}
                               value={commissionTxSignature}
                               onChange={(event) => setCommissionTxSignature(event.target.value)}
                              onPaste={(event) => {
@@ -901,7 +902,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "رمز المعاملة" : "Transaction Hash"}</p>
                         <Input
                          dir="ltr"
-                         placeholder={isAr ? "معرّف TRON من 64 رمزًا" : "64-character TRON TxID"}
+                         placeholder={isAr ? "معرّف TRC20 أو BEP20 يبدأ بـ 0x" : "TRC20 TxID or BEP20 0x hash"}
                          value={commissionTxSignature}
                          onChange={(event) => setCommissionTxSignature(event.target.value)}
                          onPaste={(event) => {

@@ -1,5 +1,5 @@
 import { after, NextRequest } from "next/server";
-import { getTradeRoomData, getTradeRoomRevision, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { recalculateCardlessTradeAmount, getTradeRoomData, getTradeRoomRevision, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -106,6 +106,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = await readMobileJsonBody(request);
     const action = String(body?.action ?? "").trim();
+    if (action === "recalculate_cardless_amount") {
+      const rate = checkRateLimit({ headers: request.headers, key: "mobile:trade:adjust", identifier: auth.user.id, maxRequests: 20, windowMs: 60_000 });
+      if (!rate.allowed) return mobileError("RATE_LIMITED", requestId, locale, 429);
+      const updated = await recalculateCardlessTradeAmount({ requestId: params.requestId, actorUserId: auth.user.id });
+      return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
+    }
     if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }

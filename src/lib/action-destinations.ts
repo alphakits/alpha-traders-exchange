@@ -171,7 +171,7 @@ export function adminPurchaseRequestsDestination(purchaseRequestId?: string) {
 
 export function tradeDestination(request: PurchaseRequest, actorUserId: string) {
   if (request.status === "review_open" || request.status === "completed" || request.status === "locked") {
-    return request.buyerId === actorUserId
+    return request.buyerId === actorUserId || request.sellerId === actorUserId
       ? buildTradeRoomDestination(request, actorUserId)
       : completedTradeDestination(request);
   }

@@ -10,11 +10,14 @@ import {
   adminOverrideMarketplaceListing,
   closePurchaseRequestManually,
   createPurchaseRequest,
+  recalculateCardlessTradeAmount,
+  sanitizePurchaseRequestForActor,
   forceCancelTradeByAdmin,
   forceCompleteTradeByAdmin,
   getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   submitBuyerTradeReview,
+  submitSellerBuyerReview,
   updatePurchaseRequestStatus,
   uploadTradeEvidence,
 } from "@/lib/alpha-exchange-store";
@@ -177,6 +180,96 @@ describe("guided cash-trade completion", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  function readyRequest(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {
+    const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    currentSnapshot().purchaseRequests = [];
+    return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
+  }
+
+  it.each([
+    { cardlessWithdrawalCode: "" }, { cardlessVerificationValue: "" }, { cardlessVerificationKind: "" },
+    { cardlessIlsAmount: "" }, { cardlessIlsAmount: "540" }, { cardlessIlsAmount: "10001" }, { cardlessIlsAmount: "500" },
+  ])("rejects an unprepared or mismatched cardless request before persisting (%j)", async (overrides) => {
+    await expect(readyRequest(overrides)).rejects.toMatchObject({ code: "CARDLESS_DETAILS_REQUIRED" });
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("requires a wallet matching the buyer-selected network", async () => {
+    await expect(readyRequest({ receivingNetwork: "TRC20" })).rejects.toThrow();
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("protects prepared details until acceptance, then reveals the wallet only after ATM cash collection", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    for (const actorUserId of [SELLER_ID, OUTSIDER_ID, OWNER_ID]) {
+      const projected = sanitizePurchaseRequestForActor(request, actorUserId, "approved_seller");
+      expect(JSON.stringify(projected)).not.toContain("482913");
+      expect(JSON.stringify(projected)).not.toContain("1995-08-25");
+      expect(projected.buyerReceivingWalletAddress).toBeUndefined();
+    }
+    expect(JSON.stringify(currentSnapshot())).not.toContain("482913");
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" })).resolves.toMatchObject({ statusChanged: false });
+    let room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.network).toBe("BEP20");
+    expect(room.request.status).toBe("payment_sent");
+    expect(JSON.stringify(room.messages)).toContain("ILS amount: 400.00");
+    expect(JSON.stringify(room.messages)).toContain("482913");
+    expect(room.request.buyerReceivingWalletAddress).toBeUndefined();
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" })).rejects.toThrow();
+    await expect(updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "cancelled" })).rejects.toThrow();
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.buyerReceivingWalletAddress).toBe(request.buyerReceivingWalletAddress);
+    expect(JSON.stringify(room.messages)).not.toContain("482913");
+    expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
+  });
+
+  it("recalculates seller USDT at the locked price and accounts once for simultaneous completion", async () => {
+    const { request } = await readyRequest();
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    await expect(recalculateCardlessTradeAmount({ requestId: request.id, actorUserId: BUYER_ID })).rejects.toThrow();
+    const persisted = currentSnapshot().purchaseRequests.find((item) => item.id === request.id)!;
+    persisted.usdtAmount = "124.999";
+    invalidateAlphaExchangeStoreCache();
+    const adjusted = await recalculateCardlessTradeAmount(seller);
+    expect(adjusted.usdtAmount).toBe("125");
+    expect(adjusted.fiatAmount).toBe("400.00");
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await expect(recalculateCardlessTradeAmount(seller)).rejects.toThrow();
+    await Promise.all([
+      updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" }),
+      updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed" }),
+    ]);
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().commissionRecords[0].commissionAmount).toBe(1.25);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("875");
+  });
+
+  it("saves independent seller and buyer reviews concurrently, with idempotent retries and participant checks", async () => {
+    seedTrade({ status: "usdt_sent" });
+    const sellerReview = { requestId: "face-request-1", sellerUserId: SELLER_ID, rating: 5, comment: "Prompt cash payment" };
+    await expect(submitSellerBuyerReview(sellerReview)).rejects.toThrow(/completion/);
+    await updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "cash_trade" });
+    await expect(submitSellerBuyerReview({ ...sellerReview, sellerUserId: BUYER_ID })).rejects.toThrow(/Only the seller/);
+    await expect(submitSellerBuyerReview({ ...sellerReview, rating: 8 })).rejects.toThrow(/Rating/);
+    await Promise.all([
+      submitSellerBuyerReview(sellerReview),
+      submitBuyerTradeReview({ requestId: "face-request-1", buyerUserId: BUYER_ID, rating: 5, comment: "Fast exchange" }),
+    ]);
+    invalidateAlphaExchangeStoreCache();
+    const room = await getTradeRoomData({ purchaseRequestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.request.sellerBuyerReview).toMatchObject({ reviewerUserId: SELLER_ID, comment: "Prompt cash payment" });
+    expect(room.request.buyerReview).toMatchObject({ reviewerUserId: BUYER_ID, comment: "Fast exchange" });
+    await expect(submitSellerBuyerReview(sellerReview)).resolves.toMatchObject({ sellerBuyerReview: { reviewerUserId: SELLER_ID, rating: 5, comment: "Prompt cash payment", createdAt: room.request.sellerBuyerReview?.createdAt } });
+    await expect(submitSellerBuyerReview({ ...sellerReview, comment: "Changed review" })).rejects.toThrow(/already submitted/);
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    await expect(closePurchaseRequestManually({ requestId: "face-request-1", actorUserId: SELLER_ID, actorRole: "approved_seller", reason: "other", explanation: "No trade happened" })).rejects.toThrow();
+  });
+
   it("requires both withdrawal fields without advancing or exposing incomplete details", async () => {
     seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
     await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent",
@@ -327,7 +420,8 @@ describe("guided cash-trade completion", () => {
     const nextPurchase = () => createPurchaseRequest({
       buyerId: BUYER_ID,
       listingId: "listing-next-cash-trade",
-      usdtAmount: "100",
+      usdtAmount: "125",
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400",
       buyerName: "Face Buyer",
       buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Cardless ATM Withdrawal",
@@ -365,20 +459,24 @@ describe("guided cash-trade completion", () => {
     const purchase = (i: number) => createPurchaseRequest({
       buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId: `repeat-listing-${i}`,
       buyerName: "Repeat Buyer", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
-      usdtAmount: "100", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim",
+      usdtAmount: "125", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim",
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400",
     });
     for (let i = 0; i < 10; i += 1) {
       const { request: trade } = await purchase(i);
       const seller = { requestId: trade.id, actorUserId: `repeat-seller-${i}`, actorRole: "approved_seller" as const };
       await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
-      await updatePurchaseRequestStatus({
-        requestId: trade.id, actorUserId: BUYER_ID, actorRole: buyerRole, nextStatus: "payment_sent",
-        cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995",
-        clientOperationId: (i + 1).toString(16).padStart(32, "0"),
-      });
+      const pendingProjection = sanitizePurchaseRequestForActor(trade, seller.actorUserId, seller.actorRole);
+      expect(JSON.stringify(pendingProjection)).not.toContain("482913");
+      const acceptedRoom = await getTradeRoomData({ purchaseRequestId: trade.id, actorUserId: seller.actorUserId, actorRole: seller.actorRole, markMessagesRead: false });
+      expect(acceptedRoom.request.status).toBe("payment_sent");
+      expect(acceptedRoom.request.buyerReceivingWalletAddress).toBeUndefined();
+      expect(JSON.stringify(acceptedRoom.messages)).toContain("ILS amount: 400.00");
       await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
       await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
-      const completed = await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "face_to_face" });
+      const completed = await updatePurchaseRequestStatus(i % 2 === 0
+        ? { ...seller, nextStatus: "completed", completionMode: "cash_trade" }
+        : { requestId: trade.id, actorUserId: BUYER_ID, actorRole: buyerRole, nextStatus: "completed" });
       expect(completed.request.status).toBe("review_open");
       await expect(purchase(i + 1)).rejects.toMatchObject({ code: "PENDING_BUYER_FEEDBACK" });
       await Promise.all([
@@ -647,7 +745,7 @@ describe("guided cash-trade completion", () => {
     }));
   });
 
-  it("requires the explicit Face-to-Face command instead of weakening ordinary completion", async () => {
+  it("lets the buyer confirm cash-trade receipt after seller USDT confirmation", async () => {
     seedTrade({ status: "usdt_sent" });
 
     await expect(updatePurchaseRequestStatus({
@@ -655,10 +753,7 @@ describe("guided cash-trade completion", () => {
       actorUserId: BUYER_ID,
       actorRole: "buyer",
       nextStatus: "completed",
-    })).rejects.toMatchObject({
-      code: "cash-trade-seller-completion-required",
-      details: expect.objectContaining({ guard: "cash-trade-seller-completion-command" }),
-    });
+    })).resolves.toMatchObject({ request: { status: "review_open" } });
   });
 
   it.each(["pending", "declined", "cancelled"] as const)(

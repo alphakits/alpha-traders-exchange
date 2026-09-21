@@ -49,7 +49,7 @@ describe("mobile accessibility completion", () => {
     expect(login).toContain('accessibilityLabel={t("password")}');
     expect(tradeForm).toContain('accessibilityRole="radiogroup"');
     expect(tradeForm).toContain('accessibilityLabel={t("tradeAmount")}');
-    expect(tradeForm).toContain('accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}');
+    expect(tradeForm).toContain('accessibilityLabel={`${t("receivingWallet")} · ${chosenNetwork}`}');
     expect(tradeForm).toContain("activeFormScopeRef");
     expect(tradeForm).toContain("setWalletAddress(\"\")");
     expect(tradeRoom).toContain('accessibilityRole="header"');

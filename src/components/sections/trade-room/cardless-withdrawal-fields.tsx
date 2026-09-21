@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 
 type Props = {
   isAr: boolean;
+  phase?: "request" | "trade";
   disabled: boolean;
   code: string;
   verificationKind: CardlessVerificationKind;
@@ -50,7 +51,7 @@ export function CardlessWithdrawalFields(props: Props) {
           {isAr ? "اكتب يوم/شهر/سنة، مثال: 25/08/1995" : "Type day/month/year, for example: 25/08/1995"}
         </p> : null}
       </div>
-      <p className="text-xs text-[#D1D5DB]">{isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
+      <p className="text-xs text-[#D1D5DB]">{props.phase === "request" ? (isAr ? "جهّز السحب من البنك أولاً. تبقى البيانات مخفية حتى يقبل البائع؛ بعد القبول يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Prepare the withdrawal with your bank first. Details stay hidden until the seller accepts; cash collection then starts and normal cancellation is no longer available.") : isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
     </fieldset>
   );
 }

@@ -183,6 +183,9 @@ const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
     "تم تجهيز موعد اللقاء. راجع إرشادات الأمان قبل المقابلة.",
   "your meeting is ready. after handing over the cash, confirm it in the trade room. no photo is required.":
     "موعد اللقاء جاهز. بعد تسليم النقد، أكد ذلك في غرفة الصفقة. لا يلزم رفع صورة.",
+  "the seller accepted and can now collect your prepared atm withdrawal. your wallet remains hidden until cash collection is confirmed.": "قبل البائع الطلب ويمكنه الآن سحب النقد. تبقى محفظتك مخفية حتى يؤكد استلام النقد.",
+  "prepared withdrawal details shared after seller acceptance": "تمت مشاركة بيانات السحب المجهّزة بعد قبول البائع",
+  "seller accepted the cardless atm trade. the prepared withdrawal details are now available. collect the atm cash and confirm receipt to reveal the buyer wallet.": "قبل البائع صفقة السحب دون بطاقة. بيانات السحب المجهّزة متاحة الآن. اسحب النقد ثم أكد الاستلام لإظهار محفظة المشتري.",
   "your cardless atm trade is active. send the withdrawal code, then confirm it in the trade room. no photo is required.":
     "صفقة السحب دون بطاقة نشطة. أرسل رمز السحب ثم أكد ذلك في غرفة الصفقة. لا يلزم رفع صورة.",
   "buyer sent the cardless withdrawal code. collect the atm cash, then confirm receipt in the trade room.":

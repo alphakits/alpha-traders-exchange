@@ -253,7 +253,7 @@ describe("seller commission Pay Now", () => {
     await waitFor(() => {
       expect(firstPanel.textContent).toContain("TRC20");
       expect(firstPanel.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
-      expect(within(firstPanel).getByPlaceholderText("64-character TRON TxID")).not.toBeNull();
+      expect(within(firstPanel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash")).not.toBeNull();
     });
 
     fireEvent.click(within(firstPanel).getByRole("button", { name: "Close commission payment" }));
@@ -422,10 +422,10 @@ describe("seller commission Pay Now", () => {
     });
     expect(panel.textContent).toContain("Waiting for TRON final confirmation.");
     expect(panel.textContent).toContain("aaaaaaaa…aaaaaaaa");
-    expect(panel.textContent).toContain("paste a replacement TRON TxID below");
+    expect(panel.textContent).toContain("paste a replacement transaction ID below");
 
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    const input = within(panel).getByPlaceholderText("64-character TRON TxID") as HTMLInputElement;
+    const input = within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash") as HTMLInputElement;
     const replacementTxId = "b".repeat(64);
     fireEvent.change(input, { target: { value: replacementTxId } });
     expect(input.value).toBe(replacementTxId);
@@ -460,11 +460,11 @@ describe("seller commission Pay Now", () => {
     expect(pending.textContent).toContain("Automatic verification will continue");
     expect(pending.textContent).toContain("do not pay again");
     expect(pending.textContent).toContain("contact Alpha Traders support");
-    expect(panel.textContent).not.toContain("paste a replacement TRON TxID below");
+    expect(panel.textContent).not.toContain("paste a replacement transaction ID below");
     expect(panel.textContent).not.toContain("Pay this commission");
     expect(within(panel).queryByRole("button", { name: "Copy exact commission amount" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Crypto Exchange or Broker/i })).toBeNull();
-    expect(within(panel).queryByPlaceholderText("64-character TRON TxID")).toBeNull();
+    expect(within(panel).queryByPlaceholderText("TRC20 TxID or BEP20 0x hash")).toBeNull();
     expect(within(panel).queryByRole("button", { name: "Verify Payment" })).toBeNull();
   });
 
@@ -493,10 +493,10 @@ describe("seller commission Pay Now", () => {
     });
     expect(panel.textContent).toContain("The transfer amount did not exactly match the requested commission.");
     expect(panel.textContent).toContain("cccccccc…cccccccc");
-    expect(panel.textContent).toContain("paste the correct TRON TxID below");
+    expect(panel.textContent).toContain("paste the correct transaction ID below");
 
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    const input = within(panel).getByPlaceholderText("64-character TRON TxID") as HTMLInputElement;
+    const input = within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "d".repeat(64) } });
     expect(input.value).toBe("d".repeat(64));
     expect((within(panel).getByRole("button", { name: "Verify Payment" }) as HTMLButtonElement).disabled).toBe(false);
@@ -549,7 +549,7 @@ describe("seller commission Pay Now", () => {
       return element!;
     });
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    fireEvent.change(within(panel).getByPlaceholderText("64-character TRON TxID"), {
+    fireEvent.change(within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash"), {
       target: { value: "e".repeat(64) },
     });
     fireEvent.click(within(panel).getByRole("button", { name: "Verify Payment" }));
@@ -599,7 +599,7 @@ describe("seller commission Pay Now", () => {
       return element!;
     });
     fireEvent.click(within(panel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
-    fireEvent.change(within(panel).getByPlaceholderText("64-character TRON TxID"), {
+    fireEvent.change(within(panel).getByPlaceholderText("TRC20 TxID or BEP20 0x hash"), {
       target: { value: "f".repeat(64) },
     });
     settleOnSubmit = true;

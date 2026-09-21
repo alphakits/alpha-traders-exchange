@@ -25,7 +25,7 @@ import {
   TRON_TRANSACTION_ID_LENGTH,
 } from "../../src/commissions/tron-commission-payment";
 
-const COMMISSION_NETWORK: MobileCommissionNetwork = "TRC20";
+const BEP20_ADDRESS = "0x7088a120cde7351dbf3e7831a9da3f74058c89a0";
 
 export default function SellerCommissionsScreen() {
   const router = useRouter();
@@ -42,12 +42,16 @@ export default function SellerCommissionsScreen() {
       getMobileSellerCommissions(tokens, requestLocale, signal)),
     refetchInterval: 30_000,
   });
+  const [commissionNetwork, setCommissionNetwork] = useState<MobileCommissionNetwork>("TRC20");
+  const expectedAddress = commissionNetwork === "BEP20" ? BEP20_ADDRESS : BINANCE_USDT_TRC20_COMMISSION_ADDRESS;
   const [commissionId, setCommissionId] = useState("");
   const [transactionHash, setTransactionHash] = useState("");
   const [error, setError] = useState("");
   const [addressCopied, setAddressCopied] = useState(false);
   const [amountCopied, setAmountCopied] = useState(false);
   const [pendingCommissionId, setPendingCommissionId] = useState<string | null>(null);
+  const savedNetwork = query.data?.payableRecords.find((record) => record.commissionId === commissionId)?.paymentNetwork;
+  useEffect(() => { if (savedNetwork === "TRC20" || savedNetwork === "BEP20") setCommissionNetwork(savedNetwork); }, [commissionId, savedNetwork]);
 
   useEffect(() => {
     const records = query.data?.payableRecords ?? [];
@@ -83,7 +87,7 @@ export default function SellerCommissionsScreen() {
     mutationFn: () => requestWithSession((tokens, requestLocale) =>
       submitMobileSellerCommissionPayment(tokens, requestLocale, {
         commissionId,
-        network: COMMISSION_NETWORK,
+        network: commissionNetwork,
         paymentSignature: transactionHash,
       })),
     onSuccess: (response) => {
@@ -98,10 +102,10 @@ export default function SellerCommissionsScreen() {
           ? (isAr ? "تمت تسوية جميع العمولات وإزالة القيود المتعلقة بالعمولة. وتظل أي قيود أخرى على الحساب سارية." : "All commission dues are settled and commission-related restrictions are cleared. Any other account restrictions still apply.")
           : (isAr ? "تم التحقق من هذه الدفعة. ما زالت هناك عمولات أخرى مستحقة." : "This payment was verified. Other commissions are still due.")
         : response.verification?.pending
-          ? (isAr ? "تم إرسال الدفعة. سيتم التحقق منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "Payment submitted. It will be verified automatically after TRON final confirmation.")
+          ? (isAr ? "تم إرسال الدفعة. سيتم التحقق منها تلقائيًا بعد التأكيد النهائي على الشبكة المختارة." : "Payment submitted. It will be verified automatically after blockchain final confirmation.")
           : isAr
             ? `لم تُحتسب الدفعة.${verificationNotes ? ` ${verificationNotes}` : ""} ألصق TxID مختلفًا وصالحًا أدناه وأرسله مرة أخرى.`
-            : `Payment was not credited.${verificationNotes ? ` ${verificationNotes}` : ""} Paste a different valid TRON TxID below and submit it again.`;
+            : `Payment was not credited.${verificationNotes ? ` ${verificationNotes}` : ""} Paste a valid transaction ID for the selected network below and submit it again.`;
       Alert.alert(isAr ? "حالة الدفع" : "Payment status", message);
     },
     onError: (mutationError) => setError(mutationError instanceof Error ? mutationError.message : (isAr ? "تعذر التحقق من الدفع." : "The payment could not be verified.")),
@@ -111,10 +115,10 @@ export default function SellerCommissionsScreen() {
   if (!canSell) return <Redirect href="/seller-application" />;
 
   const selectedRecord = query.data?.payableRecords.find((record) => record.commissionId === commissionId);
-  const selectedNetwork = query.data?.paymentNetworks.find((item) => item.network === COMMISSION_NETWORK);
+  const selectedNetwork = query.data?.paymentNetworks.find((item) => item.network === commissionNetwork);
   const paymentRailReady = selectedNetwork?.available === true
-    && selectedNetwork.walletAddress === BINANCE_USDT_TRC20_COMMISSION_ADDRESS;
-  const transactionIdIsValid = isValidTronTransactionId(transactionHash);
+    && selectedNetwork.walletAddress === expectedAddress;
+  const transactionIdIsValid = (commissionNetwork === "BEP20" ? /^0x[a-fA-F0-9]{64}$/.test(transactionHash) : isValidTronTransactionId(transactionHash));
   const transactionIdHasInput = transactionHash.length > 0;
   const selectedVerification = resolveCommissionPaymentVerificationUi(selectedRecord, pendingCommissionId);
   const pendingForSelectedRecord = selectedVerification.state === "pending";
@@ -141,7 +145,7 @@ export default function SellerCommissionsScreen() {
       return;
     }
     try {
-      await Clipboard.setStringAsync(BINANCE_USDT_TRC20_COMMISSION_ADDRESS);
+      await Clipboard.setStringAsync(expectedAddress);
       setAddressCopied(true);
       setError("");
     } catch {
@@ -180,14 +184,14 @@ export default function SellerCommissionsScreen() {
     }
     if (!paymentRailReady) {
       setError(isAr
-        ? "تم إيقاف الدفع مؤقتًا لأن عنوان TRC20 لا يطابق عنوان Binance الرسمي. لا ترسل أي مبلغ."
-        : "Payment is temporarily disabled because the TRC20 destination does not match the official Binance address. Do not send funds.");
+        ? "تم إيقاف الدفع مؤقتًا لأن عنوان الشبكة المختارة لا يطابق عنوان Binance الرسمي. لا ترسل أي مبلغ."
+        : "Payment is temporarily disabled because the selected destination does not match the official Binance address. Do not send funds.");
       return;
     }
     if (!transactionIdIsValid) {
       setError(isAr
-        ? "ألصق TxID الخاص بمعاملة TRON: يجب أن يتكون من 64 خانة سداسية بالضبط (0-9 و a-f)، من دون 0x."
-        : "Paste the TRON transaction TxID: exactly 64 hexadecimal characters (0-9 and a-f), without 0x.");
+        ? "ألصق معرّف المعاملة الصحيح للشبكة المختارة. يبدأ معرّف BEP20 بـ 0x."
+        : "Paste the transaction ID for the selected network. BEP20 hashes start with 0x.");
       return;
     }
     setError("");
@@ -252,7 +256,7 @@ export default function SellerCommissionsScreen() {
           <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>
             {legacyPendingForSelectedRecord
               ? (isAr ? "التحقق من دفع العمولة" : "Commission payment verification")
-              : (isAr ? "دفع العمولة عبر USDT TRC20" : "Pay commission by USDT TRC20")}
+              : (isAr ? "دفع العمولة عبر USDT" : "Pay commission by USDT")}
           </Text>
 
           {selectedRecord.source === "admin_manual" ? (
@@ -264,18 +268,21 @@ export default function SellerCommissionsScreen() {
 
           {!legacyPendingForSelectedRecord ? <>
           <View style={styles.networkLockCard}>
-            <Text style={[styles.networkLockTitle, isRTL && styles.rtlText]}>{isAr ? "USDT · شبكة TRON (TRC20) فقط" : "USDT · TRON (TRC20) ONLY"}</Text>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              {(["TRC20", "BEP20"] as const).map((network) => <Pressable key={network} accessibilityRole="radio" accessibilityState={{ checked: network === commissionNetwork }} onPress={() => { setCommissionNetwork(network); setTransactionHash(""); setAddressCopied(false); }}><Text style={{ color: network === commissionNetwork ? colors.gold : colors.textMuted, padding: 12 }}>{network}</Text></Pressable>)}
+            </View>
+            <Text style={[styles.networkLockTitle, isRTL && styles.rtlText]}>{isAr ? "USDT · TRC20 / BEP20" : "USDT · TRC20 / BEP20"}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>
               {isAr ? "هذه هي شبكة دفع العمولة الوحيدة. لا تختر أي شبكة أخرى." : "This is the only commission-payment network. Do not select another network."}
             </Text>
           </View>
 
           <View style={styles.instructionsCard}>
-            <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة TRC20" : "Pay from Binance or another TRC20 wallet"}</Text>
+            <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة على الشبكة المختارة" : "Pay from Binance or another wallet"}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "1. افتح السحب أو الإرسال واختر USDT." : "1. Open Withdraw or Send and choose USDT."}</Text>
-            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "2. اختر شبكة TRON (TRC20) والصق عنوان Binance الرسمي أدناه." : "2. Select the TRON (TRC20) network and paste the official Binance address below."}</Text>
+            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "2. اختر الشبكة المحددة أعلاه والصق عنوان Binance الرسمي أدناه." : "2. Select the network chosen above and paste the official Binance address below."}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? `3. يجب أن يصل إلى العنوان ${formattedSelectedPaymentAmount} بالضبط بعد الرسوم. أدخل الخانات الست كلها ولا تقرّب المبلغ.` : `3. Exactly ${formattedSelectedPaymentAmount} must reach the address after fees. Enter all six decimals; do not round.`}</Text>
-            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "4. إذا كان المبلغ أقل من الحد الأدنى للسحب في Binance أو منصتك، استخدم محفظة أو منصة أخرى تدعم TRC20. لا ترفع أو تقرّب المبلغ." : "4. If the amount is below Binance's or your exchange's withdrawal minimum, use another wallet or exchange that supports TRC20. Do not increase or round the amount."}</Text>
+            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "4. إذا كان المبلغ أقل من الحد الأدنى للسحب في Binance أو منصتك، استخدم محفظة أو منصة أخرى تدعم الشبكة المختارة. لا ترفع أو تقرّب المبلغ." : "4. If the amount is below Binance's or your exchange's withdrawal minimum, use another wallet or exchange that supports the selected network. Do not increase or round the amount."}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "5. بعد اكتمال السحب، انسخ TxID من سجل السحب والصقه هنا مرة واحدة." : "5. After the withdrawal completes, copy the TxID from withdrawal history and paste it here once."}</Text>
           </View>
 
@@ -296,10 +303,10 @@ export default function SellerCommissionsScreen() {
           </View>
 
           <View style={styles.walletCard}>
-            <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "عنوان Binance الرسمي لاستلام USDT — TRC20 فقط" : "Official Binance USDT recipient address — TRC20 ONLY"}</Text>
-            <Text selectable={paymentRailReady} style={[styles.wallet, isRTL && styles.rtlText]}>{BINANCE_USDT_TRC20_COMMISSION_ADDRESS}</Text>
+            <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "عنوان Binance الرسمي لاستلام USDT — الشبكة المختارة" : "Official Binance USDT recipient address — selected network"}</Text>
+            <Text selectable={paymentRailReady} style={[styles.wallet, isRTL && styles.rtlText]}>{expectedAddress}</Text>
             <Pressable
-              accessibilityLabel={isAr ? "نسخ عنوان Binance TRC20 الرسمي" : "Copy official Binance TRC20 address"}
+              accessibilityLabel={isAr ? "نسخ عنوان استلام العمولة" : "Copy commission recipient address"}
               accessibilityRole="button"
               accessibilityState={{ disabled: !paymentRailReady }}
               disabled={!paymentRailReady}
@@ -309,7 +316,7 @@ export default function SellerCommissionsScreen() {
               <Text style={styles.copyButtonText}>{addressCopied ? (isAr ? "✓ تم نسخ العنوان" : "✓ Address copied") : (isAr ? "نسخ العنوان" : "Copy address")}</Text>
             </Pressable>
             <Text accessibilityLiveRegion="polite" style={[styles.warning, isRTL && styles.rtlText]}>
-              {isAr ? "لا تستخدم Binance Pay أو التحويل الداخلي أو ERC20 أو BEP20 أو Polygon أو Solana. يجب أن يظهر الدفع كمعاملة عامة على شبكة TRON حتى يتم التحقق منه." : "Do not use Binance Pay, an internal transfer, ERC20, BEP20, Polygon, or Solana. The payment must be a public TRON transaction so it can be verified."}
+              {isAr ? "أرسل USDT على الشبكة المختارة فقط: TRC20 أو BEP20. يجب أن تكون معاملة عامة على البلوكشين؛ لا تستخدم Binance Pay أو تحويلاً داخلياً." : "Send USDT only on the selected TRC20 or BEP20 network. Use a public blockchain transfer, not Binance Pay or an internal transfer."}
             </Text>
           </View>
 
@@ -322,8 +329,8 @@ export default function SellerCommissionsScreen() {
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>
               {failedForSelectedRecord || pendingForSelectedRecord
-                ? (isAr ? "معرّف معاملة TRON بديل (TxID) — 64 خانة سداسية" : "Replacement TRON transaction ID (TxID) — 64 hex characters")
-                : (isAr ? "معرّف معاملة TRON (TxID) — 64 خانة سداسية" : "TRON transaction ID (TxID) — 64 hex characters")}
+                ? (isAr ? "معرّف المعاملة البديل للشبكة المختارة" : "Replacement Transaction ID for the selected network")
+                : (isAr ? "معرّف المعاملة للشبكة المختارة" : "Transaction ID for the selected network")}
             </Text>
             <TextInput
               autoCapitalize="none"
@@ -334,7 +341,7 @@ export default function SellerCommissionsScreen() {
                 setTransactionHash(normalizeTronTransactionIdInput(value));
                 setError("");
               }}
-              placeholder={isAr ? "TxID من 64 خانة (0-9 و a-f)" : "64-character TRON TxID (0-9, a-f)"}
+              placeholder={isAr ? "معرّف TRC20 أو BEP20 يبدأ بـ 0x" : "TRC20 TxID or BEP20 0x hash"}
               placeholderTextColor={colors.textMuted}
               selectionColor={colors.gold}
               spellCheck={false}
@@ -347,7 +354,7 @@ export default function SellerCommissionsScreen() {
                   ? (isAr ? "يجب أن يكون 64 حرفًا سداسيًا بالضبط، من دون 0x." : "Must be exactly 64 hex characters, without 0x.")
                   : (isAr ? "استخدم TxID من سجل سحب Binance، وليس رقم الطلب." : "Use the TxID from Binance withdrawal history, not the order number.")}
               </Text>
-              <Text style={styles.counter}>{transactionHash.length}/{TRON_TRANSACTION_ID_LENGTH}</Text>
+              <Text style={styles.counter}>{transactionHash.length}/{commissionNetwork === "BEP20" ? 66 : TRON_TRANSACTION_ID_LENGTH}</Text>
             </View>
           </View>
 
@@ -389,7 +396,7 @@ export default function SellerCommissionsScreen() {
           {verifiedForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.verifiedCard}>
               <Text style={[styles.verifiedTitle, isRTL && styles.rtlText]}>{isAr ? "تم التحقق من الدفع" : "Payment verified"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تمت مطابقة الدفعة على شبكة TRON ولا يلزم إرسال TxID آخر." : "The TRON payment was matched successfully. No further TxID is required."}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تمت مطابقة الدفعة على الشبكة المختارة ولا يلزم إرسال TxID آخر." : "The payment was matched successfully. No further TxID is required."}</Text>
             </View>
           ) : null}
 

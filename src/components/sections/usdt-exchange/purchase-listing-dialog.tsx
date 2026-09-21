@@ -1,5 +1,8 @@
 "use client";
 
+import { parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
+import type { SupportedNetwork } from "@/types/alpha-exchange";
 import type { FormEventHandler } from "react";
 import { AlertTriangle, BadgePercent, HandCoins, Loader2, ShieldCheck, Star, X, Zap } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -19,6 +22,11 @@ type Locale = "ar" | "en";
 type BuyerInfo = {
   usdtAmount: string;
   receivingWalletAddress: string;
+  receivingNetwork?: SupportedNetwork;
+  cardlessWithdrawalCode?: string;
+  cardlessVerificationKind?: CardlessVerificationKind;
+  cardlessVerificationValue?: string;
+  cardlessIlsAmount?: string;
 };
 
 type PurchaseListingDialogProps = {
@@ -33,6 +41,7 @@ type PurchaseListingDialogProps = {
   isOwnerProfileActionLoading: boolean;
   purchaseSubmitted: boolean;
   buyerInfo: BuyerInfo;
+  onBuyerDetailsChange?: (details: Partial<BuyerInfo>) => void;
   selectedPaymentMethods: string[];
   selectedPaymentMethod: string | null;
   buyerTradeAmount: number;
@@ -101,6 +110,7 @@ export function PurchaseListingDialog({
   isOwnerProfileActionLoading,
   purchaseSubmitted,
   buyerInfo,
+  onBuyerDetailsChange,
   selectedPaymentMethods,
   selectedPaymentMethod,
   buyerTradeAmount,
@@ -147,7 +157,13 @@ export function PurchaseListingDialog({
   const normalizedSelectedPaymentMethod = normalizeMarketplacePaymentMethod(selectedPaymentMethod);
   const selectedPaymentMethodIsAvailable = normalizedSelectedPaymentMethod !== null
     && availablePaymentMethods.has(normalizedSelectedPaymentMethod);
-  const purchaseDisabled = isSubmittingPurchase
+  const receivingNetwork = buyerInfo.receivingNetwork ?? listing.network;
+  const isCardless = isCardlessAtmPaymentMethod(selectedPaymentMethod);
+  const cardlessInvalid = isCardless && (
+    !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
+    || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
+  );
+  const purchaseDisabled = cardlessInvalid || isSubmittingPurchase
     || !selectedPaymentMethodIsAvailable
     || buyerTradeAmountInvalid
     || buyerWalletInvalid
@@ -331,13 +347,35 @@ export function PurchaseListingDialog({
                     </div>
                   ) : null}
                   <div className="space-y-2 md:col-span-3">
+                    <label htmlFor="buyer-receiving-network" className="block text-sm font-medium">{isAr ? "شبكة استلام USDT" : "USDT receiving network"}</label>
+                    <select id="buyer-receiving-network" value={receivingNetwork} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" onChange={(event) => onBuyerDetailsChange?.({ receivingNetwork: event.target.value as SupportedNetwork, receivingWalletAddress: "" })}>
+                      {Array.from(new Set([listing.network, "TRC20", "BEP20"])).map((network) => <option key={network} value={network}>{network === "BEP20" ? "BEP20 (BNB Smart Chain)" : network === "TRC20" ? "TRC20 (TRON)" : network}</option>)}
+                    </select>
+                    <p className="text-xs text-[#D1D5DB]">{isAr ? "يظهر اختيار الشبكة للبائع قبل قبول الطلب. يجب إرسال USDT على الشبكة المختارة فقط." : "The seller sees your selected network before accepting. USDT must be sent on this network only."}</p>
                     <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">{isAr ? "عنوان محفظة الاستلام" : "Receiving Wallet Address"} <span className="text-red-300">*</span></label>
-                    <Input id="buyer-receiving-wallet" dir="ltr" required autoComplete="off" spellCheck={false} placeholder={isAr ? `عنوان محفظة ${listing.network}` : `${listing.network} wallet address`} value={buyerInfo.receivingWalletAddress} onChange={(event) => onBuyerWalletChange(event.target.value)} className={`text-left font-mono ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}`} aria-describedby="buyer-wallet-guidance" aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined} />
+                    <Input id="buyer-receiving-wallet" dir="ltr" required autoComplete="off" spellCheck={false} placeholder={isAr ? `عنوان محفظة ${receivingNetwork}` : `${receivingNetwork} wallet address`} value={buyerInfo.receivingWalletAddress} onChange={(event) => onBuyerWalletChange(event.target.value)} className={`text-left font-mono ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}`} aria-describedby="buyer-wallet-guidance" aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined} />
                     <p id="buyer-wallet-guidance" className={`text-xs ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
-                      {buyerInfo.receivingWalletAddress && buyerWalletValidationError ? buyerWalletValidationError : isAr ? `أدخل العنوان الذي تريد استلام USDT عليه عبر شبكة ${listing.network}. سيبقى مخفياً عن البائع حتى يؤكد استلام الدفع.` : `Enter the address where you want to receive USDT on ${listing.network}. It stays hidden from the seller until the seller confirms receiving payment.`}
+                      {buyerInfo.receivingWalletAddress && buyerWalletValidationError ? buyerWalletValidationError : isAr ? `أدخل العنوان الذي تريد استلام USDT عليه عبر شبكة ${receivingNetwork}. سيبقى مخفياً عن البائع حتى يؤكد استلام الدفع.` : `Enter the address where you want to receive USDT on ${receivingNetwork}. It stays hidden from the seller until the seller confirms receiving payment.`}
                     </p>
                   </div>
                 </div>
+                {isCardless ? <>
+                  <CardlessWithdrawalFields isAr={isAr} disabled={isSubmittingPurchase} phase="request"
+                    code={buyerInfo.cardlessWithdrawalCode ?? ""} verificationKind={buyerInfo.cardlessVerificationKind ?? "id_number"} verificationValue={buyerInfo.cardlessVerificationValue ?? ""}
+                    onCodeChange={(value) => onBuyerDetailsChange?.({ cardlessWithdrawalCode: value })}
+                    onKindChange={(value) => onBuyerDetailsChange?.({ cardlessVerificationKind: value })}
+                    onValueChange={(value) => onBuyerDetailsChange?.({ cardlessVerificationValue: value })} />
+                  <label htmlFor="cardless-ils-amount" className="text-sm">{isAr ? "مبلغ رمز السحب بالشيكل" : "Withdrawal code amount in ILS"}</label>
+                  <select id="cardless-ils-amount" required dir="ltr" className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
+                    const cash = event.target.value;
+                    const amount = calculateCardlessUsdtAmount(cash, (priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2));
+                    onBuyerDetailsChange?.({ cardlessIlsAmount: cash, ...(amount ? { usdtAmount: amount } : {}) });
+                  }} aria-describedby="cardless-amount-help">
+                    <option value="">{isAr ? "اختر مبلغ السحب من البنك" : "Select the bank withdrawal amount"}</option>
+                    {Array.from({ length: 100 }, (_, index) => (index + 1) * 100).map((amount) => <option key={amount} value={String(amount)}>₪{amount.toLocaleString("en-IL")}</option>)}
+                  </select>
+                  <p id="cardless-amount-help" className="text-xs text-[#FDE68A]">{isAr ? `يجب أن يطابق مبلغ السحب إجمالي الصفقة: ${formatIls(estimatedTotal)}. المبالغ المسموحة: 100–10,000 بمضاعفات 100. تُحسب كمية USDT حسب السعر المتفق عليه.` : `The bank withdrawal must match the trade total: ${formatIls(estimatedTotal)}. Allowed amounts: 100–10,000 in multiples of 100. USDT is calculated at the agreed price.`}</p>
+                </> : null}
                 {requiresSafetyNotice ? (
                   <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
                     <p className="font-semibold text-[#FDE68A]">{isAr ? "إرشادات الأمان" : "Safety Guidelines"}</p>

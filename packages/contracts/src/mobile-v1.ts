@@ -745,7 +745,7 @@ export type MobileAdminReviewRequest =
       reason: string;
     };
 
-export type MobileCommissionNetwork = "TRC20";
+export type MobileCommissionNetwork = "TRC20" | "BEP20";
 
 export interface MobileSellerCommissionRecord {
   commissionId: string;
@@ -760,6 +760,7 @@ export interface MobileSellerCommissionRecord {
   paymentSignature?: string;
   paymentSubmittedAt?: string;
   /** Whether the submitted TxID may be replaced while automatic verification is pending. */
+  paymentNetwork?: string;
   paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
   dueAt?: string;
   relatedRequestId?: string;
@@ -971,6 +972,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
   timeRemainingSeconds: number | null;
   hasOpenDispute: boolean;
   buyerReview?: MobileTradeReview;
+  sellerBuyerReview?: MobileTradeReview;
   actions: {
     canAccept: boolean;
     canDecline: boolean;
@@ -986,11 +988,17 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canCompleteFaceToFace: boolean;
     canOpenDispute: boolean;
     canSubmitReview: boolean;
+    canReviewBuyer?: boolean;
     canRespondToReview: boolean;
   };
 }
 
 export interface MobileCreateTradeRequest {
+  receivingNetwork?: MobileSupportedNetwork;
+  cardlessWithdrawalCode?: string;
+  cardlessVerificationKind?: "id_number" | "date_of_birth";
+  cardlessVerificationValue?: string;
+  cardlessIlsAmount?: string;
   listingId: string;
   usdtAmount: string;
   receivingWalletAddress: string;

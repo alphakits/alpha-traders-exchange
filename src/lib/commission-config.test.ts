@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CANONICAL_TRC20_COMMISSION_WALLET,
+  CANONICAL_BEP20_COMMISSION_WALLET,
   CLIENT_COMMISSION_WALLETS,
   COMMISSION_NETWORKS,
   OFFICIAL_TRON_USDT_CONTRACT,
@@ -16,10 +17,11 @@ const OFFICIAL_USDT_TRC20_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 describe("canonical commission wallet configuration", () => {
   it("locks every new commission payment surface to the exact Binance TRC20 address", () => {
     expect(CANONICAL_TRC20_COMMISSION_WALLET).toBe(BINANCE_TRC20_WALLET);
-    expect(CLIENT_COMMISSION_WALLETS).toEqual({ TRC20: BINANCE_TRC20_WALLET });
+    expect(CLIENT_COMMISSION_WALLETS).toEqual({ TRC20: BINANCE_TRC20_WALLET, BEP20: CANONICAL_BEP20_COMMISSION_WALLET });
     expect(getClientCommissionWalletForNetwork("TRC20")).toBe(BINANCE_TRC20_WALLET);
     expect(COMMISSION_NETWORKS).toEqual([
       expect.objectContaining({ id: "TRC20", token: "USDT", recommended: true }),
+      expect.objectContaining({ id: "BEP20", token: "USDT" }),
     ]);
   });
 
@@ -35,7 +37,7 @@ describe("canonical commission wallet configuration", () => {
     });
   });
 
-  it.each(["ERC20", "POLYGON", "SOL", "BEP20", ""])("rejects the legacy or unsupported %s rail for new payments", (network) => {
+  it.each(["ERC20", "POLYGON", "SOL", ""])("rejects the legacy or unsupported %s rail for new payments", (network) => {
     expect(resolveCommissionWalletForNetwork(network)).toMatchObject({
       available: false,
       network: null,
@@ -46,6 +48,7 @@ describe("canonical commission wallet configuration", () => {
   it("returns one available payment configuration and defaults to TRC20", () => {
     expect(getCommissionWalletConfiguration()).toEqual({
       TRC20: { available: true, error: null },
+      BEP20: { available: true, error: null },
     });
     expect(getDefaultCommissionNetwork()).toBe("TRC20");
   });
