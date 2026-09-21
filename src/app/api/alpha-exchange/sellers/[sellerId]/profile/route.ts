@@ -19,7 +19,7 @@ export async function GET(_: Request, context: RouteContext) {
     if (!profile) {
       return NextResponse.json({ error: "Seller profile not found." }, { status: 404 });
     }
-    return NextResponse.json({ profile });
+    return NextResponse.json({ profile }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to load seller profile." }, { status: 400 });
   }

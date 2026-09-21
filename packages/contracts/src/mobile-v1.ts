@@ -59,6 +59,7 @@ export type MobileApiErrorCode =
   | "REVIEW_INVALID"
   | "PROFILE_INVALID"
   | "PROFILE_UPDATE_FAILED"
+  | "PROFILE_NAME_COOLDOWN"
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -170,6 +171,7 @@ export interface MobileSellerApplicationResponse {
 
 export interface MobileAccountProfile {
   id: string;
+  nextNameChangeAt?: string;
   fullName: string;
   username: string;
   email: string;

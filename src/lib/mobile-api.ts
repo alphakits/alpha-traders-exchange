@@ -165,6 +165,10 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     ar: "تحقق من بيانات الملف الشخصي وإعدادات الخصوصية.",
     en: "Check the profile details and privacy settings.",
   },
+  PROFILE_NAME_COOLDOWN: {
+    ar: "يمكنك تغيير اسم ملفك الشخصي مرة واحدة كل 7 أيام.",
+    en: "You can change your profile name once every 7 days.",
+  },
   PROFILE_UPDATE_FAILED: {
     ar: "تعذر تحديث الملف الشخصي الآن. حاول مرة أخرى.",
     en: "The profile could not be updated right now. Please try again.",

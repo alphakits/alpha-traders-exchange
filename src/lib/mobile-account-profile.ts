@@ -13,6 +13,7 @@ export function toMobileAccountProfile(profile: AccountProfileSummary): MobileAc
   return {
     id: profile.id,
     fullName: profile.fullName,
+    nextNameChangeAt: profile.nextNameChangeAt,
     username: profile.username,
     email: profile.email,
     profilePhotoUrl: safeMobileMediaUrl(profile.profilePhotoUrl),

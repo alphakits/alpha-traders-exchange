@@ -560,7 +560,7 @@ describe("Discord public seller profile boundary", () => {
       displayName: "Alpha Seller",
       level: "gold",
       completedTrades: 40,
-      publicVolumeRange: "10K+ USDT",
+      publicVolumeRange: null,
     });
     expect(serialized).not.toMatch(/Private Legal Name|private@example|sellerId/i);
   });

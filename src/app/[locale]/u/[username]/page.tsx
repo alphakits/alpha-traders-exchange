@@ -208,7 +208,7 @@ export default async function PublicUserProfilePage({
     : null;
 
   const progress = sellerIdentity
-    ? Math.max(3, Math.min(100, sellerIdentity.progressToNextRankPercent))
+    ? Math.max(3, Math.min(100, sellerIdentity.progressToNextRankPercent ?? 0))
     : 0;
 
   return (
@@ -356,6 +356,7 @@ export default async function PublicUserProfilePage({
                           : "Top tier"}
                     </p>
                   </div>
+                  {sellerIdentity.amountToNextRankUsdt !== undefined ? <>
                   <div className="mt-3 h-2.5 rounded-full bg-black/35">
                     <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#F4D87A] to-[#C9A227]" style={{ width: `${progress}%` }} />
                   </div>
@@ -366,6 +367,7 @@ export default async function PublicUserProfilePage({
                         ? "تم الوصول لأعلى مستوى."
                         : "Highest tier achieved."}
                   </p>
+                  </> : null}
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -373,7 +375,6 @@ export default async function PublicUserProfilePage({
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "تقييم البائع" : "Seller rating"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.averageRating.toFixed(2)} ★</bdi></p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "معدل الإنجاز" : "Completion rate"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.completionRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{Math.max(1, Math.round(sellerIdentity.responseTimeMinutes))} {isAr ? "دقيقة" : "min"}</bdi></p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الحجم المنجز" : "Completed volume"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{publicVolumeLabel(sellerIdentity.publicVolumeRange, isAr)}</bdi></p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.completedTrades.toLocaleString("en-IL")}</bdi></p></div>
                 </div>
 
@@ -430,10 +431,7 @@ export default async function PublicUserProfilePage({
                   <ShieldCheck className="h-3.5 w-3.5" />
                   {isAr ? "بائع موثق ومراجع" : "Reviewed and approved seller"}
                 </p>
-                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حجم التداول" : "Trading footprint"}</p>
-                  <p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{publicVolumeLabel(sellerIdentity.prestigeVolumePublicLabel, isAr)}</bdi></p>
-                </div>
+
                 <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "المشترون المتكررون" : "Repeat buyers"}</p>
                   <p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.repeatBuyersPercent.toFixed(1)}{isAr ? "٪" : "%"}</bdi></p>

@@ -1,3 +1,5 @@
+import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
+import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
@@ -1551,10 +1553,9 @@ function buildHallOfFameEntry(db: AlphaExchangeDb, seller: AlphaExchangeUser) {
     sellerId: seller.id,
     sellerName: seller.fullName,
     rank: seller.sellerPrestigeRank ?? "bronze",
-    prestigeVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
-    achievements,
+    achievements: publicSellerAchievements(achievements),
     promotedAt: seller.updatedAt,
-    publicVolumeRange: getSellerPublicVolumeLabel(seller.sellerPrestigeRank ?? "bronze"),
+    publicVolumeRange: "",
   };
 }
 
@@ -1697,7 +1698,7 @@ function buildPublicUserProfileDataForUser(input: {
       ? {
           level: user.sellerPrestigeRank ?? trustSnapshot.level,
           trustScore: trustSnapshot.trustScore,
-          publicVolumeRange: trustSnapshot.publicVolumeRange,
+          publicVolumeRange: viewerIsOwner ? trustSnapshot.publicVolumeRange : undefined,
           rating: trustSnapshot.rating,
           badges: trustSnapshot.badges,
         }
@@ -2090,12 +2091,14 @@ function enrichListingsWithSellerData(
       delete sellerProfile.contact;
       publicListing.sellerProfile = sellerProfile;
     }
+    // Discard any historical embedded reputation before building the public projection.
+    delete publicListing.sellerReputation;
     if (!seller) return publicListing;
     return {
       ...publicListing,
       sellerDisplayName: redactExchangeUserContent(seller.fullName),
       sellerProfile: buildSellerPublicProfile(seller),
-      sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
+      sellerReputation: publicSellerReputation(snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id)),
     };
   });
 }
@@ -2143,7 +2146,7 @@ export async function getSellerProfileRouteData(input: {
         sellerLevel: listing.sellerReputation?.level ?? "bronze",
         trustScore: listing.sellerReputation?.trustScore ?? 0,
         profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
-        publicVolumeRange: listing.sellerReputation?.publicVolumeRange ?? "0+",
+        publicVolumeRange: "",
       };
     });
 
@@ -2196,7 +2199,7 @@ export async function getPremiumSellerProfile(input: {
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const viewerCanViewPrivateContent = input.viewerRole === "admin" || input.viewerRole === "owner";
-  const canSeeExactSellerStats = viewerIsOwner || viewerIsSellerOwner;
+  const canSeeExactSellerStats = viewerIsSellerOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
   const completedStatuses = new Set<PurchaseRequestStatus>(["completed", "locked", "review_open"]);
@@ -2336,16 +2339,16 @@ export async function getPremiumSellerProfile(input: {
     profile,
     sellerLevel: currentRank,
     nextRank: prestigeProgress.nextRank,
-    progressToNextRankPercent: Number(prestigeProgress.progressPercent.toFixed(2)),
-    amountToNextRankUsdt: Number(prestigeProgress.remainingUsdt.toFixed(2)),
-    publicVolumeRange: getSellerPublicVolumeLabel(currentRank),
-    lifetimeCompletedVolumeUsdt: Number(lifetimeCompletedVolumeUsdt.toFixed(2)),
+    progressToNextRankPercent: canSeeExactSellerStats ? Number(prestigeProgress.progressPercent.toFixed(2)) : undefined,
+    amountToNextRankUsdt: canSeeExactSellerStats ? Number(prestigeProgress.remainingUsdt.toFixed(2)) : undefined,
+    publicVolumeRange: canSeeExactSellerStats ? getSellerPublicVolumeLabel(currentRank) : "",
+    lifetimeCompletedVolumeUsdt: canSeeExactSellerStats ? Number(lifetimeCompletedVolumeUsdt.toFixed(2)) : undefined,
     trustScore: Number(trustSnapshot.trustScore.toFixed(1)),
     completedTrades: completedTrades.length,
     tradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
     exactTradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
-    commissionPaid: Number(trustSnapshot.estimatedCommissionPaid.toFixed(2)),
-    averageTradeSize: Number(trustSnapshot.averageTradeSize.toFixed(2)),
+    commissionPaid: canSeeExactSellerStats ? Number(trustSnapshot.estimatedCommissionPaid.toFixed(2)) : undefined,
+    averageTradeSize: canSeeExactSellerStats ? Number(trustSnapshot.averageTradeSize.toFixed(2)) : undefined,
     averageRating: Number(trustSnapshot.rating.toFixed(2)),
     responseTimeMinutes: Number(responseTimeMinutes.toFixed(2)),
     completionRate: Number(completionRate.toFixed(2)),
@@ -2353,10 +2356,10 @@ export async function getPremiumSellerProfile(input: {
     totalReviews: reviews.length,
     yearsOnPlatform: Number(yearsOnPlatform.toFixed(2)),
     badges: trustSnapshot.badges ?? [],
-    promotionHistory: [...(seller.sellerPromotionHistory ?? [])].sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime()).slice(0, 20),
-    achievements: sellerAchievements,
-    prestigeVolumeUsdt: Number(lifetimeCompletedVolumeUsdt.toFixed(2)),
-    prestigeVolumePublicLabel: getSellerPublicVolumeLabel(currentRank),
+    promotionHistory: canSeeExactSellerStats ? [...(seller.sellerPromotionHistory ?? [])].sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime()).slice(0, 20) : [],
+    achievements: canSeeExactSellerStats ? sellerAchievements : publicSellerAchievements(sellerAchievements),
+    prestigeVolumeUsdt: canSeeExactSellerStats ? Number(lifetimeCompletedVolumeUsdt.toFixed(2)) : undefined,
+    prestigeVolumePublicLabel: canSeeExactSellerStats ? getSellerPublicVolumeLabel(currentRank) : "",
     hallOfFameEligible,
     latestReviews: reviews.slice(0, 12),
     recentActivity,
@@ -5938,7 +5941,8 @@ export async function upsertUserProfileForAuth(input: {
         sellerStatus: existing.sellerStatus,
         sellerApprovalVerification: existing.sellerApprovalVerification,
       });
-      const nextFullName = input.fullName.trim() || existing.fullName;
+      // The saved profile owns the display name; provider metadata can be stale.
+      const nextFullName = existing.fullName?.trim() || input.fullName.trim();
       // Preserve a legacy display value during auth synchronization so a user is
       // not locked out before the privacy projection can redact it. Any actual
       // new display-name change remains subject to the content policy.
@@ -6735,10 +6739,19 @@ export async function updateUserSellerSettings(input: {
     const user = snapshot.users[index];
     if (user.disabled === true) throw new Error("This account is disabled.");
     const timestamp = nowIso();
+    const nextFullName = input.fullName?.trim() || user.fullName;
+    const nameChanged = nextFullName !== user.fullName;
+    const nextAllowedAt = nextProfileNameChangeAt(user.profileNameChangedAt);
+    // This callback also runs against the latest snapshot under the repository
+    // write lock, preventing simultaneous requests from bypassing the limit.
+    if (nameChanged && nextAllowedAt && Date.parse(timestamp) < Date.parse(nextAllowedAt)) {
+      throw new ProfileNameCooldownError(nextAllowedAt);
+    }
     previousOnlineStatus = user.onlineStatus;
     snapshot.users[index] = {
       ...user,
-      fullName: input.fullName?.trim() || user.fullName,
+      fullName: nextFullName,
+      profileNameChangedAt: nameChanged ? timestamp : user.profileNameChangedAt,
       whatsappNumber: input.whatsappNumber?.trim() || user.whatsappNumber,
       preferredNetworks: input.preferredNetworks ?? user.preferredNetworks,
       profilePhotoUrl: input.profilePhotoUrl?.trim() ?? user.profilePhotoUrl,
@@ -11858,6 +11871,7 @@ export async function postTradeRoomPoke(input: {
 
 export interface AccountProfileSummary {
   id: string;
+  nextNameChangeAt?: string;
   profilePhotoUrl: string;
   coverBannerUrl: string;
   fullName: string;
@@ -11955,6 +11969,7 @@ export async function getAccountProfileData(userId: string): Promise<{
 
   const profile: AccountProfileSummary = {
     id: user.id,
+    nextNameChangeAt: nextProfileNameChangeAt(user.profileNameChangedAt),
     profilePhotoUrl: user.profilePhotoUrl,
     coverBannerUrl: user.coverBannerUrl ?? "",
     fullName: user.fullName,

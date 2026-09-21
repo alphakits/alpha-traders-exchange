@@ -3529,10 +3529,7 @@ export function UsdtExchangePage({
   const sellerNextTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.minVolumeUsdt > sellerCurrentTier.minVolumeUsdt);
   const sellerCompletedVolumeUsdt = Math.max(
     0,
-    sellerOverviewStats.reputation?.lifetimeCompletedVolumeUsdt
-      ?? sellerOverviewStats.reputation?.prestigeVolumeUsdt
-      ?? sellerOverviewStats.reputation?.totalUsdtVolume
-      ?? sellerOverviewStats.totalUsdtSold,
+    sellerOverviewStats.totalUsdtSold,
   );
   const sellerRequiredVolumeUsdt = sellerNextTier?.minVolumeUsdt ?? sellerCompletedVolumeUsdt;
   const sellerRemainingVolumeUsdt = sellerNextTier ? Math.max(0, sellerRequiredVolumeUsdt - sellerCompletedVolumeUsdt) : 0;

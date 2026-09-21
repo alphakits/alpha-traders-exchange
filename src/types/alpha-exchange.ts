@@ -90,7 +90,6 @@ export interface SellerHallOfFameEntry {
   sellerId: string;
   sellerName: string;
   rank: SellerLevel;
-  prestigeVolumeUsdt: number;
   achievements: SellerAchievement[];
   promotedAt: string;
   publicVolumeRange: string;
@@ -99,6 +98,7 @@ export interface SellerHallOfFameEntry {
 export interface AlphaExchangeUser {
   id: string;
   fullName: string;
+  profileNameChangedAt?: string;
   email: string;
   passwordHash: string;
   whatsappNumber: string;
@@ -349,16 +349,16 @@ export interface PremiumSellerProfileData {
   profile: SellerPublicProfile;
   sellerLevel: SellerLevel;
   nextRank?: SellerLevel;
-  progressToNextRankPercent: number;
-  amountToNextRankUsdt: number;
+  progressToNextRankPercent?: number;
+  amountToNextRankUsdt?: number;
   publicVolumeRange: string;
-  lifetimeCompletedVolumeUsdt: number;
+  lifetimeCompletedVolumeUsdt?: number;
   trustScore: number;
   completedTrades: number;
   tradeVolume?: number;
   exactTradeVolume?: number;
-  commissionPaid: number;
-  averageTradeSize: number;
+  commissionPaid?: number;
+  averageTradeSize?: number;
   averageRating: number;
   responseTimeMinutes: number;
   completionRate: number;
@@ -368,7 +368,7 @@ export interface PremiumSellerProfileData {
   badges: SellerBadge[];
   promotionHistory: SellerPromotionHistoryEntry[];
   achievements: SellerAchievement[];
-  prestigeVolumeUsdt: number;
+  prestigeVolumeUsdt?: number;
   prestigeVolumePublicLabel: string;
   hallOfFameEligible: boolean;
   latestReviews: SellerProfileReviewEntry[];
@@ -419,6 +419,9 @@ export interface SellerReputationSnapshot {
   isRankOverridden?: boolean;
 }
 
+export type PublicSellerReputationSnapshot = Omit<SellerReputationSnapshot,
+  "totalUsdtVolume" | "estimatedCommissionPaid" | "revenueGenerated" | "averageTradeSize" | "publicVolumeRange" | "remainingVolumeToNextRank" | "prestigeProgressPercent" | "lifetimeCompletedVolumeUsdt" | "prestigeVolumeUsdt">;
+
 export interface MarketplaceListing {
   id: string;
   sellerId: string;
@@ -458,7 +461,7 @@ export interface MarketplaceListing {
   createdAt: string;
   updatedAt: string;
   sellerProfile?: SellerPublicProfile;
-  sellerReputation?: SellerReputationSnapshot;
+  sellerReputation?: PublicSellerReputationSnapshot;
 }
 
 export type PurchaseRequestStatus =

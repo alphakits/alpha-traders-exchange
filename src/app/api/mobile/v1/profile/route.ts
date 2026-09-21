@@ -1,3 +1,4 @@
+import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { NextRequest } from "next/server";
 import type { MobileAccountProfileUpdateRequest } from "@alpha-traders/contracts";
 import {
@@ -193,6 +194,9 @@ export async function PATCH(request: NextRequest) {
     });
     return mobileJson(payload, requestId);
   } catch (error) {
+    if (error instanceof ProfileNameCooldownError) {
+      return mobileError("PROFILE_NAME_COOLDOWN", requestId, locale, 409);
+    }
     logEvent("error", {
       event: "mobile_profile_update",
       outcome: "failed",

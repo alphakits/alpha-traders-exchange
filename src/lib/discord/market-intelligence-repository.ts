@@ -673,7 +673,7 @@ function buildPublicDiscordSellerProfile(input: {
       ? numberOrNull(trust?.reliabilityScore as number | string | null)
       : null,
     completedTrades,
-    publicVolumeRange: showTradeStats ? publicText(trust?.publicVolumeRange) : null,
+    publicVolumeRange: null,
     memberSince: row.created_at.toISOString(),
     presenceLabel: presence?.label ?? null,
     responseTimeMinutes: showTradeStats

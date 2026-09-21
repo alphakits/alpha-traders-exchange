@@ -157,7 +157,6 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         </View>
 
         <View style={styles.metricsGrid}>
-          <Metric isRTL={isRTL} label={t("trustedVolume")} value={seller.publicVolumeRange} />
           <Metric isRTL={isRTL} label={t("completedTrades")} value={formatCount(Math.round(finiteMetric(seller.completedTrades)))} />
           <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
           <Metric isRTL={isRTL} label={t("responseTime")} value={`${Math.round(finiteMetric(seller.responseTimeMinutes))} ${t("minutesShort")}`} />
