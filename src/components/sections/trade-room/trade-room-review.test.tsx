@@ -43,6 +43,7 @@ describe("completed trade review UI", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Submit Rating" })).toBeNull());
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/usdt-exchange"), { timeout: 3500 });
     expect(roomReads).toBe(1);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/notifications"))).toBe(false);
   });
 
   it("lets the seller review the buyer or return home without redirecting completed trades", async () => {

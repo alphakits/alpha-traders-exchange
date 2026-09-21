@@ -189,6 +189,9 @@ function NotificationBellSession({
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const refreshSession = canonicalSession?.refresh;
+  const canonicalUserId = canonicalSession?.user?.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const isOpenRef = useRef(false);
   const notificationsCountRef = useRef(0);
@@ -212,6 +215,7 @@ function NotificationBellSession({
     // Prevent a response owned by an unmounted account-scoped bell from
     // publishing native or React state after an authentication change.
     activeNotificationAccountScopeRef.current = "disposed";
+    loadControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -257,6 +261,11 @@ function NotificationBellSession({
     options?: { preserveOpenList?: boolean; forceListUpdate?: boolean },
   ) => {
     if (!canLoadNotifications) return;
+    if (loadControllerRef.current && !options?.forceListUpdate) return;
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
     const operationScope = notificationAccountScope;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
@@ -266,15 +275,15 @@ function NotificationBellSession({
     setError(null);
     try {
       incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
-      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) {
-        if (response.status === 401) void canonicalSession?.refresh({ force: true });
+        if (response.status === 401) void refreshSession?.({ force: true });
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
-      if (activeNotificationAccountScopeRef.current !== operationScope) return;
+      if (activeNotificationAccountScopeRef.current !== operationScope || loadControllerRef.current !== controller) return;
       const incoming = activeBellNotifications(payload.notifications ?? []);
-      forwardCompletedTradesToNative(incoming, canonicalSession?.user?.id, locale);
+      forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
       const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
         const sortedIncoming = sortNotificationsNewestFirst(incoming);
@@ -287,15 +296,18 @@ function NotificationBellSession({
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
-      if (activeNotificationAccountScopeRef.current === operationScope) {
+      if (activeNotificationAccountScopeRef.current === operationScope && loadControllerRef.current === controller) {
         setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
     } finally {
-      if (activeNotificationAccountScopeRef.current === operationScope && !shouldPreserveList) {
+      window.clearTimeout(timeout);
+      const ownsLoad = loadControllerRef.current === controller;
+      if (ownsLoad) loadControllerRef.current = null;
+      if (ownsLoad && activeNotificationAccountScopeRef.current === operationScope && !shouldPreserveList) {
         setIsLoading(false);
       }
     }
-  }, [applyUnreadCount, canLoadNotifications, canonicalSession, isAr, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -325,18 +337,16 @@ function NotificationBellSession({
   }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
-  async function handleToggleOpen() {
-    const nextOpen = !isOpen;
+  function handleToggleOpen() {
+    const nextOpen = !isOpenRef.current;
+    isOpenRef.current = nextOpen;
+    setIsOpen(nextOpen);
     if (nextOpen) {
       router.prefetch("/notifications");
-      const isFresh = Date.now() - lastLoadedAt < BELL_REFRESH_WINDOW_MS;
-      if (!isFresh || notifications.length === 0) {
-        await loadNotifications(20);
+      if (Date.now() - lastLoadedAt >= BELL_REFRESH_WINDOW_MS || notifications.length === 0) {
+        void loadNotifications(20);
       }
-      setIsOpen(true);
-      return;
     }
-    setIsOpen(false);
   }
 
   async function handleMarkOneRead(notificationId: string) {

@@ -753,6 +753,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
           <DetailRow isRTL={isRTL} label={t("tradeValue")} value={formatCurrencyAmountAsUsd(trade.fiatAmount, trade.currency, usdIlsRate)} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
+          {isCardlessAtm && trade.bankName ? <DetailRow isRTL={isRTL} label={locale === "ar" ? "بنك السحب" : "Withdrawal bank"} value={trade.bankName} /> : null}
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
         </View>
 

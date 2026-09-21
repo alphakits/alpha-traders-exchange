@@ -68,7 +68,7 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
     const onOpen = () => {
       reconnectAttemptsRef.current = 0;
     };
-    const onError = () => {
+    const onError = (event: Event) => {
       if (!active) return;
       // A backgrounded or outgoing document can report an EventSource error
       // after its owning component has started to tear down. Close that stream
@@ -94,11 +94,12 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
         // Components are rendered under the provider in production. The
         // fallback cycle keeps isolated component tests from relying on the
         // browser's uncontrolled native EventSource retry behavior.
-        if (!refreshCanonicalSession) {
+        // A named SSE error is an application snapshot failure, not a lost login.
+        if (event instanceof MessageEvent || !refreshCanonicalSession) {
           setStreamCycle((value) => value + 1);
           return;
         }
-        void refreshCanonicalSession({ force: true }).then((result) => {
+        void refreshCanonicalSession({ background: true }).then((result) => {
           // Canonical provider state normally restarts this effect. If React
           // batches a very fast authenticated refresh back to the same visible
           // state, this explicit cycle still guarantees a fresh stream.

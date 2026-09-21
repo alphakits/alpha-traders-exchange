@@ -769,7 +769,7 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
 }
 
 function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
-  if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "أكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
+  if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
   if (!isAr) return englishMessage;
   if (code === "EMAIL_VERIFICATION_REQUIRED") return "يجب تأكيد البريد الإلكتروني قبل بدء صفقة.";
   if (code === "BUYER_ROLE_REQUIRED") return "يلزم تفعيل دور المشتري لبدء صفقة.";
@@ -1775,7 +1775,7 @@ export function UsdtExchangePage({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "", receivingNetwork: "TRC20" as SupportedNetwork, cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number" as CardlessVerificationKind, cardlessVerificationValue: "", cardlessIlsAmount: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "", receivingNetwork: "TRC20" as SupportedNetwork, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number" as CardlessVerificationKind, cardlessVerificationValue: "", cardlessIlsAmount: "" });
   const [sellerForm, setSellerForm] = useState<SellerApplicationForm>(() => ({
     firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
     lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
@@ -2755,7 +2755,7 @@ export function UsdtExchangePage({
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
-      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
+      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
   }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
 
@@ -3054,7 +3054,7 @@ export function UsdtExchangePage({
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
-      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
+      receivingWalletAddress: "", receivingNetwork: listing.network, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
   }, [requireAuth, updateListingSelectionQuery]);
 
@@ -3146,10 +3146,11 @@ export function UsdtExchangePage({
       return;
     }
     if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
-      !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
+      !parseIsraeliBankSelection(selectedListing.bankName).includes(buyerInfo.cardlessBankName)
+      || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
       || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, (requestedAmount * (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price))).toFixed(2))
     )) {
-      setStatusMessage(isAr ? "أكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
+      setStatusMessage(isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Choose the withdrawal bank and complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
       return;
     }
     const fallbackMessage = isAr
@@ -3167,6 +3168,7 @@ export function UsdtExchangePage({
           buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
           receivingNetwork: buyerInfo.receivingNetwork,
           ...(isCardlessAtmPaymentMethod(selectedListingPaymentMethod) ? {
+            bankName: buyerInfo.cardlessBankName,
             cardlessWithdrawalCode: buyerInfo.cardlessWithdrawalCode,
             cardlessVerificationKind: buyerInfo.cardlessVerificationKind,
             cardlessVerificationValue: buyerInfo.cardlessVerificationValue,

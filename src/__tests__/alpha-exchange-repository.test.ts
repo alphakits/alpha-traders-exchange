@@ -125,6 +125,10 @@ describe("AlphaExchangeRepository", () => {
     await expect(submitBuyerTradeReview(input)).resolves.toMatchObject({ review: { rating: 5, comment: "Quick exchange" } });
     await expect(submitBuyerTradeReview(input)).resolves.toMatchObject({ review: { rating: 5, comment: "Quick exchange" } });
     expect(db.purchaseRequests[0].buyerReview?.comment).toBe("Quick exchange");
+    const cleanupCalls = query.mock.calls.filter(([sql]) => sql.startsWith("update alpha_exchange.notifications"));
+    expect(cleanupCalls).toHaveLength(1);
+    expect(cleanupCalls[0][1]).toEqual(["buyer", "focused-review", db.purchaseRequests[0].updatedAt]);
+    expect(cleanupCalls[0][0]).toContain("payload->>'relatedRequestId' = $2");
     expect(fullRead).not.toHaveBeenCalled();
     expect(fullSave).not.toHaveBeenCalled();
     expect(query.mock.calls.filter(([sql]) => sql.startsWith("update alpha_exchange.purchase_requests"))).toHaveLength(1);

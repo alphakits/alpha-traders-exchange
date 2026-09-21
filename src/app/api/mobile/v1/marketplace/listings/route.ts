@@ -97,6 +97,7 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
     currency: listing.currency,
     network: listing.network,
     paymentMethods: [...listing.paymentMethods],
+    bankName: listing.bankName,
     minimumTrade: listing.minimumTrade,
     maximumTrade: listing.maximumTrade,
     responseTime: listing.responseTime,

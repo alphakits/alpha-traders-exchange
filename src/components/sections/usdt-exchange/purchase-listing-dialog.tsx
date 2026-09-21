@@ -23,6 +23,7 @@ type BuyerInfo = {
   usdtAmount: string;
   receivingWalletAddress: string;
   receivingNetwork?: SupportedNetwork;
+  cardlessBankName?: string;
   cardlessWithdrawalCode?: string;
   cardlessVerificationKind?: CardlessVerificationKind;
   cardlessVerificationValue?: string;
@@ -160,7 +161,8 @@ export function PurchaseListingDialog({
   const receivingNetwork = buyerInfo.receivingNetwork ?? listing.network;
   const isCardless = isCardlessAtmPaymentMethod(selectedPaymentMethod);
   const cardlessInvalid = isCardless && (
-    !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
+    !parseIsraeliBankSelection(listing.bankName).includes(buyerInfo.cardlessBankName ?? "")
+    || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
     || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
   );
   const purchaseDisabled = cardlessInvalid || isSubmittingPurchase
@@ -360,6 +362,12 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 {isCardless ? <>
+                  <label htmlFor="cardless-bank" className="text-sm font-medium">{isAr ? "البنك الذي أصدرت منه رمز السحب" : "Bank that issued your withdrawal code"} <span className="text-red-300">*</span></label>
+                  <select id="cardless-bank" required disabled={isSubmittingPurchase} value={buyerInfo.cardlessBankName ?? ""} onChange={(event) => onBuyerDetailsChange?.({ cardlessBankName: event.target.value })} className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" aria-describedby="cardless-bank-help">
+                    <option value="">{isAr ? "اختر بنك السحب" : "Choose the withdrawal bank"}</option>
+                    {parseIsraeliBankSelection(listing.bankName).map((bank) => <option key={bank} value={bank}>{getIsraeliBankDisplayName(bank, locale)}</option>)}
+                  </select>
+                  <p id="cardless-bank-help" className="text-xs text-[#D1D5DB]">{isAr ? "اختر البنك الذي أنشأت فيه الرمز. سيظهر للبائع ليعرف من أي صراف آلي يسحب المبلغ." : "Choose the bank where you generated the code. The seller will see which bank’s ATM to visit."}</p>
                   <CardlessWithdrawalFields isAr={isAr} disabled={isSubmittingPurchase} phase="request"
                     code={buyerInfo.cardlessWithdrawalCode ?? ""} verificationKind={buyerInfo.cardlessVerificationKind ?? "id_number"} verificationValue={buyerInfo.cardlessVerificationValue ?? ""}
                     onCodeChange={(value) => onBuyerDetailsChange?.({ cardlessWithdrawalCode: value })}

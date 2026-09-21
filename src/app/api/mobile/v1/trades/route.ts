@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
       buyerName: auth.user.fullName.trim(),
       buyerReceivingWalletAddress: receivingWalletAddress,
       receivingNetwork: body?.receivingNetwork == null ? undefined : String(body.receivingNetwork),
+      bankName: String(body?.bankName ?? "").trim() || undefined,
       cardlessWithdrawalCode: String(body?.cardlessWithdrawalCode ?? ""),
       cardlessVerificationKind: String(body?.cardlessVerificationKind ?? ""),
       cardlessVerificationValue: String(body?.cardlessVerificationValue ?? ""),

@@ -526,6 +526,7 @@ export interface MobileMarketplaceFilters {
 }
 
 export interface MobileMarketplaceListing {
+  bankName?: string;
   id: string;
   displayNumber?: number;
   seller: {
@@ -926,6 +927,7 @@ export type MobileTradeTimelineEvent =
   | "bank_details_revealed";
 
 export interface MobileTradeSummary {
+  bankName?: string;
   id: string;
   displayNumber?: number;
   side: "buyer" | "seller";
@@ -994,6 +996,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
 }
 
 export interface MobileCreateTradeRequest {
+  bankName?: string;
   receivingNetwork?: MobileSupportedNetwork;
   cardlessWithdrawalCode?: string;
   cardlessVerificationKind?: "id_number" | "date_of_birth";

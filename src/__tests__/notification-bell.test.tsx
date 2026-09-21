@@ -18,6 +18,19 @@ afterEach(() => {
 });
 
 describe("Notification bell conversation navigation", () => {
+  it("opens and closes immediately while a notification request is stuck, without duplicate reads", () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationBell locale="en" />);
+    const bell = screen.getByRole("button", { name: "Notifications" });
+    fireEvent.click(bell);
+    expect(screen.getByTestId("notification-panel").className).toContain("visible scale-100");
+    fireEvent.click(bell);
+    expect(screen.getByTestId("notification-panel").className).toContain("invisible scale-95");
+    fireEvent.click(bell);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["trade_room_poke", "trade_room_message"])("opens the chat from a %s action", async (reason) => {
     const notification = {
       id: "notification-1", userId: "seller-1", category: "trade", reason,

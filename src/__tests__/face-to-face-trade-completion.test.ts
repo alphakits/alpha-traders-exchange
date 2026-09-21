@@ -129,6 +129,7 @@ function seedTrade(input: {
     price: "3.20",
     currency: "ILS",
     network: "TRC20",
+    bankName: paymentMethod === "Cardless ATM Withdrawal" ? "Bank Hapoalim, Bank Leumi" : undefined,
     paymentMethods: [paymentMethod],
     paymentMethod,
     minimumTrade: "50",
@@ -183,8 +184,18 @@ describe("guided cash-trade completion", () => {
   function readyRequest(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {
     const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
     currentSnapshot().purchaseRequests = [];
-    return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
+    return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
   }
+
+  it.each([undefined, "", "Discount", "Bank Hapoalim, Bank Leumi"])("requires one supported withdrawal bank (%s)", async (bankName) => {
+    await expect(readyRequest({ bankName })).rejects.toThrow(/Choose the bank/);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("persists only the bank the buyer selected", async () => {
+    await readyRequest({ bankName: "Bank Leumi" });
+    expect(currentSnapshot().purchaseRequests[0].bankName).toBe("Bank Leumi");
+  });
 
   it.each([
     { cardlessWithdrawalCode: "" }, { cardlessVerificationValue: "" }, { cardlessVerificationKind: "" },
