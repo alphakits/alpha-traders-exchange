@@ -2984,12 +2984,16 @@ export function UsdtExchangePage({
     [listings]
   );
   const requireAuth = useCallback(() => {
+    if (isSessionResolving || sessionResolutionError) {
+      setStatusMessage(isAr ? "نعيد الاتصال بحسابك. يُرجى المحاولة بعد لحظات." : "Reconnecting to your account. Please try again in a moment.");
+      return false;
+    }
     if (!sessionUser) {
       router.push(`/login?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
       return false;
     }
     return true;
-  }, [sessionUser, router, tradeReturnPath]);
+  }, [isAr, isSessionResolving, sessionResolutionError, sessionUser, router, tradeReturnPath]);
 
   async function handleOwnerSellerProfileState(sellerId: string, state: { feature?: boolean; hidden?: boolean }, successMessage: string) {
     setIsOwnerProfileActionLoading(true);

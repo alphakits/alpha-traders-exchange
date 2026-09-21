@@ -64,9 +64,9 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
     let disposed = false;
     let reconnectTimeout: number | null = null;
     const stream = new EventSource("/api/alpha-exchange/notifications/stream");
-    const handleNotifications = (event: Event) => onNotificationsRef.current(event);
-    const onOpen = () => {
+    const handleNotifications = (event: Event) => {
       reconnectAttemptsRef.current = 0;
+      onNotificationsRef.current(event);
     };
     const onError = (event: Event) => {
       if (!active) return;
@@ -103,7 +103,7 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
           // Canonical provider state normally restarts this effect. If React
           // batches a very fast authenticated refresh back to the same visible
           // state, this explicit cycle still guarantees a fresh stream.
-          if (!disposed && result === "authenticated" && document.visibilityState !== "hidden") {
+          if (!disposed && result !== "anonymous" && document.visibilityState !== "hidden") {
             setStreamCycle((value) => value + 1);
           }
         });
@@ -119,12 +119,19 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       if (reconnectTimeout !== null) window.clearTimeout(reconnectTimeout);
       stream.close();
     };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setStreamCycle((value) => value + 1);
+    };
+    const handleOnline = () => {
+      if (document.visibilityState !== "hidden") setStreamCycle((value) => value + 1);
+    };
 
     stream.addEventListener("notifications", handleNotifications);
-    stream.addEventListener("open", onOpen as EventListener);
     stream.addEventListener("error", onError as EventListener);
     window.addEventListener("pagehide", handlePageExit);
     window.addEventListener("beforeunload", handlePageExit);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleOnline);
 
     return () => {
       active = false;
@@ -132,8 +139,9 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       if (reconnectTimeout !== null) window.clearTimeout(reconnectTimeout);
       window.removeEventListener("pagehide", handlePageExit);
       window.removeEventListener("beforeunload", handlePageExit);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleOnline);
       stream.removeEventListener("notifications", handleNotifications);
-      stream.removeEventListener("open", onOpen as EventListener);
       stream.removeEventListener("error", onError as EventListener);
       stream.close();
     };

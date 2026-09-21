@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { StrictMode } from "react";
+import { StrictMode, useEffect } from "react";
 import {
   CanonicalSessionProvider,
   CANONICAL_SESSION_READ_TIMEOUT_MS,
@@ -42,7 +42,7 @@ describe("CanonicalSessionProvider", () => {
     render(<CanonicalSessionProvider initialSessionUser={user}><ErrorProbe /></CanonicalSessionProvider>);
     await act(async () => { await vi.advanceTimersByTimeAsync(CANONICAL_SESSION_READ_TIMEOUT_MS); });
     expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
-    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    expect(screen.getByText("timeout-seller:error")).toBeTruthy();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(screen.getByText("timeout-seller:ok")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -99,13 +99,13 @@ describe("CanonicalSessionProvider", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    expect(screen.getByText("recovered-seller:error")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await act(async () => {
       await vi.runOnlyPendingTimersAsync();
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    expect(screen.getByText("recovered-seller:error")).toBeTruthy();
     await act(async () => {
       await vi.runOnlyPendingTimersAsync();
     });
@@ -132,6 +132,60 @@ describe("CanonicalSessionProvider", () => {
       await vi.advanceTimersByTimeAsync(120_000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers an initial unavailable session without requiring the app to be killed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("Network lost"))
+      .mockResolvedValue({ ok: true, json: async () => ({ user: { id: "restored-user" } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CanonicalSessionProvider initialSessionUser={null}><ErrorProbe /></CanonicalSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByText("restored-user:ok")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces phone resume events without reloading consumers of an unchanged account", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const accountChanged = vi.fn();
+    const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ user: { id: "resumed-user" } }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    function WorkspaceProbe() {
+      const { user } = useCanonicalSession();
+      useEffect(() => { if (user) accountChanged(user.id); }, [user]);
+      return <ErrorProbe />;
+    }
+    render(<CanonicalSessionProvider initialSessionUser={null}><WorkspaceProbe /></CanonicalSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("resumed-user:ok")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(accountChanged).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("resumed-user:ok")).toBeTruthy();
+  });
+
+  it("does not present an unresolved session as anonymous between recovery attempts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const retry = deferred<Response>();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) })
+      .mockReturnValueOnce(retry.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CanonicalSessionProvider initialSessionUser={null}><ErrorProbe /></CanonicalSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    await act(async () => { retry.resolve(Response.json({ user: null })); });
+    expect(screen.getByText("anonymous:ok")).toBeTruthy();
   });
 
   it("invalidates an in-flight canonical response after an auth-state change", async () => {
@@ -268,7 +322,7 @@ describe("CanonicalSessionProvider", () => {
     }
   });
 
-  it("fails closed on an unavailable canonical response without falsely calling it a confirmed logout", async () => {
+  it("retains the last confirmed account during an outage without redirecting to Login", async () => {
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -287,7 +341,7 @@ describe("CanonicalSessionProvider", () => {
         </CanonicalSessionProvider>,
       );
 
-      await waitFor(() => expect(screen.getByText("anonymous:error")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("bootstrap-seller:error")).toBeTruthy());
       expect(replaceSpy).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });

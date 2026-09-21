@@ -8,11 +8,12 @@ export function reloadAfterSessionRecovery() {
   try {
     const key = "alpha-session-recovery-reload";
     const lastReload = Number(window.sessionStorage.getItem(key));
-    if (lastReload > 0 && Date.now() - lastReload < 60_000) return;
+    if (lastReload > 0 && Date.now() - lastReload < 60_000) return false;
     window.sessionStorage.setItem(key, String(Date.now()));
   } catch {
     // If storage is unavailable, leave the explicit retry button in control.
-    return;
+    return false;
   }
   reloadCurrentPage();
+  return true;
 }

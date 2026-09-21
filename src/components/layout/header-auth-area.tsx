@@ -39,15 +39,13 @@ export function HeaderAuthArea({
   locale,
   navItems,
   labels,
-  initialSessionUser,
 }: {
   locale: AppLocale;
   navItems: HeaderNavItem[];
   labels: HeaderAuthLabels;
   initialSessionUser: SessionUserSummary | null;
 }) {
-  const { user: canonicalUser, isResolving } = useCanonicalSession();
-  const sessionUser = (isResolving ? initialSessionUser : canonicalUser) as SessionUserSummary | null;
+  const { user: sessionUser } = useCanonicalSession();
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? labels.profile : labels.signIn;
 

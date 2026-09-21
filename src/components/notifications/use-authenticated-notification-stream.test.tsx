@@ -107,6 +107,35 @@ describe("useAuthenticatedNotificationStream", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("continues reconnecting when the session check is temporarily unavailable", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ user: seller }) })
+      .mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      MockEventSource.instances[0].emit("error");
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(MockEventSource.instances[1].close).not.toHaveBeenCalled();
+  });
+
+  it("reopens after iOS restores the same document from the back-forward cache", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) }));
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(MockEventSource.instances[0].close).toHaveBeenCalledTimes(1);
+    act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(MockEventSource.instances[1].close).not.toHaveBeenCalled();
+  });
+
   it("opens immediately from a server-authenticated session while canonical verification runs", async () => {
     let resolveSession: ((response: Response) => void) | undefined;
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise<Response>((resolve) => { resolveSession = resolve; })));

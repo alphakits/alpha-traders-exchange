@@ -73,6 +73,18 @@ afterEach(() => {
 });
 
 describe("requireApiUser", () => {
+  it("denies actions with a retryable 503 and preserves the session during a database timeout", async () => {
+    mockGetCurrentSessionUser.mockRejectedValue(new Error("Query read timeout"));
+    mockGetCurrentSessionToken.mockResolvedValue("existing-session-token");
+    const { user, unauthorized } = await requireApiUser();
+    expect(user).toBeNull();
+    expect(unauthorized?.status).toBe(503);
+    expect(await unauthorized?.json()).toMatchObject({ code: "SESSION_TEMPORARILY_UNAVAILABLE" });
+    expect(unauthorized?.headers.get("Retry-After")).toBe("3");
+    expect(unauthorized?.headers.get("Set-Cookie")).toBeNull();
+    expect(mockClearUserSession).not.toHaveBeenCalled();
+  });
+
   it("returns 401 when no session user", async () => {
     mockGetCurrentSessionUser.mockResolvedValue(null);
     const { user, unauthorized } = await requireApiUser();

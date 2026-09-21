@@ -1,12 +1,13 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ push: vi.fn(), search: new URLSearchParams() }));
 vi.mock("next/image", () => ({ default: () => null }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => mocks.search }));
 vi.mock("@/i18n/navigation", () => ({ Link: () => null, useRouter: () => ({ push: mocks.push }) }));
-vi.mock("@/components/auth/canonical-session-provider", () => ({ useOptionalCanonicalSession: () => null }));
 vi.mock("@/components/account/user-safety-actions", () => ({ UserSafetyActions: () => null }));
 import { TradeRoomPage } from "./trade-room-page";
+import { CanonicalSessionProvider, useCanonicalSession } from "@/components/auth/canonical-session-provider";
+import type { ClientSessionUser } from "@/lib/client-session-user";
 
 const room = {
   request: { id: "request-1", tradeId: "trade-1", buyerId: "buyer-1", sellerId: "seller-1", status: "review_open",
@@ -30,6 +31,37 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("completed trade review UI", () => {
+  it("keeps the completed trade and written review visible when session recovery fails", async () => {
+    const seller: ClientSessionUser = {
+      id: "seller-1", fullName: "Seller", email: "seller@example.test", role: "approved_seller", sellerStatus: "approved_seller",
+      whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "online", createdAt: "2026-01-01",
+    };
+    let sessionReads = 0;
+    const fetchMock = vi.fn((url: string) => Promise.resolve(url === "/api/auth/me"
+      ? ++sessionReads === 1 ? Response.json({ user: seller }) : Response.json({ error: "unavailable" }, { status: 503 })
+      : Response.json(room)));
+    vi.stubGlobal("fetch", fetchMock);
+    function SessionCheck() {
+      const { refresh, user, error } = useCanonicalSession();
+      return <><output>{user ? error ? "Reconnecting" : "Signed in" : "Login"}</output>
+        <button onClick={() => void refresh({ background: true })}>Check connection</button></>;
+    }
+    render(<CanonicalSessionProvider initialSessionUser={seller}>
+      <SessionCheck />
+      <TradeRoomPage locale="en" requestId="request-1" actor={{ id: "seller-1", role: "approved_seller", fullName: "Seller" }} />
+    </CanonicalSessionProvider>);
+    await screen.findByRole("button", { name: "Return home" });
+    fireEvent.click(screen.getByText("Review buyer"));
+    fireEvent.change(screen.getByLabelText("Buyer feedback"), { target: { value: "Review stays here" } });
+    await act(async () => { fireEvent.click(screen.getByText("Check connection")); });
+    expect(screen.getByText("Reconnecting")).toBeTruthy();
+    expect(screen.queryByText("Login")).toBeNull();
+    expect((screen.getByLabelText("Buyer feedback") as HTMLTextAreaElement).value).toBe("Review stays here");
+    expect(screen.getByRole("button", { name: "Return home" })).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([url]) => url.includes("/trade-room/"))).toHaveLength(1);
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("leaves the review form and returns to the market even when subsequent room reads never finish", async () => {
     let roomReads = 0;
     vi.stubGlobal("fetch", vi.fn((url: string) => {

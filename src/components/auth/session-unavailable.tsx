@@ -16,7 +16,7 @@ export function SessionUnavailable({ locale }: { locale: "ar" | "en" }) {
     let controller: AbortController | undefined;
 
     const check = async () => {
-      if (disposed) return;
+      if (disposed || controller) return;
       if (document.visibilityState === "hidden" || navigator.onLine === false) {
         retryTimer = setTimeout(check, 5_000);
         return;
@@ -32,28 +32,38 @@ export function SessionUnavailable({ locale }: { locale: "ar" | "en" }) {
         if (response.ok) {
           const payload: unknown = await response.json();
           if (payload && typeof payload === "object" && "user" in payload && !disposed) {
-            setChecking(false);
-            reloadAfterSessionRecovery();
-            return;
+            if (reloadAfterSessionRecovery()) {
+              disposed = true;
+              setChecking(false);
+              return;
+            }
           }
         }
       } catch {
-        // A bounded read retry also handles offline and timed-out requests.
+        // Read retries use bounded backoff, including offline/timeouts.
       } finally {
         clearTimeout(timeout);
+        controller = undefined;
       }
       if (disposed) return;
-      if (attempts < 5) {
-        retryTimer = setTimeout(check, Math.min(1_000 * 2 ** attempts, 30_000));
-      } else {
-        setChecking(false);
-      }
+      retryTimer = setTimeout(check, Math.min(1_000 * 2 ** Math.min(attempts, 5), 30_000));
+    };
+    const resume = () => {
+      if (disposed || controller || document.visibilityState === "hidden" || navigator.onLine === false) return;
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(check, 0);
     };
     retryTimer = setTimeout(check, 1_000);
+    window.addEventListener("online", resume);
+    window.addEventListener("pageshow", resume);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       disposed = true;
       clearTimeout(retryTimer);
       controller?.abort();
+      window.removeEventListener("online", resume);
+      window.removeEventListener("pageshow", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, []);
 

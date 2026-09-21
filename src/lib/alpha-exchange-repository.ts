@@ -2689,6 +2689,10 @@ export class AlphaExchangeRepository {
          select sort_index, payload
          from alpha_exchange.notifications
          where user_id = $1
+       ), legacy_notification_text as materialized (
+         -- Serialize each notification once, not once per account in the
+         -- legacy identity lookup. Keep the same substring matching behavior.
+         select string_agg(payload::text, chr(10)) as body from recipient_notifications
        ), related_requests as materialized (
          select id, listing_id, seller_id, buyer_id, sort_index, payload
          from alpha_exchange.purchase_requests
@@ -2711,11 +2715,7 @@ export class AlphaExchangeRepository {
          union
          select account.id
          from alpha_exchange.users account
-         where exists (
-           select 1
-           from recipient_notifications notification
-           where notification.payload::text like '%' || account.id || '%'
-         )
+         where (select body from legacy_notification_text) like '%' || account.id || '%'
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
