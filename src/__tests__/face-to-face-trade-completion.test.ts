@@ -11,6 +11,7 @@ import {
   closePurchaseRequestManually,
   createPurchaseRequest,
   recalculateCardlessTradeAmount,
+  updateTradeTerms,
   sanitizePurchaseRequestForActor,
   forceCancelTradeByAdmin,
   forceCompleteTradeByAdmin,
@@ -179,6 +180,84 @@ describe("guided cash-trade completion", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  async function propose(action: "counter_offer" | "propose_amount", value: string) {
+    const request = currentSnapshot().purchaseRequests[0];
+    return updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action, value, expectedUpdatedAt: request.updatedAt, safetyAcknowledged: true });
+  }
+
+  it("accepts a seller counter-offer directly into the same trade, once", async () => {
+    seedTrade({ status: "pending" });
+    currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    currentSnapshot().purchaseRequests[0].pricePerUsdt = "3.00";
+    const offer = await propose("counter_offer", "3.10");
+    expect(offer.pricePerUsdt).toBe("3.00");
+    expect(offer.termsProposal?.fiatAmount).toBe("775.00");
+    await expect(updatePurchaseRequestStatus({ requestId: offer.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toThrow(/proposed terms/);
+    const accept = { requestId: offer.id, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: offer.termsProposal!.id };
+    const result = await updatePurchaseRequestStatus(accept);
+    expect(result.request.status).toBe("accepted");
+    expect(result.request.pricePerUsdt).toBe("3.10");
+    expect(result.request.fiatAmount).toBe("775.00");
+    expect(result.request.termsProposal?.status).toBe("accepted");
+    expect((await updatePurchaseRequestStatus(accept)).statusChanged).toBe(false);
+    expect(currentSnapshot().marketplaceListings[0].activeTradeRequestId).toBe(offer.id);
+  });
+
+  it("requires buyer approval for amount corrections and resumes the trade", async () => {
+    seedTrade({ status: "funds_received" });
+    const proposed = await propose("propose_amount", "275.25");
+    expect(proposed.usdtAmount).toBe("250");
+    await expect(updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "usdt_sent" })).rejects.toThrow(/proposed terms/);
+    await expect(updateTradeTerms({ requestId: proposed.id, actorUserId: SELLER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id })).rejects.toThrow(/intended participant/);
+    const input = { requestId: proposed.id, actorUserId: BUYER_ID, action: "accept_amount" as const, proposalId: proposed.termsProposal!.id };
+    const accepted = await updateTradeTerms(input);
+    expect(accepted.usdtAmount).toBe("275.25");
+    expect(accepted.fiatAmount).toBe("880.80");
+    expect((await updateTradeTerms(input)).usdtAmount).toBe("275.25");
+    const sent = await updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "usdt_sent" });
+    expect(sent.request.status).toBe("usdt_sent");
+  });
+
+  it("declines an amount proposal without changing the original amounts", async () => {
+    seedTrade({});
+    const proposed = await propose("propose_amount", "200");
+    const result = await updateTradeTerms({ requestId: proposed.id, actorUserId: BUYER_ID, action: "decline_terms", proposalId: proposed.termsProposal!.id });
+    expect(result.usdtAmount).toBe("250");
+    expect(result.termsProposal?.status).toBe("declined");
+  });
+
+  it("rejects stale proposal acceptance after withdrawal and replacement", async () => {
+    seedTrade({ status: "pending" }); currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    const first = await propose("counter_offer", "3.10");
+    const firstId = first.termsProposal!.id;
+    await updateTradeTerms({ requestId: first.id, actorUserId: SELLER_ID, action: "withdraw_terms", proposalId: firstId });
+    await propose("counter_offer", "3.15");
+    await expect(updatePurchaseRequestStatus({ requestId: first.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: firstId })).rejects.toThrow(/no longer current/);
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("pending");
+  });
+
+  it.each(["usdt_sent", "completed", "review_open"] as const)("blocks amount changes at %s", async (status) => {
+    seedTrade({ status });
+    await expect(propose("propose_amount", "300")).rejects.toThrow(/stage/);
+  });
+
+  it("blocks outsiders, stale screens, over-allocation, and cardless cash mismatches", async () => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "funds_received" });
+    const request = currentSnapshot().purchaseRequests[0];
+    await expect(updateTradeTerms({ requestId: request.id, actorUserId: OUTSIDER_ID, action: "propose_amount", value: "250", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/not found/);
+    await expect(updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_amount", value: "250", expectedUpdatedAt: "stale" })).rejects.toThrow(/changed/);
+    await expect(propose("propose_amount", "300")).rejects.toThrow(/withdrawal/);
+  });
+
+  it("enforces the available balance and counter-offer price bounds", async () => {
+    seedTrade({});
+    await expect(propose("propose_amount", "1001")).rejects.toThrow(/limits/);
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    invalidateAlphaExchangeStoreCache();
+    await expect(propose("counter_offer", "3.21")).rejects.toThrow(/price range/);
   });
 
   function readyRequest(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {

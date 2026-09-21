@@ -9,8 +9,8 @@ import { safeRemoteImageUrl } from "../media/safe-media-url";
 import {
   formatCount,
   formatCurrencyAmountAsUsd,
-  formatFinancialNumber,
   formatUsd,
+  formatWholeUsdtNumber,
 } from "../finance/financial-display";
 
 type ListingCardProps = {
@@ -181,7 +181,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             <View style={[styles.usdtAmountRow, isRTL && styles.rowReverse]}>
               <View style={styles.usdtIcon}><Text style={styles.usdtIconText}>₮</Text></View>
               <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.usdtAmount, isRTL && styles.rtlText]}>
-                {formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 })}
+                {formatWholeUsdtNumber(listing.availableAmount)}
               </Text>
             </View>
             <Text style={[styles.usdtUnit, isRTL && styles.rtlText]}>USDT</Text>
@@ -229,7 +229,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             </View>
           </View>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 })} – {formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 })} USDT</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{formatWholeUsdtNumber(listing.minimumTrade)} – {formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade flow", "مسار الصفقة")}: <Text style={styles.escrowValue}>{copy("Structured and recorded by Alpha Traders", "منظّم ومسجّل عبر Alpha Traders")}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Region", "المنطقة")}: <Text style={styles.infoValue}>{listing.seller.country || copy("Israel", "إسرائيل")}</Text></Text>
           </View>

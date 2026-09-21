@@ -24,6 +24,7 @@ export function isMobileTradeParticipant(request: PurchaseRequest, userId: strin
 export function toMobileTradeSummary(request: PurchaseRequest, userId: string): MobileTradeSummary {
   const pricePerUsdt = request.pricePerUsdt || request.listingPriceAtRequest || "0";
   return {
+    termsProposal: request.termsProposal,
     id: request.id,
     displayNumber: request.displayNumber,
     side: request.buyerId === userId ? "buyer" : "seller",
@@ -77,7 +78,7 @@ export function toMobileTradeActions(
   const isSeller = request.sellerId === userId;
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   return {
-    canAccept: isSeller && request.status === "pending",
+    canAccept: isSeller && request.status === "pending" && request.termsProposal?.status !== "pending",
     canDecline: isSeller && request.status === "pending",
     canCancel: isBuyer
       && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt)),

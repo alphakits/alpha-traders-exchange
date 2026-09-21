@@ -33,7 +33,12 @@ export function formatCount(value: FinancialValue) {
   return formatFinancialNumber(value, { maximumFractionDigits: 0 });
 }
 
-export function formatUsdt(value: FinancialValue, maximumFractionDigits = 6) {
+export function formatWholeUsdtNumber(value: FinancialValue) {
+  return Math.trunc(financialNumber(value)).toLocaleString("en-US");
+}
+
+export function formatUsdt(value: FinancialValue, maximumFractionDigits = 0) {
+  if (maximumFractionDigits === 0) return `${formatWholeUsdtNumber(value)} USDT`;
   return `${formatFinancialNumber(value, { maximumFractionDigits })} USDT`;
 }
 

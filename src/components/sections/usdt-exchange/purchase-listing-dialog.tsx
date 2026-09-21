@@ -236,7 +236,7 @@ export function PurchaseListingDialog({
               <div className="rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-emerald-500/10 via-black/50 to-[#C9A227]/12 p-3">
                 <div className={`flex items-end justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className={isAr ? "text-right" : ""}>
-                    <p className="text-2xl font-bold leading-none text-white">{selectedAmount.toLocaleString("en-IL", { maximumFractionDigits: 6 })}</p>
+                    <p className="text-2xl font-bold leading-none text-white">{Math.trunc(selectedAmount).toLocaleString("en-US")}</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">{isAr ? "USDT متاح" : "USDT Available"}</p>
                   </div>
                   <div className={isAr ? "text-left" : "text-right"}>
@@ -310,7 +310,7 @@ export function PurchaseListingDialog({
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{isAr ? "كمية USDT" : "USDT Amount"} <span className="text-red-300">*</span></label>
                     <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
-                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} - {selectedMaxTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</p>
+                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {Math.trunc(selectedMinTrade).toLocaleString("en-US")} - {Math.trunc(selectedMaxTrade).toLocaleString("en-US")} USDT</p>
                   </div>
                   {priceMode === "buyer_offer" ? (
                     <div className="space-y-2 md:col-span-3">

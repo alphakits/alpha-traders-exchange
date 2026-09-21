@@ -34,8 +34,8 @@ const ARABIC_TEXT = /[\u0600-\u06ff]/;
 
 describe("USDT exchange localized mobile copy", () => {
   it("groups every marketplace financial amount above 999", () => {
-    expect(formatUsdt(1_000)).toBe("1,000.00 USDT");
-    expect(formatUsdt(1.234567)).toBe("1.234567 USDT");
+    expect(formatUsdt(1_000)).toBe("1,000 USDT");
+    expect(formatUsdt(1.234567)).toBe("1 USDT");
     expect(formatIls(1_050_000)).toBe("₪1,050,000.00");
   });
 

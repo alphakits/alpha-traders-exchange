@@ -928,7 +928,19 @@ export type MobileTradeTimelineEvent =
   | "trade_inactivity_warning_sent"
   | "bank_details_revealed";
 
+export interface TradeTermsProposal {
+  id: string;
+  kind: "counter_offer" | "amount_correction";
+  status: "pending" | "accepted" | "declined" | "withdrawn";
+  pricePerUsdt: string;
+  usdtAmount: string;
+  fiatAmount: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
 export interface MobileTradeSummary {
+  termsProposal?: TradeTermsProposal;
   bankName?: string;
   id: string;
   displayNumber?: number;

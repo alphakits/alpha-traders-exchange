@@ -1,3 +1,5 @@
+import { TradeTermsPanel } from "../components/trade-terms-panel";
+import { updateMobileTradeTerms } from "../api/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -384,6 +386,19 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }
 
+  async function updateTerms(action: string, value: string, safetyAcknowledged: boolean) {
+    if (busyAction || !query.data?.trade) return;
+    const current = query.data.trade;
+    const operationScope = activeTradeScopeRef.current;
+    setBusyAction("trade-terms"); setError(null);
+    try {
+      const response = await requestWithSession((tokens, requestLocale) => updateMobileTradeTerms(tokens, requestLocale, requestId, { action, value, proposalId: current.termsProposal?.id, expectedUpdatedAt: current.updatedAt, safetyAcknowledged }));
+      if (activeTradeScopeRef.current === operationScope) applyTradeMutation(response);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+    } finally { if (activeTradeScopeRef.current === operationScope) setBusyAction(null); }
+  }
+
   async function recalculateCardlessAmount() {
     if (busyAction) return;
     const operationScope = activeTradeScopeRef.current;
@@ -689,7 +704,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   const trade: MobileTradeDetail = query.data.trade;
   const actions = trade.actions;
-  const actionsDisabled = busyAction !== null;
+  const actionsDisabled = busyAction !== null || trade.termsProposal?.status === "pending";
   const isFaceToFace = trade.paymentMethod === "Face-to-Face (Meet in Person)";
   const isCardlessAtm = trade.paymentMethod === "Cardless ATM Withdrawal";
   const cashTradeKind = isCardlessAtm ? "cardless_atm" : isFaceToFace ? "face_to_face" : null;
@@ -723,7 +738,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={styles.statusText}>{mobileTradeStatusLabel(trade.status, locale)}</Text>
             </View>
           </View>
-          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, cashTradeKind, trade.side)}</Text>
+          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{trade.termsProposal?.status === "pending" ? (locale === "ar" ? "راجع اقتراح البائع أدناه. بانتظار موافقة المشتري." : "Review the proposal below. Awaiting buyer confirmation.") : stageInstruction(trade.status, t, cashTradeKind, trade.side)}</Text>
         </View>
 
         {!cashTradeKind && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
@@ -793,6 +808,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View collapsable={false} onLayout={(event) => recordGuidanceLayout("actions", event)} style={styles.actions}>
+          <TradeTermsPanel key={trade.id} trade={trade} isAr={locale === "ar"} disabled={busyAction !== null || trade.hasOpenDispute} onAction={updateTerms} />
           {actions.canAccept ? (
             <GoldButton
               disabled={actionsDisabled}

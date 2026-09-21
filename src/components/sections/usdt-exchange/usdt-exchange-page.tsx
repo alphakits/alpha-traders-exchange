@@ -573,10 +573,7 @@ export function formatIls(value: number) {
 }
 
 export function formatUsdt(value: number) {
-  return `${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  })} USDT`;
+  return `${Math.trunc(value).toLocaleString("en-US")} USDT`;
 }
 
 export function formatExactCommissionUsdt(value: number) {
@@ -1136,7 +1133,7 @@ type ListingCardProps = {
 const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
-  const formattedAvailableAmount = toNumber(listing.availableAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 });
+  const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
   const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
   const presence = deriveSellerPresence({
     onlineStatus: listing.sellerProfile?.onlineStatus,
@@ -1332,7 +1329,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL", { maximumFractionDigits: 6 })} – {toNumber(listing.maximumTrade).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</span></p>
+            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – {Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT</span></p>
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
@@ -3129,8 +3126,8 @@ export function UsdtExchangePage({
     const maxTrade = Math.min(configuredMaxTrade, availableTrade);
     if (requestedAmount < minTrade || requestedAmount > maxTrade) {
       setStatusMessage(isAr
-        ? `يجب أن يكون مبلغ الصفقة بين ${minTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} و${maxTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT.`
-        : `Trade amount must be between ${minTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} and ${maxTrade.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT.`);
+        ? `يجب أن يكون مبلغ الصفقة بين ${Math.trunc(minTrade).toLocaleString("en-US")} و${Math.trunc(maxTrade).toLocaleString("en-US")} USDT.`
+        : `Trade amount must be between ${Math.trunc(minTrade).toLocaleString("en-US")} and ${Math.trunc(maxTrade).toLocaleString("en-US")} USDT.`);
       return;
     }
     if (purchasePriceMode === "buyer_offer") {
@@ -5105,7 +5102,7 @@ export function UsdtExchangePage({
                 <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
                   <div>
                     <p className="font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                    <p className="mt-0.5">{toNumber(request.usdtAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT • {paymentMethodLabel(request.paymentMethod, isAr)}</p>
+                    <p className="mt-0.5">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT • {paymentMethodLabel(request.paymentMethod, isAr)}</p>
                   </div>
                   <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{tradeStatusLabel(request.status, isAr)}</span>
                 </div>
@@ -5114,7 +5111,7 @@ export function UsdtExchangePage({
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
-            <p className="mt-3 text-3xl font-semibold text-white">{buyerOverviewStats.totalUsdtBought.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</p>
+            <p className="mt-3 text-3xl font-semibold text-white">{Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} USDT</p>
             <p className="mt-1 text-sm text-[#E5E7EB]">{isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange."}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
@@ -5663,7 +5660,7 @@ export function UsdtExchangePage({
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                     <div>
                       <p className="font-medium text-white">{shortTradeRef(trade, isAr)}</p>
-                      <p className="mt-0.5">{toNumber(trade.usdtAmount).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
+                      <p className="mt-0.5">{Math.trunc(toNumber(trade.usdtAmount)).toLocaleString("en-US")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
                       <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })}</p>
                     </div>
                   </div>
@@ -6028,7 +6025,7 @@ export function UsdtExchangePage({
         {[
           { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
           { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
-          { value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
+          { value: `${Math.trunc(marketplacePulse.totalUsdtAvailable).toLocaleString("en-US")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
           { value: isAr ? `${marketplacePulse.averageResponseMinutes} دقائق` : `${marketplacePulse.averageResponseMinutes} min`, labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
         ].map((item) => {
           const Icon = item.icon;

@@ -853,6 +853,10 @@ export function updateMobileTrade(
   });
 }
 
+export function updateMobileTradeTerms(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string, body: { action: string; value: string; proposalId?: string; expectedUpdatedAt: string; safetyAcknowledged: boolean }) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body });
+}
+
 export function recalculateMobileCardlessAmount(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string) {
   return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body: { action: "recalculate_cardless_amount" } });
 }
