@@ -91,7 +91,7 @@ function room(
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   mocks.requireMobileApiUser.mockResolvedValue({
     user: { id: "buyer-1", role: "buyer" },
     accessToken: "access",
@@ -165,15 +165,11 @@ describe("mobile verified trade reviews", () => {
   it("submits a buyer review with server-owned identity and excludes private review identifiers", async () => {
     mocks.getTradeRoomData
       .mockResolvedValueOnce(room({ status: "review_open" }, { canOpenDispute: false }))
-      .mockResolvedValueOnce(room({
-        status: "review_open",
-        buyerReview: {
-          reviewerUserId: "buyer-1",
-          rating: 5,
-          comment: "Clear and fast",
-          createdAt: "2026-09-06T13:00:00.000Z",
-        },
-      }, { canOpenDispute: false }));
+      .mockRejectedValueOnce(new Error("A redundant read after save must not block review success"));
+    mocks.submitBuyerTradeReview.mockResolvedValueOnce({ review: {
+      buyerId: "buyer-1", rating: 5, comment: "Clear and fast",
+      createdAt: "2026-09-06T13:00:00.000Z", updatedAt: "2026-09-06T13:00:00.000Z",
+    } });
 
     const response = await submitReview(request("review", {
       rating: 5,
@@ -197,6 +193,7 @@ describe("mobile verified trade reviews", () => {
       comment: "Clear and fast",
       createdAt: "2026-09-06T13:00:00.000Z",
     });
+    expect(mocks.getTradeRoomData).toHaveBeenCalledOnce();
     expect(serialized).not.toContain("reviewerUserId");
     expect(serialized).not.toContain("private-seller-id");
   });
@@ -215,15 +212,10 @@ describe("mobile verified trade reviews", () => {
     };
     mocks.getTradeRoomData
       .mockResolvedValueOnce(room({ status: "review_open", buyerReview }, { canOpenDispute: false }))
-      .mockResolvedValueOnce(room({
-        status: "review_open",
-        buyerReview,
-        sellerResponse: {
-          responderUserId: "private-seller-id",
-          message: "Thank you",
-          createdAt: "2026-09-06T14:00:00.000Z",
-        },
-      }, { canOpenDispute: false }));
+      .mockRejectedValueOnce(new Error("A redundant read after save must not block response success"));
+    mocks.submitSellerReviewResponse.mockResolvedValueOnce({
+      sellerReply: "Thank you", updatedAt: "2026-09-06T14:00:00.000Z",
+    });
 
     const response = await submitReview(request("review", {
       message: "Thank you",
@@ -244,6 +236,7 @@ describe("mobile verified trade reviews", () => {
       message: "Thank you",
       createdAt: "2026-09-06T14:00:00.000Z",
     });
+    expect(mocks.getTradeRoomData).toHaveBeenCalledOnce();
     expect(JSON.stringify(payload)).not.toContain("responderUserId");
   });
 

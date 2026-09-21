@@ -606,7 +606,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       );
       setReviewComment("");
       setNotice(t("reviewSubmitted"));
-      await Promise.all([
+      void Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);
@@ -640,7 +640,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       );
       setReviewResponse("");
       setNotice(t("responseSubmitted"));
-      await Promise.all([
+      void Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);

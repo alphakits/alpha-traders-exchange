@@ -348,6 +348,51 @@ describe("guided cash-trade completion", () => {
     await expect(nextPurchase()).resolves.toMatchObject({ request: { status: "pending" } });
   });
 
+  it.each(["buyer", "approved_seller"] as const)("lets a %s buy from ten sellers consecutively immediately after each saved review", async (buyerRole) => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
+    const seed = currentSnapshot();
+    const template = seed.marketplaceListings[0];
+    seed.purchaseRequests = [];
+    seed.marketplaceListings = [];
+    const buyer = seed.users.find((item) => item.id === BUYER_ID)!;
+    buyer.role = buyerRole;
+    buyer.roles = [buyerRole];
+    for (let i = 0; i < 11; i += 1) {
+      const sellerId = `repeat-seller-${i}`;
+      seed.users.push(createUser(sellerId, "approved_seller"));
+      seed.marketplaceListings.push({ ...template, id: `repeat-listing-${i}`, sellerId, status: "active" });
+    }
+    const purchase = (i: number) => createPurchaseRequest({
+      buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId: `repeat-listing-${i}`,
+      buyerName: "Repeat Buyer", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      usdtAmount: "100", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim",
+    });
+    for (let i = 0; i < 10; i += 1) {
+      const { request: trade } = await purchase(i);
+      const seller = { requestId: trade.id, actorUserId: `repeat-seller-${i}`, actorRole: "approved_seller" as const };
+      await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+      await updatePurchaseRequestStatus({
+        requestId: trade.id, actorUserId: BUYER_ID, actorRole: buyerRole, nextStatus: "payment_sent",
+        cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995",
+        clientOperationId: (i + 1).toString(16).padStart(32, "0"),
+      });
+      await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+      await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+      const completed = await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "face_to_face" });
+      expect(completed.request.status).toBe("review_open");
+      await expect(purchase(i + 1)).rejects.toMatchObject({ code: "PENDING_BUYER_FEEDBACK" });
+      await Promise.all([
+        completed.deferredTrustWrite?.(),
+        submitBuyerTradeReview({ requestId: trade.id, buyerUserId: BUYER_ID, rating: 5, comment: `Completed trade ${i + 1}` }),
+      ]);
+    }
+    // No refresh, delay, logout or owner intervention before the next purchase.
+    await expect(purchase(10)).resolves.toMatchObject({ request: { status: "pending" } });
+    const saved = currentSnapshot();
+    expect(saved.purchaseRequests.filter((item) => item.buyerId === BUYER_ID && item.buyerReview)).toHaveLength(10);
+    expect(saved.commissionRecords).toHaveLength(10);
+  });
+
   it.each([FACE_TO_FACE, "Cardless ATM Withdrawal"])(
     "advances %s through buyer and seller confirmations without evidence",
     async (paymentMethod) => {

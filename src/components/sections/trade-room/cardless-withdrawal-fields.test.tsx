@@ -32,9 +32,11 @@ describe("cardless withdrawal form", () => {
     fireEvent.change(screen.getByLabelText("2. ID number"), { target: { value: "012345678" } });
     fireEvent.change(screen.getByLabelText("Detail requested by the bank"), { target: { value: "date_of_birth" } });
     const birthDate = screen.getByLabelText("2. Date of birth") as HTMLInputElement;
-    expect(birthDate.type).toBe("date");
+    expect(birthDate.type).toBe("text");
     expect(birthDate.value).toBe("");
     expect(birthDate.required).toBe(true);
+    fireEvent.change(birthDate, { target: { value: "٢٥/٠٨/١٩٩٥" } });
+    expect(birthDate.value).toBe("25/08/1995");
   });
 
   it("locks all fields while a submission is pending", () => {

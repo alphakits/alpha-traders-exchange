@@ -26,6 +26,7 @@ import {
 } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 
 const BUYER_ID = "buyer-content-policy";
 const SELLER_ID = "seller-content-policy";
@@ -156,6 +157,23 @@ describe("Trade content policy", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     reloadStoreFromSnapshot();
+  });
+
+  it("saves buyer and seller feedback without full-snapshot reads or unrelated maintenance", async () => {
+    const completed = snapshot().purchaseRequests[0];
+    completed.status = "review_open";
+    completed.completedAt = new Date().toISOString();
+    const repository = await getAlphaExchangeRepository();
+    const readSelected = vi.spyOn(repository, "loadSelectedSnapshot").mockImplementation(async () => structuredClone(snapshot()) as never);
+    const readFull = vi.spyOn(repository, "loadSnapshot").mockRejectedValue(new Error("Unrelated full snapshot timed out"));
+    try {
+      const result = await submitBuyerTradeReview({ requestId: REQUEST_ID, buyerUserId: BUYER_ID, rating: 5, comment: "Done" });
+      expect(result.review.comment).toBe("Done");
+      await expect(submitSellerReviewResponse({ requestId: REQUEST_ID, sellerUserId: SELLER_ID, message: "Thank you" })).resolves.toMatchObject({ sellerReply: "Thank you" });
+      expect(readFull).not.toHaveBeenCalled();
+      expect(readSelected).toHaveBeenCalledTimes(2);
+      expect(snapshot().purchaseRequests[0].buyerReview?.comment).toBe("Done");
+    } finally { readSelected.mockRestore(); readFull.mockRestore(); }
   });
 
   it("rejects direct contact content at close, dispute, report, review, and reply write boundaries", async () => {

@@ -3175,6 +3175,8 @@ export class AlphaExchangeRepository {
        * mutate different records concurrently.
        */
       rebaseOnLatest?: (persistedSnapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
+      /** Complete read dependencies for a scoped rebase, including all written tables. */
+      rebaseTables?: readonly SnapshotTableName[];
     },
   ) {
     if (options?.traceTag && allowsRuntimeDiagnostics()) {
@@ -3261,12 +3263,18 @@ export class AlphaExchangeRepository {
       ? Array.from(new Set(options.selectedTables))
       : [...SNAPSHOT_TABLE_NAMES];
     const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
+    if (options?.rebaseTables && !options.rebaseOnLatest) {
+      throw new Error("Scoped snapshot rebasing requires a canonical mutation.");
+    }
     // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
     // PostgreSQL's ON DELETE CASCADE on sessions.user_id can evict auth sessions if a user is deleted.
     if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
       selectedTables.push("sessions");
       selectedTableSet.add("sessions");
     }
+    const rebaseTables = options?.rebaseTables
+      ? Array.from(new Set([...options.rebaseTables, ...selectedTables]))
+      : SNAPSHOT_TABLE_NAMES;
 
     let client: PoolClient | null = null;
     try {
@@ -3283,8 +3291,11 @@ export class AlphaExchangeRepository {
             await queryWithLogging(client, "select pg_advisory_xact_lock(61422917)");
             logProfile("advisory_lock");
             perf?.step("advisory_lock");
-          } catch {
-            // pg-mem does not implement advisory locks; local tests stay single-process.
+          } catch (error) {
+            // A real timeout means the lock was NOT acquired. Only the local
+            // pg-mem unsupported-function error may skip this lock.
+            if (isProductionSecurityRuntime() || !(error instanceof Error)
+              || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
           }
 
           const loadedVersion = getVersion(db);
@@ -3319,11 +3330,11 @@ export class AlphaExchangeRepository {
             });
             const aggregateResult = await queryWithLogging(
               client,
-              buildAggregatedSnapshotSql(SNAPSHOT_TABLE_NAMES),
+              buildAggregatedSnapshotSql(rebaseTables),
             ) as { rows: AggregatedSnapshotRow[] };
             perf?.step("stale_aggregate_read");
             const latestSnapshot = attachVersion(
-              snapshotFromAggregatedRow(aggregateResult.rows[0], SNAPSHOT_TABLE_NAMES),
+              snapshotFromAggregatedRow(aggregateResult.rows[0], rebaseTables),
               currentVersion,
             );
             options?.validateLatestBeforeCommit?.(cloneSnapshot(latestSnapshot));
@@ -3374,10 +3385,10 @@ export class AlphaExchangeRepository {
               writtenVersion: nextVersion,
               purchaseRequests: persistedSnapshot.purchaseRequests.length,
             });
+            await client.query("commit");
             Object.assign(db, cloneSnapshot(persistedSnapshot));
             attachVersion(db, nextVersion);
-            syncMemoryFallbackSnapshot(persistedSnapshot, nextVersion);
-            await client.query("commit");
+            if (!options?.rebaseTables) syncMemoryFallbackSnapshot(persistedSnapshot, nextVersion);
             logProfile("commit_merge");
             perf?.step("commit_merge");
             perf?.done();
@@ -3431,9 +3442,9 @@ export class AlphaExchangeRepository {
             purchaseRequests: persistedSnapshot.purchaseRequests.length,
           });
 
-          attachVersion(db, writtenVersion);
-          syncMemoryFallbackSnapshot(persistedSnapshot, writtenVersion);
           await client.query("commit");
+          attachVersion(db, writtenVersion);
+          if (!options?.rebaseTables) syncMemoryFallbackSnapshot(persistedSnapshot, writtenVersion);
           logProfile("commit");
           perf?.step("commit");
           perf?.done();
@@ -3443,8 +3454,16 @@ export class AlphaExchangeRepository {
             event: "alpha_exchange_repository_save",
             outcome: "failed",
             reason: "transaction_failed",
-            metadata: { errorName: error instanceof Error ? error.name : typeof error },
+            metadata: { ...databaseErrorMetadata(error), tables: selectedTables.join(",") },
           });
+          // A client-side timeout can leave the query running and its global
+          // transaction lock held. Do not queue another command on that socket
+          // or return it to the pool for the next user's request.
+          if (error instanceof Error && /query read timeout/i.test(error.message)) {
+            client.release(true);
+            client = null;
+            throw error;
+          }
           try {
             await client.query("rollback");
           } catch (rollbackError) {
@@ -3455,6 +3474,8 @@ export class AlphaExchangeRepository {
               metadata: { errorName: rollbackError instanceof Error ? rollbackError.name : typeof rollbackError },
             });
             // The transaction may already be aborted; dispose this client so the next request gets a fresh connection.
+            client.release(true);
+            client = null;
           }
           if ((isAbortedTransactionError(error) || (error instanceof Error && /statement timeout|canceling statement|advisory lock/i.test(error.message))) && attempt === 0) {
             if (client) {

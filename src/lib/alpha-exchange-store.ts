@@ -3901,6 +3901,9 @@ const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "activity_logs", 
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const TRADE_REVIEW_READ_TABLES = [
+  ...TRADE_REVIEW_TABLES, "users", "seller_applications", "listings", "commissions", "trust_snapshots",
+] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_PAYMENT_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies readonly SnapshotTableName[];
 const TRADE_BANK_DETAILS_AUDIT_TABLES = ["purchase_requests", "audit_logs"] as const satisfies readonly SnapshotTableName[];
@@ -4000,6 +4003,7 @@ async function writeDb(
     validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     validateLatestBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     rebaseOnLatest?: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
+    rebaseTables?: readonly SnapshotTableName[];
     cacheResult?: boolean;
   },
 ) {
@@ -4017,6 +4021,7 @@ async function writeDb(
       evidenceOverrides: options?.evidenceOverrides,
       traceTag: options?.traceTag,
       selectedTables: options?.selectedTables,
+      rebaseTables: options?.rebaseTables,
       validateBeforeCommit: options?.validateBeforeCommit,
       validateLatestBeforeCommit: options?.validateLatestBeforeCommit,
       rebaseOnLatest: options?.rebaseOnLatest
@@ -12469,12 +12474,14 @@ export async function submitBuyerTradeReview(input: {
   rating: number;
   comment: string;
 }) {
-  const db = await readDb();
   const rating = Math.max(1, Math.min(5, Math.round(input.rating)));
   const comment = String(input.comment ?? "").trim();
   if (!comment) throw new Error("Review comment is required.");
   if (comment.length > 500) throw new Error("Review comment is too long.");
   assertNoExchangeDirectContact(comment);
+  // Reviews must not load every exchange table or run marketplace maintenance
+  // while the buyer is blocked from starting their next trade.
+  const { db } = await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES);
   type CommittedBuyerReview = {
     review: SellerReviewRecord;
     sellerProgress: {
@@ -12488,6 +12495,7 @@ export async function submitBuyerTradeReview(input: {
     sellerId: string;
     reviewCount: number;
     created: boolean;
+    publication?: DeferredNotificationPublication | null;
   };
   let committed: CommittedBuyerReview | null = null;
 
@@ -12545,7 +12553,7 @@ export async function submitBuyerTradeReview(input: {
       listingId: request.listingId,
       details: `Buyer review submitted for trade ${request.tradeId ?? request.id}`,
     });
-    pushNotification(snapshot, {
+    const publication = pushNotification(snapshot, {
       userId: request.sellerId,
       category: "review",
       title: "Buyer left a review",
@@ -12553,6 +12561,7 @@ export async function submitBuyerTradeReview(input: {
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: "/usdt-exchange",
+      deferRealtime: true,
     });
     pushActivityLog(snapshot, {
       userId: input.buyerUserId,
@@ -12574,6 +12583,7 @@ export async function submitBuyerTradeReview(input: {
       sellerId: request.sellerId,
       reviewCount: snapshot.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
       created: true,
+      publication,
     };
     return snapshot;
   };
@@ -12585,11 +12595,14 @@ export async function submitBuyerTradeReview(input: {
     await writeDb(db, {
       selectedTables: TRADE_REVIEW_TABLES,
       rebaseOnLatest: applyReviewToCanonicalSnapshot,
+      rebaseTables: TRADE_REVIEW_READ_TABLES,
+      cacheResult: false,
     });
     result = committed as CommittedBuyerReview | null;
     if (!result) throw new Error("Failed to save buyer review.");
   }
   if (result.created) {
+    if (result.publication) publishNotificationPublication(result.publication);
     publishRealtimeEvent({
       type: "review.count_changed",
       payload: { sellerId: result.sellerId, reviewCount: result.reviewCount },
@@ -12604,12 +12617,13 @@ export async function submitSellerReviewResponse(input: {
   sellerUserId: string;
   message: string;
 }) {
-  const db = await readDb();
   const message = String(input.message ?? "").trim();
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
   assertNoExchangeDirectContact(message);
-  let committed: { review: SellerReviewRecord; created: boolean } | null = null;
+  const { db } = await readDbForCriticalTradeMutation(TRADE_REVIEW_READ_TABLES);
+  type CommittedSellerResponse = { review: SellerReviewRecord; created: boolean; publication?: DeferredNotificationPublication | null };
+  let committed: CommittedSellerResponse | null = null;
   const applyResponseToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
     const requestIndex = input.reviewId
       ? snapshot.purchaseRequests.findIndex((item) => `review-${item.id}` === input.reviewId || (item.tradeId ? `review-${item.tradeId}` === input.reviewId : false))
@@ -12646,7 +12660,7 @@ export async function submitSellerReviewResponse(input: {
       listingId: request.listingId,
       details: `Seller response submitted for trade ${request.tradeId ?? request.id}`,
     });
-    pushNotification(snapshot, {
+    const publication = pushNotification(snapshot, {
       userId: request.buyerId,
       category: "trade",
       title: "Seller replied to your review",
@@ -12654,6 +12668,7 @@ export async function submitSellerReviewResponse(input: {
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: "/usdt-exchange",
+      deferRealtime: true,
     });
     pushActivityLog(snapshot, {
       userId: input.sellerUserId,
@@ -12661,21 +12676,24 @@ export async function submitSellerReviewResponse(input: {
       title: "Review response sent",
       details: `Response sent for trade ${request.tradeId ?? request.id}.`,
     });
-    committed = { review: updatedReview, created: true };
+    committed = { review: updatedReview, created: true, publication };
     return snapshot;
   };
 
   await applyResponseToCanonicalSnapshot(db);
-  let result = committed as { review: SellerReviewRecord; created: boolean } | null;
+  let result = committed as CommittedSellerResponse | null;
   if (!result) throw new Error("Failed to prepare seller response.");
   if (result.created) {
     await writeDb(db, {
       selectedTables: TRADE_REVIEW_TABLES,
       rebaseOnLatest: applyResponseToCanonicalSnapshot,
+      rebaseTables: TRADE_REVIEW_READ_TABLES,
+      cacheResult: false,
     });
-    result = committed as { review: SellerReviewRecord; created: boolean } | null;
+    result = committed as CommittedSellerResponse | null;
     if (!result) throw new Error("Failed to save seller response.");
   }
+  if (result.publication) publishNotificationPublication(result.publication);
   return result.review;
 }
 
