@@ -1,6 +1,6 @@
 "use client";
 
-import { parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
@@ -3146,7 +3146,7 @@ export function UsdtExchangePage({
       return;
     }
     if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
-      !parseIsraeliBankSelection(selectedListing.bankName).includes(buyerInfo.cardlessBankName)
+      !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
       || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
       || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, (requestedAmount * (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price))).toFixed(2))
     )) {
