@@ -27,7 +27,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
 import { CardlessWithdrawalFields } from "./cardless-withdrawal-fields";
-import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, calculateCardlessUsdtAmount, parseCardlessCashAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 
 type Locale = "ar" | "en";
 
@@ -1490,6 +1490,7 @@ function TradeRoomPageSession({
         }
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.", isAr));
       }
+      setErrorMessage(null);
       const apiLatencyMs = Math.round(performance.now() - startedAt);
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
       const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
@@ -1979,20 +1980,23 @@ function TradeRoomPageSession({
   }, [isAr, sellerWalletAddress]);
 
   const [adjustingAmount, setAdjustingAmount] = useState(false);
+  const [adjustmentIlsAmount, setAdjustmentIlsAmount] = useState("");
+  useEffect(() => { setAdjustmentIlsAmount(""); }, [requestId, request?.fiatAmount]);
   const recalculateCashAmount = useCallback(async () => {
     if (adjustingAmount || actionInFlightRef.current || !roomRef.current) return;
     setAdjustingAmount(true);
+    setActionError(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recalculate_cardless_amount" }), signal: AbortSignal.timeout(15_000) });
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recalculate_cardless_amount", ilsAmount: adjustmentIlsAmount || undefined }), signal: AbortSignal.timeout(15_000) });
       const payload = await response.json() as { request?: PurchaseRequest; error?: string };
       if (!response.ok || !payload.request) throw new Error(isAr ? "تعذر تعديل المبلغ. تحقق من مبلغ السحب وحدود العرض ثم حدّث الصفقة." : payload.error ?? "Could not adjust the trade amount.");
       const nextRoom = applyRequestToRoom(roomRef.current!, payload.request);
       roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom);
-      setStatusMessage(isAr ? "تمت مطابقة كمية USDT مع مبلغ السحب والسعر المتفق عليه." : "USDT now matches the withdrawal amount at the agreed price.");
+      setStatusMessage(isAr ? `تم تأكيد المبلغ: ${payload.request.usdtAmount} USDT مقابل ₪${payload.request.fiatAmount}.` : `Amount confirmed: ${payload.request.usdtAmount} USDT for ILS ${payload.request.fiatAmount}.`);
     } catch (error) {
       setActionError(localizedCaughtError(error, isAr ? "تعذر تأكيد تعديل المبلغ. حدّث الصفقة." : "Could not confirm the adjustment. Refresh the trade.", isAr));
     } finally { setAdjustingAmount(false); }
-  }, [adjustingAmount, actor.id, isAr, requestId]);
+  }, [adjustingAmount, adjustmentIlsAmount, actor.id, isAr, requestId]);
 
   useEffect(() => {
     const revealConfirmation = () => {
@@ -3444,6 +3448,12 @@ function TradeRoomPageSession({
                 {isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
                   <div className="rounded-xl border border-white/15 p-3 text-sm">
                     <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${request.pricePerUsdt} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${request.pricePerUsdt} per USDT`}</p>
+                    <label className="mt-3 block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
+                    <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount || (parseCardlessCashAmount(request.fiatAmount) ? String(Number(request.fiatAmount)) : "")} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
+                      <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
+                      {Array.from({ length: 100 }, (_, i) => (i + 1) * 100).map((cash) => <option key={cash} value={cash}>₪{cash}</option>)}
+                    </select>
+                    <p className="mt-2 font-semibold text-[#FDE68A]">{calculateCardlessUsdtAmount(adjustmentIlsAmount || request.fiatAmount, request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "") ?? "—"} USDT</p>
                     <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
                   </div>
                 ) : null}

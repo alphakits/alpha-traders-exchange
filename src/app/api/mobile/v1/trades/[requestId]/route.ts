@@ -109,7 +109,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (action === "recalculate_cardless_amount") {
       const rate = checkRateLimit({ headers: request.headers, key: "mobile:trade:adjust", identifier: auth.user.id, maxRequests: 20, windowMs: 60_000 });
       if (!rate.allowed) return mobileError("RATE_LIMITED", requestId, locale, 429);
-      const updated = await recalculateCardlessTradeAmount({ requestId: params.requestId, actorUserId: auth.user.id });
+      const updated = await recalculateCardlessTradeAmount({ requestId: params.requestId, actorUserId: auth.user.id, ilsAmount: typeof body?.ilsAmount === "string" ? body.ilsAmount : undefined });
       return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
     }
     if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {

@@ -75,7 +75,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
     if (action === "recalculate_cardless_amount") {
-      const updated = await recalculateCardlessTradeAmount({ requestId, actorUserId: user.id });
+      const updated = await recalculateCardlessTradeAmount({ requestId, actorUserId: user.id, ilsAmount: rawBody.ilsAmount == null ? undefined : String(rawBody.ilsAmount) });
       return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role), destination: tradeDestination(updated, user.id) }, { headers: PRIVATE_NO_STORE_HEADERS });
     }
     if (action && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {

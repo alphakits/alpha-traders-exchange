@@ -390,10 +390,49 @@ describe("seller commission Pay Now", () => {
       expect(element).not.toBeNull();
       expect(element?.textContent).toContain("7.000001 USDT");
     });
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/alpha-exchange/my-listings?commissionId=commission-trade-93",
-      expect.objectContaining({ cache: "no-store" }),
-    );
+    expect(document.getElementById("commission-payment")?.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
+  });
+
+  it("opens the exact address while unrelated workspace requests never finish", async () => {
+    navigationState.search = "commission=pay&commissionId=commission-trade-93";
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let finishPayment!: () => void;
+    const gate = new Promise<void>((resolve) => { finishPayment = resolve; });
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("discord-sharing") || (url.includes("my-listings") && !url.includes("commissionId="))) return new Promise<Response>(() => {});
+      if (url.includes("my-listings?commissionId=")) await gate;
+      return original(input, init);
+    });
+    const view = render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/alpha-exchange/my-listings?commissionId=commission-trade-93", expect.anything()));
+    view.rerender(<UsdtExchangePage locale="en" initialSessionUser={{ ...seller }} />);
+    await act(async () => { finishPayment(); });
+    await waitFor(() => {
+      const panel = document.getElementById("commission-payment");
+      expect(panel?.textContent).toContain("7.000001 USDT");
+      expect(panel?.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
+    });
+  });
+
+  it("keeps the requested commission when a slower general workspace response arrives", async () => {
+    navigationState.search = "commission=pay&commissionId=commission-trade-94";
+    commissionRecordsOverride = [
+      { commissionId: "commission-trade-93", amountDue: 7, paymentAmountDue: 7.000001, dueAt: "2026-09-11T00:00:00Z" },
+      { commissionId: "commission-trade-94", amountDue: 9, paymentAmountDue: 9.000002, dueAt: "2026-09-12T00:00:00Z" },
+    ];
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let finishGeneral!: () => void;
+    const gate = new Promise<void>((resolve) => { finishGeneral = resolve; });
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).includes("my-listings") && !String(input).includes("commissionId=")) await gate;
+      return original(input, init);
+    });
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("9.000002 USDT"));
+    await act(async () => { finishGeneral(); });
+    await waitFor(() => expect(document.getElementById("commission-status")).not.toBeNull());
+    expect(document.getElementById("commission-payment")?.textContent).toContain("9.000002 USDT");
   });
 
   it("restores a pending verification banner and still accepts a replacement TxID", async () => {
