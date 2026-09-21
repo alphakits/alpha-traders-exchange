@@ -1,5 +1,7 @@
 "use client";
 
+import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, PauseCircle, PlayCircle, Store, Trash2 } from "lucide-react";
@@ -80,6 +82,7 @@ export type SellerListingsWorkspacePortalProps = {
   sellerExpandedListingId: string | null;
   sellerListingsExpanded: boolean;
   sellerRequests: PurchaseRequest[];
+  sellerWorkspaceMessage: string | null;
   setEditingListingId: Dispatch<SetStateAction<string | null>>;
   setListingEditForm: Dispatch<SetStateAction<ListingEditForm>>;
   setListingEditOriginal: Dispatch<SetStateAction<ListingEditOriginal | null>>;
@@ -142,6 +145,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     sellerExpandedListingId,
     sellerListingsExpanded,
     sellerRequests,
+    sellerWorkspaceMessage,
     setEditingListingId,
     setListingEditForm,
     setListingEditOriginal,
@@ -171,6 +175,9 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
             className="scroll-mt-24 border-white/10 bg-[#0B0B0B]/90"
           >
             <CardHeader>
+              {sellerWorkspaceMessage ? (
+                <p role="status" aria-live="polite" className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white">{sellerWorkspaceMessage}</p>
+              ) : null}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
@@ -322,7 +329,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                             bankAccountId: listing.bankAccountId ?? (sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id ?? ""),
                             bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                            maximumTrade: listingMaximumForAvailableAmount(listing),
                             sellerDescription: listing.sellerDescription ?? "",
                             changeReason: "",
                             changeExplanation: "",
@@ -331,7 +338,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                             availableAmount: listing.availableAmount,
                             price: listing.price,
                             minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                            maximumTrade: listingMaximumForAvailableAmount(listing),
                           });
                         }}
                       >

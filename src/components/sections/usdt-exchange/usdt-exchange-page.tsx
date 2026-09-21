@@ -1517,6 +1517,8 @@ export function UsdtExchangePage({
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
   const [listingActionKey, setListingActionKey] = useState<string | null>(null);
+  const listingMutationInFlightRef = useRef(false);
+  const sellerWorkspaceRevisionRef = useRef(0);
   const listingCreateRequestInFlightRef = useRef(false);
   const [listingCreateResult, setListingCreateResult] = useState<ListingCreateResult | null>(null);
   const [listingEditForm, setListingEditForm] = useState({
@@ -1541,6 +1543,7 @@ export function UsdtExchangePage({
   } | null>(null);
   const [removalListing, setRemovalListing] = useState<MarketplaceListing | null>(null);
   const [removalReason, setRemovalReason] = useState("");
+  const [removalError, setRemovalError] = useState<string | null>(null);
   const [removalExplanation, setRemovalExplanation] = useState("");
   const [listingCommissionAgreement, setListingCommissionAgreement] = useState(false);
   const [faceToFaceSafetyAcknowledged, setFaceToFaceSafetyAcknowledged] = useState(false);
@@ -1886,6 +1889,7 @@ export function UsdtExchangePage({
   }, [isAr, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
+    const revisionAtStart = sellerWorkspaceRevisionRef.current;
     try {
       const commissionQuery = options?.commissionId?.trim()
         ? `?commissionId=${encodeURIComponent(options.commissionId.trim())}`
@@ -1917,7 +1921,10 @@ export function UsdtExchangePage({
           qaCommissionModeEnabled?: boolean;
           qaCommissionResetEnabled?: boolean;
         };
-        setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
+        // A read started before a successful mutation cannot restore old data.
+        if (revisionAtStart === sellerWorkspaceRevisionRef.current) {
+          setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
+        }
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
         setSellerCommissionStatus((current) => {
           const incoming = myListingsJson.commissionStatus ?? null;
@@ -1993,6 +2000,7 @@ export function UsdtExchangePage({
 
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
+    sellerWorkspaceRevisionRef.current += 1;
     const shouldRemove = options?.remove === true || listing.status === "closed" || listing.status === "cancelled";
     const isPubliclyVisible = listing.status === "active" && listing.approvalStatus !== "pending" && listing.approvalStatus !== "rejected";
     setMyListings((prev) => {
@@ -2713,6 +2721,11 @@ export function UsdtExchangePage({
     if (typeof window === "undefined") return;
     const anchor = window.location.hash.replace("#", "").trim();
     if (!anchor.startsWith("seller-listing-")) return;
+    const selected = myListings.find((listing) => `seller-listing-${encodeURIComponent(listing.id)}` === anchor);
+    if (selected) {
+      setSellerListingsExpanded(true);
+      setSellerExpandedListingId(selected.id);
+    }
     let frame = 0;
     let attempts = 0;
     const reveal = () => {
@@ -3061,6 +3074,9 @@ export function UsdtExchangePage({
 
   const handleManageOwnedListing = useCallback((listing: MarketplaceListing) => {
     if (!requireAuth()) return;
+    setSellerListingsExpanded(true);
+    setSellerExpandedListingId(listing.id);
+    setSellerWorkspaceMessage(null);
     if (scrollToMyListingsSection()) {
       return;
     }
@@ -3072,7 +3088,7 @@ export function UsdtExchangePage({
       });
       return;
     }
-    router.push("/dashboard/seller#my-listings-section");
+    router.push(`/dashboard/seller#seller-listing-${encodeURIComponent(listing.id)}`);
     setStatusMessage(isAr ? `أدر عرضك من لوحة البائع (${shortListingRef(listing)}).` : `Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
   }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection]);
 
@@ -4309,18 +4325,15 @@ export function UsdtExchangePage({
   }, [isTradeIntentNotification]);
 
   const isListingActionBusy = useCallback(
-    (listingId: string) => Boolean(listingActionKey && listingActionKey.startsWith(`${listingId}:`)),
+    () => Boolean(listingActionKey),
     [listingActionKey],
   );
 
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
     const actionLabel = nextStatus === "paused" ? "pause" : "resume";
-    const confirmed = window.confirm(
-      nextStatus === "paused"
-        ? (isAr ? "هل تريد إيقاف هذا الإعلان مؤقتاً؟ لن يراه المشترون حتى تستأنفه." : "Pause this listing? Buyers will not see it until you resume.")
-        : (isAr ? "هل تريد استئناف هذا الإعلان وإظهاره للمشترين؟" : "Resume this listing and make it visible to buyers?"),
-    );
-    if (!confirmed) return;
+    if (listingMutationInFlightRef.current) return;
+    listingMutationInFlightRef.current = true;
+    setSellerWorkspaceMessage(null);
     setListingActionKey(`${listing.id}:${actionLabel}`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
@@ -4338,13 +4351,16 @@ export function UsdtExchangePage({
         return;
       }
 
+      const payload = await response.json() as { listing?: MarketplaceListing };
+      syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage(nextStatus === "paused"
         ? (isAr ? "⏸ تم إيقاف العرض مؤقتًا. لن يظهر للمشترين حتى تستأنفه." : "⏸ Listing paused. It is no longer visible to buyers until you resume it.")
         : (isAr ? "▶ تم استئناف العرض وهو ظاهر الآن في السوق." : "▶ Listing resumed. Your listing is now live in the marketplace."));
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
     } finally {
+      listingMutationInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
@@ -4385,19 +4401,28 @@ export function UsdtExchangePage({
   }
 
   async function handleSellerListingDelete(listing: MarketplaceListing) {
+    if (listingMutationInFlightRef.current) return;
+    setRemovalError(null);
+    setSellerWorkspaceMessage(null);
     setRemovalListing(listing);
     setRemovalReason("");
     setRemovalExplanation("");
   }
 
   async function confirmSellerListingRemoval() {
-    if (!removalListing) return;
+    if (!removalListing || listingMutationInFlightRef.current) return;
+    const reportRemovalError = (message: string) => {
+      setRemovalError(message);
+      setSellerWorkspaceMessage(message);
+    };
     const reasonResult = validateListingChangeReason({ reason: removalReason, explanation: removalExplanation });
     if (!reasonResult.ok) {
-      setSellerWorkspaceMessage(reasonResult.error);
+      reportRemovalError(reasonResult.error);
       return;
     }
     const listing = removalListing;
+    listingMutationInFlightRef.current = true;
+    setRemovalError(null);
     setListingActionKey(`${listing.id}:delete`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
@@ -4408,10 +4433,10 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
+          reportRemovalError(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
-        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
+        reportRemovalError(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
         return;
       }
       syncListingState(listing, { remove: true });
@@ -4419,8 +4444,9 @@ export function UsdtExchangePage({
       setRemovalListing(null);
       backgroundRefreshSellerWorkspace();
     } catch {
-      setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
+      reportRemovalError(safeErrorMessage("listing", isAr));
     } finally {
+      listingMutationInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
@@ -4571,7 +4597,7 @@ export function UsdtExchangePage({
 
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingListingId) return;
+    if (!editingListingId || listingMutationInFlightRef.current) return;
     const requiresReason = listingEditOriginal
       ? listingEditRequiresReason(listingEditOriginal, {
           availableAmount: listingEditForm.availableAmount,
@@ -4587,6 +4613,8 @@ export function UsdtExchangePage({
         return;
       }
     }
+    listingMutationInFlightRef.current = true;
+    setSellerWorkspaceMessage(null);
     setListingActionKey(`${editingListingId}:save`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
@@ -4626,6 +4654,7 @@ export function UsdtExchangePage({
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
     } finally {
+      listingMutationInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
@@ -5628,6 +5657,7 @@ export function UsdtExchangePage({
               sellerExpandedListingId,
               sellerListingsExpanded,
               sellerRequests,
+              sellerWorkspaceMessage,
               setEditingListingId,
               setListingEditForm,
               setListingEditOriginal,
@@ -6111,6 +6141,7 @@ export function UsdtExchangePage({
                 </button>
               </div>
               <div className="mt-4 space-y-3">
+                {removalError ? <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{removalError}</p> : null}
                 <div>
                   <label htmlFor="removal-reason" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">{isAr ? "السبب" : "Reason"} <span className="text-red-300">*</span></label>
                   <select

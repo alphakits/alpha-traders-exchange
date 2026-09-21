@@ -1359,8 +1359,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
           </Card>
 
           {sellerWorkspaceMessage ? (
-            <div id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
-              <span>{isAr && !containsArabicText(sellerWorkspaceMessage) ? "تم تحديث مساحة عمل البائع بنجاح." : sellerWorkspaceMessage}</span>
+            <div id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-white/20 bg-white/5 p-4 text-sm text-white animate-in fade-in-0 slide-in-from-top-1 duration-300">
+              <span>{sellerWorkspaceMessage}</span>
               <button
                 type="button"
                 aria-label={isAr ? "إغلاق" : "Dismiss"}

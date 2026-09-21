@@ -23,6 +23,7 @@ import {
   setUserBlockStatus,
   updateUserSellerSettings,
   updateMarketplaceListingForSeller,
+  updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 
@@ -146,6 +147,55 @@ describe("listing accountability: reason + audit + reliability", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("keeps pause, resume, edit and removal usable on legacy partially sold listings", async () => {
+    const listing = await createApprovedListing("7000", "3.30");
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const stored = snapshot.marketplaceListings.find((entry) => entry.id === listing.id)!;
+    stored.availableAmount = "2011.285267";
+    stored.maximumTrade = "7,000";
+    invalidateAlphaExchangeStoreCache();
+    const actor = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+
+    expect((await updateMarketplaceListingForSeller({ ...actor, status: "paused" })).status).toBe("paused");
+    expect((await getMarketplaceListings("active")).some((entry) => entry.id === listing.id)).toBe(false);
+    const resumed = await updateMarketplaceListingForSeller({ ...actor, status: "active" });
+    expect(resumed).toMatchObject({ status: "active", availableAmount: "2011.285267", maximumTrade: "2011.285267" });
+    const edited = await updateMarketplaceListingForSeller({ ...actor, sellerDescription: "Available in the evening" });
+    expect(edited.sellerDescription).toBe("Available in the evening");
+    await deleteMarketplaceListingForSeller({ ...actor, changeReason: "Personal reason", changeExplanation: "No longer available this week" });
+    await deleteMarketplaceListingForSeller({ ...actor, changeReason: "Personal reason", changeExplanation: "No longer available this week" });
+    expect((await getMarketplaceListings("active")).some((entry) => entry.id === listing.id)).toBe(false);
+    expect(auditLogs().filter((entry) => entry.listingId === listing.id && entry.action === "listing_closed")).toHaveLength(1);
+  });
+
+  it("allows a safe pause even when legacy payout bank details need repair", async () => {
+    const listing = await createApprovedListing("1000", "3.30");
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    snapshot.marketplaceListings.find((entry) => entry.id === listing.id)!.bankName = "";
+    invalidateAlphaExchangeStoreCache();
+    await expect(updateMarketplaceListingForSeller({
+      listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID, status: "paused",
+    })).resolves.toMatchObject({ status: "paused" });
+  });
+
+  it("keeps ownership and active trade locks enforced for pause and removal", async () => {
+    const listing = await createApprovedListing("1000", "3.30");
+    await expect(updateMarketplaceListingForSeller({
+      listingId: listing.id, sellerId: SELLER_TWO_ID, actorUserId: SELLER_TWO_ID, status: "paused",
+    })).rejects.toThrow(/only your own/);
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "250",
+      buyerName: "Buyer", buyerWhatsapp: "+972500000000", buyerNotes: "",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+    });
+    await updatePurchaseRequestStatus({
+      requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted",
+    });
+    const actor = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+    await expect(updateMarketplaceListingForSeller({ ...actor, status: "paused" })).rejects.toThrow(/locked by an active trade/);
+    await expect(deleteMarketplaceListingForSeller(actor)).rejects.toThrow(/locked by an active trade/);
   });
 
   it("blocks listing creation when a commission was assigned after this instance cached a clear seller", async () => {

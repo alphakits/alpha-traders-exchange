@@ -1,5 +1,6 @@
 import type { MobileSellerListing, MobileSellerListingDetail } from "@alpha-traders/contracts";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
+import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
 export function toMobileSellerListing(listing: MarketplaceListing): MobileSellerListing {
   return {
@@ -11,7 +12,7 @@ export function toMobileSellerListing(listing: MarketplaceListing): MobileSeller
     network: listing.network,
     paymentMethods: [...listing.paymentMethods],
     minimumTrade: listing.minimumTrade,
-    maximumTrade: listing.maximumTrade,
+    maximumTrade: listingMaximumForAvailableAmount(listing),
     status: listing.status,
     approvalStatus: listing.approvalStatus,
     expiresAt: listing.expiresAt,

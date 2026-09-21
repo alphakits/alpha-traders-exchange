@@ -1,3 +1,4 @@
+import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
@@ -9032,6 +9033,9 @@ export async function updateMarketplaceListingForSeller(input: {
   if (current.status === "draft" && input.status === "active") {
     throw new Error("Pending approval listings cannot be activated by sellers.");
   }
+  if (input.status === "paused" && current.status !== "active") {
+    throw new Error("Only active listings can be paused.");
+  }
   if (input.status === "active" && getSellerPendingCommissionCount(db, input.sellerId) > 0) {
     throw new Error("Your listings remain hidden until every pending commission is paid.");
   }
@@ -9039,97 +9043,102 @@ export async function updateMarketplaceListingForSeller(input: {
     current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
   );
   const updatedAt = nowIso();
-  const canonicalPrice = input.price !== undefined ? normalizeListingPrice(input.price) : undefined;
-  if (input.price !== undefined && !canonicalPrice) {
-    throw new Error("Price must be a valid amount with no more than six decimal places.");
-  }
-  const canonicalAvailableAmount = input.availableAmount !== undefined
-    ? canonicalizeTradeAmount(input.availableAmount)
-    : canonicalizeTradeAmount(current.availableAmount);
-  const canonicalMinimumTrade = input.minimumTrade !== undefined
-    ? canonicalizeNonNegativeTradeAmount(input.minimumTrade)
-    : canonicalizeNonNegativeTradeAmount(current.minimumTrade);
-  const canonicalMaximumTrade = input.maximumTrade !== undefined
-    ? canonicalizeTradeAmount(input.maximumTrade)
-    : canonicalizeTradeAmount(current.maximumTrade);
-  if (!canonicalAvailableAmount) throw new Error("Available amount must be a valid positive USDT amount with no more than six decimal places.");
-  if (!canonicalMinimumTrade) throw new Error("Minimum trade must be a valid non-negative USDT amount with no more than six decimal places.");
-  if (!canonicalMaximumTrade) throw new Error("Maximum trade must be a valid positive USDT amount with no more than six decimal places.");
-  if (toNumber(canonicalMaximumTrade) > toNumber(canonicalAvailableAmount)) throw new Error("Maximum trade must be less than or equal to available amount.");
-  if (toNumber(canonicalMaximumTrade) < toNumber(canonicalMinimumTrade)) throw new Error("Maximum trade must be greater than or equal to minimum trade.");
-  const normalizedPaymentMethods = input.paymentMethods
-    ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS)
-    : (input.paymentMethod ? resolveListingPaymentMethods(undefined, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS) : undefined);
-  if (input.paymentMethods && resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).length > MAX_LISTING_PAYMENT_METHODS) {
-    throw new Error(`Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.`);
-  }
-  const nextPaymentMethods = normalizedPaymentMethods?.length
-    ? normalizedPaymentMethods
-    : (current.paymentMethods?.length ? current.paymentMethods : resolveListingPaymentMethods(undefined, current.paymentMethod));
-  const nextPaymentMethod = nextPaymentMethods[0] ?? normalizeMarketplacePaymentMethod(current.paymentMethod) ?? "Bank Transfer";
-  const selectedSellerBankAccount = resolveSellerListingBankAccount(
-    db,
-    input.sellerId,
-    input.bankAccountId !== undefined ? input.bankAccountId : current.bankAccountId,
-    nextPaymentMethods,
-  );
-  const nextRequiresBankSelection = requiresIsraeliBankSelection(nextPaymentMethods, nextPaymentMethod);
-  const nextBankSelection = input.bankName !== undefined
-    ? parseIsraeliBankSelection(input.bankName)
-    : parseIsraeliBankSelection(current.bankName);
-  if (nextRequiresBankSelection) {
-    if (!nextBankSelection.length) {
-      throw new Error("Please choose one or two supported banks before saving the listing.");
+  let next: MarketplaceListing;
+  if (isStatusOnlyRetry && input.status === "paused") {
+    next = { ...current, status: "paused", updatedAt };
+  } else {
+    const canonicalPrice = input.price !== undefined ? normalizeListingPrice(input.price) : undefined;
+    if (input.price !== undefined && !canonicalPrice) {
+      throw new Error("Price must be a valid amount with no more than six decimal places.");
     }
-    if (nextBankSelection.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
-      throw new Error(`Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.`);
+    const canonicalAvailableAmount = input.availableAmount !== undefined
+      ? canonicalizeTradeAmount(input.availableAmount)
+      : canonicalizeTradeAmount(current.availableAmount);
+    const canonicalMinimumTrade = input.minimumTrade !== undefined
+      ? canonicalizeNonNegativeTradeAmount(input.minimumTrade)
+      : canonicalizeNonNegativeTradeAmount(current.minimumTrade);
+    const canonicalMaximumTrade = input.maximumTrade !== undefined
+      ? canonicalizeTradeAmount(input.maximumTrade)
+      : canonicalizeTradeAmount(listingMaximumForAvailableAmount({ availableAmount: canonicalAvailableAmount, maximumTrade: current.maximumTrade }));
+    if (!canonicalAvailableAmount) throw new Error("Available amount must be a valid positive USDT amount with no more than six decimal places.");
+    if (!canonicalMinimumTrade) throw new Error("Minimum trade must be a valid non-negative USDT amount with no more than six decimal places.");
+    if (!canonicalMaximumTrade) throw new Error("Maximum trade must be a valid positive USDT amount with no more than six decimal places.");
+    if (toNumber(canonicalMaximumTrade) > toNumber(canonicalAvailableAmount)) throw new Error("Maximum trade must be less than or equal to available amount.");
+    if (toNumber(canonicalMaximumTrade) < toNumber(canonicalMinimumTrade)) throw new Error("Maximum trade must be greater than or equal to minimum trade.");
+    const normalizedPaymentMethods = input.paymentMethods
+      ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS)
+      : (input.paymentMethod ? resolveListingPaymentMethods(undefined, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS) : undefined);
+    if (input.paymentMethods && resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).length > MAX_LISTING_PAYMENT_METHODS) {
+      throw new Error(`Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.`);
     }
-    if (selectedSellerBankAccount && !nextBankSelection.includes(selectedSellerBankAccount.bankName)) {
-      throw new Error("Supported banks must include the selected seller bank account.");
+    const nextPaymentMethods = normalizedPaymentMethods?.length
+      ? normalizedPaymentMethods
+      : (current.paymentMethods?.length ? current.paymentMethods : resolveListingPaymentMethods(undefined, current.paymentMethod));
+    const nextPaymentMethod = nextPaymentMethods[0] ?? normalizeMarketplacePaymentMethod(current.paymentMethod) ?? "Bank Transfer";
+    const selectedSellerBankAccount = resolveSellerListingBankAccount(
+      db,
+      input.sellerId,
+      input.bankAccountId !== undefined ? input.bankAccountId : current.bankAccountId,
+      nextPaymentMethods,
+    );
+    const nextRequiresBankSelection = requiresIsraeliBankSelection(nextPaymentMethods, nextPaymentMethod);
+    const nextBankSelection = input.bankName !== undefined
+      ? parseIsraeliBankSelection(input.bankName)
+      : parseIsraeliBankSelection(current.bankName);
+    if (nextRequiresBankSelection) {
+      if (!nextBankSelection.length) {
+        throw new Error("Please choose one or two supported banks before saving the listing.");
+      }
+      if (nextBankSelection.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
+        throw new Error(`Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.`);
+      }
+      if (selectedSellerBankAccount && !nextBankSelection.includes(selectedSellerBankAccount.bankName)) {
+        throw new Error("Supported banks must include the selected seller bank account.");
+      }
     }
-  }
 
-  const next: MarketplaceListing = {
-    ...current,
-    photos: input.photos ? input.photos.map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6) : current.photos,
-    originalAmount: input.availableAmount !== undefined ? canonicalAvailableAmount : current.originalAmount,
-    availableAmount: canonicalAvailableAmount,
-    price: canonicalPrice ?? current.price,
-    currency: input.currency?.trim() || current.currency,
-    network: input.network || current.network,
-    paymentMethods: nextPaymentMethods,
-    paymentMethod: nextPaymentMethod,
-    bankAccountId: selectedSellerBankAccount?.id,
-    bankName: nextRequiresBankSelection
-      ? serializeIsraeliBankSelection(nextBankSelection) || undefined
-      : undefined,
-    minimumTrade: canonicalMinimumTrade,
-    maximumTrade: canonicalMaximumTrade,
-    expiresAt: input.expiresAt?.trim() || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt),
-    expiredAt: input.status === "active" ? undefined : current.expiredAt,
-    lastRenewedAt: input.status === "active" && current.status === "expired" ? updatedAt : current.lastRenewedAt,
-    notes: input.notes?.trim() ?? current.notes,
-    sellerDescription: input.sellerDescription?.trim() ?? current.sellerDescription,
-    responseTime: input.responseTime?.trim() || current.responseTime,
-    status: input.status || current.status,
-    approvalStatus: shouldResubmitForApproval
-      ? "pending"
-      : input.status === "active"
-        ? "approved"
-        : current.approvalStatus,
-    ownerReviewReason: shouldResubmitForApproval ? undefined : current.ownerReviewReason,
-    ownerReviewedAt: shouldResubmitForApproval ? undefined : current.ownerReviewedAt,
-    ownerReviewedBy: shouldResubmitForApproval ? undefined : current.ownerReviewedBy,
-    updatedAt,
-  };
-  next.paymentMethod = next.paymentMethods[0] ?? next.paymentMethod;
-  if (!next.minimumTrade || toNumber(next.minimumTrade) < 0) {
-    next.minimumTrade = "0";
-  }
-  const maxTradeNumber = toNumber(next.maximumTrade);
-  const availableAmountNumber = toNumber(next.availableAmount);
-  if (!next.maximumTrade || maxTradeNumber <= 0 || (availableAmountNumber > 0 && maxTradeNumber > availableAmountNumber)) {
-    next.maximumTrade = next.availableAmount;
+    next = {
+      ...current,
+      photos: input.photos ? input.photos.map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6) : current.photos,
+      originalAmount: input.availableAmount !== undefined ? canonicalAvailableAmount : current.originalAmount,
+      availableAmount: canonicalAvailableAmount,
+      price: canonicalPrice ?? current.price,
+      currency: input.currency?.trim() || current.currency,
+      network: input.network || current.network,
+      paymentMethods: nextPaymentMethods,
+      paymentMethod: nextPaymentMethod,
+      bankAccountId: selectedSellerBankAccount?.id,
+      bankName: nextRequiresBankSelection
+        ? serializeIsraeliBankSelection(nextBankSelection) || undefined
+        : undefined,
+      minimumTrade: canonicalMinimumTrade,
+      maximumTrade: canonicalMaximumTrade,
+      expiresAt: input.expiresAt?.trim() || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt),
+      expiredAt: input.status === "active" ? undefined : current.expiredAt,
+      lastRenewedAt: input.status === "active" && current.status === "expired" ? updatedAt : current.lastRenewedAt,
+      notes: input.notes?.trim() ?? current.notes,
+      sellerDescription: input.sellerDescription?.trim() ?? current.sellerDescription,
+      responseTime: input.responseTime?.trim() || current.responseTime,
+      status: input.status || current.status,
+      approvalStatus: shouldResubmitForApproval
+        ? "pending"
+        : input.status === "active"
+          ? "approved"
+          : current.approvalStatus,
+      ownerReviewReason: shouldResubmitForApproval ? undefined : current.ownerReviewReason,
+      ownerReviewedAt: shouldResubmitForApproval ? undefined : current.ownerReviewedAt,
+      ownerReviewedBy: shouldResubmitForApproval ? undefined : current.ownerReviewedBy,
+      updatedAt,
+    };
+    next.paymentMethod = next.paymentMethods[0] ?? next.paymentMethod;
+    if (!next.minimumTrade || toNumber(next.minimumTrade) < 0) {
+      next.minimumTrade = "0";
+    }
+    const maxTradeNumber = toNumber(next.maximumTrade);
+    const availableAmountNumber = toNumber(next.availableAmount);
+    if (!next.maximumTrade || maxTradeNumber <= 0 || (availableAmountNumber > 0 && maxTradeNumber > availableAmountNumber)) {
+      next.maximumTrade = next.availableAmount;
+    }
   }
   db.marketplaceListings[index] = next;
   const isPlainEdit = !(input.status === "paused") && !(input.status === "active" && current.status === "paused");
@@ -9702,7 +9711,9 @@ export async function deleteMarketplaceListingForSeller(input: {
   if (isListingLocked(listing.status)) {
     throw new Error("This listing is locked by an active trade and cannot be closed.");
   }
-  if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
+  // A retry after a lost response must not create another closure/audit event.
+  if (listing.status === "closed") return;
+  if (listing.status === "completed" || listing.status === "cancelled") {
     throw new Error("This listing is already closed.");
   }
   const previousStatus = listing.status;
@@ -10242,8 +10253,8 @@ export async function createPurchaseRequest(input: {
   const remainingAmount = toNumber(listing.availableAmount);
   if (!requestedUsdtAmount || requestedAmount <= 0) throw new Error("Trade amount must be a valid positive USDT amount with no more than six decimal places.");
   if (requestedAmount < minimumTrade) throw new Error(`Minimum trade for this listing is ${listing.minimumTrade} USDT.`);
-  if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
   if (requestedAmount > remainingAmount) throw new Error("Requested amount exceeds the remaining listing quantity.");
+  if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
   const priceBounds = getPriceOfferBounds(listing.price);
   if (!priceBounds) throw new Error("Listing price is invalid.");
   const isPriceOffer = input.priceMode === "buyer_offer";
@@ -14004,6 +14015,7 @@ async function updatePurchaseRequestStatusAttempt(
       listing.lockedAt = undefined;
       listing.updatedAt = now;
       if (remainingAmount !== "0") {
+        listing.maximumTrade = listingMaximumForAvailableAmount(listing);
         const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
         const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= Date.now());
         const remainderBelowMinimum = isTradeAmountLessThan(remainingAmount ?? "0", listing.minimumTrade) === true;
