@@ -225,3 +225,106 @@ it("keeps copy and reminder feedback beside the chat controls", async () => {
   expect(chat.contains(await screen.findByText("Message copied."))).toBe(true);
   expect(screen.queryByTestId("trade-action-feedback")).toBeNull();
 });
+
+describe("visible buyer cancellation", () => {
+  it.each(["en", "ar"] as const)("places pending cardless cancellation above details and submits once in %s", async (locale) => {
+    const current = room("Cardless ATM Withdrawal", "pending");
+    const response = deferredResponse();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
+    const cancel = await screen.findByRole("button", { name: locale === "ar" ? "إلغاء الصفقة" : "Cancel Trade" });
+    const card = screen.getByTestId("trade-cancel-action");
+    expect(document.getElementById("action-required")!.contains(card)).toBe(true);
+    expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(cancel);
+    fireEvent.click(cancel);
+    const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ status: "cancelled" });
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(navigation.push).not.toHaveBeenCalled();
+    await act(async () => response.resolve(Response.json({ request: { ...current.request, status: "cancelled" } })));
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/usdt-exchange"));
+  });
+
+  it("allows leaving an accepted cardless request before code submission", async () => {
+    const current = room("Cardless ATM Withdrawal", "accepted");
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+    vi.mocked(window.confirm).mockReturnValue(false);
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+    const cancel = await screen.findByRole("button", { name: "Cancel Trade" });
+    const code = screen.getByLabelText("1. Withdrawal code");
+    expect(cancel.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(cancel);
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it.each(["payment_sent", "funds_received", "usdt_sent", "review_open", "cancelled"] as const)("does not offer unsafe cancellation at %s", async (status) => {
+    const current = room("Cardless ATM Withdrawal", status);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+    await screen.findByTestId("trade-details");
+    if (status === "review_open" || status === "cancelled") expect(screen.queryByTestId("trade-cancel-action")).toBeNull();
+    else expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s management controls", (method) => {
+  it.each(["en", "ar"] as const)("shows buyer cancellation and explains seller-only adjustment near the top in %s", async (locale) => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, "pending")))));
+    render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
+    const cancel = await screen.findByRole("button", { name: locale === "ar" ? "إلغاء الصفقة" : "Cancel Trade" });
+    const adjust = screen.getByRole("button", { name: locale === "ar" ? "تعديل المبلغ" : "Adjust Amount" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(false);
+    expect((adjust as HTMLButtonElement).disabled).toBe(true);
+    expect(adjust.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.getElementById("action-required")!.contains(adjust)).toBe(true);
+  });
+
+  it("cancels a seller's pending request through the existing decline action", async () => {
+    const current = room(method, "pending");
+    const fetch = vi.fn((_url: string, init?: RequestInit) => Promise.resolve(init?.method === "PATCH" ? Response.json({ request: { ...current.request, status: "declined" } }) : Response.json(current)));
+    vi.stubGlobal("fetch", fetch);
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+    const cancel = await screen.findByRole("button", { name: "Cancel Trade" });
+    expect(cancel.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(cancel);
+    await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
+    const patch = fetch.mock.calls.find(([, init]) => init?.method === "PATCH")!;
+    expect(JSON.parse(String(patch[1]?.body))).toMatchObject({ status: "declined" });
+    expect(window.confirm).toHaveBeenCalledOnce();
+  });
+
+  it("opens the seller amount editor before payment details after acceptance", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, "accepted")))));
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+    const adjust = await screen.findByRole("button", { name: "Adjust Amount" });
+    expect((adjust as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(adjust);
+    const amount = screen.getByLabelText("Correct USDT amount");
+    expect(amount.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/the buyer can cancel before payment/)).toBeTruthy();
+  });
+});
+
+it("keeps the recorded cardless cash fixed and recalculates only once", async () => {
+  const base = room("Cardless ATM Withdrawal", "payment_sent");
+  const current = { ...base, request: { ...base.request, fiatAmount: "400.00", pricePerUsdt: "3.20" } };
+  const response = deferredResponse();
+  const fetch = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetch);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Adjust Amount" }));
+  const cash = screen.getByLabelText("Bank withdrawal amount (ILS)") as HTMLInputElement;
+  expect(cash.value).toBe("400.00");
+  expect(cash.readOnly).toBe(true);
+  const adjust = screen.getByRole("button", { name: "Adjust USDT to withdrawal amount" });
+  fireEvent.click(adjust);
+  fireEvent.click(adjust);
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+  await act(async () => response.resolve(Response.json({ request: { ...current.request, usdtAmount: "125" } })));
+  expect(await screen.findByText("Amount confirmed: 125 USDT for ILS 400.00.")).toBeTruthy();
+});

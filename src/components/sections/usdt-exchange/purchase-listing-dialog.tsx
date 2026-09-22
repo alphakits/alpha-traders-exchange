@@ -1,7 +1,7 @@
 "use client";
 
 import { ActionFeedback } from "@/components/ui/action-feedback";
-import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getCardlessCashAmountOptions, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import type { FormEventHandler } from "react";
@@ -159,8 +159,15 @@ export function PurchaseListingDialog({
     && availablePaymentMethods.has(normalizedSelectedPaymentMethod);
   const receivingNetwork = buyerInfo.receivingNetwork ?? listing.network;
   const isCardless = isCardlessAtmPaymentMethod(selectedPaymentMethod);
+  const cardlessCashOptions = isCardless
+    ? getCardlessCashAmountOptions((priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2), selectedMinTrade, selectedMaxTrade)
+    : [];
+  const selectedCashOption = cardlessCashOptions.find((option) => Number(option.ilsAmount) === Number(buyerInfo.cardlessIlsAmount));
+  const cardlessCashUnavailable = isCardless && Boolean(buyerInfo.cardlessIlsAmount) && !selectedCashOption;
   const cardlessInvalid = isCardless && (
-    !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
+    !selectedCashOption
+    || Number(selectedCashOption.usdtAmount) !== buyerTradeAmount
+    || !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
     || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
     || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
   );
@@ -195,7 +202,7 @@ export function PurchaseListingDialog({
               <span>{priceMode === "buyer_offer" ? (isAr ? "اختر سعرك · قبول البائع مطلوب" : "Choose your price · seller approval required") : (isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement")}</span>
             </p>
           </div>
-          <button type="button" aria-label={priceMode === "buyer_offer" ? (isAr ? "إغلاق نافذة عرض السعر" : "Close price offer sheet") : (isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet")} onClick={onClose} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+          <button type="button" disabled={isSubmittingPurchase} aria-label={priceMode === "buyer_offer" ? (isAr ? "إغلاق نافذة عرض السعر" : "Close price offer sheet") : (isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet")} onClick={onClose} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] disabled:opacity-50">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -309,11 +316,24 @@ export function PurchaseListingDialog({
                     <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</span></p>
                   ) : null}
                 </div>
+                {isCardless ? <div className="space-y-2 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-3">
+                  <label htmlFor="cardless-ils-amount" className="text-sm font-medium">{isAr ? "مبلغ رمز السحب بالشيكل" : "Withdrawal code amount in ILS"}</label>
+                  <select id="cardless-ils-amount" required disabled={isSubmittingPurchase} dir="ltr" className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
+                    const option = cardlessCashOptions.find((item) => item.ilsAmount === event.target.value);
+                    onBuyerDetailsChange?.({ cardlessIlsAmount: event.target.value, usdtAmount: option?.usdtAmount ?? "" });
+                  }} aria-invalid={cardlessCashUnavailable || undefined} aria-describedby="cardless-amount-help">
+                    <option value="">{isAr ? "اختر مبلغ السحب من البنك" : "Select the bank withdrawal amount"}</option>
+                    {cardlessCashUnavailable ? <option value={buyerInfo.cardlessIlsAmount} disabled>{formatIls(Number(buyerInfo.cardlessIlsAmount))} — {isAr ? "غير متاح لهذا العرض" : "Unavailable for this listing"}</option> : null}
+                    {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>₪{Number(option.ilsAmount).toLocaleString("en-IL")} · {option.usdtAmount} USDT</option>)}
+                  </select>
+                  <p id="cardless-amount-help" className="text-xs text-[#D1D5DB]">{isAr ? "اختر المبلغ المطابق لرمز البنك. تظهر فقط المبالغ التي تناسب رصيد البائع وحدود العرض. تُحسب كمية USDT تلقائياً بالسعر المتفق عليه، دون تغيير مبلغ السحب." : "Select the amount matching your bank code. Only amounts within the seller’s balance and trade limits are shown. USDT is calculated at the agreed price without changing the cash amount."}</p>
+                  {!cardlessCashOptions.length || cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ السحب لا يناسب حدود هذا العرض بالسعر الحالي. اختر عرضاً مناسباً، أو أنشئ رمز سحب جديداً لمبلغ متاح. لا تستخدم رمزاً بمبلغ مختلف." : "This withdrawal does not fit the listing at the current price. Choose a matching listing, or prepare a new bank code for an available amount. Do not use a code for a different amount."}</p> : null}
+                </div> : null}
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{isAr ? "كمية USDT" : "USDT Amount"} <span className="text-red-300">*</span></label>
-                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
-                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {Math.trunc(selectedMinTrade).toLocaleString("en-US")} - {Math.trunc(selectedMaxTrade).toLocaleString("en-US")} USDT</p>
+                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} readOnly={isCardless} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
+                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} - {selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</p>
                   </div>
                   {priceMode === "buyer_offer" ? (
                     <div className="space-y-2 md:col-span-3">
@@ -372,16 +392,6 @@ export function PurchaseListingDialog({
                     onCodeChange={(value) => onBuyerDetailsChange?.({ cardlessWithdrawalCode: value })}
                     onKindChange={(value) => onBuyerDetailsChange?.({ cardlessVerificationKind: value })}
                     onValueChange={(value) => onBuyerDetailsChange?.({ cardlessVerificationValue: value })} />
-                  <label htmlFor="cardless-ils-amount" className="text-sm">{isAr ? "مبلغ رمز السحب بالشيكل" : "Withdrawal code amount in ILS"}</label>
-                  <select id="cardless-ils-amount" required dir="ltr" className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
-                    const cash = event.target.value;
-                    const amount = calculateCardlessUsdtAmount(cash, (priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2));
-                    onBuyerDetailsChange?.({ cardlessIlsAmount: cash, ...(amount ? { usdtAmount: amount } : {}) });
-                  }} aria-describedby="cardless-amount-help">
-                    <option value="">{isAr ? "اختر مبلغ السحب من البنك" : "Select the bank withdrawal amount"}</option>
-                    {Array.from({ length: 100 }, (_, index) => (index + 1) * 100).map((amount) => <option key={amount} value={String(amount)}>₪{amount.toLocaleString("en-IL")}</option>)}
-                  </select>
-                  <p id="cardless-amount-help" className="text-xs text-[#FDE68A]">{isAr ? `يجب أن يطابق مبلغ السحب إجمالي الصفقة: ${formatIls(estimatedTotal)}. المبالغ المسموحة: 100–10,000 بمضاعفات 100. تُحسب كمية USDT حسب السعر المتفق عليه.` : `The bank withdrawal must match the trade total: ${formatIls(estimatedTotal)}. Allowed amounts: 100–10,000 in multiples of 100. USDT is calculated at the agreed price.`}</p>
                 </> : null}
                 {requiresSafetyNotice ? (
                   <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
@@ -405,6 +415,7 @@ export function PurchaseListingDialog({
                 <Button type="submit" form="buy-usdt-form" className="min-h-11 w-full" disabled={purchaseDisabled}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : priceMode === "buyer_offer" ? (isAr ? "إرسال عرض السعر" : "Submit Price Offer") : (isAr ? "بدء الصفقة" : "Start Trade")}</Button>
                 {priceMode !== "buyer_offer" ? <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={purchaseDisabled} onClick={onQuickBuy}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "شراء سريع" : "Quick Buy")}</Button> : null}
               </div>
+              <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={isSubmittingPurchase} onClick={onClose}>{isAr ? "إلغاء" : "Cancel"}</Button>
             </div>
           </>
         ) : (
