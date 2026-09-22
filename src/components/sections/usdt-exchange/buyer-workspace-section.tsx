@@ -1,20 +1,16 @@
 "use client";
 
-import { useEffect, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from "react";
+import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { HandCoins } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { LogoutButton } from "@/components/auth/logout-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { RoleBadge } from "@/components/ui/role-badge";
 import { Textarea } from "@/components/ui/textarea";
 import { localizeActivityCopy } from "@/lib/notification-localization";
 import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus } from "@/types/alpha-exchange";
-
-type NotificationPreferences = { inApp: boolean; email: boolean; sms: boolean };
 
 export type BuyerWorkspaceSectionProps = {
   activityHistory: AlphaExchangeActivityLogEntry[];
@@ -30,7 +26,6 @@ export type BuyerWorkspaceSectionProps = {
   filteredBuyerRequests: PurchaseRequest[];
   groupedActivityHistory: Array<{ dayKey: string; label: string; items: AlphaExchangeActivityLogEntry[] }>;
   handleBuyerTradeStatus: (request: PurchaseRequest, nextStatus: "payment_sent" | "completed" | "cancelled") => Promise<void>;
-  handleNotificationPreferencesSave: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   handleOpenTradeRoom: (requestId: string) => void;
   handlePrefetchTradeRoom: (requestId: string) => void;
   handleSubmitBuyerReview: (request: PurchaseRequest) => Promise<void>;
@@ -38,7 +33,6 @@ export type BuyerWorkspaceSectionProps = {
   isMobileViewport: boolean;
   listingsById: Map<string, MarketplaceListing>;
   locale: "ar" | "en";
-  notificationPreferences: NotificationPreferences;
   pendingBuyerReviewTrade: PurchaseRequest | undefined;
   renderNotificationCenterCard: (sectionId: string, className?: string) => ReactNode;
   sessionUser: ClientSessionUser | null;
@@ -47,8 +41,6 @@ export type BuyerWorkspaceSectionProps = {
   setBuyerTradeQuery: Dispatch<SetStateAction<string>>;
   setBuyerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all">>;
   setBuyerTradeVisibleCount: Dispatch<SetStateAction<number>>;
-  setNotificationPreferences: Dispatch<SetStateAction<NotificationPreferences>>;
-  setSessionUser: Dispatch<SetStateAction<ClientSessionUser | null>>;
   setTradeReviewDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   sortedBuyerRequests: PurchaseRequest[];
   tradeReviewDrafts: Record<string, string>;
@@ -61,7 +53,6 @@ export type BuyerWorkspaceSectionProps = {
   paymentMethodEmoji: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").paymentMethodEmoji;
   paymentMethodLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").paymentMethodLabel;
   paymentMethodTradeInstruction: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").paymentMethodTradeInstruction;
-  roleBadgeVariantFromSession: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").roleBadgeVariantFromSession;
   shortListingRef: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").shortListingRef;
   shortTradeRef: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").shortTradeRef;
   toNumber: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").toNumber;
@@ -83,7 +74,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     filteredBuyerRequests,
     groupedActivityHistory,
     handleBuyerTradeStatus,
-    handleNotificationPreferencesSave,
     handleOpenTradeRoom,
     handlePrefetchTradeRoom,
     handleSubmitBuyerReview,
@@ -91,7 +81,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     isMobileViewport,
     listingsById,
     locale,
-    notificationPreferences,
     pendingBuyerReviewTrade,
     renderNotificationCenterCard,
     sessionUser,
@@ -100,8 +89,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     setBuyerTradeQuery,
     setBuyerTradeStatus,
     setBuyerTradeVisibleCount,
-    setNotificationPreferences,
-    setSessionUser,
     setTradeReviewDrafts,
     sortedBuyerRequests,
     tradeReviewDrafts,
@@ -114,7 +101,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     paymentMethodEmoji,
     paymentMethodLabel,
     paymentMethodTradeInstruction,
-    roleBadgeVariantFromSession,
     shortListingRef,
     shortTradeRef,
     toNumber,
@@ -194,56 +180,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
             </Card>
           ) : null}
           {buyerOverviewCard}
-          <Card className="border-white/10 bg-[#0B0B0B]/85">
-            <CardHeader>
-              <CardTitle>{isAr ? "جلسة المستخدم" : "Session"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p className="text-[#D1D5DB]">
-                {sessionUser ? sessionUser.fullName : (isAr ? "غير مسجل الدخول" : "Not logged in")}
-              </p>
-              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} locale={isAr ? "ar" : "en"} /> : <RoleBadge variant="guest" locale={isAr ? "ar" : "en"} />}
-              <div className="flex flex-wrap gap-2">
-                {!sessionUser ? (
-                  <>
-                    <Link href="/login">
-                      <Button variant="secondary">{isAr ? "تسجيل الدخول" : "Login"}</Button>
-                    </Link>
-                    <Link href="/register">
-                      <Button variant="secondary">{isAr ? "إنشاء حساب" : "Register"}</Button>
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/profile">
-                      <Button variant="secondary">{isAr ? "الملف الشخصي" : "Profile"}</Button>
-                    </Link>
-                    <LogoutButton
-                      locale={locale}
-                      variant="secondary"
-                      idleLabel={isAr ? "تسجيل الخروج" : "Logout"}
-                      pendingLabel={isAr ? "جارٍ تسجيل الخروج..." : "Signing out..."}
-                      onSignedOut={() => setSessionUser(null)}
-                    />
-                  </>
-                )}
-              </div>
-              {sessionUser ? (
-                <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تفضيلات الإشعارات" : "Notification Preferences"}</p>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "داخل التطبيق" : "In-app"}</span>
-                    <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "البريد الإلكتروني" : "Email"}</span>
-                    <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
-                  </label>
-                  <Button type="submit" size="sm" variant="secondary">{isAr ? "حفظ التفضيلات" : "Save Preferences"}</Button>
-                </form>
-              ) : null}
-            </CardContent>
-          </Card>
 
           {sessionUser ? (
             <Card id={BUYER_TRADE_HISTORY_SECTION_ID} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
