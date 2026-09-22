@@ -230,13 +230,13 @@ test.describe("Role-based access", () => {
     await expect(page).not.toHaveURL(/\/en\/usdt-exchange$/);
   });
 
-  test("account menu exposes administration for the owner", async ({ page }) => {
+  test("profile exposes owner dashboard entry for owner", async ({ page }) => {
     test.setTimeout(60_000);
     test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "Set E2E_OWNER_EMAIL and E2E_OWNER_PASSWORD to run credentialed login checks.");
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto("/en/profile");
-    await page.locator("summary").filter({ hasText: "Open menu" }).click();
-    await expect(page.locator("details[open]").getByRole("link", { name: /Admin Dashboard/i })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("link", { name: /Owner Dashboard/i })).toBeVisible({ timeout: 15_000 });
   });
 
   test("admin route /en/admin/alpha-exchange accessible to admin", async ({ page }) => {

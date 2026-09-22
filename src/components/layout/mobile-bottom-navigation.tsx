@@ -1,12 +1,11 @@
 "use client";
 
-import { Bell, ChartNoAxesCombined, Handshake, House, Newspaper, Settings, Store, UserRound } from "lucide-react";
+import { Bell, Handshake, House, Store, UserRound } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
-import { isAlphaExchangePath } from "@/lib/exchange-navigation";
 import { cn } from "@/lib/utils";
 
 type MobileDestination = {
@@ -27,7 +26,6 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   const searchParams = useSearchParams();
   const pathname = normalizePathname(rawPathname, locale);
   const section = searchParams.get("section");
-  const exchange = isAlphaExchangePath(pathname);
   const isAr = locale === "ar";
 
   if (!user) return null;
@@ -60,12 +58,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       ? "/trade-room"
       : "/usdt-exchange?section=trade-history#my-trade-requests-section";
 
-  const destinations: MobileDestination[] = exchange ? [
-    { href: "/market", label: isAr ? "السوق" : "Market", icon: ChartNoAxesCombined, isActive: (current) => current === "/market" },
-    { href: "/trade", label: isAr ? "التداول" : "Trade", icon: Handshake, isActive: (current) => ["/trade", "/usdt-exchange", "/trade-room", "/exchange", "/dashboard/seller"].some((path) => current === path || current.startsWith(`${path}/`)) },
-    { href: "/news", label: isAr ? "الأخبار" : "News", icon: Newspaper, isActive: (current) => current.startsWith("/news") },
-    { href: "/settings", label: isAr ? "الإعدادات" : "Settings", icon: Settings, isActive: (current) => current.startsWith("/settings") },
-  ] : [
+  const destinations: MobileDestination[] = [
     {
       href: "/dashboard",
       label: isAr ? "الرئيسية" : "Home",
@@ -117,7 +110,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
         dir={isAr ? "rtl" : "ltr"}
         className="fixed inset-x-0 bottom-0 z-[45] border-t border-white/10 bg-[#070707]/95 shadow-[0_-12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className={`mx-auto grid h-16 w-full max-w-lg px-1 ${exchange ? "grid-cols-4" : "grid-cols-5"}`}>
+        <div className="mx-auto grid h-16 w-full max-w-lg grid-cols-5 px-1">
           {destinations.map((destination) => {
             const active = destination.isActive(pathname, section);
             const Icon = destination.icon;

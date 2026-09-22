@@ -1,4 +1,3 @@
-import { defaultProfileAvatar } from "@/lib/profile-presets";
 import type {
   AlphaExchangeUser,
   OnboardingSelection,
@@ -154,7 +153,7 @@ export function toClientSessionUser(
     sellerApprovalVerified: isOwnerApprovedSeller(user),
     whatsappNumber: user.whatsappNumber,
     preferredNetworks: user.preferredNetworks,
-    profilePhotoUrl: user.profilePhotoUrl || defaultProfileAvatar(user.id),
+    profilePhotoUrl: user.profilePhotoUrl,
     coverBannerUrl: user.coverBannerUrl,
     languages: user.languages,
     preferredLocale: normalizePreferredLocale(user.preferredLocale),

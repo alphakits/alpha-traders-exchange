@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
 import { getAccountProfileData, invalidateAlphaExchangeStoreCache, updateAccountProfileData, updateUserSellerSettings, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
-import { PROFILE_AVATARS } from "@/lib/profile-presets";
 import { ProfileNameCooldownError, PROFILE_NAME_CHANGE_INTERVAL_MS } from "@/lib/profile-name-policy";
 const SELLER_ID = "profile-test-user";
 const OWNER_ID = "profile-test-owner";
@@ -108,23 +107,4 @@ describe("saved profile names", () => {
     invalidateAlphaExchangeStoreCache();
     expect(["Concurrent First", "Concurrent Second"]).toContain((await getAccountProfileData(SELLER_ID)).profile.fullName);
   });
-  it("rejects locked banner tiers at persistence and keeps the previous cover", async () => {
-    await updateAccountProfileData({ userId: SELLER_ID, coverBannerUrl: "/images/profile-presets/banners/network.svg" });
-    await expect(updateAccountProfileData({ userId: SELLER_ID, coverBannerUrl: "/images/profile-presets/banners/gold.svg" })).rejects.toThrow("PROFILE_BANNER_LOCKED");
-    invalidateAlphaExchangeStoreCache();
-    expect((await getAccountProfileData(SELLER_ID)).profile.coverBannerUrl).toBe("/images/profile-presets/banners/network.svg");
-  });
-  it("keeps buyer statistics and in-platform messaging enabled", async () => {
-    await updateAccountProfileData({ userId: SELLER_ID, showTradeStats: false, allowDirectMessages: false });
-    invalidateAlphaExchangeStoreCache();
-    expect((await getAccountProfileData(SELLER_ID)).profile).toMatchObject({ showTradeStats: true, allowDirectMessages: true });
-  });
-  it("persists a random preset avatar once when a new user signs up", async () => {
-    const input = { fullName: "New Buyer", email: "new-buyer@example.test", whatsappNumber: "", emailVerified: true };
-    const created = await upsertUserProfileForAuth(input);
-    expect(PROFILE_AVATARS.map((avatar) => avatar.url)).toContain(created.profilePhotoUrl);
-    invalidateAlphaExchangeStoreCache();
-    expect((await upsertUserProfileForAuth(input)).profilePhotoUrl).toBe(created.profilePhotoUrl);
-  });
-
 });

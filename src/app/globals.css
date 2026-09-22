@@ -2173,11 +2173,3 @@ html[lang="ar"] :where(body, body *) {
     animation: none !important;
   }
 }
-
-/* Compact market redesign. Motion is decorative and user-controllable. */
-@keyframes alpha-market-ticker { to { transform: translateX(-50%); } }
-.market-ticker { animation: alpha-market-ticker 28s linear infinite; }
-.market-ticker--paused, .market-strip:hover .market-ticker, .market-strip:focus-within .market-ticker { animation-play-state: paused; }
-@keyframes alpha-notification-ring { 0% { box-shadow: 0 0 0 0 rgb(212 175 55 / .6); } 100% { box-shadow: 0 0 0 13px rgb(212 175 55 / 0); } }
-.alpha-notification-open { animation: alpha-notification-ring .6s ease-out; border-color: #d4af37; }
-@media (prefers-reduced-motion: reduce) { .market-ticker, .alpha-notification-open { animation: none; } }

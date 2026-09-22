@@ -5,7 +5,6 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { getTradeHeaderStateForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
-import { HeaderBrandText, SiteHeaderFrame } from "./site-header-frame";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
@@ -68,7 +67,7 @@ export async function SiteHeader({
     { href: "/academy", label: t("academy") },
     { href: "/community", label: t("community") },
     { href: "/contact", label: t("contact") },
-    { href: "/market", label: t("alphaExchange"), cta: true },
+    { href: "/usdt-exchange", label: t("alphaExchange"), cta: true },
     ...(sessionUser && hasRole(sessionUser, "admin")
       ? [{ href: "/admin/discord", label: locale === "ar" ? "إدارة ديسكورد" : "Discord Management" }]
       : []),
@@ -76,7 +75,7 @@ export async function SiteHeader({
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <SiteHeaderFrame>
+      <div className="section-container relative flex h-16 items-center justify-between gap-1.5 sm:gap-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
         <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image
@@ -87,10 +86,10 @@ export async function SiteHeader({
             priority
             className="h-10 w-10 rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)] min-[390px]:h-11 min-[390px]:w-11 sm:h-12 sm:w-12"
           />
-          <HeaderBrandText signedIn={Boolean(sessionUser)} label={brand}>
+          <span className="flex shrink-0 flex-col" aria-label={brand}>
             <span className="gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
             <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{locale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
-          </HeaderBrandText>
+          </span>
         </Link>
         <HeaderNav items={nav} locale={locale} />
         <HeaderAuthArea
@@ -107,7 +106,7 @@ export async function SiteHeader({
             openMenu: locale === "ar" ? "فتح القائمة" : "Open menu",
           }}
         />
-      </SiteHeaderFrame>
+      </div>
       <Suspense fallback={null}>
         <TradeHeaderStatus locale={locale} sessionUser={sessionUser} />
       </Suspense>

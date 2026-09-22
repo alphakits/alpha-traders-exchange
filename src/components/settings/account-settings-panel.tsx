@@ -439,7 +439,11 @@ export function AccountSettingsPanel({
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({
+            isProfileHidden: !prefs.public_profile,
+            showTradeStats: prefs.show_trade_stats,
             showLastActive: prefs.show_last_active,
+            allowDirectMessages: prefs.allow_messages,
+            allowProfileSearch: prefs.search_visibility,
             showPhonePublic: prefs.show_phone,
             showEmailPublic: prefs.show_email,
           }),
@@ -1120,7 +1124,7 @@ export function AccountSettingsPanel({
                   : "These privacy preferences are applied across the platform. Some settings may require a page reload to take effect."}
               </div>
               <div className="space-y-3">
-                {PRIVACY_KEYS.filter((key) => !["show_trade_stats", "allow_messages", "search_visibility", "public_profile"].includes(key)).map((key) => (
+                {PRIVACY_KEYS.map((key) => (
                   <div key={key} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <div>
                       <p className="text-sm font-medium text-[#D1D5DB]">

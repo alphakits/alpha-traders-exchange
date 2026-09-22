@@ -275,6 +275,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [page, setPage] = useState(1);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [itemLoading, setItemLoading] = useState<Record<string, boolean>>({});
   const [isMobileViewport, setIsMobileViewport] = useState<boolean | null>(null);
   const router = useRouter();
@@ -466,6 +467,20 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     return null;
   }
 
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    for (const href of [notification.actionHref, notification.relatedHref]) {
+      if (!href?.trim()) continue;
+      try {
+        const parsed = new URL(href, "https://www.alphatraders.co.il");
+        const byQuery = parsed.searchParams.get("sellerApplication");
+        if (byQuery?.trim()) return byQuery.trim();
+      } catch {
+        // Continue to a valid related fallback.
+      }
+    }
+    return null;
+  }
+
   async function resolveActiveTradeHref(input?: { notificationId?: string; requestId?: string | null; includePending?: boolean; fallbackHref?: string | null }) {
     try {
       const query = new URLSearchParams();
@@ -539,12 +554,15 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         destination,
       });
     }
-    if (!notification.isRead) void handleMarkOneRead(notification.id);
-    if (!destination) return;
+    if (!destination) {
+      setError(isAr ? "تعذر تحديد وجهة هذا الإشعار." : "Could not resolve this notification destination.");
+      return;
+    }
     const requestId = extractRequestIdFromTradeRoomHref(destination);
     if (requestId) {
       prefetchTradeRoom(router, requestId, userId);
     }
+    if (!notification.isRead) void handleMarkOneRead(notification.id);
     router.push(destination);
   }
 
@@ -564,12 +582,57 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         setError(isAr ? "تعذر تحديث الإشعار." : "Failed to update notification.");
         return;
       }
-      setNotifications((current) => sortNotificationsNewestFirst(current.map((item) => (
+      const nextNotifications = notifications.map((item) => (
         item.id === notificationId ? { ...item, isRead: true, state: "read" as const } : item
-      ))));
-      setUnreadCount((count) => Math.max(0, count - 1));
+      ));
+      const sortedNextNotifications = sortNotificationsNewestFirst(nextNotifications);
+      const nextUnreadCount = Math.max(0, unreadCount - 1);
+      setNotifications(sortedNextNotifications);
+      setUnreadCount(nextUnreadCount);
+    } finally {
+      setItemLoading((prev) => ({ ...prev, [key]: false }));
+    }
+  }
+
+  async function handleMarkAllRead() {
+    if (isMarkingAllRead) return;
+    setIsMarkingAllRead(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      if (!response.ok) {
+        setError(isAr ? "تعذر تحديث الإشعارات." : "Failed to update notifications.");
+        return;
+      }
+      const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true, state: "read" as const })));
+      setNotifications(nextNotifications);
+      setUnreadCount(0);
+    } finally {
+      setIsMarkingAllRead(false);
+    }
+  }
+
+  async function handleDismissNotification(notification: AlphaExchangeNotification) {
+    const key = `dismiss:${notification.id}`;
+    if (itemLoading[key]) return;
+    setItemLoading((prev) => ({ ...prev, [key]: true }));
+    setError(null);
+    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
+    setTotalCount((prev) => Math.max(0, prev - 1));
+    if (!notification.isRead) setUnreadCount((prev) => Math.max(0, prev - 1));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss" }),
+      });
+      if (!response.ok) throw new Error("notification_dismiss_failed");
     } catch {
-      setError(isAr ? "تعذر تحديث الإشعار." : "Failed to update notification.");
+      setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
+      await loadNotifications({ offset: 0, append: false });
     } finally {
       setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
@@ -649,7 +712,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-5 p-4 pt-0 sm:p-6 sm:pt-0">
-          <div className="grid gap-2">
+          <div className="grid gap-2 md:grid-cols-[1fr_auto]">
             <div className="relative">
               <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" aria-hidden="true" />
               <Input
@@ -660,7 +723,19 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
-
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-12 px-4 text-sm md:h-11"
+              disabled={unreadCount === 0}
+              loading={isMarkingAllRead}
+              loadingLabel={isAr ? "جاري التحديد..." : "Marking..."}
+              onClick={() => void handleMarkAllRead()}
+            >
+              <CheckCheck className="h-4 w-4" aria-hidden="true" />
+              {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
+            </Button>
           </div>
 
           <div className="-mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:overflow-visible sm:px-0">
@@ -729,9 +804,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                   return (
                     <article
                       key={notification.id}
-                      className={`relative rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-[#C9A227] active:scale-[.995] sm:p-5 ${actionRequired ? "border-amber-400/45 bg-amber-500/[0.09]" : notification.isRead ? "border-white/10 bg-black/20" : "border-[#C9A227]/35 bg-[#C9A227]/[0.08]"}`}
+                      className={`rounded-2xl border p-4 transition sm:p-5 ${actionRequired ? "border-amber-400/45 bg-amber-500/[0.09]" : notification.isRead ? "border-white/10 bg-black/20" : "border-[#C9A227]/35 bg-[#C9A227]/[0.08]"}`}
                     >
-                      <button type="button" className="absolute inset-0 z-10 rounded-2xl" aria-label={`${formatNotificationTitle(notification, locale)}${hasPrimaryDestination ? `: ${resolveNotificationActionLabel(notification)}` : ""}`} onClick={() => void openNotificationDestination(notification)} />
                       <div className="flex items-start gap-3.5">
                         <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${actionRequired ? "border-amber-400/35 bg-amber-400/10" : "border-[#C9A227]/25 bg-[#C9A227]/10"}`}>
                           <Icon className={`h-5 w-5 ${actionRequired ? "text-amber-300" : "text-[#D6B13F]"}`} aria-hidden="true" />
@@ -753,7 +827,72 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                             {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="ltr">{notification.tradeSnapshot.usdtAmount} USDT</bdi></span> : null}
                             {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{notification.tradeSnapshot.counterpartyName}</bdi></span> : null}
                           </div>
-
+                          <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                            {hasPrimaryDestination ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={actionRequired && notification.category !== "application" ? "default" : "secondary"}
+                                className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                onMouseEnter={() => {
+                                  if (!isTradeNotification(notification)) return;
+                                  const href = resolveTradeRoomHref(notification);
+                                  const requestId = extractRequestIdFromTradeRoomHref(href);
+                                  if (requestId) prefetchTradeRoom(router, requestId, userId);
+                                }}
+                                onFocus={() => {
+                                  if (!isTradeNotification(notification)) return;
+                                  const href = resolveTradeRoomHref(notification);
+                                  const requestId = extractRequestIdFromTradeRoomHref(href);
+                                  if (requestId) prefetchTradeRoom(router, requestId, userId);
+                                }}
+                                onClick={() => void openNotificationDestination(notification)}
+                              >
+                                {resolveNotificationActionLabel(notification)}
+                              </Button>
+                            ) : null}
+                            {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                  disabled={Boolean(itemLoading[`dismiss:${notification.id}`])}
+                                  loading={Boolean(itemLoading[`dismiss:${notification.id}`])}
+                                  loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
+                                  onClick={() => void handleDismissNotification(notification)}
+                                >
+                                  {isAr ? "لاحقاً" : "Later"}
+                                </Button>
+                                {!notification.isRead ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                    loading={Boolean(itemLoading[`read:${notification.id}`])}
+                                    loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
+                                    onClick={() => void handleMarkOneRead(notification.id)}
+                                  >
+                                    {isAr ? "تحديد كمقروء" : "Mark as read"}
+                                  </Button>
+                                ) : null}
+                              </>
+                            ) : !notification.isRead ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                loading={Boolean(itemLoading[`read:${notification.id}`])}
+                                loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
+                                onClick={() => void handleMarkOneRead(notification.id)}
+                              >
+                                {isAr ? "تحديد كمقروء" : "Mark as read"}
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     </article>

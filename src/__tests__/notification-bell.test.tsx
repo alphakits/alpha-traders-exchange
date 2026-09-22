@@ -44,8 +44,7 @@ describe("Notification bell conversation navigation", () => {
     }), { status: 200 })));
     render(<NotificationBell locale="en" />);
     fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
-    const action = await screen.findByRole("button", { name: /Open Trade Room/ });
-    expect(screen.queryByRole("button", { name: /Mark as read|Later/ })).toBeNull();
+    const action = await screen.findByRole("button", { name: "Open Trade Room" });
     fireEvent.click(action);
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/trade-room/purchase-1?action=open-trade#chat"));
   });
