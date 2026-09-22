@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Copy, ShieldCheck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,8 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
   const [status, setStatus] = useState<SellerComplianceStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [appealMessage, setAppealMessage] = useState("");
 
@@ -44,7 +45,7 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
         setLoading(false);
       }
     })();
-  }, [isAr]);
+  }, [isAr, setError]);
 
   useEffect(() => {
     if (!activeRecord?.recoveryPaymentQrPayload) {
@@ -220,8 +221,8 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
             </div>
           ) : null}
 
-          {message ? <p className="text-sm text-emerald-300"><CheckCircle2 className="mr-1 inline h-4 w-4" />{message}</p> : null}
-          {error ? <p className="text-sm text-red-300">{error}</p> : null}
+          {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" className="text-sm text-emerald-300"><CheckCircle2 className="mr-1 inline h-4 w-4" />{message}</ActionFeedback> : null}
+          {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{error}</ActionFeedback> : null}
           <Button type="button" variant="ghost" className="text-[#9CA3AF]" onClick={() => void refresh()}>{isAr ? "تحديث الحالة" : "Refresh Status"}</Button>
         </CardContent>
       </Card>

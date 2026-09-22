@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useId, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileText, Gavel, ShieldAlert, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -86,7 +87,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
   const isAr = locale === "ar";
   const [status, setStatus] = useState<EnforcementStatus>(initialStatus);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [issueFeeOpen, setIssueFeeOpen] = useState(false);
   const [issueFeeAmount, setIssueFeeAmount] = useState("150");
   const [issueFeeReason, setIssueFeeReason] = useState(isAr ? "مخالفة امتثال السوق" : "Marketplace compliance violation");
@@ -278,7 +279,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.appealStatus !== "submitted"} onClick={() => void runAction("appeal_reject")}>{isAr ? "رفض الاستئناف" : "Reject Appeal"}</Button>
         </div>
 
-        {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{error}</ActionFeedback> : null}
 
         {issueFeeOpen ? (
           <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
