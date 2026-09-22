@@ -12,6 +12,7 @@ import {
 } from "@/lib/brand";
 
 export type MarketplaceEmailEvent =
+  | "economic_news_released"
   | "new_buy_request"
   | "trade_accepted"
   | "trade_rejected"

@@ -66,6 +66,7 @@ export async function SiteHeader({
     { href: "/", label: t("home") },
     { href: "/academy", label: t("academy") },
     { href: "/community", label: t("community") },
+    { href: "/news", label: locale === "ar" ? "الأخبار" : "News" },
     { href: "/contact", label: t("contact") },
     { href: "/usdt-exchange", label: t("alphaExchange"), cta: true },
     ...(sessionUser && hasRole(sessionUser, "admin")

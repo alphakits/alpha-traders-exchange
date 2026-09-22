@@ -17049,6 +17049,44 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
   };
 }
 
+/** News-only entry point. Uses the existing notification transaction and never mutates trade rows. */
+export async function createEconomicNewsNotification(input: {
+  userId: string;
+  eventId: string;
+  titleEn: string;
+  titleAr: string;
+  messageEn: string;
+  messageAr: string;
+}) {
+  if (!/^te-\d{1,24}$/.test(input.eventId)) throw new Error("Invalid news event identifier");
+  const tables = ["users", "notifications"] as const;
+  const db = await readDbForSelectedTables(tables);
+  const id = `news-${input.eventId}-${input.userId}`;
+  const href = `/news?event=${encodeURIComponent(input.eventId)}`;
+  let committed: AlphaExchangeNotification | null = null;
+  const apply = (snapshot: AlphaExchangeDb) => {
+    committed = null;
+    const user = snapshot.users.find((item) => item.id === input.userId);
+    if (!user || user.disabled || user.emailVerified !== true || user.notificationPreferences?.inApp === false) return snapshot;
+    // Retrying a release must never reopen an already-read notification.
+    if (snapshot.notifications.some((item) => item.id === id)) return snapshot;
+    const isAr = user.preferredLocale !== "en";
+    const createdAt = nowIso();
+    committed = {
+      id, userId: input.userId, category: "system", centerCategory: "announcements",
+      title: isAr ? input.titleAr : input.titleEn, message: isAr ? input.messageAr : input.messageEn,
+      titleEn: input.titleEn, titleAr: input.titleAr, messageEn: input.messageEn, messageAr: input.messageAr,
+      actionHref: href, relatedHref: href, actionLabel: isAr ? "عرض الخبر" : "View news",
+      priority: "normal", state: "unread", isRead: false, createdAt, updatedAt: createdAt,
+    };
+    snapshot.notifications.unshift(committed);
+    return snapshot;
+  };
+  apply(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, rebaseTables: tables, rebaseOnLatest: apply, cacheResult: false });
+  if (committed) publishRealtimeEvent({ type: "notification.created", payload: { notification: committed } });
+}
+
 export async function getNotificationsForUser(input: {
   userId: string;
   category?: NotificationCategory;

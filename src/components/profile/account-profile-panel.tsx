@@ -15,6 +15,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { deriveBuyerRankSummary } from "@/lib/buyer-rank";
 import { AccountNotificationPreferences } from "@/components/profile/account-notification-preferences";
+import { NewsPreferences } from "@/components/news/news-preferences";
 
 type AccountProfilePayload = {
   profile: {
@@ -943,6 +944,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         {coverError ? <ActionFeedback revealKey={coverErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{coverError}</ActionFeedback> : null}
 
         <AccountNotificationPreferences key={payload.profile.id} locale={locale} />
+        <NewsPreferences key={`news-${payload.profile.id}`} locale={locale} />
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px] xl:items-start">
           <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
