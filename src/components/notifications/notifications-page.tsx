@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BellDot, CheckCheck, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
@@ -269,7 +270,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [page, setPage] = useState(1);
@@ -292,7 +294,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     setUnreadCount(0);
     setError(null);
     setLoading(false);
-  }, [canonicalUserMismatch]);
+  }, [canonicalUserMismatch, setError]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px)");
@@ -317,7 +319,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     } else {
       setLoading(true);
     }
-    setError(null);
+    setLoadError(null);
     try {
       const params = new URLSearchParams({
         limit: String(fetchLimit),
@@ -347,7 +349,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       setTotalCount(payload.total ?? incoming.length);
       setUnreadCount(payload.unreadCount ?? 0);
     } catch {
-      setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      setLoadError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
     } finally {
       if (append) {
         setIsLoadingMore(false);
@@ -770,7 +772,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
               ))}
             </div>
           ) : null}
-          {!loading && error ? <p role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{error}</p> : null}
+          {!loading && (error || loadError) ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{error ?? loadError}</ActionFeedback> : null}
           {!loading && !error && pageItems.length === 0 ? (
             <div className="empty-state-panel py-8 text-center">
               <CheckCheck className="mx-auto h-7 w-7 text-[#C9A227]" aria-hidden="true" />
