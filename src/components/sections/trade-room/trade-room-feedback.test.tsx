@@ -27,16 +27,27 @@ function deferredResponse() {
   return { promise, resolve };
 }
 
+class RoomStream extends EventTarget {
+  static instances: RoomStream[] = [];
+  close = vi.fn();
+  constructor() { super(); RoomStream.instances.push(this); }
+  snapshot(value: ReturnType<typeof room>) {
+    this.dispatchEvent(new MessageEvent("trade-room", { data: JSON.stringify(value) }));
+  }
+}
+
 beforeEach(() => {
   window.sessionStorage.clear();
   navigation.push.mockReset();
-  vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
+  RoomStream.instances = [];
+  vi.stubGlobal("EventSource", RoomStream);
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
   vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   Element.prototype.scrollIntoView = vi.fn();
   Element.prototype.scrollTo = vi.fn();
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s action feedback", (method) => {
   it("keeps the confirmed stage while saving, rejects double taps, then shows the next action beside success", async () => {
@@ -58,9 +69,17 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     const action = await screen.findByRole("button", { name: method === "Bank Transfer" ? "Release USDT" : "Confirm USDT Sent" });
     const card = document.getElementById("action-required")!;
     expect(card.contains(action)).toBe(true);
+    expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.compareDocumentPosition(screen.getByTestId("trade-progress-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.querySelector("button")).toBe(action);
     expect(within(card).getByTestId("trade-action-feedback")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("60");
     expect(navigation.push).not.toHaveBeenCalled();
+    // A later counterparty confirmation must replace the earlier success label.
+    current = { ...current, request: { ...current.request, status: "review_open", updatedAt: "2026-09-22T00:00:05.000Z" } };
+    await act(async () => RoomStream.instances.at(-1)!.snapshot(current));
+    expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+    expect(screen.queryByTestId("trade-action-feedback")).toBeNull();
   });
 
   it("keeps the original stage and offers retry after a failed action", async () => {
@@ -77,6 +96,62 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
   });
 });
 
+describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s live recovery", (method) => {
+  it("replaces a suspended stream and refreshes on return without a reload or a repeated mutation", async () => {
+    let current = room(method, "accepted");
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+    await screen.findByRole("progressbar");
+    const oldStream = RoomStream.instances[0];
+    await act(async () => oldStream.snapshot(current));
+    expect(screen.getByText("Connected")).toBeTruthy();
+    visibility.mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    expect(oldStream.close).toHaveBeenCalled();
+    expect(screen.queryByText("Connected")).toBeNull();
+    const previous = current;
+    current = { ...current, request: { ...current.request, status: "payment_sent", updatedAt: "2026-09-22T00:00:01.000Z" } };
+    const calls = fetchMock.mock.calls.length;
+    visibility.mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    const label = method === "Bank Transfer" ? "Confirm Money Received" : method === "Cardless ATM Withdrawal" ? "I Collected the ATM Cash" : "I Received the Cash";
+    expect(await screen.findByRole("button", { name: label })).toBeTruthy();
+    expect(fetchMock.mock.calls.length - calls).toBe(1);
+    expect(RoomStream.instances).toHaveLength(2);
+    await act(async () => oldStream.snapshot(previous));
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
+    // Opening a socket is not itself evidence that its snapshot is current.
+    await act(async () => RoomStream.instances[1].dispatchEvent(new Event("open")));
+    expect(screen.queryByText("Connected")).toBeNull();
+    await act(async () => RoomStream.instances[1].snapshot(current));
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it("recovers a silent connected stream, without polling a hidden page", async () => {
+    vi.useFakeTimers();
+    let current = room(method, "accepted");
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />); });
+    await act(async () => RoomStream.instances[0].snapshot(current));
+    current = { ...current, request: { ...current.request, status: "payment_sent", updatedAt: "2026-09-22T00:00:02.000Z" } };
+    await act(async () => vi.advanceTimersByTimeAsync(10_001));
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
+    visibility.mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    const calls = fetchMock.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(fetchMock.mock.calls).toHaveLength(calls);
+  });
+});
+
 describe("bank evidence feedback", () => {
   it("waits for the upload acknowledgement without blocking on a later room refresh", async () => {
     const current = room("Bank Transfer", "accepted");
@@ -89,6 +164,7 @@ describe("bank evidence feedback", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
     const input = await screen.findByLabelText("Choose payment receipt");
+    expect(document.getElementById("action-required")!.contains(input)).toBe(true);
     fireEvent.change(input, { target: { files: [new File(["receipt"], "receipt.png", { type: "image/png" })] } });
     fireEvent.click(screen.getByRole("button", { name: "Upload Payment Receipt" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/evidence"))).toBe(true));
@@ -111,6 +187,26 @@ describe("bank evidence feedback", () => {
     expect((screen.getByRole("button", { name: "Upload Payment Receipt" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
   });
+});
+
+it("places required buyer feedback before completion details", async () => {
+  const current = room("Face-to-Face (Meet in Person)", "review_open");
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+  const submit = await screen.findByRole("button", { name: "Submit Rating" });
+  const details = screen.getByText("The Face-to-Face trade has been recorded as complete.");
+  expect(submit.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it.each(["en", "ar"] as const)("puts pending terms decisions first in %s", async (locale) => {
+  const base = room("Cardless ATM Withdrawal", "accepted");
+  const current = { ...base, request: { ...base.request, termsProposal: { id: "terms-1", kind: "counter_offer", status: "pending", usdtAmount: "100", fiatAmount: "310", pricePerUsdt: "3.10", createdAt: base.request.updatedAt } } };
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
+  const accept = await screen.findByRole("button", { name: locale === "ar" ? "موافقة على الشروط" : "Accept these terms" });
+  expect(document.getElementById("action-required")!.querySelector("button")).toBe(accept);
+  expect(screen.queryByTestId("trade-primary-action")).toBeNull();
+  expect(screen.queryByText("No required action at this moment.")).toBeNull();
 });
 
 it("keeps copy and reminder feedback beside the chat controls", async () => {

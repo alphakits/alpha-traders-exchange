@@ -345,6 +345,10 @@ describe("Trade Room client stability helpers", () => {
     expect(shouldRestartTradeRoomStreamAfterPageShow({ persisted: false })).toBe(false);
   });
 
+  it.each(["upload-payment-receipt", "upload-seller-evidence"])("opens the current step for legacy %s notification links", (action) => {
+    expect(resolveTradeRoomGuidanceTarget({ priorState: null, currentState: "r:accepted", status: "accepted", action, hash: "#evidence" })).toBe("action-required");
+  });
+
   it("keeps reconnecting with bounded backoff during long mobile network interruptions", () => {
     expect(getTradeRoomReconnectDelayMs(1)).toBe(1_000);
     expect(getTradeRoomReconnectDelayMs(2)).toBe(2_000);

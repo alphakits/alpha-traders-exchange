@@ -459,7 +459,8 @@ async function openNotificationAndNavigate(input: {
     const disallowed = navPathnames.filter((pathname) => pathname.includes("/login") || pathname.includes("/dashboard"));
     expect(disallowed, `wrong-page flash while opening ${title}`).toEqual([]);
 
-    const section = page.locator(`#${expectedHash}`);
+    const uploadAction = expectedAction === "upload-payment-receipt" || expectedAction === "upload-seller-evidence";
+    const section = page.locator(uploadAction ? "#action-required" : `#${expectedHash}`);
     await expect(section).toBeVisible({ timeout: 20_000 });
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -1042,6 +1043,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       const path = `/en/trade-room/${requestId}`;
       await sellerPage.goto(path);
       await expect(sellerPage.getByTestId("trade-header-notice")).toHaveCount(0);
+      await expect(sellerPage.getByRole("button", { name: "Accept Trade", exact: true })).toBeInViewport();
       await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "20");
       await buyerPage.goto(path);
@@ -1063,6 +1065,7 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
       const receiveLabel = paymentMethod === "Bank Transfer" ? "Confirm Money Received" : paymentMethod === "Cardless ATM Withdrawal" ? "I Collected the ATM Cash" : "I Received the Cash";
       await expect(sellerPage.getByRole("button", { name: receiveLabel, exact: true })).toHaveCount(1);
+      await expect(sellerPage.getByRole("button", { name: receiveLabel, exact: true })).toBeInViewport();
       await expect(sellerPage.getByText("Buyer Receiving Wallet", { exact: true })).toHaveCount(0);
       // Hold the acknowledgement so the unchanged stage and one pending action
       // can be verified without timing-dependent sleeps.
