@@ -1139,12 +1139,14 @@ export function resolveTradeRoomGuidanceTarget(input: {
 }
 
 function resolveDeepLinkTarget(actionParam: string | null, hash: string | null): TradeRoomDeepLinkTarget | null {
+  // Existing notification URLs may still carry #evidence. Upload controls now
+  // belong to the current step, so those action links must land there too.
+  if (actionParam === "upload-payment-receipt" || actionParam === "upload-seller-evidence") return "action-required";
   const normalizedHash = hash?.trim().replace(/^#/, "") || "";
   if (normalizedHash === "status-banner" || normalizedHash === "action-required" || normalizedHash === "evidence" || normalizedHash === "chat") {
     return normalizedHash;
   }
   if (!actionParam) return null;
-  if (actionParam === "upload-payment-receipt" || actionParam === "upload-seller-evidence") return "evidence";
   if (actionParam === "accept-trade"
     || actionParam === "confirm-cash-payment"
     || actionParam === "confirm-money-received"
@@ -1347,7 +1349,8 @@ function TradeRoomPageSession({
   const [room, setRoom] = useState<TradeRoomData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [statusFeedback, setStatusFeedback, statusMessageFeedbackKey] = useActionFeedbackState<{ message: string; stage: PurchaseRequest["status"] } | null>(null);
+  const statusMessage = statusFeedback?.stage === room?.request.status ? statusFeedback?.message ?? null : null;
   const [actionBusy, setActionBusy] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [actionError, setActionError, actionErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -1427,6 +1430,13 @@ function TradeRoomPageSession({
   const perfSseReceivedTsRef = useRef<number | null>(null);
   const perfSsePublishedAtRef = useRef<number | null>(null);
   const roomRef = useRef<TradeRoomData | null>(null);
+  const lastRoomSyncAtRef = useRef(0);
+  const lastResumeAtRef = useRef(0);
+  const backgroundRefreshInFlightRef = useRef(false);
+  const setStatusMessage = useCallback((message: string | null) => {
+    const stage = roomRef.current?.request.status;
+    setStatusFeedback(message && stage ? { message, stage } : null);
+  }, [setStatusFeedback]);
   const deferredSseRoomRef = useRef<TradeRoomData | null>(null);
   const lastDeepLinkHandledRef = useRef<string | null>(null);
   const lastGuidedTradeStateRef = useRef<string | null>(null);
@@ -1470,6 +1480,7 @@ function TradeRoomPageSession({
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.", isAr));
       }
       setErrorMessage(null);
+      lastRoomSyncAtRef.current = Date.now();
       const apiLatencyMs = Math.round(performance.now() - startedAt);
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
       const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
@@ -1502,6 +1513,17 @@ function TradeRoomPageSession({
       if (!silent) setIsLoading(false);
     }
   }, [actor.id, canonicalSessionReady, isAr, refreshCanonicalSession, requestId]);
+
+  const refreshVisibleRoom = useCallback(async () => {
+    if (document.visibilityState !== "visible" || backgroundRefreshInFlightRef.current || actionInFlightRef.current) return;
+    backgroundRefreshInFlightRef.current = true;
+    try {
+      const refreshed = await fetchRoom(true);
+      if (!refreshed) setStreamConnected(false);
+    } finally {
+      backgroundRefreshInFlightRef.current = false;
+    }
+  }, [fetchRoom]);
 
   useEffect(() => {
     if (!canonicalSessionReady) {
@@ -1676,7 +1698,7 @@ function TradeRoomPageSession({
   }, [room?.poke?.cooldownUntil, room?.releaseDeadlineActive]);
 
   useEffect(() => {
-    if (!canonicalSessionReady) return;
+    if (!canonicalSessionReady || document.visibilityState === "hidden") return;
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
     let closed = false;
     setStreamConnected(false);
@@ -1691,9 +1713,11 @@ function TradeRoomPageSession({
     };
 
     const onTradeRoom = (event: Event) => {
+      if (closed || document.visibilityState === "hidden") return;
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as TradeRoomData;
+        lastRoomSyncAtRef.current = Date.now();
         // Lifecycle mutations wait for their HTTP confirmation because their
         // SSE snapshot can be stale. A chat POST is different: retain only its
         // temporary message while still applying authoritative counterparty
@@ -1744,10 +1768,11 @@ function TradeRoomPageSession({
 
     const onOpen = () => {
       streamReconnectAttemptsRef.current = 0;
-      setStreamConnected(true);
+      // An open socket alone does not establish that the room is current.
+      // The first authoritative snapshot marks the connection as ready.
     };
     const onError = (event: Event) => {
-      if (closed) return;
+      if (closed || document.visibilityState === "hidden") return;
       setStreamConnected(false);
       stream.close();
       streamReconnectAttemptsRef.current += 1;
@@ -1768,30 +1793,22 @@ function TradeRoomPageSession({
     const handlePageExit = () => {
       closed = true;
       stream.close();
-    };
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (shouldRestartTradeRoomStreamAfterPageShow(event)) {
-        setStreamCycle((value) => value + 1);
-      }
+      setStreamConnected(false);
     };
     const handleOffline = () => {
       stream.close();
       setStreamConnected(false);
     };
-    const handleOnline = () => {
-      streamReconnectAttemptsRef.current = 0;
-      if (reconnectTimeoutRef.current !== null) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        lastResumeAtRef.current = 0;
+        handlePageExit();
       }
-      void fetchRoom(true);
-      setStreamCycle((value) => value + 1);
     };
     window.addEventListener("pagehide", handlePageExit);
     window.addEventListener("beforeunload", handlePageExit);
-    window.addEventListener("pageshow", handlePageShow);
     window.addEventListener("offline", handleOffline);
-    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       closed = true;
@@ -1802,35 +1819,52 @@ function TradeRoomPageSession({
       }
       window.removeEventListener("pagehide", handlePageExit);
       window.removeEventListener("beforeunload", handlePageExit);
-      window.removeEventListener("pageshow", handlePageShow);
       window.removeEventListener("offline", handleOffline);
-      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [actor.id, canonicalSessionReady, fetchRoom, refreshCanonicalSession, requestId, streamCycle]);
 
   useEffect(() => {
-    if (!canonicalSessionReady || streamConnected) return;
+    if (!canonicalSessionReady) return;
     const id = window.setInterval(() => {
-      void fetchRoom(true);
-    }, 8000);
+      // A suspended iOS socket can look connected without delivering events.
+      // Reconcile quiet visible rooms as well as explicitly disconnected ones.
+      if (!streamConnected || Date.now() - lastRoomSyncAtRef.current >= 10_000) void refreshVisibleRoom();
+    }, 5000);
     return () => window.clearInterval(id);
-  }, [canonicalSessionReady, fetchRoom, streamConnected]);
+  }, [canonicalSessionReady, refreshVisibleRoom, streamConnected]);
 
   useEffect(() => {
     const refreshAfterResume = () => {
-      if (document.visibilityState !== "visible") return;
-      // EventSource reconnects independently; this one canonical no-store read
-      // promptly reconciles a backgrounded tab without creating another live
-      // update channel or replaying a client-side mutation.
-      void fetchRoom(true);
+      if (!canonicalSessionReady || document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastResumeAtRef.current < 500) return;
+      lastResumeAtRef.current = now;
+      setStreamConnected(false);
+      streamReconnectAttemptsRef.current = 0;
+      if (reconnectTimeoutRef.current !== null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      // Replace the possibly suspended socket and fetch the canonical snapshot.
+      // Focus/visibility events are coalesced; no lifecycle mutation is replayed.
+      setStreamCycle((value) => value + 1);
+      void refreshVisibleRoom();
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (shouldRestartTradeRoomStreamAfterPageShow(event)) refreshAfterResume();
     };
     document.addEventListener("visibilitychange", refreshAfterResume);
     window.addEventListener("focus", refreshAfterResume);
+    window.addEventListener("online", refreshAfterResume);
+    window.addEventListener("pageshow", handlePageShow);
     return () => {
       document.removeEventListener("visibilitychange", refreshAfterResume);
       window.removeEventListener("focus", refreshAfterResume);
+      window.removeEventListener("online", refreshAfterResume);
+      window.removeEventListener("pageshow", handlePageShow);
     };
-  }, [fetchRoom]);
+  }, [canonicalSessionReady, refreshVisibleRoom]);
 
   const isSeller = room ? room.request.sellerId === actor.id : actor.role === "approved_seller";
   const request = room?.request ?? null;
@@ -2031,7 +2065,7 @@ function TradeRoomPageSession({
   const primaryActionButtonLabel = useMemo(() => {
     if (!primaryAction) return "";
     if (primaryAction.mode === "upload") {
-      return isAr ? "المتابعة إلى قسم الإثبات" : "Continue to Evidence";
+      return primaryAction.uploadSide === "buyer" ? (isAr ? "رفع إيصال الدفع" : "Upload Payment Receipt") : (isAr ? "رفع إثبات البائع" : "Upload Seller Evidence");
     }
     return primaryAction.label;
   }, [isAr, primaryAction]);
@@ -2496,7 +2530,6 @@ function TradeRoomPageSession({
       if (!side) return;
       const file = side === "buyer" ? buyerEvidenceFile : sellerEvidenceFile;
       if (!file) {
-        evidenceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
         const input = side === "buyer" ? buyerEvidenceInputRef.current : sellerEvidenceInputRef.current;
         input?.click();
         return;
@@ -2907,142 +2940,47 @@ function TradeRoomPageSession({
     </div>
   ) : null;
 
+  const hasPendingTradeTerms = request.termsProposal?.status === "pending";
+  const tradeTerms = (
+    <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || room.hasOpenDispute}
+                  onBusyChange={(busy) => { actionInFlightRef.current = busy ? "trade-terms" : null; setAdjustingAmount(busy); }}
+                  onUpdated={(updated) => { if (!roomRef.current || roomRef.current.request.id !== updated.id) return; const nextRoom = applyRequestToRoom(roomRef.current, updated); roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom); setStatusMessage(isAr ? "تم تحديث شروط الصفقة بنجاح." : "Trade terms updated successfully."); }} />
+  );
+
+  const tradeDetails = (
+            <details data-testid="trade-details" className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4">
+              <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold">{isAr ? "تفاصيل الصفقة والأمان" : "Trade details and safety"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
+              <div className="mt-3 space-y-3 text-sm text-[#D1D5DB]">
+                <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{counterpartName}</span></p>
+                <p>{isAr ? "حسابك" : "Your account"}: {actor.fullName}</p>
+                <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {requestPaymentMethodLabel}</p>
+                <p>{isAr ? "السعر لكل USDT" : "Price per USDT"}: <bdi dir="ltr">₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / USDT</bdi></p>
+                {request.bankName ? <p>{isAr ? "البنوك المعتمدة" : "Supported Banks"}: {requestBankNamesLabel}</p> : null}
+                {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {request.closeReason ?? (isAr ? "غير محدد" : "Not specified")}</p> : null}
+                <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
+              </div>
+            </details>
+  );
+
   return (
     <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
-        <Card className="border-[#C9A227]/35 bg-gradient-to-br from-[#141414] via-[#0E0E0E] to-[#050505]">
-          <CardHeader className="space-y-3 xl:space-y-4">
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_320px] xl:items-end">
-              <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "غرفة التداول" : "Trade Room"}</p>
-                <CardTitle className="mt-1 text-2xl font-semibold">
-                  {isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi>
-                </CardTitle>
-                <p className="mt-1 text-sm text-[#D1D5DB]">
-                  {isAr ? "المبلغ:" : "Amount:"}{" "}
-                  <bdi dir="ltr" className="font-semibold text-white">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT</bdi>
-                  {" • "}
-                  <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</bdi>
-                </p>
-                <p className="mt-1 text-sm text-[#9CA3AF]">
-                  {request.priceMode === "buyer_offer"
-                    ? (request.priceOfferAcceptedAt ? (isAr ? "السعر المتفاوض عليه" : "Negotiated price") : (isAr ? "السعر المقترح" : "Offered price"))
-                    : (isAr ? "السعر لكل USDT" : "Price per USDT")}: {" "}
-                  <bdi dir="ltr" className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>
-                    ₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / USDT
-                  </bdi>
-                </p>
-                <p className="text-sm text-[#9CA3AF]">
-                  {isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{counterpartName}</span>
-                </p>
-                <p className="hidden text-xs text-[#6B7280] sm:block">{isAr ? "حسابك" : "Your account"}: {actor.fullName}</p>
-                <p className="hidden text-sm text-[#9CA3AF] sm:block">
-                  {isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{requestPaymentMethodLabel}</span>
-                </p>
-                {request.bankName ? (
-                  <p className="hidden text-sm text-[#9CA3AF] sm:block">
-                    {isAr ? "البنوك المعتمدة" : "Supported Banks"}: <span className="text-white">{requestBankNamesLabel}</span>
-                  </p>
-                ) : null}
-                {request.closedAt ? (
-                  <p className="hidden text-sm text-[#FCA5A5] sm:block">
-                    {isAr ? "سبب إغلاق الصفقة" : "Close reason"}: <span className="text-white">{request.closeReason ?? (isAr ? "غير محدد" : "Not specified")}</span>
-                  </p>
-                ) : null}
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right text-xs text-[#D1D5DB]">
-                <p>{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
-                <p className="mt-1">{isAr ? "الحالة الحالية" : "Current status"}: <span className={isOverdueTrade && !isCashTrade ? "text-red-300" : "text-white"}>{tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade)}</span></p>
-              </div>
-              <UserSafetyActions
-                context="trade"
-                locale={locale}
-                targetUserId={isSeller ? request.buyerId : request.sellerId}
-                viewerSignedIn
-              />
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-[#D1D5DB]">
-                <span>{isAr ? "تقدم الصفقة" : "Trade Progress"}</span>
-                <span><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
-              </div>
-              <div role="progressbar" aria-label={isAr ? "تقدم الصفقة" : "Trade Progress"} aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100} className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
-              </div>
-            </div>
-            {!showSuccessScreen ? <nav className="flex gap-2" aria-label={isAr ? "أقسام الصفقة" : "Trade sections"}>
-              <Button type="button" variant="secondary" size="sm" onClick={() => actionRequiredRef.current && revealTradeRoomDeepLinkTarget(actionRequiredRef.current)}>{isAr ? "الخطوة الحالية" : "Current step"}</Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => chatSectionRef.current && revealTradeRoomDeepLinkTarget(chatSectionRef.current)}><MessageCircle className="h-4 w-4" />{isAr ? "الدردشة" : "Chat"}</Button>
-            </nav> : null}
-          </CardHeader>
-        </Card>
-
-        <section className="hidden sticky top-2 z-20 rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md md:block">
-          <div className="overflow-x-auto">
-            <div className="flex min-w-max items-start gap-2">
-              {tradeSteps.map((step, index) => {
-                const isCompleted = index < currentStepIndex || (index === currentStepIndex && COMPLETED_TRADE_STATUSES.has(request.status));
-                const isCurrent = index === currentStepIndex;
-                return (
-                  <div key={step.id} className="flex min-w-[104px] items-center gap-2 sm:min-w-[120px]">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedStep(step.id)}
-                      aria-current={isCurrent ? "step" : undefined}
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-base transition sm:h-12 sm:w-12 sm:text-lg ${
-                        isCompleted
-                          ? "border-emerald-400 bg-emerald-500 text-white"
-                          : isCurrent
-                            ? "border-[#C9A227] bg-[#C9A227]/25 text-[#FDE68A] shadow-[0_0_18px_rgba(201,162,39,0.45)]"
-                            : "border-white/15 bg-black/40 text-[#9CA3AF]"
-                      }`}
-                    >
-                      {isCompleted ? "✓" : step.icon}
-                    </button>
-                    <div className="text-xs">
-                      <p className="font-medium text-white">{tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}</p>
-                      {isCurrent ? <p className="text-[#C9A227]">{isAr ? "المرحلة الحالية" : "Current step"}</p> : null}
-                    </div>
-                    {index < tradeSteps.length - 1 ? <div className={`h-0.5 w-10 ${index < currentStepIndex ? "bg-emerald-400" : "bg-white/15"}`} /> : null}
-                  </div>
-                );
-              })}
-            </div>
+        <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi></h1>
+            {!showSuccessScreen ? <Button type="button" variant="secondary" size="sm" onClick={() => chatSectionRef.current && revealTradeRoomDeepLinkTarget(chatSectionRef.current)}><MessageCircle className="h-4 w-4" />{isAr ? "الدردشة" : "Chat"}</Button> : null}
           </div>
-          <p className="mt-2 text-sm text-[#D1D5DB]">
-            {selectedStepEvent
-              ? `${new Date(selectedStepEvent.createdAt).toLocaleString(dateLocale)} • ${timelineEventLabel(selectedStepEvent, isAr)}`
-              : (isAr ? "لا يوجد حدث مسجل لهذه المرحلة بعد." : "No logged event for this step yet.")}
-          </p>
-        </section>
-
-        <details className="rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md md:hidden">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
-            <span className="min-w-0 truncate">
-              <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
-              <span className="font-semibold text-[#FDE68A]">{tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer")}</span>
-            </span>
-            <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
-          </summary>
-          <div className="mt-3 space-y-2">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A]" style={{ width: `${progressPercent}%` }} />
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 text-[10px] text-[#9CA3AF]">
-              {tradeSteps.map((step, index) => (
-                <button
-                  key={step.id}
-                  type="button"
-                  onClick={() => setSelectedStep(step.id)}
-                  className={`min-h-11 rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
-                >
-                  {tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}
-                </button>
-              ))}
-            </div>
-            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{timelineEventLabel(selectedStepEvent, isAr)}</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+            <p><bdi dir="ltr" className="font-semibold text-white">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT</bdi> · <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</bdi></p>
+            <p className="text-xs text-[#9CA3AF]">{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
           </div>
-        </details>
+          <div className="flex items-center gap-2">
+            <div role="progressbar" aria-label={isAr ? "تقدم الصفقة" : "Trade Progress"} aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100} className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+            </div>
+            <bdi dir="ltr" className="text-xs text-[#C9A227]">{progressPercent}{isAr ? "٪" : "%"}</bdi>
+          </div>
+        </header>
 
         {showSuccessScreen ? (
           isActorBuyer && buyerCompletionSuccessActive ? (
@@ -3089,57 +3027,6 @@ function TradeRoomPageSession({
             </CardHeader></div>
             <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
                   {actionFeedback}
-              {isFaceToFaceTrade || isCardlessAtmTrade ? (
-                <>
-                  <p>{isCardlessAtmTrade
-                    ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
-                    : (isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete.")}</p>
-                  <p>{isAr ? "انتقلت الصفقة الآن إلى السجل والمراجعة، وتم تسجيل العمولة المستحقة على البائع." : "The trade is now in history and review, and the seller commission has been recorded."}</p>
-                  <p>{isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
-                </>
-              ) : (
-                <>
-                  <p>{isAr ? `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT تم استلامها.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT received.`}</p>
-                  <p>{isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt."}</p>
-                  <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
-                  <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
-                </>
-              )}
-              {room.sellerCommissionDueCount > 0 && isSeller ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
-                  <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`}</p>
-                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`}</p> : null}
-                  <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
-                  <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
-                    {isAr ? "ادفع الآن" : "Pay Now"}
-                  </Button>
-                </div>
-              ) : null}
-              {isActorBuyer && request.sellerBuyerReview ? <div className="rounded-xl border border-white/15 bg-black/20 p-3">
-                <p className="font-medium">{isAr ? "تقييم البائع لك" : "Seller feedback for you"} · {request.sellerBuyerReview.rating}/5</p>
-                <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{request.sellerBuyerReview.comment}</p>
-              </div> : null}
-              {isSeller ? (
-                <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-4">
-                  <p className="font-medium text-white">{isAr ? "تم إغلاق الصفقة كمكتملة" : "Trade closed as completed"}</p>
-                  <p className="mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
-                  {request.sellerBuyerReview ? <p className="mt-3">{isAr ? "تم حفظ تقييمك للمشتري" : "Your buyer review is saved"} · {request.sellerBuyerReview.rating}/5</p> : (
-                    <details className="mt-3">
-                      <summary className="cursor-pointer rounded-xl border border-white/20 p-3 font-semibold">{isAr ? "قيّم المشتري" : "Review buyer"}</summary>
-                      <form className="mt-3 space-y-3" onSubmit={handleReviewFormSubmit}>
-                        <select aria-label={isAr ? "تقييم المشتري" : "Buyer rating"} value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))} disabled={reviewBusy || actionBusy} className="min-h-11 w-full rounded-xl border border-white/20 bg-[#101010] px-3 text-white">
-                          {[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{"★".repeat(rating)} ({rating})</option>)}
-                        </select>
-                        <Textarea ref={reviewCommentInputRef} aria-label={isAr ? "تعليق عن المشتري" : "Buyer feedback"} placeholder={isAr ? "كيف كانت تجربتك مع المشتري؟" : "How was your experience with this buyer?"} maxLength={500} value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} disabled={reviewBusy || actionBusy} />
-                        {reviewCommentError ? <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-red-300">{reviewCommentError}</ActionFeedback> : null}
-                        <Button type="submit" disabled={reviewBusy || actionBusy}>{reviewBusy ? (isAr ? "جاري الحفظ..." : "Saving...") : (isAr ? "إرسال التقييم" : "Submit buyer review")}</Button>
-                      </form>
-                    </details>
-                  )}
-                  <Button type="button" variant="secondary" className="mt-3 min-h-11 w-full" disabled={actionBusy || reviewBusy} onClick={() => router.push("/usdt-exchange")}>{isAr ? "العودة للرئيسية" : "Return home"}</Button>
-                </div>
-              ) : null}
               {isActorBuyer && !request.buyerReview ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
                   <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
@@ -3212,6 +3099,57 @@ function TradeRoomPageSession({
 
                 </div>
               ) : null}
+              {isSeller ? (
+                <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-4">
+                  <p className="font-medium text-white">{isAr ? "تم إغلاق الصفقة كمكتملة" : "Trade closed as completed"}</p>
+                  <p className="mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
+                  {request.sellerBuyerReview ? <p className="mt-3">{isAr ? "تم حفظ تقييمك للمشتري" : "Your buyer review is saved"} · {request.sellerBuyerReview.rating}/5</p> : (
+                    <details className="mt-3">
+                      <summary className="cursor-pointer rounded-xl border border-white/20 p-3 font-semibold">{isAr ? "قيّم المشتري" : "Review buyer"}</summary>
+                      <form className="mt-3 space-y-3" onSubmit={handleReviewFormSubmit}>
+                        <select aria-label={isAr ? "تقييم المشتري" : "Buyer rating"} value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))} disabled={reviewBusy || actionBusy} className="min-h-11 w-full rounded-xl border border-white/20 bg-[#101010] px-3 text-white">
+                          {[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{"★".repeat(rating)} ({rating})</option>)}
+                        </select>
+                        <Textarea ref={reviewCommentInputRef} aria-label={isAr ? "تعليق عن المشتري" : "Buyer feedback"} placeholder={isAr ? "كيف كانت تجربتك مع المشتري؟" : "How was your experience with this buyer?"} maxLength={500} value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} disabled={reviewBusy || actionBusy} />
+                        {reviewCommentError ? <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-red-300">{reviewCommentError}</ActionFeedback> : null}
+                        <Button type="submit" disabled={reviewBusy || actionBusy}>{reviewBusy ? (isAr ? "جاري الحفظ..." : "Saving...") : (isAr ? "إرسال التقييم" : "Submit buyer review")}</Button>
+                      </form>
+                    </details>
+                  )}
+                  <Button type="button" variant="secondary" className="mt-3 min-h-11 w-full" disabled={actionBusy || reviewBusy} onClick={() => router.push("/usdt-exchange")}>{isAr ? "العودة للرئيسية" : "Return home"}</Button>
+                </div>
+              ) : null}
+              {isFaceToFaceTrade || isCardlessAtmTrade ? (
+                <>
+                  <p>{isCardlessAtmTrade
+                    ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
+                    : (isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete.")}</p>
+                  <p>{isAr ? "انتقلت الصفقة الآن إلى السجل والمراجعة، وتم تسجيل العمولة المستحقة على البائع." : "The trade is now in history and review, and the seller commission has been recorded."}</p>
+                  <p>{isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                </>
+              ) : (
+                <>
+                  <p>{isAr ? `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT تم استلامها.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT received.`}</p>
+                  <p>{isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt."}</p>
+                  <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                  <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                </>
+              )}
+              {room.sellerCommissionDueCount > 0 && isSeller ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                  <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
+                  <p>{isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`}</p>
+                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`}</p> : null}
+                  <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
+                  <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
+                    {isAr ? "ادفع الآن" : "Pay Now"}
+                  </Button>
+                </div>
+              ) : null}
+              {isActorBuyer && request.sellerBuyerReview ? <div className="rounded-xl border border-white/15 bg-black/20 p-3">
+                <p className="font-medium">{isAr ? "تقييم البائع لك" : "Seller feedback for you"} · {request.sellerBuyerReview.rating}/5</p>
+                <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{request.sellerBuyerReview.comment}</p>
+              </div> : null}
               {!showSuccessScreen && isBuyerCompletionSyncInFlight ? (
                 <Card className="border-[#C9A227]/35 bg-[#C9A227]/10">
                   <CardContent className="flex items-center gap-3 py-4 text-sm text-[#FDE68A]">
@@ -3250,74 +3188,60 @@ function TradeRoomPageSession({
           )
         ) : null}
 
+        {showSuccessScreen ? tradeDetails : null}
+
         {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
           <div className="space-y-4">
             <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
-              <div id="status-banner" ref={statusBannerRef} tabIndex={-1} className={`space-y-2 p-5 pb-3 ${stepPulse ? "ring-1 ring-inset ring-[#C9A227]/30" : ""}`}>
+              <div id="status-banner" ref={statusBannerRef} tabIndex={-1} className={`space-y-2 p-4 pb-3 sm:p-5 sm:pb-3 ${stepPulse ? "ring-1 ring-inset ring-[#C9A227]/30" : ""}`}>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{statusBanner?.title ?? (isAr ? "الحالة الحالية" : "Current Status")}</p>
-                <CardTitle className="text-xl leading-snug">{statusBanner?.headline ?? tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade)}</CardTitle>
-                <p className="text-sm text-[#D1D5DB]">{statusBanner?.detail ?? turn?.detail}</p>
-                <details className="text-xs text-[#9CA3AF]">
-                  <summary className="flex min-h-11 cursor-pointer items-center">{isAr ? "تفاصيل المرحلة والتحديثات" : "Step details and updates"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
-                  <div className="space-y-2 pb-2">
-                    <p>{statusBanner?.yourAction}</p>
-                    <p>{statusBanner?.counterpartyAction}</p>
-                    <p>{waitingEstimate}</p>
-                    <p>{deliveryConfirmation}</p>
-                  </div>
-                </details>
+                <CardTitle className="text-xl leading-snug">{hasPendingTradeTerms ? (isSeller ? (isAr ? "بانتظار موافقة المشتري على الشروط" : "Waiting for the Buyer to Review the Terms") : (isAr ? "راجع شروط الصفقة المقترحة" : "Review the Proposed Trade Terms")) : statusBanner?.headline ?? tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade)}</CardTitle>
+                <p className="text-sm text-[#D1D5DB]">{hasPendingTradeTerms ? (isAr ? "يجب تأكيد الشروط قبل متابعة الدفع أو إرسال USDT." : "Confirm the terms before continuing with payment or sending USDT.") : statusBanner?.detail ?? turn?.detail}</p>
               </div>
-              <CardContent className="space-y-3">
-                {actionFeedback}
-                <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-                  <p className="text-sm text-[#D1D5DB]">
-                    {isAr
-                      ? `المبلغ المطلوب ${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency} مقابل ${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT.`
-                      : `Required amount is ${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency} for ${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT.`}
-                  </p>
-                  {request.priceMode === "buyer_offer" ? (
-                    <div className="mt-3 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#F4D87A]">
-                      <p className="font-semibold">{request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer")}</p>
-                      <p className="mt-1 text-[#E5E7EB]">
-                        {request.priceOfferAcceptedAt
-                          ? (isAr
-                            ? `وافق البائع على سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT بدلاً من سعر العرض الأصلي ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
-                            : `The seller accepted ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT instead of the original ₪${toNumber(request.listingPriceAtRequest).toFixed(2)} listing price.`)
-                          : (isAr
-                            ? `اقترح المشتري سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT. سعر العرض الأصلي هو ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
-                            : `The buyer offered ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT. The original listing price is ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`)}
+              <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
+                {hasPendingTradeTerms ? tradeTerms : null}
+                {primaryAction ? (
+                  <div data-testid="trade-primary-action" className="space-y-2">
+                    <Button
+                      type="button"
+                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 sm:text-base"
+                      disabled={primaryActionLoading || actionBusy || Boolean(evidenceBusy) || adjustingAmount || Boolean(primaryActionDisabledReason)}
+                      onClick={() => void handlePrimaryAction()}
+                    >
+                      {primaryActionLoading ? (
+                        <span className="inline-flex items-center gap-2">
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                          <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
+                        </span>
+                      ) : primaryActionButtonLabel}
+                    </Button>
+                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
+                    {!isSeller && request.status === "accepted" && !isCashTrade ? (
+                      <p className="text-xs text-[#9CA3AF]">
+                        {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
                       </p>
-                    </div>
-                  ) : null}
-                </div>
-
-                {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" ? (
+                    ) : null}
+                  </div>
+                ) : !hasPendingTradeTerms ? (
+                  <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
+                ) : null}
+                {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" && !hasPendingTradeTerms ? (
                   <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
                     verificationKind={cardlessVerificationKind} verificationValue={cardlessVerificationValue}
                     onCodeChange={setCardlessCode} onKindChange={setCardlessVerificationKind} onValueChange={setCardlessVerificationValue} />
                 ) : null}
-                {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
-                  <div key={message.id} className="rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
-                    <p className="font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
-                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified")}</strong></p>
-                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
-                  </div>
-                )) : null}
-                <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || room.hasOpenDispute}
-                  onBusyChange={(busy) => { actionInFlightRef.current = busy ? "trade-terms" : null; setAdjustingAmount(busy); }}
-                  onUpdated={(updated) => { setStatusMessage(isAr ? "تم تحديث شروط الصفقة بنجاح." : "Trade terms updated successfully."); if (!roomRef.current || roomRef.current.request.id !== updated.id) return; const nextRoom = applyRequestToRoom(roomRef.current, updated); roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom); }} />
-                {isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
-                  <div className="rounded-xl border border-white/15 p-3 text-sm">
-                    <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${request.pricePerUsdt} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${request.pricePerUsdt} per USDT`}</p>
-                    <label className="mt-3 block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
-                    <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount || (parseCardlessCashAmount(request.fiatAmount) ? String(Number(request.fiatAmount)) : "")} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
-                      <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
-                      {Array.from({ length: 100 }, (_, i) => (i + 1) * 100).map((cash) => <option key={cash} value={cash}>₪{cash}</option>)}
-                    </select>
-                    <p className="mt-2 font-semibold text-[#FDE68A]">{calculateCardlessUsdtAmount(adjustmentIlsAmount || request.fiatAmount, request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "") ?? "—"} USDT</p>
-                    <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
+                {primaryAction?.mode === "upload" ? (
+                  <div className="space-y-2" data-testid="trade-evidence-picker">
+                    <Input ref={primaryAction.uploadSide === "buyer" ? buyerEvidenceInputRef : sellerEvidenceInputRef} type="file" tabIndex={-1} accept=".png,.jpg,.jpeg,.webp,.pdf" className="sr-only"
+                      aria-label={primaryAction.uploadSide === "buyer" ? (isAr ? "اختيار إيصال الدفع" : "Choose payment receipt") : (isAr ? "اختيار إثبات إرسال USDT" : "Choose USDT release proof")}
+                      disabled={actionBusy || Boolean(evidenceBusy)} onChange={(event) => (primaryAction.uploadSide === "buyer" ? setBuyerEvidenceFile : setSellerEvidenceFile)(event.target.files?.[0] ?? null)} />
+                    {(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile) ? <p className="break-all text-xs text-[#C9A227]">{isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile)?.name}</bdi></p> : null}
+                    <Button type="button" variant="secondary" size="sm" className="min-h-11 w-full" disabled={actionBusy || Boolean(evidenceBusy)} onClick={() => (primaryAction.uploadSide === "buyer" ? buyerEvidenceInputRef : sellerEvidenceInputRef).current?.click()}>
+                      <Upload className="h-4 w-4" aria-hidden="true" />{(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile) ? (isAr ? "تغيير الملف" : "Change File") : primaryAction.uploadSide === "buyer" ? (isAr ? "اختيار إيصال الدفع" : "Choose Payment Receipt") : (isAr ? "اختيار إثبات البائع" : "Choose Seller Proof")}
+                    </Button>
                   </div>
                 ) : null}
+                {actionFeedback}
                 {canRevealBankDetails ? (
                   <div className="rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4">
                     <p className="text-xs uppercase tracking-[0.14em] text-[#BFDBFE]">{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>
@@ -3370,39 +3294,58 @@ function TradeRoomPageSession({
                         </Button>
                       </div>
                       {walletQrDataUrl ? (
-                        <div className="self-center rounded-xl bg-white p-2">
-                          <Image src={walletQrDataUrl} alt={isAr ? "رمز QR لمحفظة المشتري" : "Buyer wallet QR code"} width={176} height={176} unoptimized />
-                        </div>
+                        <details className="shrink-0 text-sm">
+                          <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-[#FDE68A]">{isAr ? "إظهار رمز QR" : "Show QR code"}<ChevronDown className="h-4 w-4" aria-hidden="true" /></summary>
+                          <div className="mt-2 w-fit rounded-xl bg-white p-2"><Image src={walletQrDataUrl} alt={isAr ? "رمز QR لمحفظة المشتري" : "Buyer wallet QR code"} width={176} height={176} unoptimized /></div>
+                        </details>
                       ) : null}
                     </div>
                   </div>
                 ) : null}
 
-                {primaryAction ? (
-                  <div className="space-y-2">
-                    <Button
-                      type="button"
-                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 sm:text-base"
-                      disabled={primaryActionLoading || Boolean(primaryActionDisabledReason)}
-                      onClick={() => void handlePrimaryAction()}
-                    >
-                      {primaryActionLoading ? (
-                        <span className="inline-flex items-center gap-2">
-                          <LoaderCircle className="h-4 w-4 animate-spin" />
-                          <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
-                        </span>
-                      ) : primaryActionButtonLabel}
-                    </Button>
-                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
-                    {!isSeller && request.status === "accepted" && !isCashTrade ? (
-                      <p className="text-xs text-[#9CA3AF]">
-                        {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
-                      </p>
-                    ) : null}
+                <details className="text-xs text-[#9CA3AF]">
+                  <summary className="flex min-h-11 cursor-pointer items-center">{isAr ? "تفاصيل المرحلة والتحديثات" : "Step details and updates"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
+                  <div className="space-y-2 pb-2">
+                    <p>{statusBanner?.yourAction}</p>
+                    <p>{statusBanner?.counterpartyAction}</p>
+                    <p>{waitingEstimate}</p>
+                    <p>{deliveryConfirmation}</p>
                   </div>
-                ) : (
-                  <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
-                )}
+                </details>
+                  {request.priceMode === "buyer_offer" ? (
+                    <div className="mt-3 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#F4D87A]">
+                      <p className="font-semibold">{request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer")}</p>
+                      <p className="mt-1 text-[#E5E7EB]">
+                        {request.priceOfferAcceptedAt
+                          ? (isAr
+                            ? `وافق البائع على سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT بدلاً من سعر العرض الأصلي ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
+                            : `The seller accepted ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT instead of the original ₪${toNumber(request.listingPriceAtRequest).toFixed(2)} listing price.`)
+                          : (isAr
+                            ? `اقترح المشتري سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT. سعر العرض الأصلي هو ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
+                            : `The buyer offered ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT. The original listing price is ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`)}
+                      </p>
+                    </div>
+                  ) : null}
+                {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
+                  <div key={message.id} className="rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
+                    <p className="font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
+                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified")}</strong></p>
+                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
+                  </div>
+                )) : null}
+                {!hasPendingTradeTerms ? tradeTerms : null}
+                {isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
+                  <div className="rounded-xl border border-white/15 p-3 text-sm">
+                    <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${request.pricePerUsdt} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${request.pricePerUsdt} per USDT`}</p>
+                    <label className="mt-3 block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
+                    <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount || (parseCardlessCashAmount(request.fiatAmount) ? String(Number(request.fiatAmount)) : "")} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
+                      <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
+                      {Array.from({ length: 100 }, (_, i) => (i + 1) * 100).map((cash) => <option key={cash} value={cash}>₪{cash}</option>)}
+                    </select>
+                    <p className="mt-2 font-semibold text-[#FDE68A]">{calculateCardlessUsdtAmount(adjustmentIlsAmount || request.fiatAmount, request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "") ?? "—"} USDT</p>
+                    <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
+                  </div>
+                ) : null}
                 {isSeller && request.status === "accepted" && !isCashTrade ? (
                   <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
                     <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
@@ -3540,6 +3483,37 @@ function TradeRoomPageSession({
               </CardContent>
             </Card>
 
+            {tradeDetails}
+
+            <details data-testid="trade-progress-details" className="rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
+            <span className="min-w-0 truncate">
+              <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
+              <span className="font-semibold text-[#FDE68A]">{tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer")}</span>
+            </span>
+            <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
+          </summary>
+          <div className="mt-3 space-y-2">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A]" style={{ width: `${progressPercent}%` }} />
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-[10px] text-[#9CA3AF]">
+              {tradeSteps.map((step, index) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => setSelectedStep(step.id)}
+                  className={`min-h-11 rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
+                >
+                  {tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}
+                </button>
+              ))}
+            </div>
+            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{timelineEventLabel(selectedStepEvent, isAr)}</p> : null}
+          </div>
+        </details>
+
+
             {!isCashTrade ? (
             <Card id="evidence" ref={evidenceSectionRef} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
@@ -3559,55 +3533,6 @@ function TradeRoomPageSession({
                         : (isAr ? "لم يتم الرفع بعد." : "Not uploaded yet.")}
                     </p>
                   )}
-                  {actorSide === "buyer" && request.status === "accepted" ? (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-xs text-[#9CA3AF]">
-                        {isAr ? "هذه الخطوة مطلوبة قبل إرسال تأكيد الدفع." : "This receipt is required before payment confirmation."}
-                      </p>
-                      <Input
-                        ref={buyerEvidenceInputRef}
-                        disabled={actionBusy || Boolean(evidenceBusy)}
-                        type="file"
-                        tabIndex={-1}
-                        accept=".png,.jpg,.jpeg,.webp,.pdf"
-                        className="sr-only"
-                        aria-label={isAr ? "اختيار إيصال الدفع" : "Choose payment receipt"}
-                        onChange={(event) => setBuyerEvidenceFile(event.target.files?.[0] ?? null)}
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="min-h-11 w-full"
-                        disabled={actionBusy || Boolean(evidenceBusy)}
-                        onClick={() => buyerEvidenceInputRef.current?.click()}
-                      >
-                        <Upload className="h-4 w-4" aria-hidden="true" />
-                        {buyerEvidenceFile
-                          ? (isAr ? "تغيير الملف" : "Change File")
-                          : (isAr ? "اختيار إيصال الدفع" : "Choose Payment Receipt")}
-                      </Button>
-                      {buyerEvidenceFile ? (
-                        <p className="text-xs text-[#C9A227]">
-                          {isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{buyerEvidenceFile.name}</bdi>
-                        </p>
-                      ) : (
-                        <p className="text-xs text-[#9CA3AF]">
-                          {isAr ? "اختر الملف ثم استخدم زر الإجراء الرئيسي للمتابعة." : "Choose the file, then use the main action button above to continue."}
-                        </p>
-                      )}
-                      <Button
-                        type="button"
-                        size="sm"
-                        loading={evidenceBusy === "buyer"}
-                        loadingLabel={isAr ? "جارٍ الرفع..." : "Uploading..."}
-                        disabled={!buyerEvidenceFile || actionBusy || Boolean(evidenceBusy)}
-                        onClick={() => void handleUploadEvidence("buyer")}
-                      >
-                        {isAr ? "رفع إيصال الدفع" : "Upload Payment Receipt"}
-                      </Button>
-                    </div>
-                  ) : null}
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                   <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Release Proof"}</p>
@@ -3622,7 +3547,7 @@ function TradeRoomPageSession({
                         : (isAr ? "سيتم تمكين الرفع عند مرحلة إصدار USDT." : "Upload will be available at the USDT release stage.")}
                     </p>
                   )}
-                  {actorSide === "seller" && sellerEvidenceUploadOpen ? (
+                  {actorSide === "seller" && sellerEvidenceUploadOpen && primaryAction?.mode !== "upload" ? (
                     <div className="mt-3 space-y-2">
                       <p className="text-xs text-[#9CA3AF]">
                         {sellerEvidenceRequired
@@ -3786,6 +3711,7 @@ function TradeRoomPageSession({
             <Card id="chat" ref={chatSectionRef} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2 text-lg"><MessageCircle className="h-4 w-4 text-[#C9A227]" />{isAr ? "الدردشة المباشرة" : "Live Chat"}</CardTitle>
+                <Button type="button" variant="secondary" size="sm" onClick={() => actionRequiredRef.current && revealTradeRoomDeepLinkTarget(actionRequiredRef.current)}>{isAr ? "الخطوة الحالية" : "Current step"}</Button>
                 {pokeAvailable ? (
                   <div className="w-full sm:w-auto">
                     <Button
