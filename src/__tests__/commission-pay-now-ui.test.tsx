@@ -271,6 +271,34 @@ describe("seller commission Pay Now", () => {
     expect(routerPush).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { amountDue: 7.89, paymentAmountDue: 7.890001, balance: "7.89 USDT", exact: "7.890001" },
+    { amountDue: 0.18, paymentAmountDue: 0.180001, balance: "0.18 USDT", exact: "0.180001" },
+  ])("preserves the fractional commission balance $balance and exact copy amount", async ({ amountDue, paymentAmountDue, balance, exact }) => {
+    commissionRecordsOverride = [{
+      commissionId: "fractional-commission",
+      amountDue,
+      paymentAmountDue,
+      dueAt: "2026-09-15T00:00:00.000Z",
+    }];
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+
+    const status = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain(balance);
+      return element!;
+    });
+    fireEvent.click(within(status).getByRole("button", { name: "Pay Now" }));
+
+    const panel = await waitFor(() => {
+      const element = document.getElementById("commission-payment");
+      expect(element?.textContent).toContain(`${exact} USDT`);
+      return element!;
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Copy exact commission amount" }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(exact));
+  });
+
   it("refreshes an already-open seller workspace when an admin issues a commission", async () => {
     commissionRecordsOverride = [];
     render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);

@@ -577,6 +577,13 @@ export function formatUsdt(value: number) {
   return `${Math.trunc(value).toLocaleString("en-US")} USDT`;
 }
 
+function formatCommissionUsdt(value: number) {
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USDT`;
+}
+
 export function formatExactCommissionUsdt(value: number) {
   return `${value.toLocaleString("en-US", {
     minimumFractionDigits: 6,
@@ -5953,7 +5960,7 @@ export function UsdtExchangePage({
             CompactTradeTimeline,
             LocalizedEvidenceFileInput,
             formatIls,
-            formatUsdt,
+            formatUsdt: formatCommissionUsdt,
             formatIntegerForInput,
             normalizeDecimalInput,
             renderBankLogo,

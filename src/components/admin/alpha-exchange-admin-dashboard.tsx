@@ -229,7 +229,10 @@ function formatUsdt(value: number) {
 }
 
 function formatExactUsdt(value: number) {
-  return `${Math.trunc(value).toLocaleString("en-US")} USDT`;
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  })} USDT`;
 }
 
 function formatPercent(value: number) {
