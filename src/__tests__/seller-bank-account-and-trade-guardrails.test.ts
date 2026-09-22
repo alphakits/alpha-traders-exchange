@@ -661,7 +661,7 @@ describe("seller bank accounts and trade guardrails", () => {
       nextStatus: "cancelled",
     })).rejects.toMatchObject({
       code: "payment-progress-exists",
-      message: "This trade cannot be cancelled after payment or payment evidence is submitted.",
+      message: "This trade cannot be cancelled after payment, payment evidence or withdrawal details are shared.",
     });
 
     for (const status of ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {

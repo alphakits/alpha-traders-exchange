@@ -305,9 +305,68 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     fireEvent.click(adjust);
     const amount = screen.getByLabelText("Correct USDT amount");
     expect(amount.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/the buyer can cancel before payment/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/Either participant can cancel before/)).toBeTruthy();
   });
+
+  it.each(["en", "ar"] as const)("lets the accepted seller cancel once before payment in %s", async (locale) => {
+    const current = room(method, "accepted");
+    const response = deferredResponse();
+    const fetch = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetch);
+    render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={seller} />);
+    const cancel = await screen.findByRole("button", { name: locale === "ar" ? "إلغاء الصفقة" : "Cancel Trade" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(false);
+    expect(document.getElementById("action-required")!.contains(cancel)).toBe(true);
+    fireEvent.click(cancel);
+    fireEvent.click(cancel);
+    const patches = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ status: "cancelled" });
+    expect(navigation.push).not.toHaveBeenCalled();
+    await act(async () => response.resolve(Response.json({ request: { ...current.request, status: "cancelled" } })));
+    expect(navigation.push).toHaveBeenCalledWith("/usdt-exchange");
+  });
+
+  it("keeps the seller in the room if cancellation loses a race with payment", async () => {
+    const current = room(method, "accepted");
+    const fetch = vi.fn((_url: string, init?: RequestInit) => Promise.resolve(init?.method === "PATCH"
+      ? Response.json({ error: "Payment has already started. Refresh the trade." }, { status: 409 }) : Response.json(current)));
+    vi.stubGlobal("fetch", fetch);
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel Trade" }));
+    expect(await screen.findByText("Payment has already started. Refresh the trade.")).toBeTruthy();
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("locks seller cancellation at %s", async (status) => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, status)))));
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+    const cancel = await screen.findByRole("button", { name: "Cancel Trade" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+it("requires the seller's confirmation before cancelling", async () => {
+  vi.mocked(window.confirm).mockReturnValue(false);
+  const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() => Promise.resolve(Response.json(room("Bank Transfer", "accepted"))));
+  vi.stubGlobal("fetch", fetch);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel Trade" }));
+  expect(fetch.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  expect(navigation.push).not.toHaveBeenCalled();
+});
+
+it.each([
+  { request: { sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-09-22T12:00:00Z" } },
+  { request: { buyerEvidence: { id: "buyer-proof" } } },
+  { hasOpenDispute: true },
+])("locks seller cancellation when the accepted status has hidden progress or a dispute: %j", async (overrides) => {
+  const base = room("Cardless ATM Withdrawal", "accepted");
+  const current = { ...base, ...overrides, request: { ...base.request, ...overrides.request } };
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  expect((await screen.findByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("keeps the recorded cardless cash fixed and recalculates only once", async () => {
