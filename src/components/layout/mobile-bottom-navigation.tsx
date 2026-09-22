@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Handshake, House, Store, UserRound } from "lucide-react";
+import { Handshake, House, Newspaper, Store, UserRound } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -60,15 +60,10 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
 
   const destinations: MobileDestination[] = [
     {
-      href: "/dashboard",
+      href: "/",
       label: isAr ? "الرئيسية" : "Home",
       icon: House,
-      isActive: (current) => !isTradesDestination && (
-        current === "/dashboard"
-        || current.startsWith("/dashboard/")
-        || current === "/admin"
-        || current.startsWith("/admin/")
-      ),
+      isActive: (current) => current === "/",
     },
     {
       href: "/usdt-exchange",
@@ -87,10 +82,10 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       isActive: (current) => isTradesDestination || current === "/trade-room" || current.startsWith("/trade-room/"),
     },
     {
-      href: "/notifications",
-      label: isAr ? "الإشعارات" : "Notifications",
-      icon: Bell,
-      isActive: (current) => current === "/notifications" || current.startsWith("/notifications/"),
+      href: "/news",
+      label: isAr ? "الأخبار" : "News",
+      icon: Newspaper,
+      isActive: (current) => current === "/news" || current.startsWith("/news/"),
     },
     {
       href: "/profile",

@@ -4,6 +4,10 @@
   "regions": ["dub1"],
   "crons": [
     {
+      "path": "/api/cron/economic-news",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/trade-action-reminders",
       "schedule": "1-59/5 * * * *"
     },

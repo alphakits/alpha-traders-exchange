@@ -6,6 +6,7 @@ vi.mock("@/lib/postgres-runtime", () => ({
 }));
 
 import {
+  createEconomicNewsNotification,
   deleteNotification,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
@@ -125,6 +126,23 @@ describe("notification read persistence", () => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("delivers a news release once and never reopens it when a retry follows reading it", async () => {
+    const input = { userId: USER_ID, eventId: "te-123", titleEn: "USD news: CPI", titleAr: "أخبار الدولار", messageEn: "Actual: 2%", messageAr: "النتيجة: 2%" };
+    const before = structuredClone(globalThis.__alphaExchangeMemorySnapshot);
+    await Promise.all([createEconomicNewsNotification(input), createEconomicNewsNotification(input)]);
+    const first = await getNotificationsForUser({ userId: USER_ID, includeActivity: false });
+    const rows = first.notifications.filter((item) => item.actionHref === "/news?event=te-123");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].relatedRequestId).toBeUndefined();
+    await markNotificationReadState({ userId: USER_ID, notificationId: rows[0].id, isRead: true });
+    await createEconomicNewsNotification(input);
+    invalidateAlphaExchangeStoreCache();
+    const retried = await getNotificationsForUser({ userId: USER_ID, includeActivity: false });
+    expect(retried.notifications.find((item) => item.id === rows[0].id)?.isRead).toBe(true);
+    expect(globalThis.__alphaExchangeMemorySnapshot?.purchaseRequests).toEqual(before?.purchaseRequests);
+    expect(globalThis.__alphaExchangeMemorySnapshot?.marketplaceListings).toEqual(before?.marketplaceListings);
   });
 
   it("keeps individual and mark-all read state after a fresh session cache", async () => {

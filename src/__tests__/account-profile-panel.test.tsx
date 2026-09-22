@@ -27,6 +27,8 @@ vi.mock("@/i18n/navigation", () => ({
 function stubProfileFetch(fetchMock: (...args: Parameters<typeof fetch>) => unknown) {
   vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) => String(args[0]) === "/api/alpha-exchange/notification-preferences"
     ? Promise.resolve(new Response(JSON.stringify({ preferences: { inApp: true, email: false } }), { status: 200 }))
+    : String(args[0]) === "/api/news/preferences"
+      ? Promise.resolve(new Response(JSON.stringify({ available: false, preferences: { inApp: false, email: false }, channels: { inApp: true, email: false } }), { status: 200 }))
     : fetchMock(...args));
 }
 

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
 
 const navigationState = vi.hoisted(() => ({
-  pathname: "/dashboard",
+  pathname: "/",
   search: "",
   authenticated: true,
   role: "buyer",
@@ -39,7 +39,7 @@ vi.mock("@/components/auth/canonical-session-provider", () => ({
 
 describe("MobileBottomNavigation", () => {
   beforeEach(() => {
-    navigationState.pathname = "/dashboard";
+    navigationState.pathname = "/";
     navigationState.search = "";
     navigationState.authenticated = true;
     navigationState.role = "buyer";
@@ -53,12 +53,12 @@ describe("MobileBottomNavigation", () => {
     const nav = screen.getByRole("navigation", { name: "Mobile primary navigation" });
     const links = screen.getAllByRole("link");
     expect(nav.getAttribute("dir")).toBe("ltr");
-    expect(links.map((link) => link.textContent?.trim())).toEqual(["Home", "Market", "Trades", "Notifications", "Account"]);
+    expect(links.map((link) => link.textContent?.trim())).toEqual(["Home", "Market", "Trades", "News", "Account"]);
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      "/dashboard",
+      "/",
       "/usdt-exchange",
       "/usdt-exchange?section=trade-history#my-trade-requests-section",
-      "/notifications",
+      "/news",
       "/profile",
     ]);
     expect(links.every((link) => link.className.includes("min-h-14"))).toBe(true);
@@ -75,7 +75,7 @@ describe("MobileBottomNavigation", () => {
       "الرئيسية",
       "السوق",
       "الصفقات",
-      "الإشعارات",
+      "الأخبار",
       "حسابي",
     ]);
     expect(screen.getByRole("link", { name: "السوق" }).getAttribute("aria-current")).toBe("page");
@@ -91,6 +91,21 @@ describe("MobileBottomNavigation", () => {
     expect(trades.getAttribute("href")).toBe("/admin/alpha-exchange?section=purchase-requests");
     expect(trades.getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("keeps Home on the public homepage for every signed-in role and selects News only on News", () => {
+    navigationState.role = "owner";
+    navigationState.pathname = "/ar";
+    const { rerender } = render(<MobileBottomNavigation locale="ar" />);
+    expect(screen.getByRole("link", { name: "الرئيسية" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: "الرئيسية" }).getAttribute("aria-current")).toBe("page");
+    navigationState.pathname = "/ar/news";
+    rerender(<MobileBottomNavigation locale="ar" />);
+    expect(screen.getByRole("link", { name: "الأخبار" }).getAttribute("aria-current")).toBe("page");
+    navigationState.pathname = "/ar/notifications";
+    rerender(<MobileBottomNavigation locale="ar" />);
+    expect(screen.getByRole("link", { name: "الأخبار" }).getAttribute("aria-current")).toBeNull();
+    expect(screen.getByRole("link", { name: "الرئيسية" }).getAttribute("aria-current")).toBeNull();
   });
 
   it("opens buyer trade history directly and keeps only Trades selected", () => {
