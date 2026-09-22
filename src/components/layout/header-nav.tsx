@@ -2,6 +2,7 @@
 
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
+import { exchangeNavigation, isAlphaExchangePath } from "@/lib/exchange-navigation";
 import { cn } from "@/lib/utils";
 
 export type HeaderNavItem = { href: string; label: string; cta?: boolean };
@@ -13,11 +14,12 @@ export type HeaderNavItem = { href: string; label: string; cta?: boolean };
  */
 export function HeaderNav({ items, locale }: { items: HeaderNavItem[]; locale: AppLocale }) {
   const pathname = usePathname();
+  const navigation: HeaderNavItem[] = isAlphaExchangePath(pathname) ? exchangeNavigation(locale) : items;
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`) || (href === "/trade" && ["/usdt-exchange", "/trade-room", "/exchange"].some((prefix) => pathname.startsWith(prefix))));
 
   return (
     <nav dir={locale === "ar" ? "rtl" : "ltr"} className="hidden items-center gap-1 lg:flex" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Primary navigation"}>
-      {items.map((item) => {
+      {navigation.map((item) => {
         const active = isActive(item.href);
         if (item.cta) {
           return (

@@ -418,8 +418,8 @@ test.describe("Final hardening audit", () => {
       await page.request.post("/api/auth/logout").catch(() => {});
       await page.goto("/en");
       await page.locator("summary").first().click();
-      await page.locator("details[open] a[href$='/en/usdt-exchange']").first().click();
-      await expect(page).toHaveURL(/\/en\/(usdt-exchange|login\?redirectTo=%2Fen%2Fusdt-exchange)$/);
+      await page.locator("details[open] a[href$='/en/market']").first().click();
+      await expect(page).toHaveURL(/\/en\/market$/);
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on mobile ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);

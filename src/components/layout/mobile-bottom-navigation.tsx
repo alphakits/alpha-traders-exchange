@@ -1,10 +1,12 @@
 "use client";
 
-import { ChartNoAxesCombined, Handshake, Newspaper, Settings } from "lucide-react";
+import { Bell, ChartNoAxesCombined, Handshake, House, Newspaper, Settings, Store, UserRound } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
+import { isAlphaExchangePath } from "@/lib/exchange-navigation";
 import { cn } from "@/lib/utils";
 
 type MobileDestination = {
@@ -22,8 +24,10 @@ function normalizePathname(pathname: string, locale: AppLocale) {
 export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   const { user } = useCanonicalSession();
   const rawPathname = usePathname();
+  const searchParams = useSearchParams();
   const pathname = normalizePathname(rawPathname, locale);
-  const section = null;
+  const section = searchParams.get("section");
+  const exchange = isAlphaExchangePath(pathname);
   const isAr = locale === "ar";
 
   if (!user) return null;
@@ -33,11 +37,76 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   // covering the other on short phones and landscape displays.
   if (pathname.startsWith("/trade-room/")) return null;
 
-  const destinations: MobileDestination[] = [
-    { href: "/", label: isAr ? "السوق" : "Market", icon: ChartNoAxesCombined, isActive: (current) => current === "/" || current === "/market" },
+  const isAdminOwner = user.role === "owner"
+    || user.role === "admin"
+    || (user.roles ?? []).some((role) => role === "owner" || role === "admin");
+  const isSellerWorkspaceUser = (
+    (user.role === "approved_seller" || (user.roles ?? []).includes("approved_seller"))
+    && user.sellerStatus === "approved_seller"
+    && user.sellerApprovalVerified === true
+  )
+    || user.sellerStatus === "suspended";
+  const isOwnerPurchaseRequests = isAdminOwner
+    && pathname === "/admin/alpha-exchange"
+    && section === "purchase-requests";
+  const isBuyerTradeHistory = !isAdminOwner
+    && !isSellerWorkspaceUser
+    && pathname === "/usdt-exchange"
+    && section === "trade-history";
+  const isTradesDestination = isOwnerPurchaseRequests || isBuyerTradeHistory;
+  const tradesHref = isAdminOwner
+    ? "/admin/alpha-exchange?section=purchase-requests"
+    : isSellerWorkspaceUser
+      ? "/trade-room"
+      : "/usdt-exchange?section=trade-history#my-trade-requests-section";
+
+  const destinations: MobileDestination[] = exchange ? [
+    { href: "/market", label: isAr ? "السوق" : "Market", icon: ChartNoAxesCombined, isActive: (current) => current === "/market" },
     { href: "/trade", label: isAr ? "التداول" : "Trade", icon: Handshake, isActive: (current) => ["/trade", "/usdt-exchange", "/trade-room", "/exchange", "/dashboard/seller"].some((path) => current === path || current.startsWith(`${path}/`)) },
     { href: "/news", label: isAr ? "الأخبار" : "News", icon: Newspaper, isActive: (current) => current.startsWith("/news") },
     { href: "/settings", label: isAr ? "الإعدادات" : "Settings", icon: Settings, isActive: (current) => current.startsWith("/settings") },
+  ] : [
+    {
+      href: "/dashboard",
+      label: isAr ? "الرئيسية" : "Home",
+      icon: House,
+      isActive: (current) => !isTradesDestination && (
+        current === "/dashboard"
+        || current.startsWith("/dashboard/")
+        || current === "/admin"
+        || current.startsWith("/admin/")
+      ),
+    },
+    {
+      href: "/usdt-exchange",
+      label: isAr ? "السوق" : "Market",
+      icon: Store,
+      isActive: (current) => !isBuyerTradeHistory && (
+        current === "/usdt-exchange"
+        || current.startsWith("/usdt-exchange/")
+        || current.startsWith("/exchange/")
+      ),
+    },
+    {
+      href: tradesHref,
+      label: isAr ? "الصفقات" : "Trades",
+      icon: Handshake,
+      isActive: (current) => isTradesDestination || current === "/trade-room" || current.startsWith("/trade-room/"),
+    },
+    {
+      href: "/notifications",
+      label: isAr ? "الإشعارات" : "Notifications",
+      icon: Bell,
+      isActive: (current) => current === "/notifications" || current.startsWith("/notifications/"),
+    },
+    {
+      href: "/profile",
+      label: isAr ? "حسابي" : "Account",
+      icon: UserRound,
+      isActive: (current) => ["/profile", "/settings"].some(
+        (prefix) => current === prefix || current.startsWith(`${prefix}/`),
+      ),
+    },
   ];
 
   return (
@@ -48,7 +117,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
         dir={isAr ? "rtl" : "ltr"}
         className="fixed inset-x-0 bottom-0 z-[45] border-t border-white/10 bg-[#070707]/95 shadow-[0_-12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className="mx-auto grid h-16 w-full max-w-lg grid-cols-4 px-1">
+        <div className={`mx-auto grid h-16 w-full max-w-lg px-1 ${exchange ? "grid-cols-4" : "grid-cols-5"}`}>
           {destinations.map((destination) => {
             const active = destination.isActive(pathname, section);
             const Icon = destination.icon;
