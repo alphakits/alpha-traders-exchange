@@ -30,7 +30,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
 import { CardlessWithdrawalFields } from "./cardless-withdrawal-fields";
-import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, calculateCardlessUsdtAmount, parseCardlessCashAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 
 type Locale = "ar" | "en";
 
@@ -1950,7 +1950,8 @@ function TradeRoomPageSession({
   const [adjustmentIlsAmount, setAdjustmentIlsAmount] = useState("");
   useEffect(() => { setAdjustmentIlsAmount(""); }, [requestId, request?.fiatAmount]);
   const recalculateCashAmount = useCallback(async () => {
-    if (adjustingAmount || actionInFlightRef.current || !roomRef.current) return;
+    const mutationKey = `${requestId}:recalculate-amount`;
+    if (adjustingAmount || !roomRef.current || !acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setAdjustingAmount(true);
     setActionError(null);
     try {
@@ -1962,7 +1963,7 @@ function TradeRoomPageSession({
       setStatusMessage(isAr ? `تم تأكيد المبلغ: ${payload.request.usdtAmount} USDT مقابل ₪${payload.request.fiatAmount}.` : `Amount confirmed: ${payload.request.usdtAmount} USDT for ILS ${payload.request.fiatAmount}.`);
     } catch (error) {
       setActionError(localizedCaughtError(error, isAr ? "تعذر تأكيد تعديل المبلغ. حدّث الصفقة." : "Could not confirm the adjustment. Refresh the trade.", isAr));
-    } finally { setAdjustingAmount(false); }
+    } finally { releaseTradeRoomMutation(actionInFlightRef, mutationKey); setAdjustingAmount(false); }
   }, [adjustingAmount, setActionError, requestId, adjustmentIlsAmount, isAr, actor.id, setStatusMessage]);
 
   const canRevealBankDetails = canRevealTradeRoomBankDetails(request, isSeller);
@@ -2941,9 +2942,33 @@ function TradeRoomPageSession({
   ) : null;
 
   const hasPendingTradeTerms = request.termsProposal?.status === "pending";
+  const recordedCashAmount = parseCardlessCashAmount(request.fiatAmount);
+  const adjustmentPrice = request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "";
+  const adjustmentCashOptions = isCardlessAtmTrade && room.listing
+    ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)))
+    : [];
+  const cardlessAmountEditor = isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
+    <div className="space-y-2 text-sm">
+      <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${adjustmentPrice} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${adjustmentPrice} per USDT`}</p>
+      <label className="block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
+      {recordedCashAmount ? <Input id="adjust-withdrawal-ils" dir="ltr" readOnly value={recordedCashAmount} /> : <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy || room.hasOpenDispute} className="min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
+        <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
+        {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>₪{option.ilsAmount} · {option.usdtAmount} USDT</option>)}
+      </select>}
+      <p className="text-xs text-[#D1D5DB]">{isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount."}</p>
+      <p className="font-semibold text-[#FDE68A]">{calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—"} USDT</p>
+      <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
+    </div>
+  ) : null;
   const tradeTerms = (
-    <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || room.hasOpenDispute}
-                  onBusyChange={(busy) => { actionInFlightRef.current = busy ? "trade-terms" : null; setAdjustingAmount(busy); }}
+    <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || cancelBusy || Boolean(evidenceBusy) || room.hasOpenDispute} amountEditor={cardlessAmountEditor}
+                  onBusyChange={(busy) => {
+                    const mutationKey = `${request.id}:trade-terms`;
+                    if (busy && !acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return false;
+                    if (!busy) releaseTradeRoomMutation(actionInFlightRef, mutationKey);
+                    setAdjustingAmount(busy);
+                    return true;
+                  }}
                   onUpdated={(updated) => { if (!roomRef.current || roomRef.current.request.id !== updated.id) return; const nextRoom = applyRequestToRoom(roomRef.current, updated); roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom); setStatusMessage(isAr ? "تم تحديث شروط الصفقة بنجاح." : "Trade terms updated successfully."); }} />
   );
 
@@ -3225,6 +3250,27 @@ function TradeRoomPageSession({
                 ) : !hasPendingTradeTerms ? (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
                 ) : null}
+                {(isActorBuyer || isSeller) && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status) ? (
+                  <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <Button type="button" variant="secondary" className="min-h-11 w-full"
+                      disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerDeclineTrade(request, actor.id)) || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
+                      aria-describedby="trade-cancel-help"
+                      onClick={() => void (isSeller ? handleDeclineTrade() : handleCancelTrade())}>
+                      {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
+                    </Button>
+                    <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
+                      {request.status === "pending"
+                        ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
+                        : request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt
+                          ? isSeller
+                            ? (isAr ? "بعد القبول، يستطيع المشتري إلغاء الصفقة قبل الدفع. اطلب منه ذلك في دردشة الصفقة." : "After acceptance, the buyer can cancel before payment. Ask them in the trade chat.")
+                            : (isAr ? "ألغِ فقط قبل إرسال المال أو النقد أو رمز السحب أو إثبات الدفع." : "Cancel only before sending money, cash, a withdrawal code or payment evidence.")
+                          : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem.")}
+                    </p>
+                  </div>
+                ) : null}
+                {!hasPendingTradeTerms ? tradeTerms : null}
+
                 {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" && !hasPendingTradeTerms ? (
                   <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
                     verificationKind={cardlessVerificationKind} verificationValue={cardlessVerificationValue}
@@ -3333,19 +3379,6 @@ function TradeRoomPageSession({
                     <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
                   </div>
                 )) : null}
-                {!hasPendingTradeTerms ? tradeTerms : null}
-                {isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
-                  <div className="rounded-xl border border-white/15 p-3 text-sm">
-                    <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${request.pricePerUsdt} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${request.pricePerUsdt} per USDT`}</p>
-                    <label className="mt-3 block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
-                    <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount || (parseCardlessCashAmount(request.fiatAmount) ? String(Number(request.fiatAmount)) : "")} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy} className="mt-2 min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
-                      <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
-                      {Array.from({ length: 100 }, (_, i) => (i + 1) * 100).map((cash) => <option key={cash} value={cash}>₪{cash}</option>)}
-                    </select>
-                    <p className="mt-2 font-semibold text-[#FDE68A]">{calculateCardlessUsdtAmount(adjustmentIlsAmount || request.fiatAmount, request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "") ?? "—"} USDT</p>
-                    <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
-                  </div>
-                ) : null}
                 {isSeller && request.status === "accepted" && !isCashTrade ? (
                   <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
                     <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
@@ -3365,58 +3398,6 @@ function TradeRoomPageSession({
                         ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. أكمل الخطوة الحالية لتجنب التأخير.`
                         : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. Complete the current step to avoid delays.`}
                     </p>
-                  </div>
-                ) : null}
-
-                {canSellerDeclineTrade(request, actor.id) ? (
-                  <div className="space-y-2 rounded-xl border border-red-500/35 bg-red-500/10 p-3">
-                    <p className="text-xs font-medium text-red-100">
-                      {isAr
-                        ? "ارفض فقط إذا لم يتم تبادل أموال أو نقد أو USDT. رفض صفقة تمت فعليًا لتجنب العمولة قد يؤدي إلى تقييد البائع أو إيقافه نهائيًا."
-                        : "Decline only if no money, cash, or USDT was exchanged. Declining a completed trade to avoid commission may lead to seller restriction or permanent suspension."}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className="w-full"
-                      disabled={actionBusy}
-                      onClick={() => void handleDeclineTrade()}
-                    >
-                      {request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض الطلب" : "Decline Request")}
-                    </Button>
-                  </div>
-                ) : null}
-
-                {canBuyerCancelTrade(request, actor.id) ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-sm text-[#9CA3AF]">
-                      {request.status === "pending"
-                        ? (isAr
-                            ? (request.priceMode === "buyer_offer" ? "لم يرد البائع على عرض السعر بعد. يمكنك إلغاء العرض إذا كنت لا تريد الانتظار." : "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار.")
-                            : (request.priceMode === "buyer_offer" ? "The seller has not responded to your price offer yet. You can cancel the offer if you no longer wish to wait." : "The seller has not accepted yet. You can cancel if you no longer wish to wait."))
-                        : isCashTrade
-                          ? (isAr
-                              ? (isCardlessAtmTrade ? "يمكنك الإلغاء فقط قبل إرسال رمز السحب وتأكيده." : "يمكنك الإلغاء فقط قبل تسليم النقد وتأكيده.")
-                              : (isCardlessAtmTrade ? "You can cancel only before sending and confirming the withdrawal code." : "You can cancel only before handing over and confirming the cash."))
-                          : (isAr
-                              ? "يمكنك إلغاء الصفقة قبل إرسال إثبات الدفع."
-                              : "You can cancel this trade before submitting payment evidence.")}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className="mt-2"
-                      disabled={cancelBusy}
-                      onClick={() => void handleCancelTrade()}
-                    >
-                      {cancelBusy
-                        ? (isAr ? "جاري الإلغاء..." : "Cancelling...")
-                        : request.status === "pending"
-                          ? (request.priceMode === "buyer_offer" ? (isAr ? "إلغاء عرض السعر" : "Cancel Price Offer") : (isAr ? "إلغاء الطلب" : "Cancel Request"))
-                          : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
-                    </Button>
                   </div>
                 ) : null}
 

@@ -6205,6 +6205,10 @@ export function UsdtExchangePage({
           onPaymentMethodChange={(method) => {
             setSelectedPurchasePaymentMethod(method);
             setFaceToFaceSafetyAcknowledged(false);
+            if (isCardlessAtmPaymentMethod(method)) {
+              const price = purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : selectedListing.price;
+              setBuyerInfo((prev) => ({ ...prev, usdtAmount: calculateCardlessUsdtAmount(prev.cardlessIlsAmount, price) ?? "" }));
+            }
           }}
           onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}

@@ -1,3 +1,5 @@
+import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "./trade-amount";
+
 export type CardlessVerificationKind = "id_number" | "date_of_birth";
 
 export type CardlessWithdrawalDetails = {
@@ -24,6 +26,28 @@ export function calculateCardlessUsdtAmount(cash: unknown, price: string) {
   const cashCents = BigInt(Math.round(Number(amount) * 100));
   const micros = (cashCents * BigInt(1000000) + priceCents / BigInt(2)) / priceCents;
   return `${micros / BigInt(1000000)}.${(micros % BigInt(1000000)).toString().padStart(6, "0")}`.replace(/\.?0+$/, "");
+}
+
+/** Only offer bank cash amounts whose rounded USDT fits the actual listing limits. */
+export function getCardlessCashAmountOptions(price: string, minimumUsdt: string | number, maximumUsdt: string | number) {
+  const minimum = canonicalizeNonNegativeTradeAmount(minimumUsdt);
+  const maximum = canonicalizeTradeAmount(maximumUsdt);
+  if (minimum === null || maximum === null) return [];
+  const micros = (value: string) => {
+    const [whole, fraction = ""] = value.split(".");
+    return BigInt(whole!) * BigInt(1_000_000) + BigInt(fraction.padEnd(6, "0"));
+  };
+  const min = micros(minimum);
+  const max = micros(maximum);
+  if (min > max) return [];
+  const options: { ilsAmount: string; usdtAmount: string }[] = [];
+  for (let cash = 100; cash <= 10000; cash += 100) {
+    const usdtAmount = calculateCardlessUsdtAmount(String(cash), price);
+    if (usdtAmount === null) return [];
+    const amount = micros(usdtAmount);
+    if (amount > BigInt(0) && amount >= min && amount <= max) options.push({ ilsAmount: String(cash), usdtAmount });
+  }
+  return options;
 }
 
 /** Cash must match the locked trade total exactly, to the agora. */

@@ -12,6 +12,7 @@ describe("trade proposal controls", () => {
     vi.stubGlobal("fetch", fetch);
     const updated = vi.fn();
     render(<TradeTermsPanel request={base} actorId="seller" isAr={false} onUpdated={updated} />);
+    fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
     fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
     fireEvent.click(screen.getByRole("button", { name: "Send counter-offer" }));
     await waitFor(() => expect(updated).toHaveBeenCalledWith(base));
@@ -26,8 +27,38 @@ describe("trade proposal controls", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "accept_counter_offer", proposalId: "offer-2" });
   });
-  it("hides corrections after USDT is sent", () => {
-    const { container } = render(<TradeTermsPanel request={{ ...base, status: "usdt_sent" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
-    expect(container.innerHTML).toBe("");
+  it("explains why correction is locked after USDT is sent", () => {
+    render(<TradeTermsPanel request={{ ...base, status: "usdt_sent" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/USDT release has started/)).toBeTruthy();
   });
+});
+
+
+it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("proposes a correction and requires buyer approval for %s", async (paymentMethod) => {
+  const request = { ...base, status: "accepted" as const, priceMode: "listing_price" as const, paymentMethod };
+  const proposed = { ...request, termsProposal: { id: "amount-1", kind: "amount_correction" as const, status: "pending" as const, usdtAmount: "300", fiatAmount: "900.00", pricePerUsdt: "3.00", createdAt: request.updatedAt } };
+  const fetch = vi.fn().mockResolvedValue(Response.json({ request: proposed }));
+  vi.stubGlobal("fetch", fetch);
+  const updated = vi.fn();
+  const { rerender } = render(<TradeTermsPanel request={request} actorId="seller" isAr={false} onUpdated={updated} />);
+  fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
+  fireEvent.change(screen.getByLabelText("Correct USDT amount"), { target: { value: "300" } });
+  fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
+  await waitFor(() => expect(updated).toHaveBeenCalledWith(proposed));
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "propose_amount", value: "300", expectedUpdatedAt: request.updatedAt });
+  rerender(<TradeTermsPanel request={proposed} actorId="buyer" isAr={false} onUpdated={updated} />);
+  fireEvent.click(screen.getByRole("button", { name: "Accept these terms" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ action: "accept_amount", proposalId: "amount-1" });
+});
+
+it("does not submit a correction while another trade mutation owns the lock", () => {
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  render(<TradeTermsPanel request={{ ...base, status: "accepted" }} actorId="seller" isAr={false} onUpdated={vi.fn()} onBusyChange={() => false} />);
+  fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
+  fireEvent.change(screen.getByLabelText("Correct USDT amount"), { target: { value: "300" } });
+  fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
+  expect(fetch).not.toHaveBeenCalled();
 });
