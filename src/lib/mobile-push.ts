@@ -254,6 +254,11 @@ export function privacySafeMobilePushCopy(
   locale: MobileLocale,
 ) {
   const normalizedTitle = notification.title.trim().toLowerCase();
+  if (notification.category === "application" && normalizedTitle === "seller application approved") {
+    return locale === "ar"
+      ? { title: "تم اعتماد حسابك كبائع", body: "حسابك كبائع نشط الآن. افتح Alpha Traders للبدء." }
+      : { title: "Your seller account is approved", body: "Your seller account is now active. Open Alpha Traders to get started." };
+  }
   if (normalizedTitle === "new trade room message") {
     return locale === "ar"
       ? { title: "رسالة جديدة في غرفة التداول", body: "افتح Alpha Traders لقراءة الرسالة بأمان." }

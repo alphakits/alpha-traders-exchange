@@ -32,6 +32,7 @@ export type MarketplaceEmailEvent =
   | "new_listing_published"
   | "owner_listing_review_required"
   | "owner_seller_application_review_required"
+  | "seller_application_approved"
   | "seller_prestige_promoted"
   | "commission_paid"
   | "marketplace_enforcement_fee_issued"

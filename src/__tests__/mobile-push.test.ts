@@ -27,6 +27,16 @@ function notification(overrides: Partial<AlphaExchangeNotification> = {}): Alpha
 }
 
 describe("native lock-screen push payloads", () => {
+  it.each(["en", "ar"] as const)("announces seller approval in %s without exposing account details", (locale) => {
+    const message = buildExpoPushMessage(notification({
+      category: "application", title: "Seller application approved", relatedRequestId: undefined,
+      relatedHref: "/dashboard/seller",
+    }), { expoPushToken: "ExponentPushToken[abcdefghijklmnop]", locale });
+    expect(message.title).toBe(locale === "ar" ? "تم اعتماد حسابك كبائع" : "Your seller account is approved");
+    expect(message.data.url).toBe(`https://www.alphatraders.co.il/${locale}/dashboard/seller`);
+    expect(JSON.stringify(message)).not.toContain("SENSITIVE_");
+  });
+
   it("validates Expo tokens and random installation IDs strictly", () => {
     expect(isExpoPushToken("ExponentPushToken[abcdefghijklmnop]")).toBe(true);
     expect(isExpoPushToken("ExpoPushToken[abcdefghijklmnop]")).toBe(true);

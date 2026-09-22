@@ -7287,6 +7287,59 @@ export async function getAllSellerApplicationsForAdmin(dbInput?: AlphaExchangeDb
   return db.sellerApplications;
 }
 
+async function deliverSellerApprovalEmail(db: AlphaExchangeDb, applicationId: string, adminUserId: string) {
+  const application = db.sellerApplications.find((item) => item.id === applicationId);
+  if (!application) throw new Error("Seller application not found.");
+  const seller = db.users.find((user) => user.id === application.userId);
+  if (application.status !== "approved" || !seller || seller.sellerStatus !== "approved_seller" || seller.disabled) {
+    throw new Error("Approval emails can only be sent to an active approved seller.");
+  }
+  const payload = {
+    event: "seller_application_approved" as const,
+    // Use the current account address, never a request-supplied or old application address.
+    to: seller.email,
+    recipientName: seller.fullName,
+    recipientLocale: normalizePreferredLocale(seller.preferredLocale),
+    title: { en: "Your seller account is approved", ar: "تم اعتماد حسابك كبائع" },
+    message: {
+      en: "Your seller application has been approved and your seller account is now active. You can create and manage your listings from your seller dashboard.",
+      ar: "تمت الموافقة على طلبك وأصبح حسابك كبائع نشطًا الآن. يمكنك إنشاء إعلاناتك وإدارتها من لوحة تحكم البائع.",
+    },
+    actionLabel: { en: "Open Seller Dashboard", ar: "فتح لوحة تحكم البائع" },
+    actionPath: "/dashboard/seller",
+  };
+  // Automatic delivery and admin retries share a key for the same message.
+  // Hashing keeps personal data out of the key and stays within provider limits.
+  const digest = createHash("sha256").update(JSON.stringify([application.id, seller.id, payload])).digest("hex");
+  try {
+    const result = await sendMarketplaceEmail({ ...payload, idempotencyKey: `seller-approved:${digest}` });
+    logEvent(result.ok ? "info" : "error", {
+      event: "seller_approval_email",
+      actorUserId: adminUserId,
+      targetUserId: seller.id,
+      resourceId: application.id,
+      outcome: result.ok ? "success" : "failed",
+      reason: result.ok ? "accepted_for_delivery" : result.reason,
+      metadata: { providerStatus: "providerStatus" in result ? result.providerStatus : undefined },
+    });
+    return { ok: result.ok };
+  } catch (error) {
+    logEvent("error", {
+      event: "seller_approval_email",
+      actorUserId: adminUserId,
+      targetUserId: seller.id,
+      resourceId: application.id,
+      outcome: "failed",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+    });
+    return { ok: false };
+  }
+}
+
+export async function sendSellerApprovalEmailByAdmin(applicationId: string, adminUserId: string) {
+  return deliverSellerApprovalEmail(await readDb(), applicationId, adminUserId);
+}
+
 export async function approveSellerApplicationByAdmin(
   applicationId: string,
   adminUserId: string,
@@ -7333,12 +7386,14 @@ export async function approveSellerApplicationByAdmin(
     reason: reason?.trim() || undefined,
     newValue: { sellerStatus: "approved_seller", applicationStatus: "approved" },
   });
-  pushNotification(db, {
+  const approvalNotification = pushNotification(db, {
     userId: application.userId,
     category: "application",
     title: "Seller application approved",
     message: "Your seller account is approved and now active.",
-    relatedHref: sellerApplicationStatusDestination(),
+    relatedHref: "/dashboard/seller",
+    forceInApp: true,
+    deferRealtime: true,
   });
   pushActivityLog(db, {
     userId: application.userId,
@@ -7355,7 +7410,29 @@ export async function approveSellerApplicationByAdmin(
   await recalculateTrustEngine(db, { reason: "Seller approved", triggeredBy: adminUserId });
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
+  publishNotificationPublication(approvalNotification);
   publishArchivedNotifications(archivedAdminNotifications);
+  // Account-access notices are transactional and independent of marketing preferences.
+  // Nothing is sent until the approval and in-app notification are persisted.
+  const delivery = async () => {
+    try {
+      // Recheck the current account before background delivery (it may have been suspended).
+      await sendSellerApprovalEmailByAdmin(application.id, adminUserId);
+    } catch (error) {
+      logEvent("error", {
+        event: "seller_approval_email",
+        actorUserId: adminUserId,
+        resourceId: application.id,
+        outcome: "failed",
+        metadata: { errorType: error instanceof Error ? error.name : typeof error },
+      });
+    }
+  };
+  try {
+    after(delivery);
+  } catch {
+    await delivery();
+  }
   return db.sellerApplications[applicationIndex];
 }
 
