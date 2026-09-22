@@ -115,13 +115,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "server_error" }, { status: 500, headers: RESPONSE_HEADERS });
     }
   } else {
-    // No DB configured — log server-side only
-    logEvent("warn", {
+    // Support and deletion requests must be durable before acknowledging them.
+    logEvent("error", {
       event: "contact_submission",
-      outcome: "success",
+      outcome: "failed",
       reason: "no_db_configured",
-      metadata: { name, emailDomain: email.split("@")[1], subject, locale },
+      metadata: { locale },
     });
+    return NextResponse.json(
+      { error: "service_unavailable" },
+      { status: 503, headers: RESPONSE_HEADERS },
+    );
   }
 
   return NextResponse.json({ ok: true }, { status: 200, headers: RESPONSE_HEADERS });

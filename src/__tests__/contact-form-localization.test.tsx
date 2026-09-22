@@ -35,4 +35,31 @@ describe("ContactForm localization", () => {
       headers: { "Content-Type": "application/json", "X-Locale": "ar" },
     }));
   });
+
+  it.each([
+    { locale: "en" as const, form: "Send us a message", error: "Something went wrong. Please try again.", success: "Message received!" },
+    { locale: "ar" as const, form: "أرسل لنا رسالة", error: "حدث خطأ ما. يرجى المحاولة مجدداً.", success: "تم استلام رسالتك!" },
+  ])("preserves an unsaved deletion request and shows an error in $locale", async ({ locale, form, error, success }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "service_unavailable" }),
+    }));
+    const initialValues = {
+      name: "Review Test User",
+      email: "review+deletion@example.test",
+      subject: "Alpha Traders account deletion request",
+      message: "I request deletion of my test account and its associated data.",
+    };
+
+    render(<ContactForm locale={locale} initialValues={initialValues} />);
+    fireEvent.submit(screen.getByRole("form", { name: form }));
+
+    await waitFor(() => expect(screen.getByText(error)).toBeTruthy());
+    expect(screen.queryByText(success)).toBeNull();
+    for (const value of Object.values(initialValues)) {
+      expect(screen.getByDisplayValue(value)).toBeTruthy();
+    }
+    expect(screen.getByRole("form", { name: form }).querySelector("button")?.disabled).toBe(false);
+  });
 });
