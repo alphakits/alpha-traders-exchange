@@ -6,10 +6,8 @@ import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, Us
 import type { AppLocale } from "@/i18n/routing";
 import { Link, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
-import { Button } from "@/components/ui/button";
 import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
-import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
@@ -184,10 +182,9 @@ function NotificationBellSession({
   const isAr = locale === "ar";
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [error, , errorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
@@ -375,55 +372,13 @@ function NotificationBellSession({
     }
   }
 
-  async function handleDismissNotification(notification: AlphaExchangeNotification) {
-    const actionKey = `${notification.id}:dismiss`;
-    if (actionLoading[actionKey]) return;
-    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notification.id) ?? prev);
-    if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
-    try {
-      const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "dismiss" }),
-      });
-      if (!response.ok) throw new Error("notification_dismiss_failed");
-    } catch {
-      setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
-      await loadNotifications(20, { forceListUpdate: true });
-    } finally {
-      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
-  }
-
-  async function handleMarkAllRead() {
-    // The quick-action bell contains unread items only. Keep read history in
-    // the Notification Center and clear this surface immediately.
-    setNotifications([]);
-    setOpenNotificationsSnapshot([]);
-    applyUnreadCount(0);
-    try {
-      const response = await fetch("/api/alpha-exchange/notifications", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark_all_read" }),
-      });
-      if (!response.ok) {
-        await loadNotifications(20, { forceListUpdate: true });
-      }
-    } catch {
-      await loadNotifications(20, { forceListUpdate: true });
-    }
-  }
-
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
     const destination = await resolveNotificationDestination(notification);
+    if (!notification.isRead) void handleMarkOneRead(notification.id);
     if (!destination) return;
 
     const requestId = extractRequestIdFromTradeRoomHref(destination);
     if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
-    if (!notification.isRead) void handleMarkOneRead(notification.id);
     setIsOpen(false);
     router.push(destination);
   }
@@ -444,20 +399,6 @@ function NotificationBellSession({
       return buildTradeDestinationFromNotification(notification) ?? fallbackHref;
     }
     return getSafeInternalNotificationDestination(notification);
-  }
-
-  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
-    for (const href of [notification.actionHref, notification.relatedHref]) {
-      if (!href?.trim()) continue;
-      try {
-        const parsed = new URL(href, "https://www.alphatraders.co.il");
-        const byQuery = parsed.searchParams.get("sellerApplication");
-        if (byQuery?.trim()) return byQuery.trim();
-      } catch {
-        // Continue to a valid related fallback.
-      }
-    }
-    return null;
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
@@ -493,7 +434,8 @@ function NotificationBellSession({
       <button
         type="button"
         onClick={() => void handleToggleOpen()}
-        className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/[0.02] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] md:h-9 md:w-9"
+        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/[0.02] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] md:h-9 md:w-9 ${isOpen ? "alpha-notification-open" : ""}`}
+        aria-expanded={isOpen}
         aria-label={isAr ? "الإشعارات" : "Notifications"}
       >
         <Bell className="h-4 w-4" />
@@ -543,120 +485,23 @@ function NotificationBellSession({
           {error || loadError ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error ?? loadError}</ActionFeedback> : null}
           {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">{isAr ? "لا توجد إشعارات حتى الآن." : "No notifications yet."}</p> : null}
           {renderedNotifications.map((notification) => {
-                const Icon = notificationIcon(notification);
-                const destination = resolveNotificationDestination(notification);
-                const actionRequired = isNotificationActionRequired(notification);
-                return (
-                  <div
-                    key={notification.id}
-                    data-notification-id={notification.id}
-                    className={`rounded-xl border p-3 text-xs ${
-                      actionRequired
-                        ? "border-amber-400/55 bg-amber-500/10 text-amber-50"
-                        : notification.isRead
-                        ? "border-white/10 bg-black/20 text-[#9CA3AF]"
-                        : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white"><bdi dir="auto">{formatNotificationTitle(notification, locale)}</bdi></p>
-                          <span className="shrink-0 text-[11px] text-[#9CA3AF]"><bdi dir="auto">{formatNotificationRelativeTime(notification.createdAt, locale)}</bdi></span>
-                        </div>
-                        <p className="mt-1 line-clamp-2"><bdi dir="auto">{formatNotificationMessage(notification, locale)}</bdi></p>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">{isAr ? "غير مقروء" : "Unread"}</span> : null}
-                          {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}
-                          {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</bdi></span>
-                            : null}
-                          {notification.relatedListingId || notification.relatedListingDisplayNumber
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</bdi></span>
-                            : null}
-                          {notification.relatedSellerName ? (
-                            <span className="inline-flex max-w-full items-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] text-[#FDE68A]">
-                              <span className="truncate">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{notification.relatedSellerName}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{notification.relatedSellerUsername}</bdi></> : null}</span>
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {isTradeNotification(notification) && destination ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="h-7 px-2.5 text-[11px] transition-none hover:translate-y-0 active:scale-100"
-                              onMouseEnter={() => {
-                                if (!destination) return;
-                                const requestId = extractRequestIdFromTradeRoomHref(destination);
-                                if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
-                              }}
-                              onFocus={() => {
-                                if (!destination) return;
-                                const requestId = extractRequestIdFromTradeRoomHref(destination);
-                                if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
-                              }}
-                              onClick={() => void handleOpenNotification(notification)}
-                            >
-                              {resolveNotificationActionLabel(notification)}
-                            </Button>
-                          ) : null}
-                          {!isTradeNotification(notification) && destination ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="h-7 px-2.5 text-[11px]"
-                              onClick={() => void handleOpenNotification(notification)}
-                            >
-                              {resolveNotificationActionLabel(notification)}
-                            </Button>
-                          ) : null}
-                          {notification.category === "application" && extractSellerApplicationId(notification) ? (
-                            <>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`])}
-                                onClick={() => {
-                                  void handleDismissNotification(notification);
-                                }}
-                              >
-                                {actionLoading[`${notification.id}:dismiss`]
-                                  ? (isAr ? "جاري الحفظ..." : "Saving...")
-                                  : (isAr ? "لاحقاً" : "Later")}
-                              </Button>
-                              {!notification.isRead ? (
-                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                                  {isAr ? "تحديد كمقروء" : "Mark read"}
-                                </Button>
-                              ) : null}
-                            </>
-                          ) : (
-                            <>
-                              {!notification.isRead ? (
-                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                                  {isAr ? "تحديد كمقروء" : "Mark read"}
-                                </Button>
-                              ) : null}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            const Icon = notificationIcon(notification);
+            const actionRequired = isNotificationActionRequired(notification);
+            return <button type="button" key={notification.id} data-notification-id={notification.id}
+              onClick={() => void handleOpenNotification(notification)}
+              aria-label={`${formatNotificationTitle(notification, locale)}: ${resolveNotificationActionLabel(notification)}`}
+              className={`w-full rounded-xl border p-3 text-start text-xs transition hover:border-[#D4AF37] focus-visible:outline-2 focus-visible:outline-[#D4AF37] ${actionRequired ? "border-amber-400/40 bg-amber-500/10 text-amber-50" : "border-white/10 bg-white/[0.03] text-slate-300"}`}>
+              <span className="flex items-start gap-3"><Icon className="mt-1 h-4 w-4 shrink-0 text-[#D4AF37]" />
+                <span className="min-w-0 flex-1"><span className="block font-semibold text-white"><bdi>{formatNotificationTitle(notification, locale)}</bdi></span>
+                  <span className="mt-1 block leading-5"><bdi>{formatNotificationMessage(notification, locale)}</bdi></span>
+                  <span className="mt-2 block text-[10px] text-slate-500">{formatNotificationRelativeTime(notification.createdAt, locale)}{actionRequired ? ` · ${isAr ? "مطلوب إجراء" : "Action required"}` : ""}</span>
+                </span>
+              </span>
+            </button>;
+          })}
         </div>
 
         <div className="flex items-center justify-between border-t border-white/10 px-3 py-2">
-          <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllRead()} className="h-8 px-3 text-xs">
-            {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
-          </Button>
           <Link href="/notifications" locale={locale} className="inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
             <CircleDot className="h-3 w-3" />
             {isAr ? "عرض كل الإشعارات" : "View all notifications"}

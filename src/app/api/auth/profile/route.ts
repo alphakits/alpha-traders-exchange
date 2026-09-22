@@ -202,6 +202,9 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "PROFILE_BANNER_LOCKED") {
+      return NextResponse.json({ code: "PROFILE_BANNER_LOCKED", error: profileLocale(request) === "ar" ? "يُفتح هذا الغلاف عند الوصول إلى رتبته." : "This cover unlocks when you reach its rank." }, { status: 403, headers: PROFILE_RESPONSE_HEADERS });
+    }
     if (error instanceof ProfileNameCooldownError) {
       return NextResponse.json({ code: "PROFILE_NAME_COOLDOWN", error: PROFILE_ERROR_COPY.PROFILE_NAME_COOLDOWN[profileLocale(request)], nextNameChangeAt: error.nextAllowedAt }, { status: 409, headers: PROFILE_RESPONSE_HEADERS });
     }

@@ -32,7 +32,9 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       locale={locale === "ar" ? "ar" : "en"}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
       smsDeliveryEnabled={isTwilioSendEnabled()}
-      initialTab={query.tab === "profile"
+      initialTab={query.tab === "notifications"
+        ? "notifications"
+        : query.tab === "profile"
         ? "profile"
         : query.tab === "account"
         || user.sellerStatus === "approved_seller"

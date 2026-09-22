@@ -1,7 +1,6 @@
 import { getLocale, getTranslations } from "next-intl/server";
-import { HomePage } from "@/components/sections/home/home-page";
+import { MarketHome } from "@/components/market/market-home";
 import { buildPageMetadata } from "@/lib/seo";
-import { getCurrentSessionUser } from "@/lib/auth";
 import { BRAND_NAME } from "@/lib/brand";
 
 export async function generateMetadata() {
@@ -21,10 +20,6 @@ export async function generateMetadata() {
 }
 
 export default async function LocalizedHomePage() {
-  const [user, locale] = await Promise.all([
-    getCurrentSessionUser(),
-    getLocale(),
-  ]);
-
-  return <HomePage isAuthenticated={Boolean(user)} locale={locale as "ar" | "en"} />;
+  const locale = await getLocale();
+  return <MarketHome locale={locale === "ar" ? "ar" : "en"} />;
 }

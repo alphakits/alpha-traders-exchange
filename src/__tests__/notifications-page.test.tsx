@@ -123,7 +123,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.getByRole("heading", { name: "Today" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Yesterday" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Earlier" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Review Listing" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Review Listing/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
 
     const content = container.textContent ?? "";
@@ -232,8 +232,8 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(container.querySelector("section[dir='rtl']")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "اليوم" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "أقدم" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "مراجعة العرض" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "رفع إيصال الدفع" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /مراجعة العرض/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /رفع إيصال الدفع/ })).toBeTruthy();
 
     const renderedCopy = container.textContent ?? "";
     expect(renderedCopy).not.toContain("Unknown legacy");
@@ -273,7 +273,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<NotificationsPage locale="en" userId="user-1" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Manage Listing" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Manage Listing/ }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "/api/alpha-exchange/notifications/listing-route",
@@ -283,44 +283,15 @@ describe("NotificationsPage mobile hierarchy", () => {
     confirmRead?.({ ok: true, status: 200, json: async () => ({}) });
   });
 
-  it("archives Later durably and does not resurrect it from session state after re-login", async () => {
-    const item = notification({
-      id: "seller-application-later",
-      createdAt: "2026-08-27T10:00:00.000Z",
-      category: "application",
-      title: "Seller application pending",
-      message: "Review this seller application.",
-      actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
-      actionLabel: "Review Application",
-      state: "unread",
-    });
-    let dismissed = false;
-    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
-        return Promise.resolve(notificationsResponse(dismissed ? [] : [item]));
-      }
-      if (url.endsWith("/api/alpha-exchange/notifications/seller-application-later") && init?.method === "PATCH") {
-        dismissed = true;
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
-      }
-      throw new Error(`Unexpected request: ${url}`);
-    });
+  it("marks informational notices read by clicking the row, without extra action buttons", async () => {
+    const item = notification({ id: "info-1", createdAt: "2026-08-27T10:00:00.000Z" });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "PATCH" ? { ok: true } : notificationsResponse([item]));
     vi.stubGlobal("fetch", fetchMock);
-
-    const firstLogin = render(<NotificationsPage locale="en" userId="user-1" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Later" }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/alpha-exchange/notifications/seller-application-later",
-      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "dismiss" }) }),
-    ));
-    await waitFor(() => expect(screen.queryByText("Seller application pending")).toBeNull());
-    firstLogin.unmount();
-
     render(<NotificationsPage locale="en" userId="user-1" />);
-    await screen.findByText("Nothing here right now");
-    expect(screen.queryByText("Seller application pending")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Account update" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/alpha-exchange/notifications/info-1", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ isRead: true }) })));
+    expect(screen.queryByRole("button", { name: /Mark as read|Mark all as read|Later/ })).toBeNull();
+    expect(routerPush).not.toHaveBeenCalled();
   });
 
   it("routes seller-application decisions to the full review screen", async () => {
@@ -346,7 +317,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<NotificationsPage locale="en" userId="user-1" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Review Application" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Review Application/ }));
 
     await waitFor(() => expect(routerPush).toHaveBeenCalledWith(
       "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
@@ -355,7 +326,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.queryByRole("button", { name: "Reject application" })).toBeNull();
   });
 
-  it("reconciles streamed unread items and preserves mark-all-read behavior", async () => {
+  it("reconciles streamed unread items and marks an opened item read", async () => {
     const streamedItem = notification({
       id: "streamed-listing",
       createdAt: "2026-08-27T11:58:00.000Z",
@@ -371,7 +342,7 @@ describe("NotificationsPage mobile hierarchy", () => {
       if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
         return Promise.resolve(notificationsResponse([]));
       }
-      if (url.endsWith("/api/alpha-exchange/notifications") && init?.method === "PATCH") {
+      if (url.endsWith("/api/alpha-exchange/notifications/streamed-listing") && init?.method === "PATCH") {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -388,11 +359,11 @@ describe("NotificationsPage mobile hierarchy", () => {
 
     await screen.findByText("Listing approval required");
     expect(screen.getByRole("button", { name: "Show unread notifications: 1" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+    fireEvent.click(screen.getByRole("button", { name: /Listing approval required/ }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/alpha-exchange/notifications",
-      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "mark_all_read" }) }),
+      "/api/alpha-exchange/notifications/streamed-listing",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ isRead: true }) }),
     ));
     await waitFor(() => expect(screen.getByRole("button", { name: "Show unread notifications: 0" })).toBeTruthy());
   });

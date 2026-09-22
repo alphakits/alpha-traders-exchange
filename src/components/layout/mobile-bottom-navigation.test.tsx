@@ -47,74 +47,31 @@ describe("MobileBottomNavigation", () => {
     navigationState.sellerApprovalVerified = false;
   });
 
-  it("renders five clear English destinations with phone-sized targets", () => {
+  it.each(["buyer", "approved_seller", "owner"])("renders the four requested destinations for %s", (role) => {
+    navigationState.role = role;
+    navigationState.pathname = "/";
     render(<MobileBottomNavigation locale="en" />);
-
-    const nav = screen.getByRole("navigation", { name: "Mobile primary navigation" });
     const links = screen.getAllByRole("link");
-    expect(nav.getAttribute("dir")).toBe("ltr");
-    expect(links.map((link) => link.textContent?.trim())).toEqual(["Home", "Market", "Trades", "Notifications", "Account"]);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      "/dashboard",
-      "/usdt-exchange",
-      "/usdt-exchange?section=trade-history#my-trade-requests-section",
-      "/notifications",
-      "/profile",
-    ]);
+    expect(links.map((link) => link.textContent?.trim())).toEqual(["Market", "Trade", "News", "Settings"]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/", "/trade", "/news", "/settings"]);
     expect(links.every((link) => link.className.includes("min-h-14"))).toBe(true);
-    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Market" }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("renders the complete Arabic navigation RTL and marks locale-prefixed routes active", () => {
+  it("renders Arabic navigation RTL and recognizes legacy trade URLs", () => {
     navigationState.pathname = "/ar/usdt-exchange";
     render(<MobileBottomNavigation locale="ar" />);
-
-    const nav = screen.getByRole("navigation", { name: "التنقل الرئيسي للهاتف" });
-    expect(nav.getAttribute("dir")).toBe("rtl");
-    expect(screen.getAllByRole("link").map((link) => link.textContent?.trim())).toEqual([
-      "الرئيسية",
-      "السوق",
-      "الصفقات",
-      "الإشعارات",
-      "حسابي",
-    ]);
-    expect(screen.getByRole("link", { name: "السوق" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("navigation").getAttribute("dir")).toBe("rtl");
+    expect(screen.getAllByRole("link").map((link) => link.textContent?.trim())).toEqual(["السوق", "التداول", "الأخبار", "الإعدادات"]);
+    expect(screen.getByRole("link", { name: "التداول" }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("sends owners directly to purchase requests and keeps Trades selected", () => {
-    navigationState.role = "owner";
-    navigationState.pathname = "/en/admin/alpha-exchange";
-    navigationState.search = "section=purchase-requests";
-    render(<MobileBottomNavigation locale="en" />);
-
-    const trades = screen.getByRole("link", { name: "Trades" });
-    expect(trades.getAttribute("href")).toBe("/admin/alpha-exchange?section=purchase-requests");
-    expect(trades.getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBeNull();
-  });
-
-  it("opens buyer trade history directly and keeps only Trades selected", () => {
-    navigationState.pathname = "/en/usdt-exchange";
+  it("keeps the Trade tab selected when viewing history", () => {
+    navigationState.pathname = "/en/trade";
     navigationState.search = "section=trade-history";
     render(<MobileBottomNavigation locale="en" />);
-
-    const trades = screen.getByRole("link", { name: "Trades" });
-    expect(trades.getAttribute("href")).toBe("/usdt-exchange?section=trade-history#my-trade-requests-section");
-    expect(trades.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Trade" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Market" }).getAttribute("aria-current")).toBeNull();
-  });
-
-  it("keeps approved and suspended sellers on the seller trade-room flow", () => {
-    navigationState.role = "approved_seller";
-    navigationState.sellerStatus = "approved_seller";
-    navigationState.sellerApprovalVerified = true;
-    const { rerender } = render(<MobileBottomNavigation locale="en" />);
-    expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trade-room");
-
-    navigationState.role = "buyer";
-    navigationState.sellerStatus = "suspended";
-    rerender(<MobileBottomNavigation locale="en" />);
-    expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trade-room");
   });
 
   it("stays hidden for signed-out visitors and focused active trade rooms", () => {

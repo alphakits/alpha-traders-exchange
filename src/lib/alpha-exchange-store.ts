@@ -1,3 +1,4 @@
+import { PROFILE_AVATARS, canUseProfileBanner, defaultProfileAvatar } from "@/lib/profile-presets";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
@@ -8,7 +9,7 @@ import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from "crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -1623,7 +1624,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     role: user.role,
     roles: user.roles ?? [user.role],
     sellerStatus: user.sellerStatus,
-    allowDirectMessages: user.allowDirectMessages !== false,
+    allowDirectMessages: true,
     onlineStatus: user.onlineStatus,
     availabilityStatus: user.availabilityStatus,
     lastActiveAt: user.lastActiveAt,
@@ -1656,7 +1657,7 @@ function buildPublicUserProfileDataForUser(input: {
   const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
   const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
 
-  const showStats = user.showTradeStats !== false || canBypassVisibility;
+  const showStats = !isTrustEligibleSeller(user) || user.showTradeStats !== false || canBypassVisibility;
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const canViewSensitiveProfileDetails = canBypassVisibility;
   const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
@@ -1692,7 +1693,7 @@ function buildPublicUserProfileDataForUser(input: {
       isFeaturedSeller: user.isFeaturedSeller === true,
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
-      allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
+      allowDirectMessages: true,
       isEmailVerified: user.emailVerified === true,
       contact: {
         email: canViewSensitiveProfileDetails ? user.email : "",
@@ -5862,7 +5863,7 @@ export async function createUser(input: {
     passwordHash: input.passwordHash,
     whatsappNumber: input.whatsappNumber.trim(),
     preferredNetworks: [],
-    profilePhotoUrl: "",
+    profilePhotoUrl: PROFILE_AVATARS[randomInt(PROFILE_AVATARS.length)].url,
     languages: ["English"],
     preferredLocale: normalizePreferredLocale(input.preferredLocale),
     bio: "",
@@ -6011,7 +6012,7 @@ export async function upsertUserProfileForAuth(input: {
     passwordHash: input.passwordHash ?? "",
     whatsappNumber: input.whatsappNumber.trim(),
     preferredNetworks: [],
-    profilePhotoUrl: "",
+    profilePhotoUrl: PROFILE_AVATARS[randomInt(PROFILE_AVATARS.length)].url,
     languages: ["English"],
     preferredLocale: normalizePreferredLocale(input.preferredLocale),
     bio: "",
@@ -6737,6 +6738,14 @@ export async function updateUserSellerSettings(input: {
     const user = snapshot.users[index];
     if (user.disabled === true) throw new Error("This account is disabled.");
     const timestamp = nowIso();
+    if (input.coverBannerUrl?.startsWith("/images/profile-presets/banners/") && input.coverBannerUrl !== user.coverBannerUrl) {
+      const rank = isTrustEligibleSeller(user)
+        ? user.sellerPrestigeRank ?? computeSellerReputationSnapshot(snapshot, user.id).level
+        : buildBuyerActivityStats(snapshot, user.id).buyerLevel;
+      if (!canUseProfileBanner(input.coverBannerUrl, rank, hasRole(user, "admin") || hasRole(user, "owner"))) {
+        throw new Error("PROFILE_BANNER_LOCKED");
+      }
+    }
     const nextFullName = input.fullName?.trim() || user.fullName;
     const nameChanged = nextFullName !== user.fullName;
     const nextAllowedAt = nextProfileNameChangeAt(user.profileNameChangedAt);
@@ -6763,10 +6772,10 @@ export async function updateUserSellerSettings(input: {
       city: input.city?.trim() ?? user.city,
       onlineStatus: input.onlineStatus ?? user.onlineStatus,
       isProfileHidden: typeof input.isProfileHidden === "boolean" ? input.isProfileHidden : user.isProfileHidden,
-      showTradeStats: typeof input.showTradeStats === "boolean" ? input.showTradeStats : user.showTradeStats,
+      showTradeStats: isTrustEligibleSeller(user) ? user.showTradeStats : true,
       showLastActive: typeof input.showLastActive === "boolean" ? input.showLastActive : user.showLastActive,
-      allowDirectMessages: typeof input.allowDirectMessages === "boolean" ? input.allowDirectMessages : user.allowDirectMessages,
-      allowProfileSearch: typeof input.allowProfileSearch === "boolean" ? input.allowProfileSearch : user.allowProfileSearch,
+      allowDirectMessages: true,
+      allowProfileSearch: user.allowProfileSearch,
       showPhonePublic: typeof input.showPhonePublic === "boolean" ? input.showPhonePublic : user.showPhonePublic,
       showEmailPublic: typeof input.showEmailPublic === "boolean" ? input.showEmailPublic : user.showEmailPublic,
       lastActiveAt: timestamp,
@@ -12146,7 +12155,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   const profile: AccountProfileSummary = {
     id: user.id,
     nextNameChangeAt: nextProfileNameChangeAt(user.profileNameChangedAt),
-    profilePhotoUrl: user.profilePhotoUrl,
+    profilePhotoUrl: user.profilePhotoUrl || defaultProfileAvatar(user.id),
     coverBannerUrl: user.coverBannerUrl ?? "",
     fullName: user.fullName,
     username,
@@ -12161,9 +12170,9 @@ export async function getAccountProfileData(userId: string): Promise<{
     language: user.languages?.[0] ?? "English",
     preferredLocale: normalizePreferredLocale(user.preferredLocale),
     whatsappNumber: user.whatsappNumber ?? "",
-    showTradeStats: user.showTradeStats !== false,
+    showTradeStats: !isTrustEligibleSeller(user) || user.showTradeStats !== false,
     showLastActive: user.showLastActive !== false,
-    allowDirectMessages: user.allowDirectMessages !== false,
+    allowDirectMessages: true,
     allowProfileSearch: user.allowProfileSearch !== false,
     showPhonePublic: user.showPhonePublic === true,
     showEmailPublic: user.showEmailPublic === true,
