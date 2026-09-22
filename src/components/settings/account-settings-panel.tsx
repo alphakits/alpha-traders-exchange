@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -155,24 +156,24 @@ export function AccountSettingsPanel({
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [whatsappChannel, setWhatsappChannel] = useState<WhatsAppChannelState>(DEFAULT_WHATSAPP_CHANNEL);
   const [whatsappBusy, setWhatsappBusy] = useState(false);
-  const [whatsappMessage, setWhatsappMessage] = useState<string | null>(null);
+  const [whatsappMessage, setWhatsappMessage, whatsappMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
-  const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
+  const [phoneMessage, setPhoneMessage, phoneMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
-  const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
-  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [privacyMessage, setPrivacyMessage, privacyMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [exportMessage, setExportMessage, exportMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [discordConnection, setDiscordConnection] = useState<DiscordConnection | null>(null);
   const [discordLoaded, setDiscordLoaded] = useState(false);
   const [discordBusy, setDiscordBusy] = useState(false);
-  const [discordMessage, setDiscordMessage] = useState<string | null>(null);
+  const [discordMessage, setDiscordMessage, discordMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [showDiscordUnlink, setShowDiscordUnlink] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<SellerBankAccount[]>([]);
   const [bankAccountsLoaded, setBankAccountsLoaded] = useState(false);
   const [bankAccountsBusy, setBankAccountsBusy] = useState(false);
-  const [bankAccountsMessage, setBankAccountsMessage] = useState<string | null>(null);
+  const [bankAccountsMessage, setBankAccountsMessage, bankAccountsMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [editingBankAccountId, setEditingBankAccountId] = useState<string | null>(null);
   const [bankForm, setBankForm] = useState({
     accountHolderName: "",
@@ -295,7 +296,7 @@ export function AccountSettingsPanel({
       const message = messages[result];
       if (message) setDiscordMessage(isAr ? message.ar : message.en);
     }
-  }, [initialTab, isAr]);
+  }, [initialTab, isAr, setDiscordMessage]);
 
   // The server computes this from the seller's canonical approval and access policy.
   // Do not infer access again from a client-visible role or status.
@@ -809,12 +810,12 @@ export function AccountSettingsPanel({
               </div>
             )}
             {discordMessage ? (
-              <p
+              <ActionFeedback revealKey={discordMessageFeedbackKey} as="p"
                 className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-[#D1D5DB]"
                 role="status"
               >
                 {discordMessage}
-              </p>
+              </ActionFeedback>
             ) : null}
           </CardContent>
         </Card>
@@ -946,7 +947,7 @@ export function AccountSettingsPanel({
                   {hasMaxBankAccounts && !editingBankAccountId ? (
                     <p className="text-xs text-amber-300">{isAr ? "وصلت إلى الحد الأقصى (حسابان بنكيان). احذف حسابًا قبل إضافة آخر." : "You reached the maximum (2 bank accounts). Delete one before adding another."}</p>
                   ) : null}
-                  {bankAccountsMessage ? <p className="text-xs text-[#FDE68A]">{bankAccountsMessage}</p> : null}
+                  {bankAccountsMessage ? <ActionFeedback revealKey={bankAccountsMessageFeedbackKey} as="p" className="text-xs text-[#FDE68A]">{bankAccountsMessage}</ActionFeedback> : null}
                 </div>
               ) : null}
             </CardContent>
@@ -1032,7 +1033,7 @@ export function AccountSettingsPanel({
                     <Input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
                     <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
                   </div>}
-                  {phoneMessage && <p className="text-xs text-[#C9A227]">{phoneMessage}</p>}
+                  {phoneMessage && <ActionFeedback revealKey={phoneMessageFeedbackKey} as="p" className="text-xs text-[#C9A227]">{phoneMessage}</ActionFeedback>}
                 </div> : (
                   <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                     {isAr
@@ -1085,7 +1086,7 @@ export function AccountSettingsPanel({
                       {isAr ? "إيقاف جميع إشعارات WhatsApp" : "Turn off all WhatsApp notifications"}
                     </Button>
                   ) : null}
-                  {whatsappMessage ? <p role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</p> : null}
+                  {whatsappMessage ? <ActionFeedback revealKey={whatsappMessageFeedbackKey} as="p" role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</ActionFeedback> : null}
                 </div>
               </div>
               <div className="space-y-3">
@@ -1102,9 +1103,9 @@ export function AccountSettingsPanel({
                 ))}
               </div>
               {privacyMessage ? (
-                <p role="alert" className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
+                <ActionFeedback revealKey={privacyMessageFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
                   {privacyMessage}
-                </p>
+                </ActionFeedback>
               ) : null}
             </CardContent>
           </Card>
@@ -1164,9 +1165,9 @@ export function AccountSettingsPanel({
                   {isAr ? "تصدير بيانات الحساب" : "Export Account Data"}
                 </Button>
                 {exportMessage && (
-                  <p className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-3 text-sm text-[#C9A227]">
+                  <ActionFeedback revealKey={exportMessageFeedbackKey} as="p" className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-3 text-sm text-[#C9A227]">
                     {exportMessage}
-                  </p>
+                  </ActionFeedback>
                 )}
               </CardContent>
             </Card>

@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
@@ -340,7 +341,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
   const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -349,8 +350,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const [coverRemoving, setCoverRemoving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [roleActionLoading, setRoleActionLoading] = useState<null | "student" | "guest">(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [coverError, setCoverError] = useState<string | null>(null);
+  const [photoError, setPhotoError, photoErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [coverError, setCoverError, coverErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const profileRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -464,7 +465,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       mounted = false;
       controller.abort();
     };
-  }, [canonicalSessionError, canonicalSessionResolving, canonicalUser, hasCanonicalSession, isAr, refreshProfile]);
+  }, [canonicalSessionError, canonicalSessionResolving, canonicalUser, hasCanonicalSession, isAr, refreshProfile, setMessage]);
 
   const scheduleProfileRefreshFromNotification = useCallback(() => {
     if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
@@ -937,8 +938,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
           }}
         />
 
-        {photoError ? <p className="text-xs text-red-400">{photoError}</p> : null}
-        {coverError ? <p className="text-xs text-red-400">{coverError}</p> : null}
+        {photoError ? <ActionFeedback revealKey={photoErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{photoError}</ActionFeedback> : null}
+        {coverError ? <ActionFeedback revealKey={coverErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{coverError}</ActionFeedback> : null}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px] xl:items-start">
           <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
@@ -1019,7 +1020,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     {isAr ? "الحسابات المرتبطة" : "Connected accounts"}
                   </Link>
                 </div>
-                {message ? <p className="text-xs text-[#D1D5DB] md:col-span-2">{message}</p> : null}
+                {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" className="text-xs text-[#D1D5DB] md:col-span-2">{message}</ActionFeedback> : null}
               </form>
             </CardContent>
           </Card>

@@ -2,11 +2,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import { navigateOrRevealResult } from "@/lib/client-success-navigation";
+import { consumeActionResult, navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 
 describe("client success navigation", () => {
   afterEach(() => {
+    window.sessionStorage.clear();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
     window.history.replaceState({}, "", "/en/usdt-exchange");
   });
@@ -35,11 +37,12 @@ describe("client success navigation", () => {
     expect(document.activeElement).toBe(result);
   });
 
-  it("guides a same-room trade transition to the next required action instead of the transient result", async () => {
+  it("prioritizes the server result after a same-room action", async () => {
     window.history.replaceState({}, "", "/en/trade-room/purchase-123");
     const router = { push: vi.fn() } as unknown as { push: ReturnType<typeof vi.fn> };
     const result = document.createElement("div");
     result.id = "trade-action-result";
+    result.tabIndex = -1;
     const resultScroll = vi.fn();
     Object.defineProperty(result, "scrollIntoView", { value: resultScroll });
     document.body.append(result);
@@ -59,9 +62,37 @@ describe("client success navigation", () => {
 
     expect(router.push).not.toHaveBeenCalled();
     expect(window.location.hash).toBe("#action-required");
-    expect(resultScroll).not.toHaveBeenCalled();
-    expect(actionScroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(document.activeElement).toBe(action);
+    expect(resultScroll).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    expect(actionScroll).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(result);
+  });
+
+  it("lets shared feedback own scrolling without a competing second reveal", () => {
+    window.history.replaceState({}, "", "/en/trade-room/purchase-123");
+    const result = document.createElement("div");
+    result.id = "trade-action-result";
+    result.dataset.actionFeedback = "";
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(result, "scrollIntoView", { value: scrollIntoView });
+    document.body.append(result);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    navigateOrRevealResult({ push: vi.fn() } as unknown as AppRouterInstance, "/trade-room/purchase-123#action-required", result.id);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("carries a confirmed response to its destination once, across locale prefixes", () => {
+    const router = { push: vi.fn() } as unknown as AppRouterInstance;
+    navigateAfterSuccess(router, "/trade-room/purchase-123", "Request accepted.");
+    expect(consumeActionResult("/en/dashboard")).toBeNull();
+    expect(consumeActionResult("/en/trade-room/purchase-123")).toBe("Request accepted.");
+    expect(consumeActionResult("/en/trade-room/purchase-123")).toBeNull();
+  });
+
+  it("does not replay an expired action result", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    navigateAfterSuccess({ push: vi.fn() } as unknown as AppRouterInstance, "/trade-room/purchase-123", "Request accepted.");
+    now.mockReturnValue(62_000);
+    expect(consumeActionResult("/trade-room/purchase-123")).toBeNull();
   });
 
   it("navigates when the canonical result belongs to another context", () => {

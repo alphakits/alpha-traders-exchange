@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useState, type FormEvent } from "react";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { Link } from "@/i18n/navigation";
@@ -29,8 +30,8 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
     whatsappNumber: "",
     agreedToTerms: false,
   });
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function localizeRegistrationError(error?: string, code?: RegistrationErrorCode) {
@@ -174,8 +175,8 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           </Button>
         </form>
 
-        {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
-        {statusMessage ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
+        {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-3 text-sm text-rose-300">{errorMessage}</ActionFeedback> : null}
+        {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</ActionFeedback> : null}
 
         <p className="mt-5 text-sm text-[#9CA3AF]">
           {isAr ? "لديك حساب بالفعل؟" : "Already have an account?"}{" "}

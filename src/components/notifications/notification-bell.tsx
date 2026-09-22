@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
@@ -186,7 +187,8 @@ function NotificationBellSession({
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
@@ -272,7 +274,7 @@ function NotificationBellSession({
     if (!shouldPreserveList) {
       setIsLoading(true);
     }
-    setError(null);
+    setLoadError(null);
     try {
       incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store", signal: controller.signal });
@@ -297,7 +299,7 @@ function NotificationBellSession({
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
       if (activeNotificationAccountScopeRef.current === operationScope && loadControllerRef.current === controller) {
-        setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+        setLoadError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
     } finally {
       window.clearTimeout(timeout);
@@ -538,7 +540,7 @@ function NotificationBellSession({
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y]">
           {isLoading ? <p className="empty-state-panel p-3 text-xs">{isAr ? "جاري التحميل..." : "Loading..."}</p> : null}
-          {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          {error || loadError ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error ?? loadError}</ActionFeedback> : null}
           {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">{isAr ? "لا توجد إشعارات حتى الآن." : "No notifications yet."}</p> : null}
           {renderedNotifications.map((notification) => {
                 const Icon = notificationIcon(notification);

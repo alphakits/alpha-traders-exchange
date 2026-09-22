@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
@@ -83,6 +84,7 @@ export type SellerListingsWorkspacePortalProps = {
   sellerListingsExpanded: boolean;
   sellerRequests: PurchaseRequest[];
   sellerWorkspaceMessage: string | null;
+  sellerWorkspaceMessageFeedbackKey?: number;
   setEditingListingId: Dispatch<SetStateAction<string | null>>;
   setListingEditForm: Dispatch<SetStateAction<ListingEditForm>>;
   setListingEditOriginal: Dispatch<SetStateAction<ListingEditOriginal | null>>;
@@ -146,6 +148,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     sellerListingsExpanded,
     sellerRequests,
     sellerWorkspaceMessage,
+    sellerWorkspaceMessageFeedbackKey,
     setEditingListingId,
     setListingEditForm,
     setListingEditOriginal,
@@ -176,7 +179,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
           >
             <CardHeader>
               {sellerWorkspaceMessage ? (
-                <p role="status" aria-live="polite" className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white">{sellerWorkspaceMessage}</p>
+                <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} as="p" role="status" aria-live="polite" className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white">{sellerWorkspaceMessage}</ActionFeedback>
               ) : null}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>

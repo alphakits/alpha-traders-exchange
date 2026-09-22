@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
@@ -61,6 +62,7 @@ type PurchaseListingDialogProps = {
   showVerificationCta: boolean;
   isRedirectingToVerification: boolean;
   statusMessage: string | null;
+  statusMessageFeedbackKey?: number;
   isSubmittingPurchase: boolean;
   onClose: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -126,6 +128,7 @@ export function PurchaseListingDialog({
   showVerificationCta,
   isRedirectingToVerification,
   statusMessage,
+  statusMessageFeedbackKey,
   isSubmittingPurchase,
   onClose,
   onSubmit,
@@ -394,7 +397,7 @@ export function PurchaseListingDialog({
                 {showVerificationCta ? (
                   <Card className="border-[#C9A227]/50 bg-gradient-to-br from-amber-500/15 via-black/60 to-[#C9A227]/10 shadow-[0_0_26px_rgba(201,162,39,0.22)]"><CardContent className="space-y-3 p-4"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 text-[#FDE68A]" /><div><p className="text-sm font-semibold text-[#FDE68A]">{isAr ? "⚠️ توثيق المشتري مطلوب" : "⚠️ Buyer Verification Required"}</p><p className="mt-1 text-xs text-[#E5E7EB]">{isAr ? "أكمل التوثيق لبدء التداول بأمان على Alpha Exchange. تستغرق العملية أقل من دقيقة." : "Complete your verification to begin trading safely on Alpha Exchange. The verification takes less than one minute."}</p></div></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" className="w-full sm:w-auto" onClick={onGoToVerification} disabled={isRedirectingToVerification}>{isRedirectingToVerification ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isRedirectingToVerification ? (isAr ? "جارٍ الانتقال إلى التوثيق..." : "Redirecting to verification...") : (isAr ? "✅ وثّق الآن" : "✅ Verify Now")}</Button><button type="button" onClick={onGoToVerification} disabled={isRedirectingToVerification} className={`${isAr ? "text-right" : "text-left"} text-xs text-[#FDE68A] underline underline-offset-2 transition hover:text-[#FFE8A3] disabled:cursor-not-allowed disabled:opacity-70`}>{isAr ? "الانتقال إلى التوثيق ←" : "Go to Verification →"}</button></div></CardContent></Card>
                 ) : null}
-                {statusMessage && !showVerificationCta ? <Card className="border-amber-500/30 bg-black/30"><CardContent className="flex items-center gap-2 p-3 text-xs text-[#FDE68A]"><AlertTriangle className="h-3.5 w-3.5" /><span>{statusMessage}</span></CardContent></Card> : null}
+                {statusMessage && !showVerificationCta ? <Card className="border-amber-500/30 bg-black/30"><ActionFeedback revealKey={statusMessageFeedbackKey} className="flex items-center gap-2 p-3 text-xs text-[#FDE68A]"><AlertTriangle className="h-3.5 w-3.5" /><span>{statusMessage}</span></ActionFeedback></Card> : null}
               </form>
             </div>
             <div className="shrink-0 border-t border-white/10 bg-[#0B0B0B]/95 px-5 py-3 sm:px-6 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]">

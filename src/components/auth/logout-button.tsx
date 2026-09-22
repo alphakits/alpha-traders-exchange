@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import { Button, type ButtonProps } from "@/components/ui/button";
@@ -20,7 +21,7 @@ export function LogoutButton({
   ...buttonProps
 }: LogoutButtonProps) {
   const [isPending, setIsPending] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -87,12 +88,9 @@ export function LogoutButton({
         {idleLabel ?? children}
       </Button>
       {errorMessage ? (
-        <div
-          role="alert"
-          className="fixed bottom-4 right-4 z-[120] max-w-sm rounded-2xl border border-red-500/35 bg-[#1a0909]/95 px-4 py-3 text-sm text-red-100 shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
-        >
+        <ActionFeedback revealKey={errorMessageFeedbackKey} role="alert" className="fixed bottom-4 right-4 z-[120] max-w-sm rounded-2xl border border-red-500/35 bg-[#1a0909]/95 px-4 py-3 text-sm text-red-100 shadow-[0_14px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
           {errorMessage}
-        </div>
+        </ActionFeedback>
       ) : null}
     </>
   );

@@ -4,6 +4,7 @@ import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { localeDirection, routing, type AppLocale } from "@/i18n/routing";
+import { RouteActionFeedback } from "@/components/ui/route-action-feedback";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
@@ -92,7 +93,7 @@ export default async function LocaleLayout({
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
           <NativeAppBridge locale={appLocale} />
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
-          <main className="min-h-[calc(100vh-9rem)]">{children}</main>
+          <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} />{children}</main>
           <SiteFooter locale={appLocale} />
           <MobileBottomNavigation locale={appLocale} />
         </CanonicalSessionProvider>
