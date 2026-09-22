@@ -42,7 +42,8 @@ export function normalizeEconomicNews(raw: unknown, now = new Date()): NewsEvent
   const events = new Map<string, NewsEvent>();
   for (const row of rows) {
     if (row.Country.toLowerCase() !== "united states" || Number(row.Importance) !== 3) continue;
-    if (row.Currency?.trim() && row.Currency.trim().toUpperCase() !== "USD") continue;
+    const currency = row.Currency?.trim().toUpperCase();
+    if (currency && currency !== "USD" && currency !== "$") continue;
     const providerId = String(row.CalendarId);
     if (!/^\d{1,24}$/.test(providerId)) throw new Error("Invalid news event identifier");
     const scheduledAt = utcTimestamp(row.Date);

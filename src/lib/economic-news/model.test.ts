@@ -21,6 +21,16 @@ describe("USD economic news data", () => {
     expect(events.map((e) => e.id)).toEqual(["te-123", "te-5"]);
     expect(events[0].scheduledAt).toBe("2026-09-23T12:30:00.000Z");
   });
+  it("preserves US dollar-symbol results without accepting Canadian or lower-impact events", () => {
+    const dollarRow = { ...row, CalendarId: "319436", Event: "Balance of Trade", Currency: "$", Actual: "$-70.5B" };
+    const events = normalizeEconomicNews([
+      dollarRow,
+      { ...dollarRow, CalendarId: "6", Country: "Canada" },
+      { ...dollarRow, CalendarId: "7", Importance: 2 },
+    ], now);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ id: "te-319436", currency: "USD", actual: "$-70.5B" });
+  });
   it("preserves zero results and does not confuse a forecast with an actual", () => {
     expect(normalizeEconomicNews([{ ...row, Actual: 0 }], now)[0].actual).toBe("0");
     expect(normalizeEconomicNews([{ ...row, Actual: "" }], now)[0].actual).toBeNull();
