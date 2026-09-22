@@ -13,10 +13,10 @@ export type HeaderNavItem = { href: string; label: string; cta?: boolean };
  */
 export function HeaderNav({ items, locale }: { items: HeaderNavItem[]; locale: AppLocale }) {
   const pathname = usePathname();
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`) || (href === "/trade" && ["/usdt-exchange", "/trade-room", "/exchange"].some((prefix) => pathname.startsWith(prefix))));
 
   return (
-    <nav className="hidden items-center gap-1 lg:flex" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Primary navigation"}>
+    <nav dir={locale === "ar" ? "rtl" : "ltr"} className="hidden items-center gap-1 lg:flex" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Primary navigation"}>
       {items.map((item) => {
         const active = isActive(item.href);
         if (item.cta) {

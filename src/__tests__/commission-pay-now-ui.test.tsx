@@ -226,7 +226,7 @@ describe("seller commission Pay Now", () => {
   });
 
   it("opens the exact payment panel in place from both mobile buttons", async () => {
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
 
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
@@ -281,7 +281,7 @@ describe("seller commission Pay Now", () => {
       paymentAmountDue,
       dueAt: "2026-09-15T00:00:00.000Z",
     }];
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
 
     const status = await waitFor(() => {
       const element = document.getElementById("commission-status");
@@ -301,7 +301,7 @@ describe("seller commission Pay Now", () => {
 
   it("refreshes an already-open seller workspace when an admin issues a commission", async () => {
     commissionRecordsOverride = [];
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
 
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
@@ -353,7 +353,7 @@ describe("seller commission Pay Now", () => {
       source: "admin_manual",
       issueReason: "Seller support adjustment approved by administration",
     }];
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
 
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
@@ -403,7 +403,7 @@ describe("seller commission Pay Now", () => {
   });
 
   it("reacts to a commission reminder routed onto an already-mounted exchange page", async () => {
-    const view = render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    const view = render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
 
     await waitFor(() => {
       expect(document.getElementById("commission-status")).not.toBeNull();
@@ -411,7 +411,7 @@ describe("seller commission Pay Now", () => {
     expect(document.getElementById("commission-payment")).toBeNull();
 
     navigationState.search = "commission=pay&commissionId=commission-trade-93";
-    view.rerender(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    view.rerender(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
 
     await waitFor(() => {
       const element = document.getElementById("commission-payment");
@@ -432,9 +432,9 @@ describe("seller commission Pay Now", () => {
       if (url.includes("my-listings?commissionId=")) await gate;
       return original(input, init);
     });
-    const view = render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    const view = render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/alpha-exchange/my-listings?commissionId=commission-trade-93", expect.anything()));
-    view.rerender(<UsdtExchangePage locale="en" initialSessionUser={{ ...seller }} />);
+    view.rerender(<UsdtExchangePage locale="en" initialSessionUser={{ ...seller }} workspaceMode="seller" />);
     await act(async () => { finishPayment(); });
     await waitFor(() => {
       const panel = document.getElementById("commission-payment");
@@ -456,7 +456,7 @@ describe("seller commission Pay Now", () => {
       if (String(input).includes("my-listings") && !String(input).includes("commissionId=")) await gate;
       return original(input, init);
     });
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("9.000002 USDT"));
     await act(async () => { finishGeneral(); });
     await waitFor(() => expect(document.getElementById("commission-status")).not.toBeNull());
@@ -472,7 +472,7 @@ describe("seller commission Pay Now", () => {
       paymentExpectedAmountMode: "unique_v1",
     };
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
       expect(element).not.toBeNull();
@@ -508,7 +508,7 @@ describe("seller commission Pay Now", () => {
       paymentExpectedAmountMode: "legacy_base",
     };
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
       expect(element).not.toBeNull();
@@ -543,7 +543,7 @@ describe("seller commission Pay Now", () => {
       paymentSubmittedAt: "2026-09-10T12:35:00.000Z",
     };
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
       expect(element).not.toBeNull();
@@ -602,7 +602,7 @@ describe("seller commission Pay Now", () => {
         : record);
     };
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
       expect(element).not.toBeNull();
@@ -652,7 +652,7 @@ describe("seller commission Pay Now", () => {
       if (settleOnSubmit) commissionRecordsOverride = [];
     };
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
       expect(element).not.toBeNull();
@@ -687,7 +687,7 @@ describe("seller commission Pay Now", () => {
       paymentSubmittedAt: "2026-09-10T12:30:00.000Z",
     };
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     const commissionStatus = await waitFor(() => {
       const element = document.getElementById("commission-status");
       expect(element?.textContent).toContain("7.00 USDT");
@@ -717,7 +717,7 @@ describe("seller commission Pay Now", () => {
     };
     const intervalSpy = vi.spyOn(window, "setInterval");
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} workspaceMode="seller" />);
     await waitFor(() => {
       expect(document.getElementById("commission-status")).not.toBeNull();
       expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);

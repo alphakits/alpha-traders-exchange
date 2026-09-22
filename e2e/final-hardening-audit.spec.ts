@@ -232,7 +232,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard/seller",
-        readyLocator: page.getByText(/seller status/i).first(),
+        readyLocator: page.getByRole("button", { name: /^Live listings:/ }),
         viewport,
         disallowPathnames: ["/login"],
       });
@@ -247,7 +247,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard",
-        readyLocator: page.getByRole("main").getByText("Your workspace", { exact: true }).first(),
+        readyLocator: page.getByRole("main").getByRole("link", { name: "Browse sellers" }),
         viewport,
         disallowPathnames: ["/login"],
         maxCls: 1.5,
@@ -297,11 +297,12 @@ test.describe("Final hardening audit", () => {
 
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/en/usdt-exchange");
-    await expect(page.getByRole("button", { name: /My Trade Requests/i }).first()).toBeVisible();
-    await page.getByRole("button", { name: /My Trade Requests/i }).first().click();
-    await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
+    await expect(page.getByRole("main").getByRole("link", { name: "My trades" })).toBeVisible();
+    await page.getByRole("main").getByRole("link", { name: "My trades" }).click();
+    await expect(page).toHaveURL(/\/en\/trade\?section=trade-history$/);
     await expect(page.getByRole("main").locator("#my-trade-requests-section")).toBeVisible();
 
+    await page.goto("/en/trade");
     await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
@@ -330,8 +331,8 @@ test.describe("Final hardening audit", () => {
       await expect(page).toHaveURL(/\/en\/notifications/);
     }
 
-    await page.goto("/ar/usdt-exchange#my-trade-requests-section");
-    await expect(page).toHaveURL(/\/ar\/usdt-exchange(#my-trade-requests-section)?$/);
+    await page.goto("/ar/trade?section=trade-history");
+    await expect(page).toHaveURL(/\/ar\/trade\?section=trade-history$/);
     await expect(page.getByRole("main").locator("#my-trade-requests-section")).toBeVisible();
   });
 
@@ -340,8 +341,8 @@ test.describe("Final hardening audit", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
 
     await page.goto("/en/dashboard/seller");
-    await expect(page.getByText(/seller status/i).first()).toBeVisible();
-    await page.getByRole("button", { name: /^My Listings:/ }).first().click();
+    await expect(page.getByRole("button", { name: /^Live listings:/ })).toBeVisible();
+    await page.getByRole("button", { name: /^Live listings:/ }).first().click();
     await expect(page.locator("#my-listings-section")).toBeVisible();
 
     await page.goto("/en/profile");
@@ -377,7 +378,7 @@ test.describe("Final hardening audit", () => {
       expect(sectionOrder.listingsTop).toBeGreaterThan(sectionOrder.marketTop);
       expect(sectionOrder.createTop).toBeGreaterThan(sectionOrder.listingsTop);
 
-      await page.getByRole("button", { name: /^My Listings:/ }).first().click();
+      await page.getByRole("button", { name: /^Live listings:/ }).first().click();
       await expect(main.locator("#my-listings-section")).toBeInViewport();
       await page.getByRole("button", { name: /^Create Listing$/ }).first().click();
       await expect(main.locator("#create-listing")).toBeInViewport();
@@ -433,9 +434,9 @@ test.describe("Final hardening audit", () => {
       await page.goto("/en/dashboard");
 
       const main = page.getByRole("main");
-      await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByRole("link", { name: "Browse sellers" })).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(1);
+      await expect(main.getByRole("link", { name: /Your active trades/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
@@ -448,11 +449,11 @@ test.describe("Final hardening audit", () => {
       await page.goto("/en/dashboard/seller");
 
       const main = page.getByRole("main");
-      await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByRole("link", { name: "Browse sellers" })).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
-      await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
-      await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
+      await expect(main.getByRole("button", { name: /^Live listings:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Active trades:/ })).toHaveCount(1);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on seller dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
     });

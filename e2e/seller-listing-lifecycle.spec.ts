@@ -1108,9 +1108,9 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.status).toBe("review_open");
   expect(Boolean(firstTrade.completedAt)).toBeTruthy();
 
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}$`), { timeout: 20_000 });
   await seller.page.reload();
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}$`), { timeout: 20_000 });
 
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);

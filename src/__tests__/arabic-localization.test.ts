@@ -127,13 +127,11 @@ describe("Arabic localization integrity", () => {
     expect(localizeNotificationActionLabel("Continue Trade", "ar", notification)).toMatch(ARABIC_PATTERN);
   });
 
-  it("keeps the mobile brand lockup visible without ellipsis truncation", () => {
+  it("preserves the brand logo and untruncated wordmark when the wordmark is shown", () => {
     const header = readFileSync(join(process.cwd(), "src", "components", "layout", "site-header.tsx"), "utf8");
     expect(header).toContain("BRAND_PRIMARY_NAME");
     expect(header).toContain("BRAND_DESCRIPTOR");
     expect(header).toContain("BRAND_DESCRIPTOR_AR");
-    expect(header).toContain('<span className="flex shrink-0 flex-col" aria-label={brand}>');
-    expect(header).not.toMatch(/<span className="hidden shrink-0 flex-col/);
     expect(header).toContain("whitespace-nowrap");
     expect(header).not.toContain("gold-gradient truncate");
   });

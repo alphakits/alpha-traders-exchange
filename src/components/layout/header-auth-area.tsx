@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import Image from "next/image";
+import { defaultProfileAvatar } from "@/lib/profile-presets";
 import type { AppLocale } from "@/i18n/routing";
 import type { HeaderNavItem } from "@/components/layout/header-nav";
 import { Link } from "@/i18n/navigation";
@@ -57,12 +59,6 @@ export function HeaderAuthArea({
       <div className="shrink-0 [&>button]:h-11">
         <LocaleSwitcher />
       </div>
-      {sessionUser ? (
-        <div className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] sm:inline-flex">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
-          <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
-        </div>
-      ) : null}
       {!sessionUser ? (
         <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden min-[430px]:inline-flex sm:hidden")}>
           {dashboardLabel}
@@ -75,17 +71,8 @@ export function HeaderAuthArea({
         />
       ) : null}
       {sessionUser ? <NotificationBell locale={locale} /> : null}
-      {sessionUser ? (
-        <LogoutButton
-          locale={locale}
-          size="sm"
-          variant="secondary"
-          className="hidden text-[#D1D5DB] hover:bg-white/10 hover:text-white sm:inline-flex"
-          idleLabel={labels.signOut}
-        />
-      ) : null}
       <MobileNavigationMenu label={labels.openMenu}>
-        <nav className="space-y-1">
+        <nav className="space-y-1" dir={locale === "ar" ? "rtl" : "ltr"}>
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -118,6 +105,7 @@ export function HeaderAuthArea({
                 label={labels.createListing}
               />
             ) : null}
+            {sessionUser && !sellerWorkspaceAccess ? <Link href="/seller-application" locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] hover:bg-white/5">{locale === "ar" ? "التقدم كبائع" : "Apply to sell"}</Link> : null}
             {sessionUser ? (
               <Link href="/notifications" locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                 {labels.notifications}
@@ -143,9 +131,10 @@ export function HeaderAuthArea({
           </div>
         </nav>
       </MobileNavigationMenu>
-      <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
-        {dashboardLabel}
-      </Link>
+      {sessionUser ? <Link href="/profile" locale={locale} aria-label={labels.profile} className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-[#D4AF37]/60 transition hover:border-[#f4d87a] focus-visible:outline-2 focus-visible:outline-[#D4AF37]">
+        <Image src={sessionUser.profilePhotoUrl || defaultProfileAvatar(sessionUser.id)} alt={sessionUser.fullName} fill sizes="40px" className="object-cover" unoptimized />
+      </Link> : null}
+      {!sessionUser ? <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>{dashboardLabel}</Link> : null}
     </div>
   );
 }

@@ -133,7 +133,7 @@ test.afterAll(async () => {
 
 test("a strict orphaned legacy seller applicant can reapply without gaining seller privileges", async ({ page }) => {
   await login(page.request, ORPHANED_APPLICANT);
-  await page.goto("/en/usdt-exchange");
+  await page.goto("/en/seller-application");
   const main = page.getByRole("main");
   await expect(main.getByText("Become an Approved Seller")).toBeVisible({ timeout: 30_000 });
   const openApplication = main.locator("#seller-application button").filter({ hasText: "Open Seller Application" });
@@ -156,7 +156,7 @@ test("a strict orphaned legacy seller applicant can reapply without gaining sell
 test("buyer without phone verification can submit and retain a pending seller application", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page.request);
-  await page.goto("/en/usdt-exchange");
+  await page.goto("/en/seller-application");
   const main = page.getByRole("main");
   await expect(main.getByText("Become an Approved Seller")).toBeVisible({ timeout: 30_000 });
   const openApplication = main.locator("#seller-application button").filter({ hasText: "Open Seller Application" });
@@ -194,7 +194,7 @@ test("buyer without phone verification can submit and retain a pending seller ap
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
   await page.request.post("/api/auth/logout");
   await login(page.request);
-  await page.goto("/en/usdt-exchange");
+  await page.goto("/en/seller-application");
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
 });
 
