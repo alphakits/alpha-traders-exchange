@@ -9,7 +9,7 @@ export type LocalizedTradeReminderDisplay = {
 };
 
 export function getLocalizedTradeReminderDisplay(
-  reminder: AlphaExchangeTradeReminder,
+  reminder: Pick<AlphaExchangeTradeReminder, "kind" | "displayNumber" | "tradeId">,
   locale: "ar" | "en",
 ): LocalizedTradeReminderDisplay {
   const reference = reminder.displayNumber ? `#${reminder.displayNumber}` : reminder.tradeId;

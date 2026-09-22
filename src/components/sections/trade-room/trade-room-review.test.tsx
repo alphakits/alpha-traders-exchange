@@ -27,10 +27,12 @@ beforeEach(() => {
   window.sessionStorage.clear();
   vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
   Element.prototype.scrollIntoView = vi.fn();
+  window.scrollTo = vi.fn();
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-describe("completed trade review UI", () => {
+describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("completed %s trade review UI", (method) => {
+  beforeEach(() => { room.request.paymentMethod = method; });
   it("keeps the completed trade and written review visible when session recovery fails", async () => {
     const seller: ClientSessionUser = {
       id: "seller-1", fullName: "Seller", email: "seller@example.test", role: "approved_seller", sellerStatus: "approved_seller",

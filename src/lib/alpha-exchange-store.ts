@@ -1,4 +1,5 @@
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
@@ -10989,8 +10990,9 @@ function buildTradeReminderForUser(
   const tradeRef = trade.displayNumber ? `Trade #${trade.displayNumber}` : `Trade ${trade.tradeId ?? trade.id}`;
   const listingDisplayNumber = listing?.displayNumber;
   const actionHref = `/trade-room/${trade.id}`;
+  const reminderKind = getTradeHeaderReminderKind(toTradeHeaderActivity(trade), userId);
 
-  if (trade.status === "review_open") {
+  if (reminderKind === "feedback_required") {
     return {
       requestId: trade.id,
       tradeId: trade.tradeId ?? trade.id,
@@ -11007,7 +11009,7 @@ function buildTradeReminderForUser(
     };
   }
 
-  if (isBuyer && (trade.status === "accepted" || trade.status === "payment_sent" || trade.status === "funds_received" || trade.status === "usdt_release_pending")) {
+  if (reminderKind === "buyer_action_required") {
     return {
       requestId: trade.id,
       tradeId: trade.tradeId ?? trade.id,
@@ -11024,7 +11026,7 @@ function buildTradeReminderForUser(
     };
   }
 
-  if (isSeller && (trade.status === "pending" || trade.status === "accepted" || trade.status === "payment_sent" || trade.status === "funds_received" || trade.status === "usdt_release_pending")) {
+  if (reminderKind === "seller_action_required") {
     return {
       requestId: trade.id,
       tradeId: trade.tradeId ?? trade.id,

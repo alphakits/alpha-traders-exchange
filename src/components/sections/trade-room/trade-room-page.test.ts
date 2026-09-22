@@ -13,6 +13,7 @@ vi.mock("@/i18n/navigation", () => ({
 import {
   canRevealTradeRoomBankDetails,
   getPrimaryAction,
+  getTradeProgressIndex,
   getTradeRoomSessionKey,
   isTradeRoomChatNearBottom,
   groupTradeTimelineEntries,
@@ -182,16 +183,13 @@ describe("Trade Room client stability helpers", () => {
     });
   });
 
-  it("requires confirmation and keeps the guided cash action on both responsive website surfaces", () => {
+  it("requires confirmation and has a single primary action across responsive surfaces", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
     expect(source).toContain("!window.confirm(primaryAction.confirmationMessage)");
-    expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(2);
+    expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(1);
     expect(source).toContain('action: action.command');
     expect(source).toContain('isCashTrade ? (');
-    expect(source).toContain('No Evidence Upload Required');
-    expect(source).toContain('Confirming USDT sent and completing the trade are two separate seller-only actions');
-    expect(source).toContain('buyer confirmation is not required');
     expect(source).toContain('The buyer wallet stays hidden from the seller until the seller confirms actual cash receipt.');
     expect(source).toContain('h-auto min-h-12 w-full whitespace-normal');
   });
@@ -213,7 +211,7 @@ describe("Trade Room client stability helpers", () => {
 
   it("advances past stale receipt links when USDT arrives and past stale action links at completion", () => {
     expect(resolveTradeRoomGuidanceTarget({ priorState: "r:payment_sent", currentState: "r:usdt_sent", status: "usdt_sent", action: "upload-payment-receipt", hash: "#evidence" })).toBe("action-required");
-    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:usdt_sent", currentState: "r:review_open", status: "review_open", action: "complete-cash-trade", hash: "#action-required" })).toBe("status-banner");
+    expect(resolveTradeRoomGuidanceTarget({ priorState: "r:usdt_sent", currentState: "r:review_open", status: "review_open", action: "complete-cash-trade", hash: "#action-required" })).toBe("action-required");
     expect(resolveTradeRoomGuidanceTarget({ priorState: "r:payment_sent", currentState: "r:payment_sent", status: "payment_sent", action: null, hash: "#chat" })).toBe("chat");
   });
 
@@ -379,6 +377,22 @@ describe("Trade Room client stability helpers", () => {
     })).toBe(false);
   });
 
+  it.each([
+    ["pending", 0], ["accepted", 1], ["payment_sent", 2], ["funds_received", 3],
+    ["usdt_release_pending", 3], ["usdt_sent", 4], ["review_open", 5], ["completed", 5], ["locked", 5],
+  ] as const)("only counts confirmed milestones for %s", (status, index) => {
+    expect(getTradeProgressIndex(status)).toBe(index);
+  });
+
+  it("does not move an already visible result", () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    target.getBoundingClientRect = () => ({ top: 120, height: 80 }) as DOMRect;
+    const scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    revealTradeRoomDeepLinkTarget(target);
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
   it("uses one measured page scroll and focus for a deep-link target", () => {
     const header = document.createElement("header");
     const target = document.createElement("section");
@@ -390,7 +404,7 @@ describe("Trade Room client stability helpers", () => {
     });
     Object.defineProperty(target, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ top: 250 }) as DOMRect,
+      value: () => ({ top: 850, height: 400 }) as DOMRect,
     });
     const scrollTo = vi.fn();
     const focus = vi.fn();
@@ -400,7 +414,7 @@ describe("Trade Room client stability helpers", () => {
     revealTradeRoomDeepLinkTarget(target);
 
     expect(scrollTo).toHaveBeenCalledTimes(1);
-    expect(scrollTo).toHaveBeenCalledWith({ top: 304, behavior: "auto" });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 904, behavior: "auto" });
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 });

@@ -9,7 +9,8 @@ import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
-import { getLocalizedTradeReminderDisplay } from "@/lib/trade-reminder-localization";
+import { toTradeHeaderActivity } from "@/lib/trade-header-activity";
+import { TradeHeaderNotice } from "./trade-header-notice";
 
 async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
   if (!sessionUser) {
@@ -34,39 +35,13 @@ async function TradeHeaderStatus({
   sessionUser: AlphaExchangeUser | null;
 }) {
   if (!sessionUser) return null;
-  const { activeTrade, tradeReminder } = await getNonBlockingTradeHeaderState(sessionUser);
-  if (!activeTrade && !tradeReminder) return null;
-
-  const tradeReminderDisplay = tradeReminder ? getLocalizedTradeReminderDisplay(tradeReminder, locale) : null;
+  const { activeTrade } = await getNonBlockingTradeHeaderState(sessionUser);
   const activeTradeCounterparty = activeTrade
     ? (activeTrade.sellerId === sessionUser.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
     : null;
-  const destination = tradeReminder?.actionHref ?? (activeTrade ? `/trade-room/${activeTrade.id}` : null);
-  if (!destination) return null;
-
-  return (
-    <div className="section-container pb-2">
-      <div className={`flex flex-col items-stretch justify-between gap-2 rounded-xl px-3 py-2 text-xs sm:flex-row sm:items-center ${tradeReminder ? "border border-amber-400/35 bg-amber-500/10 text-amber-100" : "border border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}`}>
-        <p className="min-w-0 leading-5">
-          {tradeReminder && tradeReminderDisplay ? (
-            <>
-              🔔 <span className="font-semibold text-white">{tradeReminderDisplay.title}</span> — {tradeReminderDisplay.messageBeforeReference}{" "}
-              <bdi dir="ltr" className="font-semibold text-white">{tradeReminderDisplay.reference}</bdi>{" "}
-              {tradeReminderDisplay.messageAfterReference}
-            </>
-          ) : (
-            <>
-              🟢 {locale === "ar" ? "صفقة نشطة" : "Active Trade"} — {locale === "ar" ? "تابع الصفقة مع" : "Continue trade with"}{" "}
-              <span className="font-semibold text-white">{activeTradeCounterparty}</span>
-            </>
-          )}
-        </p>
-        <Link href={destination} locale={locale} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-current/40 bg-white/10 px-4 py-2 text-center text-xs font-semibold transition hover:bg-white/15 sm:min-h-0 sm:py-1">
-          {tradeReminderDisplay?.actionLabel ?? (locale === "ar" ? "استئناف الصفقة" : "Resume Trade")}
-        </Link>
-      </div>
-    </div>
-  );
+  return <TradeHeaderNotice locale={locale} actorId={sessionUser.id}
+    initialTrade={activeTrade ? toTradeHeaderActivity(activeTrade) : null}
+    counterpartyName={activeTradeCounterparty} />;
 }
 
 export async function SiteHeader({
