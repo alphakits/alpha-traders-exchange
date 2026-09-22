@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -481,7 +482,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [activeSection, setActiveSection] = useState<SectionKey>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [data, setData] = useState<AdminPayload | null>(null);
   const [systemHealth, setSystemHealth] = useState<SystemHealthSnapshot | null>(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
@@ -527,7 +528,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   } | null>(null);
   const [commissionPaidReason, setCommissionPaidReason] = useState("");
   const [commissionPaidSaving, setCommissionPaidSaving] = useState(false);
-  const [commissionPaidError, setCommissionPaidError] = useState<string | null>(null);
+  const [commissionPaidError, setCommissionPaidError, commissionPaidErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
 
   const [auditQuery, setAuditQuery] = useState("");
   const [auditAction, setAuditAction] = useState<"all" | AuditLogEntry["action"]>("all");
@@ -639,7 +640,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [commissionPaidPending, commissionPaidSaving, rankConfirmPending, selectedRequest, selectedSeller]);
+  }, [commissionPaidPending, commissionPaidSaving, rankConfirmPending, selectedRequest, selectedSeller, setCommissionPaidError]);
 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
@@ -4489,9 +4490,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
               </div>
 
               {commissionPaidError ? (
-                <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm leading-5 text-red-200">
+                <ActionFeedback revealKey={commissionPaidErrorFeedbackKey} as="p" role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm leading-5 text-red-200">
                   {commissionPaidError}
-                </p>
+                </ActionFeedback>
               ) : null}
 
               <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
@@ -4603,9 +4604,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         ) : null}
 
       {toast ? (
-          <div className="alpha-reveal-rise fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[90] rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-3 text-center text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)] md:inset-x-auto md:bottom-5 md:end-5 md:rounded-full md:py-2 md:text-start">
+          <ActionFeedback floating revealKey={toastFeedbackKey} className="alpha-reveal-rise fixed inset-x-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[90] rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-3 text-center text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)] md:inset-x-auto md:bottom-5 md:end-5 md:rounded-full md:py-2 md:text-start">
             {toast}
-          </div>
+          </ActionFeedback>
         ) : null}
     </section>
   );

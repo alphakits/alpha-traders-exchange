@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import {
   Activity,
   AlertTriangle,
@@ -614,7 +615,7 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
                 </Button>
               )}
               {action.status === "accepted" || action.status === "error" ? (
-                <p
+                <ActionFeedback as="p" revealKey={action}
                   className={`mt-3 rounded-xl border p-3 text-sm ${
                     action.status === "accepted"
                       ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
@@ -623,7 +624,7 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
                   role="status"
                 >
                   {action.message}
-                </p>
+                </ActionFeedback>
               ) : null}
               <p className="mt-4 text-xs leading-5 text-[#8E96A3]">
                 {t("Dead jobs are diagnostic-only. Investigate the safe error code and authoritative website state before support intervention; generic retry is intentionally unavailable.", "المهام المتوقفة للتشخيص فقط. افحص رمز الخطأ الآمن وحالة الموقع الرسمية قبل التدخل؛ إعادة المحاولة العامة غير متاحة عمدًا.")}

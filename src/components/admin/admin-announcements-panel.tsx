@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useLocale } from "next-intl";
@@ -117,7 +118,7 @@ export function AdminAnnouncementsPanel() {
   const [testing, setTesting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [testEmail, setTestEmail] = useState("");
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<{ type: "success" | "error"; text: string } | null>(null);
   const [progress, setProgress] = useState<{ sent: number; failed: number; retries: number; total: number } | null>(null);
   const contentArRef = useRef<HTMLTextAreaElement>(null);
   const contentEnRef = useRef<HTMLTextAreaElement>(null);
@@ -137,7 +138,7 @@ export function AdminAnnouncementsPanel() {
     } finally {
       setLoadingCount(false);
     }
-  }, [audience, isArabic]);
+  }, [audience, isArabic, setMessage]);
 
   useEffect(() => {
     void loadOverview();
@@ -206,7 +207,7 @@ export function AdminAnnouncementsPanel() {
         });
       }
     }
-  }, [isArabic, t]);
+  }, [isArabic, setMessage, t]);
 
   async function confirmAndSend() {
     if (!recipientCount) return;
@@ -418,13 +419,13 @@ export function AdminAnnouncementsPanel() {
               </div>
             ) : null}
             {message ? (
-              <div
+              <ActionFeedback revealKey={messageFeedbackKey}
                 className={`flex items-start gap-2 rounded-xl border p-3 text-sm ${message.type === "success" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-red-500/30 bg-red-500/10 text-red-200"}`}
                 role={message.type === "error" ? "alert" : "status"}
               >
                 {message.type === "success" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
                 {message.text}
-              </div>
+              </ActionFeedback>
             ) : null}
           </div>
 

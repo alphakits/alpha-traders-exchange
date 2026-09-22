@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AlertCircle, CheckCircle2, Download, FileUp, GripVertical, Loader2, Plus, Save, Search, Trash2, Upload } from "lucide-react";
@@ -140,7 +141,7 @@ export function LessonManagementDashboard() {
   const [categoryFilter, setCategoryFilter] = useState<LessonCategory | "all">("all");
   const [statusFilter, setStatusFilter] = useState<LessonStatus | "all">("all");
   const [page, setPage] = useState(1);
-  const [toast, setToast] = useState<string>("");
+  const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string>("");
   const [dragLessonId, setDragLessonId] = useState<string | null>(null);
   const [importContentLocale, setImportContentLocale] = useState<"en" | "ar">(isAr ? "ar" : "en");
   const autosaveRef = useRef<number | null>(null);
@@ -202,7 +203,7 @@ export function LessonManagementDashboard() {
       setToast(isAr ? "تعذّر تحميل بيانات لوحة الإدارة." : error instanceof Error ? error.message : "Failed to load.");
       setLoading(false);
     });
-  }, [fetchBootstrap, isAr]);
+  }, [fetchBootstrap, isAr, setToast]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -259,7 +260,7 @@ export function LessonManagementDashboard() {
     setToast(isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved");
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(""), 1600);
-  }, [authHeaders, isAr]);
+  }, [authHeaders, isAr, setToast]);
 
   useEffect(() => {
     if (!selectedLesson || !dirty) return;
@@ -276,7 +277,7 @@ export function LessonManagementDashboard() {
         window.clearTimeout(autosaveRef.current);
       }
     };
-  }, [dirty, isAr, persistLesson, selectedLesson]);
+  }, [dirty, isAr, persistLesson, selectedLesson, setToast]);
 
   async function createNewLesson() {
     const category: LessonCategory = "beginner";
@@ -1035,12 +1036,10 @@ export function LessonManagementDashboard() {
       </div>
 
       {toast ? (
-        <div className="fixed bottom-6 end-6 z-50 rounded-full border border-white/20 bg-[#0B0B0B] px-4 py-2 text-sm shadow-xl">
-          <div className="flex items-center gap-2">
+        <ActionFeedback floating autoReveal={toast !== (isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved")} revealKey={toastFeedbackKey} className="fixed bottom-6 end-6 z-50 flex items-center gap-2 rounded-full border border-white/20 bg-[#0B0B0B] px-4 py-2 text-sm shadow-xl">
             {toast.startsWith("✓") ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <AlertCircle className="h-4 w-4 text-amber-300" />}
             {toast}
-          </div>
-        </div>
+          </ActionFeedback>
       ) : null}
 
       {saving ? (

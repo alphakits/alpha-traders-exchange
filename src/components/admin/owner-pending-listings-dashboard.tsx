@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BadgeCheck, Clock3, History, ShieldCheck, Star } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,8 +35,8 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
     return labels.length ? labels.join(isArabic ? "، " : ", ") : t("Not provided", "غير مذكور");
   }, [isArabic, locale, t]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [data, setData] = useState<Payload>({ pendingListings: [], allListings: [], purchaseRequests: [] });
   const [reasonByListingId, setReasonByListingId] = useState<Record<string, string>>({});
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
       setToast(null);
       toastTimeoutRef.current = null;
     }, 1800);
-  }, []);
+  }, [setToast]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -65,7 +66,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
     } finally {
       setLoading(false);
     }
-  }, [isArabic]);
+  }, [isArabic, setError]);
 
   useEffect(() => {
     void fetchData();
@@ -121,7 +122,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
         <CardContent className="space-y-4">
           {loading ? <p className="text-sm text-[#9CA3AF]">{t("Loading pending listings...", "جارٍ تحميل العروض المعلّقة...")}</p> : null}
           {error ? (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-[#FDE68A]">{error}</div>
+            <ActionFeedback revealKey={errorFeedbackKey} role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-[#FDE68A]">{error}</ActionFeedback>
           ) : null}
           {!loading && !error && data.pendingListings.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">{t("No pending listings to review.", "لا توجد عروض معلّقة للمراجعة.")}</div>
@@ -189,7 +190,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
         </CardContent>
       </Card>
       {toast ? (
-        <div className="fixed bottom-4 end-4 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-[#F3D98B] shadow-xl">{toast}</div>
+        <ActionFeedback floating revealKey={toastFeedbackKey} className="fixed bottom-4 end-4 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-[#F3D98B] shadow-xl">{toast}</ActionFeedback>
       ) : null}
     </section>
   );
