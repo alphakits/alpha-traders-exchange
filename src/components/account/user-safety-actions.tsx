@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useState } from "react";
 import { Ban, Flag, LoaderCircle, Undo2 } from "lucide-react";
 
@@ -27,7 +28,7 @@ export function UserSafetyActions({
   const [blocked, setBlocked] = useState(false);
   const [loading, setLoading] = useState(viewerSignedIn && !viewerOwnsTarget);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const endpoint = `/api/alpha-exchange/user-blocks/${encodeURIComponent(targetUserId)}`;
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export function UserSafetyActions({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [endpoint, isAr, viewerOwnsTarget, viewerSignedIn]);
+  }, [endpoint, isAr, setMessage, viewerOwnsTarget, viewerSignedIn]);
 
   if (viewerOwnsTarget) return null;
 
@@ -123,7 +124,7 @@ export function UserSafetyActions({
           {isAr ? "سجّل الدخول لحظر هذا المستخدم من الصفقات المستقبلية." : "Sign in to block this user from future trades."}
         </p>
       ) : null}
-      {message ? <p aria-live="polite" className={`mt-2 text-xs text-[#D1D5DB] ${isAr ? "text-right" : ""}`}>{message}</p> : null}
+      {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" aria-live="polite" className={`mt-2 text-xs text-[#D1D5DB] ${isAr ? "text-right" : ""}`}>{message}</ActionFeedback> : null}
     </div>
   );
 }
