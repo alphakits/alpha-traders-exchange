@@ -22,6 +22,14 @@ vi.mock("@/i18n/navigation", () => ({
   }),
 }));
 
+// The moved account controls make an independent preferences request. Keep the
+// profile fixtures scoped to their own endpoints instead of consuming them here.
+function stubProfileFetch(fetchMock: (...args: Parameters<typeof fetch>) => unknown) {
+  vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) => String(args[0]) === "/api/alpha-exchange/notification-preferences"
+    ? Promise.resolve(new Response(JSON.stringify({ preferences: { inApp: true, email: false } }), { status: 200 }))
+    : fetchMock(...args));
+}
+
 type TestRole = "guest" | "buyer" | "admin" | "owner";
 const eventSourceInstances: MockEventSource[] = [];
 
@@ -173,7 +181,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("shows the owner dashboard entry for owner accounts", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    stubProfileFetch(vi.fn().mockResolvedValue({
       ok: true,
       json: async () => makePayload("owner"),
     }));
@@ -188,7 +196,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("shows the admin dashboard entry for admin accounts only", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    stubProfileFetch(vi.fn().mockResolvedValue({
       ok: true,
       json: async () => makePayload("admin"),
     }));
@@ -200,7 +208,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("keeps onboarding choices available for a guest account", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    stubProfileFetch(vi.fn().mockResolvedValue({
       ok: true,
       json: async () => makePayload("guest"),
     }));
@@ -213,7 +221,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("hides the administration section from buyers", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    stubProfileFetch(vi.fn().mockResolvedValue({
       ok: true,
       json: async () => makePayload("buyer"),
     }));
@@ -230,7 +238,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("does not show guest or buyer activation controls to an Arabic buyer", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    stubProfileFetch(vi.fn().mockResolvedValue({
       ok: true,
       json: async () => makePayload("buyer"),
     }));
@@ -244,7 +252,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("shows an error message when profile loading fails", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network timeout")));
+    stubProfileFetch(vi.fn().mockRejectedValue(new Error("network timeout")));
 
     render(<AccountProfilePanel locale="en" />);
 
@@ -262,7 +270,7 @@ describe("AccountProfilePanel", () => {
         ok: false,
         json: async () => ({ error: "Storage provider bucket is unavailable" }),
       });
-    vi.stubGlobal("fetch", fetchMock);
+    stubProfileFetch(fetchMock);
 
     render(<AccountProfilePanel locale="ar" />);
     await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
@@ -280,7 +288,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("shows localized stable photo validation errors", async () => {
-    vi.stubGlobal("fetch", vi.fn()
+    stubProfileFetch(vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => makePayload("buyer") })
       .mockResolvedValueOnce({
         ok: false,
@@ -313,7 +321,7 @@ describe("AccountProfilePanel", () => {
         replace: replaceSpy,
       },
     });
-    vi.stubGlobal("fetch", vi.fn()
+    stubProfileFetch(vi.fn()
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -357,7 +365,7 @@ describe("AccountProfilePanel", () => {
 
   it("refreshes live profile stats when a notifications stream event arrives", async () => {
     vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
-    vi.stubGlobal("fetch", vi.fn()
+    stubProfileFetch(vi.fn()
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ user: { role: "approved_seller", roles: ["approved_seller"] } }),
@@ -384,7 +392,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("renders the buyer landing when sellerStatus is buyer even if roles include approved_seller", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
 
       if (url.includes("/api/auth/profile")) {
@@ -462,7 +470,7 @@ describe("AccountProfilePanel", () => {
   });
 
   it("renders a buyer rank card on the exchange landing using live profile stats", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
 
       if (url.includes("/api/auth/profile")) {

@@ -1758,7 +1758,6 @@ export function UsdtExchangePage({
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationCategory, setNotificationCategory] = useState<"all" | NotificationCategory>("all");
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
-  const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
   const [mobileVisibleListingsCount, setMobileVisibleListingsCount] = useState(MOBILE_MARKETPLACE_BATCH_SIZE);
   const notificationsRequestIdRef = useRef(0);
   const deepLinkAppliedRef = useRef(false);
@@ -2337,17 +2336,6 @@ export function UsdtExchangePage({
     }
   }, [isAr, notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedReadFetch]);
 
-  const refreshNotificationPreferences = useCallback(async () => {
-    try {
-      const response = await tracedReadFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
-      if (payload.preferences) setNotificationPreferences(payload.preferences);
-    } catch {
-      // Keep silent to preserve UX messaging style.
-    }
-  }, [tracedReadFetch]);
-
   const handleMarkAllNotificationsRead = useCallback(async () => {
     try {
       const response = await fetch("/api/alpha-exchange/notifications", {
@@ -2394,24 +2382,6 @@ export function UsdtExchangePage({
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
   }, [isAr, refreshNotifications, setStatusMessage]);
-
-  async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    try {
-      const response = await fetch("/api/alpha-exchange/notification-preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(notificationPreferences),
-      });
-      if (!response.ok) {
-        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("settings", isAr)));
-        return;
-      }
-      setSellerWorkspaceMessage(isAr ? "تم تحديث تفضيلات الإشعارات." : "Notification preferences updated.");
-    } catch {
-      setSellerWorkspaceMessage(safeErrorMessage("settings", isAr));
-    }
-  }
 
   useEffect(() => {
     if (!canonicalSession) return;
@@ -2504,7 +2474,6 @@ export function UsdtExchangePage({
           const [applicationRes] = await Promise.all([
             tracedReadFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
             hasSellerWorkspaceAccess ? refreshSellerWorkspace() : refreshMyPurchaseRequests(),
-            refreshNotificationPreferences(),
           ]);
           if (cancelled) return;
           if (applicationRes.ok) {
@@ -2526,7 +2495,7 @@ export function UsdtExchangePage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedReadFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshSellerWorkspace, sessionUser, tracedReadFetch]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || isSessionResolving || deferredSellerPanelsReady) return;
@@ -4066,6 +4035,13 @@ export function UsdtExchangePage({
     });
   }
 
+  const compactBuyerWorkspace = isDashboardWorkspace && !isSellerWorkspaceUser;
+  const visibleWorkspaceCards = compactBuyerWorkspace
+    ? workspaceCards.filter((card) => card.key === "browse-marketplace" || card.key === "active-trades").map((card) => card.key === "browse-marketplace"
+      ? { ...card, title: isAr ? "العروض المباشرة" : "Live Listings", subtitle: isAr ? "تصفح البائعين" : "Browse Sellers" }
+      : card)
+    : workspaceCards;
+
   const heroPrimaryActions = isSellerWorkspaceUser
     ? [
       {
@@ -5139,6 +5115,7 @@ export function UsdtExchangePage({
     <SellerApplicationSection
       isAr={isAr}
       prominent={showBuyerSellerApplicationUpFront}
+      compact={isDashboardWorkspace}
       isLoading={isSellerApplicationLoading}
       isApprovedSellerSession={isApprovedSellerSession}
       shouldCondense={shouldCondenseSellerApplication}
@@ -5273,6 +5250,18 @@ export function UsdtExchangePage({
                   ))}
                 </div>
               ) : null}
+              {isDashboardWorkspace ? (
+                <div className="mt-4">
+                  {isSellerWorkspaceUser ? (
+                    <p className="mb-3 text-sm text-[#F4D87A]">{sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr)}</p>
+                  ) : null}
+                  <Link href="/usdt-exchange#marketplace" className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#E7C65B] px-6 py-3 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(201,162,39,0.15)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#D4AF37] sm:w-auto">
+                    <Store className="h-4 w-4" aria-hidden="true" />
+                    {isAr ? "تصفح البائعين" : "Browse Sellers"}
+                    <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" />
+                  </Link>
+                </div>
+              ) : (
               <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اسم التداول" : "Trading Name"}</p>
@@ -5308,16 +5297,30 @@ export function UsdtExchangePage({
                   <p className="mt-1 text-sm font-semibold text-white">USDT / ILS {formatIls(marketPricePerUsdt)}</p>
                 </div>
               </div>
+              )}
             </div>
           </div>
 
-          {showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
+          {showBuyerSellerApplicationUpFront && (!isDashboardWorkspace || sellerApplicationEligibility !== "application_pending") ? sellerApplicationPanel : null}
+          {isDashboardWorkspace && isApprovedSeller ? (
+            <Card className="mt-5 border-[#C9A227]/35 bg-[#C9A227]/5">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="h-5 w-5 shrink-0 text-[#D4AF37]" aria-hidden="true" />
+                  <CardTitle className="text-lg">{isAr ? "بائع معتمد" : "Approved Seller"}</CardTitle>
+                </div>
+                <Button type="button" variant="secondary" disabled={isWorkspaceWidgetsLoading || !showSellerWorkspace} onClick={workspaceCards.find((card) => card.key === "listings")?.onClick}>
+                  {isAr ? "عرض وإدارة العروض" : "View and Manage Listings"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <div id="workspace-summary" className="mt-5 scroll-mt-24">
             <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
             <p className="mt-1 text-sm leading-6 text-[#B6BDC8]">{isAr ? "اختر المهمة التي تريد تنفيذها الآن." : "Choose what you want to do next."}</p>
-            <div className="mt-3 grid gap-2 min-[360px]:grid-cols-2 xl:grid-cols-4">
-              {workspaceCards.map((card) => {
+            <div dir={compactBuyerWorkspace ? "ltr" : undefined} className={cn("mt-3 grid gap-2", compactBuyerWorkspace ? "grid-cols-2" : "min-[360px]:grid-cols-2 xl:grid-cols-4")}>
+              {visibleWorkspaceCards.map((card) => {
                 const Icon = card.icon;
                 const statIsAction = ["create-listing", "public-profile", "buyer-profile", "account-settings", "marketplace-compliance"].includes(card.key);
                 const toneClass = card.tone === "gold"
@@ -5331,9 +5334,10 @@ export function UsdtExchangePage({
                   <button
                     key={card.key}
                     type="button"
+                    dir={compactBuyerWorkspace ? (isAr ? "rtl" : "ltr") : undefined}
                     onClick={card.onClick}
-                    aria-label={`${card.title}: ${card.subtitle}`}
-                    className={`flex min-h-[116px] w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30 ${toneClass}`}
+                    aria-label={`${card.title}: ${compactBuyerWorkspace ? `${card.stat}. ` : ""}${card.subtitle}`}
+                    className={cn("flex w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30", compactBuyerWorkspace ? "min-h-[100px]" : "min-h-[116px]", toneClass)}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -5990,7 +5994,6 @@ export function UsdtExchangePage({
             filteredBuyerRequests,
             groupedActivityHistory,
             handleBuyerTradeStatus,
-            handleNotificationPreferencesSave,
             handleOpenTradeRoom,
             handlePrefetchTradeRoom,
             handleSubmitBuyerReview,
@@ -5998,7 +6001,6 @@ export function UsdtExchangePage({
             isMobileViewport,
             listingsById,
             locale,
-            notificationPreferences,
             pendingBuyerReviewTrade,
             renderNotificationCenterCard,
             sessionUser,
@@ -6007,8 +6009,6 @@ export function UsdtExchangePage({
             setBuyerTradeQuery,
             setBuyerTradeStatus,
             setBuyerTradeVisibleCount,
-            setNotificationPreferences,
-            setSessionUser,
             setTradeReviewDrafts,
             sortedBuyerRequests,
             tradeReviewDrafts,
@@ -6021,7 +6021,6 @@ export function UsdtExchangePage({
             paymentMethodEmoji,
             paymentMethodLabel,
             paymentMethodTradeInstruction,
-            roleBadgeVariantFromSession,
             shortListingRef,
             shortTradeRef,
             toNumber,

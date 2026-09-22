@@ -37,6 +37,7 @@ export type SellerApplicationForm = {
 type SellerApplicationSectionProps = {
   isAr: boolean;
   prominent?: boolean;
+  compact?: boolean;
   isLoading: boolean;
   isApprovedSellerSession: boolean;
   shouldCondense: boolean;
@@ -66,6 +67,7 @@ function sellerApplicationMethodLabel(method: SellerApplicationMethod, isAr: boo
 export function SellerApplicationSection({
   isAr,
   prominent = false,
+  compact = false,
   isLoading,
   isApprovedSellerSession,
   shouldCondense,
@@ -84,7 +86,7 @@ export function SellerApplicationSection({
   onSubmit,
 }: SellerApplicationSectionProps) {
   return (
-    <div className={`${prominent ? "mt-5" : "mt-10"} grid gap-6 xl:grid-cols-2`}>
+    <div className={`${prominent ? "mt-5" : "mt-10"} grid ${compact ? "gap-4" : "gap-6 xl:grid-cols-2"}`}>
       <Card id="seller-application" className={prominent ? "border-[#C9A227]/45 bg-[linear-gradient(145deg,rgba(201,162,39,0.13),rgba(11,11,11,0.96)_48%)] shadow-[0_18px_65px_rgba(201,162,39,0.12)]" : "border-white/10 bg-[#0B0B0B]/90"}>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-3">
@@ -102,7 +104,9 @@ export function SellerApplicationSection({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {shouldCondense && !isExpanded ? (
+          {shouldCondense && !isExpanded ? (compact ? (
+            <Button type="button" className="w-full sm:w-auto" onClick={() => onExpandedChange(true)}>{isAr ? "فتح طلب البائع" : "Open Seller Application"}</Button>
+          ) : (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
               <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{prominent ? (isAr ? "بع USDT على Alpha Exchange" : "Sell on Alpha Exchange") : (isAr ? "خيار إضافي" : "Optional Next Step")}</p>
               <p className="mt-2 text-base font-semibold text-white">{isAr ? "هل تريد البيع أيضًا؟" : "Want to sell USDT too?"}</p>
@@ -114,7 +118,7 @@ export function SellerApplicationSection({
                 <Button type="button" variant="secondary" onClick={() => document.getElementById("marketplace")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{isAr ? "العودة إلى السوق" : "Back to Marketplace"}</Button>
               </div>
             </div>
-          ) : isLoading && isApprovedSellerSession ? (
+          )) : isLoading && isApprovedSellerSession ? (
             <div className="space-y-3"><div className="h-4 w-44 animate-pulse rounded bg-white/10" /><div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" /><div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" /></div>
           ) : eligibility === "loading" ? (
             <div className="space-y-3" aria-label={isAr ? "جارٍ تحميل حالة الحساب" : "Loading account status"}><div className="h-4 w-44 animate-pulse rounded bg-white/10" /><div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" /></div>
@@ -174,10 +178,12 @@ export function SellerApplicationSection({
         </CardContent>
       </Card>
 
+      {!compact ? (
       <Card className="border-white/10 bg-[#0B0B0B]/90">
         <CardHeader><CardTitle>{isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller"}</CardTitle><CardDescription>{isAr ? "تصفح البائعين المعتمدين وابدأ صفقة USDT آمنة ومُنسَّقة من خلال Alpha Exchange." : "Browse verified sellers and start a secure USDT trade coordinated through Alpha Exchange."}</CardDescription></CardHeader>
         <CardContent><div className="space-y-4"><div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]"><p className="mb-2 font-medium text-white">{isAr ? "كيف تشتري USDT:" : "How to buy USDT:"}</p><ol className="list-inside list-decimal space-y-2"><li>{isAr ? "تصفح" : "Browse the"} <a href="#marketplace" className="text-[#93C5FD] hover:underline">{isAr ? "السوق المباشر" : "Live Marketplace"}</a> {isAr ? "أعلاه" : "above"}</li><li>{isAr ? "اختر بائعًا موثقًا يناسب احتياجاتك" : "Choose a verified seller that fits your needs"}</li><li>{isAr ? "اضغط" : "Click"} <strong className="text-white">{isAr ? "شراء USDT" : "Buy USDT"}</strong> {isAr ? "على عرضه" : "on their listing"}</li><li>{isAr ? "أدخل تفاصيل الصفقة وأرسلها" : "Fill in your trade details and submit"}</li><li>{isAr ? "Alpha Traders تنسق الباقي" : "Alpha Traders coordinates the rest"}</li></ol></div><a href="#marketplace"><Button className="w-full">{isAr ? "تصفح البائعين" : "Browse Sellers"}</Button></a><p className="text-center text-xs text-[#9CA3AF]">{isAr ? "هل تحتاج مساعدة؟" : "Need help?"}{" "}{WHATSAPP_URL ? <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">{isAr ? "تواصل مع Alpha Traders على WhatsApp" : "Contact Alpha Traders on WhatsApp"}</a> : null}</p></div></CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }
