@@ -495,6 +495,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [applicationsStatus, setApplicationsStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [applicationsSort, setApplicationsSort] = useState<"newest" | "oldest" | "name">("newest");
   const [applicationsPage, setApplicationsPage] = useState(1);
+  const [approvalEmailSendingId, setApprovalEmailSendingId] = useState<string | null>(null);
 
   const [sellersQuery, setSellersQuery] = useState("");
   const [sellersStatus, setSellersStatus] = useState<"all" | "approved_seller" | "suspended">("all");
@@ -2044,6 +2045,24 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       >
                                         {t("Reject", "رفض")}
                                       </Button>
+                                      {application.status === "approved" ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          disabled={approvalEmailSendingId !== null}
+                                          onClick={async () => {
+                                            setApprovalEmailSendingId(application.id);
+                                            try {
+                                              await runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approval-email`, { method: "POST" }), t("Approval email submitted for delivery.", "تم إرسال رسالة الموافقة إلى خدمة البريد للتسليم."));
+                                            } finally {
+                                              setApprovalEmailSendingId(null);
+                                            }
+                                          }}
+                                        >
+                                          {approvalEmailSendingId === application.id ? t("Sending…", "جارٍ الإرسال…") : t("Send approval email", "إرسال بريد الموافقة")}
+                                        </Button>
+                                      ) : null}
                                     </div>
                                   </td>
                                 </tr>
