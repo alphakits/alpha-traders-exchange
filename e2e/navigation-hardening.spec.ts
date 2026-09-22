@@ -38,7 +38,7 @@ test.describe("Navigation hardening", () => {
     test.skip(!buyerFixture, "Buyer fixture not available");
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
     await page.goto("/en/dashboard");
-    await expect(page).toHaveURL(/\/en$/);
+    await expect(page).toHaveURL(/\/en\/market$/);
     const main = page.getByRole("main");
     await expect(main.getByRole("link", { name: "Browse sellers" })).toBeVisible();
     await main.getByRole("link", { name: /Your active trades/ }).click();
@@ -69,7 +69,7 @@ test.describe("Navigation hardening", () => {
     await page.goto("/en/dashboard");
     await page.reload({ waitUntil: "commit" });
 
-    await expect(page).toHaveURL(/\/en$/);
+    await expect(page).toHaveURL(/\/en\/market$/);
     await expect(page.getByRole("main").getByRole("link", { name: "Browse sellers" })).toBeVisible();
   });
 
@@ -114,9 +114,9 @@ test.describe("Navigation hardening", () => {
     await page.goto("/en");
 
     await page.locator("summary").first().click();
-    await page.locator("details[open] a[href$='/en/trade']").first().click();
+    await page.locator("details[open] a[href$='/en/market']").first().click();
 
-    await expect(page).toHaveURL(/\/en\/trade$/);
+    await expect(page).toHaveURL(/\/en\/market$/);
   });
 
   test("locale switch updates document language and direction without a reload", async ({ page }) => {

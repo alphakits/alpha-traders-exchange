@@ -49,13 +49,20 @@ describe("MobileBottomNavigation", () => {
 
   it.each(["buyer", "approved_seller", "owner"])("renders the four requested destinations for %s", (role) => {
     navigationState.role = role;
-    navigationState.pathname = "/";
+    navigationState.pathname = "/market";
     render(<MobileBottomNavigation locale="en" />);
     const links = screen.getAllByRole("link");
     expect(links.map((link) => link.textContent?.trim())).toEqual(["Market", "Trade", "News", "Settings"]);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/", "/trade", "/news", "/settings"]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/market", "/trade", "/news", "/settings"]);
     expect(links.every((link) => link.className.includes("min-h-14"))).toBe(true);
     expect(screen.getByRole("link", { name: "Market" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it.each(["/", "/academy", "/ar/community"])("preserves the public site's existing mobile navigation on %s", (pathname) => {
+    navigationState.pathname = pathname;
+    render(<MobileBottomNavigation locale="en" />);
+    expect(screen.getAllByRole("link").map((link) => link.textContent?.trim())).toEqual(["Home", "Market", "Trades", "Notifications", "Account"]);
+    expect(screen.queryByRole("link", { name: "News" })).toBeNull();
   });
 
   it("renders Arabic navigation RTL and recognizes legacy trade URLs", () => {
