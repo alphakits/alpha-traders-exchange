@@ -193,15 +193,10 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("opens a purchase-first modal with the form immediately visible (desktop)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto("/en/trade");
+    await page.goto("/en/usdt-exchange");
 
     const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
-    await expect(buyButton).toBeVisible();
-    const firstCard = await page.locator(".market-listing").first().boundingBox();
-    expect(firstCard?.y).toBeLessThan(page.viewportSize()!.height - 200);
-    const buyPosition = await buyButton.boundingBox();
-    expect(buyPosition!.y + buyPosition!.height).toBeLessThan(page.viewportSize()!.height - 64);
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await buyButton.scrollIntoViewIfNeeded();
     await buyButton.click();
 
     // The modal is a direct purchase modal, not the seller profile.
@@ -215,15 +210,10 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("renders without horizontal overflow at 320px and keeps the form reachable", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
-    await page.goto("/en/trade");
+    await page.goto("/en/usdt-exchange");
 
     const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
-    await expect(buyButton).toBeVisible();
-    const firstCard = await page.locator(".market-listing").first().boundingBox();
-    expect(firstCard?.y).toBeLessThan(page.viewportSize()!.height - 200);
-    const buyPosition = await buyButton.boundingBox();
-    expect(buyPosition!.y + buyPosition!.height).toBeLessThan(page.viewportSize()!.height - 64);
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await buyButton.scrollIntoViewIfNeeded();
     await buyButton.click();
 
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
@@ -236,7 +226,7 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("submits the minimum valid price offer on desktop and freezes the negotiated totals", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto("/en/trade");
+    await page.goto("/en/usdt-exchange");
 
     const offerButton = page.getByRole("button", { name: /Make a price offer to E2E Modal Seller/i }).first();
     await offerButton.scrollIntoViewIfNeeded();
@@ -291,7 +281,7 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("lets a verified-email Buyer without a verified phone create a trade without contact fields", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/en/trade");
+    await page.goto("/en/usdt-exchange");
     const listingsResponse = await page.request.get("/api/alpha-exchange/listings");
     expect(listingsResponse.ok()).toBeTruthy();
     const listingsPayload = JSON.stringify(await listingsResponse.json());

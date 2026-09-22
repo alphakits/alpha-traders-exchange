@@ -6,10 +6,9 @@ import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 type MobileNavigationMenuProps = {
   children: ReactNode;
   label: string;
-  showOnDesktop?: boolean;
 };
 
-export function MobileNavigationMenu({ children, label, showOnDesktop = false }: MobileNavigationMenuProps) {
+export function MobileNavigationMenu({ children, label }: MobileNavigationMenuProps) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
@@ -41,7 +40,7 @@ export function MobileNavigationMenu({ children, label, showOnDesktop = false }:
   };
 
   return (
-    <details ref={detailsRef} className={`group relative ${showOnDesktop ? "" : "lg:hidden"}`} onClickCapture={closeAfterNavigation}>
+    <details ref={detailsRef} className="group relative lg:hidden" onClickCapture={closeAfterNavigation}>
       <summary className="inline-flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] transition-colors duration-200 hover:border-[#C9A227] hover:text-[#C9A227] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]/70 sm:h-11 sm:w-11">
         <Menu className="h-4 w-4" />
         <span className="sr-only">{label}</span>

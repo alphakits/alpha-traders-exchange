@@ -2,6 +2,8 @@ import { buildPageMetadata } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
+import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { toClientSessionUser } from "@/lib/client-session-user";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 
 export const dynamic = "force-dynamic";
@@ -32,5 +34,5 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/dashboard/seller`);
   }
 
-  redirect(`/${locale}/market`);
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} workspaceMode="buyer" />;
 }

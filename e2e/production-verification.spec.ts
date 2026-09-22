@@ -148,7 +148,7 @@ async function gotoMarketplace(page: Page) {
   await page.getByRole("button", { name: /Buy USDT from/i }).first().waitFor({ state: "visible", timeout: 30000 });
 }
 function cardFor(page: Page, sellerName: string) {
-  return page.locator(".market-listing").filter({ hasText: sellerName }).first();
+  return page.locator(".seller-listing-shell").filter({ hasText: sellerName }).first();
 }
 
 test.describe.configure({ mode: "serial" });

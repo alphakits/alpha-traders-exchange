@@ -1,12 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import Image from "next/image";
-import { defaultProfileAvatar } from "@/lib/profile-presets";
 import type { AppLocale } from "@/i18n/routing";
 import type { HeaderNavItem } from "@/components/layout/header-nav";
-import { exchangeNavigation, isAlphaExchangePath } from "@/lib/exchange-navigation";
-import { Link, usePathname } from "@/i18n/navigation";
+import { Link } from "@/i18n/navigation";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -49,8 +46,6 @@ export function HeaderAuthArea({
   initialSessionUser: SessionUserSummary | null;
 }) {
   const { user: sessionUser } = useCanonicalSession();
-  const exchange = isAlphaExchangePath(usePathname());
-  const navigation: HeaderNavItem[] = exchange ? exchangeNavigation(locale) : navItems;
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? labels.profile : labels.signIn;
 
@@ -62,7 +57,7 @@ export function HeaderAuthArea({
       <div className="shrink-0 [&>button]:h-11">
         <LocaleSwitcher />
       </div>
-      {sessionUser && !exchange ? (
+      {sessionUser ? (
         <div className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] sm:inline-flex">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
           <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
@@ -80,7 +75,7 @@ export function HeaderAuthArea({
         />
       ) : null}
       {sessionUser ? <NotificationBell locale={locale} /> : null}
-      {sessionUser && !exchange ? (
+      {sessionUser ? (
         <LogoutButton
           locale={locale}
           size="sm"
@@ -89,9 +84,9 @@ export function HeaderAuthArea({
           idleLabel={labels.signOut}
         />
       ) : null}
-      <MobileNavigationMenu label={labels.openMenu} showOnDesktop={exchange}>
-        <nav className="space-y-1" dir={locale === "ar" ? "rtl" : "ltr"}>
-          {navigation.map((item) => (
+      <MobileNavigationMenu label={labels.openMenu}>
+        <nav className="space-y-1">
+          {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -123,7 +118,6 @@ export function HeaderAuthArea({
                 label={labels.createListing}
               />
             ) : null}
-            {exchange && sessionUser && !sellerWorkspaceAccess ? <Link href="/seller-application" locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] hover:bg-white/5">{locale === "ar" ? "التقدم كبائع" : "Apply to sell"}</Link> : null}
             {sessionUser ? (
               <Link href="/notifications" locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                 {labels.notifications}
@@ -149,10 +143,9 @@ export function HeaderAuthArea({
           </div>
         </nav>
       </MobileNavigationMenu>
-      {exchange && sessionUser ? <Link href="/profile" locale={locale} aria-label={labels.profile} className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-[#D4AF37]/60 transition hover:border-[#f4d87a] focus-visible:outline-2 focus-visible:outline-[#D4AF37]">
-        <Image src={sessionUser.profilePhotoUrl || defaultProfileAvatar(sessionUser.id)} alt={sessionUser.fullName} fill sizes="40px" className="object-cover" unoptimized />
-      </Link> : null}
-      {(!exchange || !sessionUser) ? <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>{dashboardLabel}</Link> : null}
+      <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
+        {dashboardLabel}
+      </Link>
     </div>
   );
 }

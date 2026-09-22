@@ -15,6 +15,7 @@ import {
   formatIsraelDateKey,
   formatIsraelMarketTime,
   formatUsdt,
+  greetingByTime,
   localizeWalletValidationError,
   listingStatusLabel,
   localizedAuditAction,
@@ -43,6 +44,13 @@ describe("USDT exchange localized mobile copy", () => {
     expect(normalizeDecimalInput("3,23")).toBe("3.23");
     expect(normalizeDecimalInput("1,000")).toBe("1000");
     expect(normalizeDecimalInput("3.2.3")).toBe("");
+  });
+
+  it("renders time-based greetings from one deterministic Israel timezone", () => {
+    expect(greetingByTime(false, "2026-09-03T22:30:00.000Z")).toBe("Good morning");
+    expect(greetingByTime(true, "2026-09-03T10:00:00.000Z")).toBe("مساء الخير");
+    expect(greetingByTime(false, "2026-09-03T17:00:00.000Z")).toBe("Good evening");
+    expect(greetingByTime(true, "not-a-date")).toBe("مرحباً");
   });
 
   it("enables buyer-history cancellation until payment evidence is submitted", () => {
@@ -77,6 +85,12 @@ describe("USDT exchange localized mobile copy", () => {
     expect(exchangePage).toContain('cashTrade ? "confirm-usdt-sent" : "release-usdt"');
     expect(exchangePage).toContain('cashTrade && isSellerActor) action = "complete-cash-trade"');
     expect(exchangePage).toContain('!isCashTradePaymentMethod(request.paymentMethod)');
+  });
+
+  it("keeps public marketing sections out of authenticated workspaces", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
+    expect(source).toContain("showDeferredSections && !sessionUser && !isDashboardWorkspace");
+    expect(source.match(/showDeepDeferredSections && !sessionUser && !isDashboardWorkspace/g)).toHaveLength(3);
   });
 
   it("never exposes raw market source identifiers in Arabic", () => {
@@ -160,7 +174,10 @@ describe("USDT exchange localized mobile copy", () => {
     expect(marketplace).toContain('"Buy Now"');
     expect(marketplace).toContain('"Make an Offer"');
     expect(marketplace).toContain('"قدّم عرض سعر"');
+    expect(marketplace).toContain('"Up to ₪0.35 lower"');
+    expect(marketplace).toContain('"خصم حتى ₪0.35"');
     expect(marketplace).toContain('listing.currency.trim().toUpperCase() === "ILS"');
+    expect(marketplace).toContain('seller-marketplace-action--offer');
     expect(purchaseDialog).toContain('id="buyer-offered-price"');
     expect(purchaseDialog).toContain('type="number"');
     expect(purchaseDialog).toContain('step="0.01"');

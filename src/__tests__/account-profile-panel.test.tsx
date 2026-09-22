@@ -1,11 +1,56 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
-const state = vi.hoisted(() => ({ user: { id: "user-1" } as { id: string } | null, resolving: false, refresh: vi.fn(), onNotifications: () => {} }));
-vi.mock("@/components/auth/canonical-session-provider", () => ({ useOptionalCanonicalSession: () => ({ user: state.user, isResolving: state.resolving, refresh: state.refresh }) }));
-vi.mock("@/components/notifications/use-authenticated-notification-stream", () => ({ useAuthenticatedNotificationStream: ({ onNotifications }: { onNotifications: () => void }) => { state.onNotifications = onNotifications; } }));
-vi.mock("next/image", () => ({ default: () => <span data-testid="next-image" /> }));
+import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+
+vi.mock("next/image", () => ({
+  default: () => <span data-testid="next-image" />,
+}));
+
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 type TestRole = "guest" | "buyer" | "admin" | "owner";
+const eventSourceInstances: MockEventSource[] = [];
+
+class MockEventSource {
+  private listeners = new Map<string, Set<(event: Event & { data?: string }) => void>>();
+
+  constructor(public readonly url: string) {
+    eventSourceInstances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: Event & { data?: string }) => void) {
+    const bucket = this.listeners.get(type) ?? new Set();
+    bucket.add(listener);
+    this.listeners.set(type, bucket);
+  }
+
+  removeEventListener(type: string, listener: (event: Event & { data?: string }) => void) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  emit(type: string, data = "{}") {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data } as Event & { data?: string });
+    }
+  }
+
+  close() {}
+}
+
 function makePayload(role: TestRole) {
   return {
     profile: {
@@ -48,89 +93,452 @@ function makePayload(role: TestRole) {
   };
 }
 
+function makeSellerPayload(level: string, completedTrades: number) {
+  return {
+    profile: {
+      id: "seller-1",
+      profilePhotoUrl: "",
+      fullName: "Seller User",
+      username: "seller-user",
+      email: "seller@example.com",
+      role: "approved_seller",
+      roles: ["approved_seller"],
+      memberSince: "2026-01-01T00:00:00.000Z",
+      lastLogin: "2026-08-01T12:00:00.000Z",
+      onlineStatus: "online" as const,
+      bio: "",
+      country: "",
+      language: "English",
+      whatsappNumber: "",
+      showTradeStats: true,
+      showLastActive: true,
+      allowDirectMessages: true,
+      allowProfileSearch: true,
+      showPhonePublic: false,
+      showEmailPublic: false,
+    },
+    stats: {
+      kind: "seller" as const,
+      sellerLevel: level,
+      nextLevel: "gold",
+      progressToNextLevelPercent: 50,
+      amountToNextLevelUsdt: 1000,
+      lifetimeCompletedVolumeUsdt: completedTrades * 250,
+      commissionPaid: 25,
+      averageTradeSize: 250,
+      promotionHistory: [],
+      trustScore: 90,
+      completedTrades,
+      activeListings: 1,
+      pendingListings: 0,
+      averageRating: 4.8,
+    },
+    roleBadge: "approved_seller" as const,
+    roleLabel: "Approved Seller" as const,
+    accountStatuses: ["Active"],
+  };
+}
 
 describe("AccountProfilePanel", () => {
   beforeEach(() => {
-    state.user = { id: "user-1" }; state.resolving = false; state.refresh.mockReset();
-    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
-    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
+    vi.restoreAllMocks();
+    eventSourceInstances.length = 0;
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    Object.defineProperty(globalThis, "EventSource", {
+      configurable: true,
+      writable: true,
+      value: class {
+        constructor() {}
+        addEventListener() {}
+        removeEventListener() {}
+        close() {}
+      },
+    });
   });
-  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-  function serve(payload = makePayload("buyer")) {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
-    vi.stubGlobal("fetch", fetchMock);
-    return fetchMock;
-  }
-  it("shows only name, phone and bio with online status and one save action", async () => {
-    serve(); render(<AccountProfilePanel locale="en" />);
-    await screen.findByLabelText("Display name");
-    expect(screen.getByLabelText("Phone number")).toBeTruthy();
-    expect(screen.getByLabelText("Bio")).toBeTruthy();
-    expect(screen.getByText("Online")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save info" })).toBeTruthy();
-    expect(screen.queryByText(/Searchability|Public trading identity|Reputation board|Privacy controls/)).toBeNull();
-    expect(screen.queryByLabelText("Country")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Upload photo" })).toBeNull();
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
-  it("selects an avatar through the picture picker and saves it with the form", async () => {
-    const fetchMock = serve(); render(<AccountProfilePanel locale="en" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Choose profile picture" }));
-    const picker = screen.getByRole("dialog", { name: "Choose your picture" });
-    expect(within(picker).getByRole("button", { name: "Upload photo" })).toBeTruthy();
-    fireEvent.click(within(picker).getByRole("button", { name: "nova" }));
-    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "New bio" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save info" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/auth/profile", expect.objectContaining({ method: "PATCH", body: expect.stringContaining('"profilePhotoUrl":"/images/profile-presets/avatars/nova.svg"') })));
-    const patch = fetchMock.mock.calls.find((call) => call[1]?.method === "PATCH");
-    expect(JSON.parse(patch?.[1].body)).toMatchObject({ bio: "New bio", showTradeStats: true, allowDirectMessages: true });
-  });
-  it("locks earned covers and allows the starter covers", async () => {
-    serve(); render(<AccountProfilePanel locale="en" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Choose profile cover" }));
-    const picker = screen.getByRole("dialog", { name: "Choose your cover" });
-    expect((within(picker).getByRole("button", { name: /gold/i }) as HTMLButtonElement).disabled).toBe(true);
-    expect((within(picker).getByRole("button", { name: "network" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(within(picker).queryByRole("button", { name: /Upload/ })).toBeNull();
-  });
-  it("refreshes rank unlocks without erasing an unsaved bio", async () => {
-    const fetchMock = serve(); render(<AccountProfilePanel locale="en" />);
-    fireEvent.change(await screen.findByLabelText("Bio"), { target: { value: "Unsaved draft" } });
-    const promoted = makePayload("buyer");
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ...promoted, stats: { ...promoted.stats, buyerLevel: "gold" } }) });
-    act(() => state.onNotifications());
-    await waitFor(() => expect(screen.getByText(/Gold ·/)).toBeTruthy());
-    expect((screen.getByLabelText("Bio") as HTMLTextAreaElement).value).toBe("Unsaved draft");
-    fireEvent.click(screen.getByRole("button", { name: "Choose profile cover" }));
-    expect((screen.getByRole("button", { name: "gold" }) as HTMLButtonElement).disabled).toBe(false);
-  });
-  it("preserves drafts during a refresh of the same canonical session", async () => {
-    const fetchMock = serve(); const view = render(<AccountProfilePanel locale="en" />);
-    fireEvent.change(await screen.findByLabelText("Bio"), { target: { value: "Draft" } });
-    state.resolving = true; view.rerender(<AccountProfilePanel locale="en" />);
-    state.resolving = false; view.rerender(<AccountProfilePanel locale="en" />);
-    expect((screen.getByLabelText("Bio") as HTMLTextAreaElement).value).toBe("Draft");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-  it("clears private data when the session signs out", async () => {
-    serve(); const view = render(<AccountProfilePanel locale="en" />);
-    await screen.findByText("Test User"); state.user = null; view.rerender(<AccountProfilePanel locale="en" />);
-    expect(screen.queryByText("Test User")).toBeNull();
-    expect(screen.getByText("Your session has expired. Please sign in again.")).toBeTruthy();
-  });
-  it("shows a recoverable error when profile loading fails", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("private provider details")));
+
+  it("shows the owner dashboard entry for owner accounts", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("owner"),
+    }));
+
     render(<AccountProfilePanel locale="en" />);
-    await screen.findByText("Could not load your profile.");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-    expect(screen.queryByText("private provider details")).toBeNull();
+
+    await waitFor(() => expect(screen.getByText("Administration")).toBeTruthy());
+    const link = screen.getByRole("link", { name: /owner dashboard/i });
+    expect(link).toBeTruthy();
+    expect(link.getAttribute("href")).toBe("/admin/alpha-exchange");
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
   });
-  it("localizes photo errors inside the Arabic picker", async () => {
-    const fetchMock = serve(); const { container } = render(<AccountProfilePanel locale="ar" />);
-    fireEvent.click(await screen.findByRole("button", { name: "اختيار الصورة الشخصية" }));
-    fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Unsupported private error" }) });
-    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(["image"], "photo.png", { type: "image/png" })] } });
-    const picker = screen.getByRole("dialog");
-    await waitFor(() => expect(within(picker).getByRole("alert").textContent).toContain("تعذر رفع الصورة"));
-    expect(screen.queryByText("Unsupported private error")).toBeNull();
+
+  it("shows the admin dashboard entry for admin accounts only", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("admin"),
+    }));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByRole("link", { name: /admin dashboard/i })).toBeTruthy());
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
+  });
+
+  it("keeps onboarding choices available for a guest account", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("guest"),
+    }));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Manage your account path:")).toBeTruthy());
+    expect(screen.getByRole("link", { name: "Become a Buyer" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue as Guest" })).toBeTruthy();
+  });
+
+  it("hides the administration section from buyers", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("buyer"),
+    }));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
+    expect(screen.queryByText("Administration")).toBeNull();
+    expect(screen.queryByRole("link", { name: /admin dashboard/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /open buyer dashboard/i })).toBeTruthy();
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Become a Buyer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue as Guest" })).toBeNull();
+  });
+
+  it("does not show guest or buyer activation controls to an Arabic buyer", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("buyer"),
+    }));
+
+    render(<AccountProfilePanel locale="ar" />);
+
+    await waitFor(() => expect(screen.getByText("هوية التداول العامة")).toBeTruthy());
+    expect(screen.queryByText("إدارة مسار حسابك:")).toBeNull();
+    expect(screen.queryByRole("link", { name: "اختيار دور المشتري" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "المتابعة كضيف" })).toBeNull();
+  });
+
+  it("shows an error message when profile loading fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network timeout")));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Failed to load identity.")).toBeTruthy());
+    expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+  });
+
+  it("never exposes an unexpected English photo API error in Arabic", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePayload("buyer"),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "Storage provider bucket is unavailable" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AccountProfilePanel locale="ar" />);
+    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+
+    const input = screen.getByLabelText("اختيار صورة شخصية");
+    fireEvent.change(input, {
+      target: { files: [new File(["photo"], "profile.png", { type: "image/png" })] },
+    });
+
+    await waitFor(() => expect(screen.getByText("تعذر رفع الصورة الشخصية. يرجى المحاولة مرة أخرى.")).toBeTruthy());
+    expect(screen.queryByText(/Storage provider bucket/i)).toBeNull();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/auth/profile/photo", expect.objectContaining({
+      headers: { "X-Locale": "ar" },
+    }));
+  });
+
+  it("shows localized stable photo validation errors", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makePayload("buyer") })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          code: "UNSUPPORTED_IMAGE_FORMAT",
+          error: "Unsupported image format. Use JPEG, PNG, WebP, or GIF.",
+        }),
+      }));
+
+    render(<AccountProfilePanel locale="ar" />);
+    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("اختيار صورة غلاف"), {
+      target: { files: [new File(["photo"], "cover.svg", { type: "image/svg+xml" })] },
+    });
+
+    await waitFor(() => expect(screen.getByText("صيغة الصورة غير مدعومة. استخدم JPEG أو PNG أو WebP أو GIF.")).toBeTruthy());
+    expect(screen.queryByText(/^Unsupported image format/)).toBeNull();
+  });
+
+  it("clears cached private profile data when the canonical session becomes anonymous", async () => {
+    const replaceSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        pathname: "/en/profile",
+        search: "",
+        hash: "",
+        replace: replaceSpy,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            id: "user-1",
+            fullName: "Test User",
+            email: "test@example.com",
+            role: "buyer",
+            roles: ["buyer"],
+            sellerStatus: "buyer",
+            whatsappNumber: "",
+            preferredNetworks: [],
+            profilePhotoUrl: "",
+            languages: [],
+            bio: "",
+            onlineStatus: "offline",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => makePayload("buyer") })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ user: null }) }));
+
+    try {
+      render(
+        <CanonicalSessionProvider initialSessionUser={null}>
+          <AccountProfilePanel locale="en" />
+        </CanonicalSessionProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+      window.dispatchEvent(new Event("alpha-auth-changed"));
+
+      await waitFor(() => expect(screen.getByText("Your session has expired. Please sign in again.")).toBeTruthy());
+      expect(screen.queryByText("Test User")).toBeNull();
+      expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fprofile");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("refreshes live profile stats when a notifications stream event arrives", async () => {
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ user: { role: "approved_seller", roles: ["approved_seller"] } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSellerPayload("bronze", 1),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSellerPayload("silver", 2),
+      }));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Bronze")).toBeTruthy());
+    await waitFor(() => expect(eventSourceInstances).toHaveLength(1));
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
+
+    eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [], unreadCount: 1 }));
+
+    await waitFor(() => expect(screen.getByText("Silver")).toBeTruthy());
+    expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  it("renders the buyer landing when sellerStatus is buyer even if roles include approved_seller", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/auth/profile")) {
+        return {
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({
+            profile: {
+              id: "buyer-1",
+              profilePhotoUrl: "",
+              coverBannerUrl: "",
+              fullName: "Buyer User",
+              username: "buyer-user",
+              email: "buyer@example.com",
+              role: "buyer",
+              roles: ["buyer"],
+              memberSince: "2026-01-01T00:00:00.000Z",
+              lastLogin: "2026-08-01T12:00:00.000Z",
+              onlineStatus: "online" as const,
+              bio: "",
+              country: "",
+              language: "English",
+              whatsappNumber: "",
+              showTradeStats: true,
+              showLastActive: true,
+              allowDirectMessages: true,
+              allowProfileSearch: true,
+              showPhonePublic: false,
+              showEmailPublic: false,
+            },
+            stats: {
+              kind: "buyer" as const,
+              buyerLevel: "gold" as const,
+              nextLevel: "diamond" as const,
+              progressToNextLevelPercent: 2.5,
+              amountToNextLevelUsdt: 97_500,
+              requiredVolumeUsdt: 150_000,
+              lifetimeCompletedVolumeUsdt: 52_500,
+              activeTrades: 2,
+              completedTrades: 8,
+              reviewsGiven: 4,
+            },
+            roleBadge: "buyer" as const,
+            roleLabel: "Buyer" as const,
+            accountStatuses: ["Active"],
+          }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/listings")) {
+        return {
+          ok: true,
+          json: async () => ({ listings: [] }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/notifications")) {
+        return {
+          ok: true,
+          json: async () => ({ notifications: [], activity: [] }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ user: { id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" } }),
+      };
+    }));
+
+    render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
+
+    await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
+  });
+
+  it("renders a buyer rank card on the exchange landing using live profile stats", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/auth/profile")) {
+        return {
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({
+            profile: {
+              id: "buyer-1",
+              profilePhotoUrl: "",
+              coverBannerUrl: "",
+              fullName: "Buyer User",
+              username: "buyer-user",
+              email: "buyer@example.com",
+              role: "buyer",
+              roles: ["buyer"],
+              memberSince: "2026-01-01T00:00:00.000Z",
+              lastLogin: "2026-08-01T12:00:00.000Z",
+              onlineStatus: "online" as const,
+              bio: "",
+              country: "",
+              language: "English",
+              whatsappNumber: "",
+              showTradeStats: true,
+              showLastActive: true,
+              allowDirectMessages: true,
+              allowProfileSearch: true,
+              showPhonePublic: false,
+              showEmailPublic: false,
+            },
+            stats: {
+              kind: "buyer" as const,
+              buyerLevel: "gold" as const,
+              nextLevel: "diamond" as const,
+              progressToNextLevelPercent: 2.5,
+              amountToNextLevelUsdt: 97_500,
+              requiredVolumeUsdt: 150_000,
+              lifetimeCompletedVolumeUsdt: 52_500,
+              activeTrades: 2,
+              completedTrades: 8,
+              reviewsGiven: 4,
+            },
+            roleBadge: "buyer" as const,
+            roleLabel: "Buyer" as const,
+            accountStatuses: ["Active"],
+          }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/listings")) {
+        return {
+          ok: true,
+          json: async () => ({ listings: [] }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/notifications")) {
+        return {
+          ok: true,
+          json: async () => ({ notifications: [], activity: [] }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ user: { id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" } }),
+      };
+    }));
+
+    render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
+
+    await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByText("Become an Approved Seller")).toBeTruthy());
+    expect(screen.getAllByText("Become an Approved Seller")).toHaveLength(1);
+    expect(screen.getByText("Become an Approved Seller").compareDocumentPosition(screen.getByText("Your workspace")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
