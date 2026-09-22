@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, Smartphone, Mail, CheckCircle2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -310,7 +311,7 @@ export function AccountVerificationGate({
           ) : null}
         </div>
 
-        {visibleError ? <p className="mt-4 text-sm text-rose-300">{visibleError}</p> : null}
+        {visibleError ? <ActionFeedback as="p" role="alert" className="mt-4 text-sm text-rose-300">{visibleError}</ActionFeedback> : null}
         {status ? <p className="mt-4 text-sm text-emerald-300">{status}</p> : null}
 
         <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-[#9CA3AF]">

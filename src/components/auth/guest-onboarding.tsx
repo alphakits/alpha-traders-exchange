@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
@@ -101,12 +102,12 @@ export function GuestOnboarding({
   const canonicalSession = useOptionalCanonicalSession();
   const isAr = locale === "ar";
   const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [loading, setLoading] = useState<null | "student" | "buyer_activate" | "skip" | "seller_sendOtp" | "seller_verify" | "seller_apply">(null);
   const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "" });
   const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
-  const [sellerError, setSellerError] = useState<string | null>(null);
+  const [sellerError, setSellerError, sellerErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [sellerStatus2, setSellerStatus2] = useState<string | null>(null);
 
   const isLoading = loading !== null;
@@ -259,7 +260,7 @@ export function GuestOnboarding({
       if (!res.ok) throw new Error(sellerApplicationErrorMessage(payload, isAr));
       setSellerStep("applied");
       await refreshCanonicalSession();
-      if (!navigateAfterSuccess(router, payload.destination)) consumePostOnboardingRedirect();
+      if (!navigateAfterSuccess(router, payload.destination, isAr ? "تم إرسال طلب البائع للمراجعة." : "Seller application submitted for review.")) consumePostOnboardingRedirect();
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       setSellerError(detail || sellerApplicationErrorMessage({}, isAr));
@@ -385,7 +386,7 @@ export function GuestOnboarding({
                 </Button>
               </div>
             </div>
-            {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
+            {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{error}</ActionFeedback> : null}
             {status ? <p className="mt-2 text-xs text-emerald-300">{status}</p> : null}
           </PremiumCard>
 
@@ -651,7 +652,7 @@ export function GuestOnboarding({
                   )}
                 </div>
               )}
-            {sellerError ? <p className="mt-2 text-xs text-rose-300">{sellerError}</p> : null}
+            {sellerError ? <ActionFeedback revealKey={sellerErrorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{sellerError}</ActionFeedback> : null}
           </PremiumCard>
 
           <PremiumCard

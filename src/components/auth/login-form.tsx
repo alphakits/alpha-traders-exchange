@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,7 @@ export function LoginForm({
   const recoveredUser = canonicalSession && !canonicalSession.isResolving && !canonicalSession.error ? canonicalSession.user : null;
   const redirectStartedRef = useRef(false);
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
-  const [statusMessage, setStatusMessage] = useState<string | null>(
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(
     sessionExpired
       ? (isAr ? "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى." : "Your session expired. Please sign in again.")
       : passwordResetSuccess
@@ -51,7 +52,7 @@ export function LoginForm({
         : "Your password has been updated successfully. Please sign in.")
       : null,
   );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
@@ -254,7 +255,7 @@ export function LoginForm({
               </Button>
             </form>
 
-            {errorMessage ? <p className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" role="status" aria-live="polite">{errorMessage}</p> : null}
+            {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{errorMessage}</ActionFeedback> : null}
             {requiresEmailVerification ? (
               <Button
                 type="button"
@@ -267,7 +268,7 @@ export function LoginForm({
                 {isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email"}
               </Button>
             ) : null}
-            {statusMessage ? <p className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{statusMessage}</p> : null}
+            {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{statusMessage}</ActionFeedback> : null}
 
             <p className="mt-6 text-sm text-[#9CA3AF]">
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}

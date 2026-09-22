@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
@@ -17,7 +18,7 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const hasToken = useMemo(
     () => Boolean(tokenHash.trim() || authCode.trim() || (accessToken.trim() && refreshToken.trim())),
     [accessToken, authCode, refreshToken, tokenHash],
@@ -144,7 +145,7 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
           </form>
         )}
 
-        {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
+        {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-3 text-sm text-rose-300">{errorMessage}</ActionFeedback> : null}
         <p className="mt-5 text-sm text-[#9CA3AF]">
           <Link href="/forgot-password" className="text-[#C9A227] hover:underline">
             {isAr ? "طلب رابط جديد" : "Request a new reset link"}
