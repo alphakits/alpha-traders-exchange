@@ -1,4 +1,5 @@
 import type { PurchaseRequest } from "@/types/alpha-exchange";
+import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 
 export type TradeRoomMutationLock = { current: string | null };
 
@@ -19,11 +20,13 @@ export function releaseTradeRoomMutation(lock: TradeRoomMutationLock, mutationKe
 }
 
 export function canBuyerCancelTrade(request: PurchaseRequest, actorUserId: string) {
-  return request.buyerId === actorUserId
-    && (request.status === "pending"
-      || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt));
+  return request.buyerId === actorUserId && !hasIrreversibleRequestProgress(request);
+}
+
+export function canSellerCancelTrade(request: PurchaseRequest, actorUserId: string) {
+  return request.sellerId === actorUserId && !hasIrreversibleRequestProgress(request);
 }
 
 export function canSellerDeclineTrade(request: PurchaseRequest, actorUserId: string) {
-  return request.sellerId === actorUserId && request.status === "pending";
+  return request.status === "pending" && canSellerCancelTrade(request, actorUserId);
 }

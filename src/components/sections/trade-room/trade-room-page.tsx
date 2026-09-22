@@ -19,6 +19,7 @@ import { formatTradeId } from "@/lib/format-id";
 import {
   acquireTradeRoomMutation,
   canBuyerCancelTrade,
+  canSellerCancelTrade,
   canSellerDeclineTrade,
   releaseTradeRoomMutation,
 } from "@/lib/trade-room-actions";
@@ -2578,11 +2579,11 @@ function TradeRoomPageSession({
   }, [disputeReason, fetchRoom, isAr, request, setStatusMessage]);
 
   const handleCancelTrade = useCallback(async () => {
-    if (!request || !canBuyerCancelTrade(request, actor.id) || cancelBusy) return;
+    if (!request || (!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || cancelBusy || room?.hasOpenDispute) return;
     const confirmation = request.status === "accepted"
       ? (isAr
-          ? "ألغِ الصفقة فقط إذا لم ترسل أي دفعة أو نقد أو معلومات دفع ولم تستلم USDT. إذا بدأ التبادل، أكمل الصفقة أو افتح نزاعًا. هل تريد المتابعة؟"
-          : "Cancel only if you have not sent any payment, cash, or payment proof and have not received USDT. If the exchange started, complete the trade or open a dispute. Continue?")
+          ? "ألغِ الصفقة فقط إذا لم يرسل أو يستلم أي طرف مالًا أو نقدًا أو USDT، ولم تتم مشاركة رمز سحب أو إثبات دفع. إذا بدأ التبادل، أكمل الصفقة أو افتح نزاعًا. هل تريد المتابعة؟"
+          : "Cancel only if neither participant has sent or received money, cash or USDT, and no withdrawal code or payment evidence has been shared. If the exchange started, complete the trade or open a dispute. Continue?")
       : (isAr ? "هل تريد إلغاء هذا الطلب قبل قبوله؟" : "Cancel this request before it is accepted?");
     if (!window.confirm(confirmation)) return;
     const mutationKey = `${request.id}:cancel`;
@@ -2608,10 +2609,10 @@ function TradeRoomPageSession({
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setCancelBusy(false);
     }
-  }, [actor.id, cancelBusy, isAr, request, router, setStatusMessage]);
+  }, [actor.id, cancelBusy, isAr, request, room?.hasOpenDispute, router, setStatusMessage]);
 
   const handleDeclineTrade = useCallback(async () => {
-    if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy) return;
+    if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy || room?.hasOpenDispute) return;
     const confirmed = window.confirm(isAr
       ? "ارفض الطلب فقط إذا لم يتم تبادل أي أموال أو نقد أو USDT. رفض صفقة تمت فعليًا بهدف تجنب العمولة مخالفة خطيرة وقد يؤدي إلى تقييد حساب البائع أو إيقافه نهائيًا. هل تريد المتابعة؟"
       : "Decline only if no money, cash, or USDT has been exchanged. Declining a completed trade to avoid commission is a serious violation and may result in seller restrictions or permanent suspension. Continue?");
@@ -2622,7 +2623,7 @@ function TradeRoomPageSession({
       mode: "status",
       nextStatus: "declined",
     });
-  }, [actionBusy, actor.id, handleStatusUpdate, isAr, request]);
+  }, [actionBusy, actor.id, handleStatusUpdate, isAr, request, room?.hasOpenDispute]);
 
   const handleManualCloseTrade = useCallback(async () => {
     if (!request || manualCloseBusy) return;
@@ -3253,18 +3254,18 @@ function TradeRoomPageSession({
                 {(isActorBuyer || isSeller) && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status) ? (
                   <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
                     <Button type="button" variant="secondary" className="min-h-11 w-full"
-                      disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerDeclineTrade(request, actor.id)) || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
+                      disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || room.hasOpenDispute || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
                       aria-describedby="trade-cancel-help"
-                      onClick={() => void (isSeller ? handleDeclineTrade() : handleCancelTrade())}>
+                      onClick={() => void (isSeller && request.status === "pending" ? handleDeclineTrade() : handleCancelTrade())}>
                       {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
                     </Button>
                     <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
-                      {request.status === "pending"
+                      {room.hasOpenDispute
+                        ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
+                        : request.status === "pending"
                         ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
-                        : request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt
-                          ? isSeller
-                            ? (isAr ? "بعد القبول، يستطيع المشتري إلغاء الصفقة قبل الدفع. اطلب منه ذلك في دردشة الصفقة." : "After acceptance, the buyer can cancel before payment. Ask them in the trade chat.")
-                            : (isAr ? "ألغِ فقط قبل إرسال المال أو النقد أو رمز السحب أو إثبات الدفع." : "Cancel only before sending money, cash, a withdrawal code or payment evidence.")
+                        : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
+                          ? (isAr ? "يمكن لأي طرف الإلغاء قبل إرسال أو استلام المال أو النقد أو USDT، وقبل مشاركة رمز السحب أو إثبات الدفع." : "Either participant can cancel before money, cash or USDT is sent or received, and before withdrawal details or payment evidence are shared.")
                           : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem.")}
                     </p>
                   </div>

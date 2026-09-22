@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { getPurchaseRequestStatusTransitionOptions, getTradeStatusDisplayLabel } from "@/lib/trade-workflow";
 
 describe("trade workflow helpers", () => {
+  it("allows sellers to cancel after acceptance but not after payment", () => {
+    expect(getPurchaseRequestStatusTransitionOptions("accepted", "seller")).toContain("cancelled");
+    for (const status of ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {
+      expect(getPurchaseRequestStatusTransitionOptions(status, "seller")).not.toContain("cancelled");
+    }
+  });
   it("lets sellers confirm funds received after buyer marks payment sent", () => {
     expect(getPurchaseRequestStatusTransitionOptions("payment_sent", "seller")).toEqual(["funds_received"]);
   });

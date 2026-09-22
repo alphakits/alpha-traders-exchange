@@ -1,4 +1,5 @@
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
@@ -5538,15 +5539,8 @@ function getTradeEvidenceFile(db: AlphaExchangeDb, purchaseRequestId: string, si
 }
 
 function hasIrreversibleTradeProgress(db: AlphaExchangeDb, request: PurchaseRequest) {
-  if (request.status !== "pending" && request.status !== "accepted") return true;
   return Boolean(
-    request.paymentSentAt
-    || request.fundsReceivedAt
-    || request.usdtReleaseStartedAt
-    || request.usdtSentAt
-    || request.completedAt
-    || request.buyerEvidence
-    || request.sellerEvidence
+    hasIrreversibleRequestProgress(request)
     || getTradeEvidenceFile(db, request.id, "buyer")
     || getTradeEvidenceFile(db, request.id, "seller"),
   );
@@ -13326,8 +13320,8 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
 
-  if (isSeller && !["accepted", "declined", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus) && !isCompletionOverride) {
-    throw new TradeBlockedError("seller-transition-not-allowed", "Seller can only set accepted, declined, funds_received, usdt_release_pending, or usdt_sent.", request.id, {
+  if (isSeller && !["accepted", "declined", "cancelled", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus) && !isCompletionOverride) {
+    throw new TradeBlockedError("seller-transition-not-allowed", "Seller can only set accepted, declined, cancelled, funds_received, usdt_release_pending, or usdt_sent.", request.id, {
       guard: "seller-next-status-allowlist",
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
@@ -13499,11 +13493,10 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   if (
-    input.nextStatus === "cancelled"
-    && currentStatus === "accepted"
-    && (request.paymentSentAt || request.buyerEvidence || getTradeEvidenceFile(db, request.id, "buyer"))
+    (input.nextStatus === "cancelled" || input.nextStatus === "declined")
+    && hasIrreversibleTradeProgress(db, request)
   ) {
-    throw new TradeBlockedError("payment-progress-exists", "This trade cannot be cancelled after payment or payment evidence is submitted.", request.id, {
+    throw new TradeBlockedError("payment-progress-exists", "This trade cannot be cancelled after payment, payment evidence or withdrawal details are shared.", request.id, {
       guard: "cancel-before-payment-progress",
       currentStatus,
       nextStatus: input.nextStatus,
@@ -13822,16 +13815,17 @@ async function updatePurchaseRequestStatusAttempt(
     });
   } else if (input.nextStatus === "cancelled") {
     next.status = "cancelled";
-    appendTradeTimelineEntry(next, { type: "request_cancelled", actorUserId: input.actorUserId, actorRole, message: "Buyer cancelled request", createdAt: now });
+    const cancellingParticipant = isSeller ? "Seller" : "Buyer";
+    appendTradeTimelineEntry(next, { type: "request_cancelled", actorUserId: input.actorUserId, actorRole, message: `${cancellingParticipant} cancelled request`, createdAt: now });
     if (listing && listing.activeTradeRequestId === request.id) {
-      await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, "Buyer cancelled the trade.");
+      await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, `${cancellingParticipant} cancelled the trade.`);
     }
     for (const userId of [request.buyerId, request.sellerId]) {
       pushNotification(db, {
         userId,
         category: "trade",
         title: "Trade cancelled",
-        message: "The buyer cancelled this trade request.",
+        message: `The ${cancellingParticipant.toLowerCase()} cancelled this trade request.`,
         relatedTradeId: next.tradeId,
         relatedListingId: request.listingId,
         relatedHref: requestDetailsHref(request.id),
@@ -14383,7 +14377,7 @@ async function updatePurchaseRequestStatusAttempt(
         ))) {
           throw new ConcurrentTradeMutationError();
         }
-        if (input.nextStatus === "cancelled" && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)) {
+        if ((input.nextStatus === "cancelled" || input.nextStatus === "declined") && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)) {
           throw new ConcurrentTradeMutationError();
         }
 
