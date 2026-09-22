@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { useState, type FormEvent } from "react";
 import type { AppLocale } from "@/i18n/routing";
 
@@ -104,13 +105,13 @@ export function FooterNewsletterSignup({ locale }: { locale: AppLocale }) {
           {status === "submitting" ? copy.submitting : copy.submit}
         </button>
       </div>
-      <p
+      <ActionFeedback as="p"
         className={`mt-2 min-h-5 text-sm ${status === "success" ? "text-emerald-300" : "text-rose-300"}`}
         role="status"
         aria-live="polite"
       >
         {feedback}
-      </p>
+      </ActionFeedback>
     </form>
   );
 }
