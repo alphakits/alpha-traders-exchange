@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { useState, useRef, useId } from "react";
 import { Loader2, CheckCircle2, AlertCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -229,7 +230,7 @@ export function ContactForm({
 
   if (status === "success") {
     return (
-      <div className="mt-8 flex max-w-3xl flex-col items-center gap-4 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-8 text-center">
+      <ActionFeedback className="mt-8 flex max-w-3xl flex-col items-center gap-4 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-8 text-center">
         <CheckCircle2 className="h-12 w-12 text-[#C9A227]" aria-hidden="true" />
         <h2 className="text-xl font-semibold text-white">{t.successTitle}</h2>
         <p className="text-sm text-white/70">{t.successBody}</p>
@@ -240,7 +241,7 @@ export function ContactForm({
         >
           {locale === "ar" ? "إرسال رسالة أخرى" : "Send another message"}
         </button>
-      </div>
+      </ActionFeedback>
     );
   }
 
@@ -285,10 +286,10 @@ export function ContactForm({
           required
         />
         {fieldErrors.name && (
-          <p id={`${nameId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+          <ActionFeedback as="p" role="alert" id={`${nameId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
             {fieldErrors.name}
-          </p>
+          </ActionFeedback>
         )}
       </div>
 
@@ -312,10 +313,10 @@ export function ContactForm({
           required
         />
         {fieldErrors.email && (
-          <p id={`${emailId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+          <ActionFeedback as="p" role="alert" id={`${emailId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
             {fieldErrors.email}
-          </p>
+          </ActionFeedback>
         )}
       </div>
 
@@ -338,10 +339,10 @@ export function ContactForm({
           required
         />
         {fieldErrors.subject && (
-          <p id={`${subjectId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+          <ActionFeedback as="p" role="alert" id={`${subjectId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
             {fieldErrors.subject}
-          </p>
+          </ActionFeedback>
         )}
       </div>
 
@@ -365,10 +366,10 @@ export function ContactForm({
         />
         <div className={`flex items-center gap-1 ${fieldErrors.message ? "justify-between" : "justify-end"}`}>
           {fieldErrors.message && (
-            <p id={`${messageId}-err`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+            <ActionFeedback as="p" role="alert" id={`${messageId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
               <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
               {fieldErrors.message}
-            </p>
+            </ActionFeedback>
           )}
           <span className="text-xs text-white/30" aria-live="polite">
             {values.message.length}/4000
@@ -378,10 +379,10 @@ export function ContactForm({
 
       {/* Global error banner */}
       {status === "error" && errorMsg && !Object.keys(fieldErrors).length && (
-        <p role="alert" className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <ActionFeedback as="p" role="alert" className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
           <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
           {errorMsg}
-        </p>
+        </ActionFeedback>
       )}
 
       <Button type="submit" disabled={status === "loading"} className="gap-2 self-start">
