@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SellerListingsWorkspacePortal, type SellerListingsWorkspacePortalProps } from "./seller-listings-workspace-portal";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
 
 vi.mock("./discord-share-action", () => ({ DiscordShareAction: () => null }));
-afterEach(() => { cleanup(); document.body.replaceChildren(); });
+afterEach(() => { cleanup(); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const listing = {
   id: "listing-legacy", sellerId: "seller-1", sellerDisplayName: "Seller",
@@ -49,6 +49,29 @@ describe("seller listing controls", () => {
     expect(props.handleSellerListingStatus).toHaveBeenCalledWith(listing, "paused");
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(props.handleSellerListingDelete).toHaveBeenCalledWith(listing);
+  });
+
+  it.each([true, false])("reveals pause responses and repeated errors in the listing workspace (mobile=%s)", (mobile) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 16));
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([{ top: 200, height: 40 }] as unknown as DOMRectList);
+    const scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    const props = createProps(mobile);
+    const view = render(<SellerListingsWorkspacePortal {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(props.handleSellerListingStatus).toHaveBeenCalledWith(listing, "paused");
+    view.rerender(<SellerListingsWorkspacePortal {...props} sellerWorkspaceMessage="Listing paused." sellerWorkspaceMessageFeedbackKey={1} />);
+    act(() => vi.advanceTimersByTime(20));
+    expect(document.activeElement).toBe(screen.getByRole("status"));
+    expect(scroll).toHaveBeenCalledOnce();
+    view.rerender(<SellerListingsWorkspacePortal {...props} sellerWorkspaceMessage="Unable to update listing." sellerWorkspaceMessageFeedbackKey={2} />);
+    act(() => vi.advanceTimersByTime(20));
+    view.rerender(<SellerListingsWorkspacePortal {...props} sellerWorkspaceMessage="Unable to update listing." sellerWorkspaceMessageFeedbackKey={3} />);
+    act(() => vi.advanceTimersByTime(20));
+    expect(scroll).toHaveBeenCalledTimes(3);
+    expect(document.activeElement?.textContent).toContain("Unable to update listing.");
   });
 
   it("shows mutation failures inside the Arabic listing workspace without claiming success", () => {

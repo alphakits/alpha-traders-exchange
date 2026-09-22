@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
 import { useState, type Dispatch, type FormEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
@@ -68,6 +69,7 @@ export type SellerWorkspaceSectionProps = {
   commissionNetwork: CommissionNetworkId;
   commissionPayBusy: boolean;
   commissionPayMessage: string | null;
+  commissionPayMessageFeedbackKey?: number;
   commissionPayOpen: boolean;
   commissionPayableAmountDue: number;
   commissionPayerType: "personal" | "exchange" | null;
@@ -144,6 +146,7 @@ export type SellerWorkspaceSectionProps = {
   sellerTradeQuery: string;
   sellerTradeStatus: PurchaseRequestStatus | "all";
   sellerWorkspaceMessage: string | null;
+  sellerWorkspaceMessageFeedbackKey?: number;
   sellerWorkspaceSummary: {
     activeListingLimit: number;
     openListingCount: number;
@@ -225,6 +228,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     commissionNetwork,
     commissionPayBusy,
     commissionPayMessage,
+    commissionPayMessageFeedbackKey,
     commissionPayOpen,
     commissionPayableAmountDue,
     commissionPayerType,
@@ -301,6 +305,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     sellerTradeQuery,
     sellerTradeStatus,
     sellerWorkspaceMessage,
+    sellerWorkspaceMessageFeedbackKey,
     sellerWorkspaceSummary,
     sessionUser,
     setCommissionAdvancedOpen,
@@ -921,7 +926,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
 
                     {/* ── Error / success message ── */}
                     {commissionPayMessage ? (
-                      (() => {
+                      <ActionFeedback revealKey={commissionPayMessageFeedbackKey} role={commissionPayMessage.startsWith("✅") || commissionPayMessage.startsWith("⏳") ? "status" : "alert"}>
+                      {(() => {
                         const msg = commissionPayMessage;
                         if (msg.startsWith("✅")) {
                           return (
@@ -979,7 +985,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             <span>{isAr && !containsArabicText(msg) ? "تعذّر التحقق من الدفعة. تأكد من التفاصيل وحاول مرة أخرى." : msg}</span>
                           </div>
                         );
-                      })()
+                      })()}
+                      </ActionFeedback>
                     ) : null}
 
                     {/* ── Actions ── */}
@@ -1316,7 +1323,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
                 {listingCreateResult ? (
-                  <div
+                  <ActionFeedback revealKey={listingCreateResult}
                     id="listing-publish-result"
                     tabIndex={-1}
                     role={listingCreateResult.tone === "error" ? "alert" : "status"}
@@ -1347,7 +1354,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     >
                       <X className="h-4 w-4" />
                     </button>
-                  </div>
+                  </ActionFeedback>
                 ) : null}
                 <div className="md:col-span-2">
                   <Button type="submit" className="h-11 w-full sm:w-auto" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
@@ -1359,7 +1366,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
           </Card>
 
           {sellerWorkspaceMessage ? (
-            <div id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-white/20 bg-white/5 p-4 text-sm text-white animate-in fade-in-0 slide-in-from-top-1 duration-300">
+            <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-white/20 bg-white/5 p-4 text-sm text-white animate-in fade-in-0 slide-in-from-top-1 duration-300">
               <span>{sellerWorkspaceMessage}</span>
               <button
                 type="button"
@@ -1369,7 +1376,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               >
                 <X className="h-4 w-4" />
               </button>
-            </div>
+            </ActionFeedback>
           ) : null}
 
           <Card id="purchase-requests-section" tabIndex={-1} className="order-5 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90">

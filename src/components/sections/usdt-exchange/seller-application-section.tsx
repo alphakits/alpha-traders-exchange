@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback } from "@/components/ui/action-feedback";
 import type { FormEventHandler } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ type SellerApplicationSectionProps = {
   eligibility: SellerApplicationEligibility;
   application: SellerApplication | null;
   statusMessage: string | null;
+  statusMessageFeedbackKey?: number;
   form: SellerApplicationForm;
   sessionEmail: string;
   methods: SellerApplicationMethod[];
@@ -71,6 +73,7 @@ export function SellerApplicationSection({
   eligibility,
   application,
   statusMessage,
+  statusMessageFeedbackKey,
   form,
   sessionEmail,
   methods,
@@ -145,7 +148,7 @@ export function SellerApplicationSection({
                 <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عملية الموافقة" : "Approval Process"}</p>
                 <div className="space-y-2">{[isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review.", isAr ? "سيتواصل معك مالك Alpha Traders عبر WhatsApp باستخدام الرقم الذي تقدمه في الطلب." : "The Alpha Traders owner will contact you via WhatsApp using the number you provide in your application.", isAr ? "قد تُطلب منك معلومات إضافية للطلب." : "Additional application information may be requested.", isAr ? "بعد الموافقة تحصل على شارة البائع المعتمد وصلاحيات النشر." : "Once approved, you receive the Approved Seller badge and marketplace selling privileges."].map((step, index) => <div key={step} className="flex items-start gap-2"><span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 text-[10px] font-semibold text-[#F4D87A]">{index + 1}</span><p>{step}</p></div>)}</div>
               </div>
-              {statusMessage ? <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-[#FDE68A]"><AlertTriangle className="h-3.5 w-3.5 shrink-0" /><span>{statusMessage}</span></div> : null}
+              {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-[#FDE68A]"><AlertTriangle className="h-3.5 w-3.5 shrink-0" /><span>{statusMessage}</span></ActionFeedback> : null}
               <form className="space-y-3" onSubmit={onSubmit}>
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "المعلومات الشخصية" : "Personal Information"}</p>
                 <div className="grid gap-3 sm:grid-cols-2">

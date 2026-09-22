@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
@@ -48,7 +49,7 @@ import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
-import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
+import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
 import { normalizeLocalizedDecimalInput, normalizeTradeAmountInput } from "@/lib/trade-amount";
@@ -1510,10 +1511,10 @@ export function UsdtExchangePage({
   const [discordSharing, setDiscordSharing] = useState<DiscordListingSharingStatus | null>(null);
   const [discordShareActionKey, setDiscordShareActionKey] = useState<string | null>(null);
   const discordSharePollTimersRef = useRef<number[]>([]);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [showVerificationCta, setShowVerificationCta] = useState(false);
   const [isRedirectingToVerification, setIsRedirectingToVerification] = useState(false);
-  const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
+  const [sellerWorkspaceMessage, setSellerWorkspaceMessage, sellerWorkspaceMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
   const [listingActionKey, setListingActionKey] = useState<string | null>(null);
@@ -1543,7 +1544,7 @@ export function UsdtExchangePage({
   } | null>(null);
   const [removalListing, setRemovalListing] = useState<MarketplaceListing | null>(null);
   const [removalReason, setRemovalReason] = useState("");
-  const [removalError, setRemovalError] = useState<string | null>(null);
+  const [removalError, setRemovalError, removalErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [removalExplanation, setRemovalExplanation] = useState("");
   const [listingCommissionAgreement, setListingCommissionAgreement] = useState(false);
   const [faceToFaceSafetyAcknowledged, setFaceToFaceSafetyAcknowledged] = useState(false);
@@ -1567,7 +1568,7 @@ export function UsdtExchangePage({
   const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("TRC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
   const [commissionPayBusy, setCommissionPayBusy] = useState(false);
-  const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
+  const [commissionPayMessage, setCommissionPayMessage, commissionPayMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [commissionCopied, setCommissionCopied] = useState(false);
   const [commissionQrDataUrl, setCommissionQrDataUrl] = useState<string | null>(null);
   const [commissionPayerType, setCommissionPayerType] = useState<"personal" | "exchange" | null>(null);
@@ -1689,7 +1690,7 @@ export function UsdtExchangePage({
     setPurchasePriceMode("listing_price");
     setBuyerOfferedPrice("");
     updateListingSelectionQuery(null);
-  }, [updateListingSelectionQuery]);
+  }, [setStatusMessage, updateListingSelectionQuery]);
 
   // Escape closes the open Buy or removal dialog (keyboard accessibility).
   useEffect(() => {
@@ -1712,7 +1713,7 @@ export function UsdtExchangePage({
     setIsRedirectingToVerification(true);
     setStatusMessage(isAr ? "جارٍ الانتقال إلى التحقق..." : "Redirecting to verification...");
     router.push(`/verify-account?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
-  }, [isAr, router, tradeReturnPath]);
+  }, [isAr, router, setStatusMessage, tradeReturnPath]);
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
@@ -2095,13 +2096,7 @@ export function UsdtExchangePage({
       window.removeEventListener("focus", refreshAfterResume);
       document.removeEventListener("visibilitychange", refreshAfterResume);
     };
-  }, [
-    hasPendingCommissionVerification,
-    hasSellerWorkspaceAccess,
-    isAr,
-    refreshSellerWorkspace,
-    selectedCommissionIdForRefresh,
-  ]);
+  }, [hasPendingCommissionVerification, hasSellerWorkspaceAccess, isAr, refreshSellerWorkspace, selectedCommissionIdForRefresh, setCommissionPayMessage, setSellerWorkspaceMessage]);
 
   const refreshDiscordSharingStatus = useCallback(async () => {
     const response = await tracedReadFetch(
@@ -2127,7 +2122,7 @@ export function UsdtExchangePage({
     setCommissionTxSignature("");
     setCommissionPayerType(null);
     setCommissionAdvancedOpen(false);
-  }, []);
+  }, [setCommissionPayMessage]);
 
   const revealCommissionPaymentPanel = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -2187,7 +2182,7 @@ export function UsdtExchangePage({
     // Keep a secure deep-link fallback for a stale workspace snapshot. The
     // reactive query handler below fetches and authorizes this exact record.
     router.push(commissionPaymentDestination(normalizedCommissionId));
-  }, [isAr, openCommissionPaymentPanel, revealCommissionPaymentPanel, router, sellerCommissionStatus]);
+  }, [isAr, openCommissionPaymentPanel, revealCommissionPaymentPanel, router, sellerCommissionStatus?.commissionId, sellerCommissionStatus?.payableAmountDue, sellerCommissionStatus?.payableRecords, setSellerWorkspaceMessage]);
 
   const reviewPayableCommissions = useCallback(() => {
     if (typeof document !== "undefined") {
@@ -2283,20 +2278,7 @@ export function UsdtExchangePage({
       openCommissionPaymentPanel();
       revealCommissionPaymentPanel();
     })();
-  }, [
-    clearCommissionPayDeepLink,
-    commissionPaymentIntent,
-    commissionPaymentIntentId,
-    isAr,
-    hasSellerWorkspaceAccess,
-    isSessionResolving,
-    openCommissionPaymentPanel,
-    revealCommissionPaymentPanel,
-    refreshSellerWorkspace,
-    sessionUser,
-    sellerCommissionStatus,
-    openCommissionPayment,
-  ]);
+  }, [clearCommissionPayDeepLink, commissionPaymentIntent, commissionPaymentIntentId, isAr, hasSellerWorkspaceAccess, isSessionResolving, openCommissionPaymentPanel, revealCommissionPaymentPanel, refreshSellerWorkspace, sessionUser, sellerCommissionStatus, openCommissionPayment, setSellerWorkspaceMessage]);
 
   const refreshNotifications = useCallback(async (options?: { category?: "all" | NotificationCategory; query?: string; unreadOnly?: boolean }) => {
     if (!sessionUser) return;
@@ -2343,7 +2325,7 @@ export function UsdtExchangePage({
         appendLoginJourneyStep("Notifications loading (first dashboard load)", notificationsStartedAt, Date.now(), { firstLoad: true });
       }
     } catch {
-      setStatusMessage(safeErrorMessage("workspace", isAr));
+      setWorkspaceError(safeErrorMessage("workspace", isAr));
     } finally {
       setNotificationsLoading(false);
     }
@@ -2375,7 +2357,7 @@ export function UsdtExchangePage({
     } catch {
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
-  }, [isAr, refreshNotifications]);
+  }, [isAr, refreshNotifications, setStatusMessage]);
 
   const handleNotificationReadState = useCallback(async (notificationId: string, isRead: boolean) => {
     try {
@@ -2392,7 +2374,7 @@ export function UsdtExchangePage({
     } catch {
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
-  }, [isAr, refreshNotifications]);
+  }, [isAr, refreshNotifications, setStatusMessage]);
 
   const handleDeleteNotification = useCallback(async (notificationId: string) => {
     try {
@@ -2405,7 +2387,7 @@ export function UsdtExchangePage({
     } catch {
       setStatusMessage(safeErrorMessage("workspace", isAr));
     }
-  }, [isAr, refreshNotifications]);
+  }, [isAr, refreshNotifications, setStatusMessage]);
 
   async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2685,7 +2667,7 @@ export function UsdtExchangePage({
         setIsSellerProfileLoading(false);
       }
     }
-  }, [isAr]);
+  }, [isAr, setStatusMessage]);
 
   useEffect(() => {
     if (!selectedListing) return;
@@ -2767,7 +2749,7 @@ export function UsdtExchangePage({
       usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "", receivingNetwork: listing.network, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
-  }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+  }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, setStatusMessage, updateListingSelectionQuery]);
 
   useEffect(() => {
     if (deepLinkAppliedRef.current) return;
@@ -2818,7 +2800,7 @@ export function UsdtExchangePage({
         // Keep normal commission flow available if QA cleanup fails.
       }
     })();
-  }, [isAr, qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
+  }, [isAr, qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus, setCommissionPayMessage]);
 
   // Generate QR code when commission modal opens or network changes
   useEffect(() => {
@@ -3006,7 +2988,7 @@ export function UsdtExchangePage({
       return false;
     }
     return true;
-  }, [isAr, isSessionResolving, sessionResolutionError, sessionUser, router, tradeReturnPath]);
+  }, [isSessionResolving, sessionResolutionError, sessionUser, setStatusMessage, isAr, router, tradeReturnPath]);
 
   async function handleOwnerSellerProfileState(sellerId: string, state: { feature?: boolean; hidden?: boolean }, successMessage: string) {
     setIsOwnerProfileActionLoading(true);
@@ -3070,7 +3052,7 @@ export function UsdtExchangePage({
       usdtAmount: normalizeTradeAmountInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "", receivingNetwork: listing.network, cardlessBankName: "", cardlessWithdrawalCode: "", cardlessVerificationKind: "id_number", cardlessVerificationValue: "", cardlessIlsAmount: "",
     }));
-  }, [requireAuth, updateListingSelectionQuery]);
+  }, [requireAuth, setStatusMessage, updateListingSelectionQuery]);
 
   const handleManageOwnedListing = useCallback((listing: MarketplaceListing) => {
     if (!requireAuth()) return;
@@ -3090,7 +3072,7 @@ export function UsdtExchangePage({
     }
     router.push(`/dashboard/seller#seller-listing-${encodeURIComponent(listing.id)}`);
     setStatusMessage(isAr ? `أدر عرضك من لوحة البائع (${shortListingRef(listing)}).` : `Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
-  }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection]);
+  }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection, setSellerWorkspaceMessage, setStatusMessage]);
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -3118,6 +3100,7 @@ export function UsdtExchangePage({
       if (data.application) {
         setSellerApplication(data.application);
         setApplicationSubmitted(true);
+        setStatusMessage(isAr ? "تم إرسال طلب البائع للمراجعة." : "Seller application submitted for review.");
         window.dispatchEvent(new Event("alpha-auth-changed"));
       }
     } catch {
@@ -3260,7 +3243,7 @@ export function UsdtExchangePage({
         setIsRedirectingToVerification(false);
         setStatusMessage(null);
         closeListingModal();
-        navigateAfterSuccess(router, data.destination);
+        navigateAfterSuccess(router, data.destination, isAr ? "تم إرسال طلب الشراء بنجاح." : "Purchase request submitted successfully.");
       }
     } catch (error) {
       const message = isAr
@@ -4483,7 +4466,6 @@ export function UsdtExchangePage({
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage(isAr ? "📋 تم نسخ العرض بنجاح. راجعه وانشره عندما يصبح جاهزًا." : "📋 Listing duplicated successfully. Review and publish it when ready.");
-      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       setEditingListingId(null);
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -4526,7 +4508,6 @@ export function UsdtExchangePage({
     if (listingCreateRequestInFlightRef.current) return;
     if (listingCreationBlocked) {
       setListingCreateResult({ tone: "error", message: listingCreationBlockedReason });
-      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       return;
     }
     listingCreateRequestInFlightRef.current = true;
@@ -4561,7 +4542,6 @@ export function UsdtExchangePage({
           failureMessage = await readApiErrorMessage(response, safeErrorMessage("listing", isAr));
         }
         setListingCreateResult({ tone: "error", message: failureMessage });
-        navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
         return;
       }
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
@@ -4584,11 +4564,9 @@ export function UsdtExchangePage({
         tone: "success",
         message: "Listing submitted. It is awaiting Alpha Traders admin approval and is not visible to buyers yet.",
       });
-      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       backgroundRefreshSellerWorkspace();
     } catch {
       setListingCreateResult({ tone: "error", message: safeErrorMessage("listing", isAr) });
-      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
     } finally {
       listingCreateRequestInFlightRef.current = false;
       setListingActionKey(null);
@@ -4649,7 +4627,6 @@ export function UsdtExchangePage({
       setEditingListingId(null);
       setListingEditOriginal(null);
       setSellerWorkspaceMessage(isAr ? "✅ تم تحديث العرض بنجاح وأصبحت التغييرات ظاهرة للمشترين." : "✅ Listing updated successfully. Changes are now visible to buyers.");
-      navigateAfterSuccess(router, payload.destination);
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
@@ -4757,7 +4734,7 @@ export function UsdtExchangePage({
       if (payload.request) {
         setMyRequests((current) => current.map((request) => request.id === payload.request?.id ? payload.request : request));
       }
-      if (nextStatus === "accepted" && navigateAfterSuccess(router, payload.destination)) {
+      if (nextStatus === "accepted" && navigateAfterSuccess(router, payload.destination, isAr ? "تم قبول الطلب بنجاح." : "Request accepted successfully.")) {
         void refreshSellerWorkspace();
         return;
       }
@@ -5176,6 +5153,7 @@ export function UsdtExchangePage({
       eligibility={sellerApplicationEligibility}
       application={sellerApplication}
       statusMessage={statusMessage}
+      statusMessageFeedbackKey={statusMessageFeedbackKey}
       form={sellerForm}
       sessionEmail={sessionUser?.email ?? ""}
       methods={sellerApplicationMethods}
@@ -5196,6 +5174,11 @@ export function UsdtExchangePage({
 
   return (
     <section className="section-container page-shell exchange-marketplace-shell overflow-x-clip">
+      {statusMessage && !selectedListing ? (
+        <ActionFeedback revealKey={statusMessageFeedbackKey} className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-[#FDE68A]">
+          {statusMessage}
+        </ActionFeedback>
+      ) : null}
       {sessionUser ? (
         <>
           <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-7">
@@ -5658,6 +5641,7 @@ export function UsdtExchangePage({
               sellerListingsExpanded,
               sellerRequests,
               sellerWorkspaceMessage,
+              sellerWorkspaceMessageFeedbackKey,
               setEditingListingId,
               setListingEditForm,
               setListingEditOriginal,
@@ -5863,6 +5847,7 @@ export function UsdtExchangePage({
             commissionNetwork,
             commissionPayBusy,
             commissionPayMessage,
+            commissionPayMessageFeedbackKey,
             commissionPayOpen,
             commissionPayableAmountDue,
             commissionPayerType,
@@ -5939,6 +5924,7 @@ export function UsdtExchangePage({
             sellerTradeQuery,
             sellerTradeStatus,
             sellerWorkspaceMessage,
+            sellerWorkspaceMessageFeedbackKey,
             sellerWorkspaceSummary,
             sessionUser,
             setCommissionAdvancedOpen,
@@ -6141,7 +6127,7 @@ export function UsdtExchangePage({
                 </button>
               </div>
               <div className="mt-4 space-y-3">
-                {removalError ? <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{removalError}</p> : null}
+                {removalError ? <ActionFeedback revealKey={removalErrorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{removalError}</ActionFeedback> : null}
                 <div>
                   <label htmlFor="removal-reason" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">{isAr ? "السبب" : "Reason"} <span className="text-red-300">*</span></label>
                   <select
@@ -6175,6 +6161,7 @@ export function UsdtExchangePage({
                     type="button"
                     className="w-full"
                     disabled={!validateListingChangeReason({ reason: removalReason, explanation: removalExplanation }).ok || listingActionKey === `${removalListing.id}:delete`}
+                    data-feedback-submit
                     onClick={() => void confirmSellerListingRemoval()}
                   >
                     {listingActionKey === `${removalListing.id}:delete` ? (isAr ? "جارٍ الإزالة..." : "Removing...") : (isAr ? "إزالة العرض" : "Remove Listing")}
@@ -6220,6 +6207,7 @@ export function UsdtExchangePage({
           showVerificationCta={showVerificationCta}
           isRedirectingToVerification={isRedirectingToVerification}
           statusMessage={statusMessage}
+          statusMessageFeedbackKey={statusMessageFeedbackKey}
           isSubmittingPurchase={isSubmittingPurchase}
           onClose={closeListingModal}
           onSubmit={handlePurchaseSubmit}
