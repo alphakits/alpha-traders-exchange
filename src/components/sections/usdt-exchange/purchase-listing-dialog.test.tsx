@@ -37,8 +37,13 @@ describe("prepared cardless purchase form", () => {
     expect(submit.disabled).toBe(true);
     const bank = screen.getByLabelText(/Bank that issued your withdrawal code/) as HTMLSelectElement;
     expect(bank.required).toBe(true);
-    expect(Array.from(bank.options).slice(1).map((option) => option.value)).toEqual(["Bank Hapoalim", "Bank Leumi"]);
-    fireEvent.change(bank, { target: { value: "Bank Leumi" } });
+    expect(Array.from(bank.options).slice(1).map((option) => option.value)).toEqual(expect.arrayContaining([
+      "Bank Hapoalim", "Bank Leumi", "Mizrahi-Tefahot", "Discount", "First International",
+      "Yahav", "Mercantile", "Massad", "Jerusalem", "ONE ZERO", "Esh",
+    ]));
+    // The buyer's withdrawal bank is independent of the seller's listed banks.
+    fireEvent.change(bank, { target: { value: "Mercantile" } });
+    expect(bank.value).toBe("Mercantile");
     expect(submit.disabled).toBe(false);
     fireEvent.change(screen.getByLabelText("USDT receiving network"), { target: { value: "BEP20" } });
     expect(submit.disabled).toBe(true);

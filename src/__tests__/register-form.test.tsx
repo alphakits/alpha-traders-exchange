@@ -33,7 +33,7 @@ describe("RegisterForm localization", () => {
     fireEvent.change(contact, { target: { value: "   " } });
     fireEvent.submit(contact.closest("form")!);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain(locale === "ar" ? "رقم واتساب مطلوب" : "A WhatsApp number is required");
+    expect(screen.getByRole("alert").textContent).toContain(locale === "ar" ? "رقم واتساب مطلوب" : "A WhatsApp number is required");
   });
 
   it("rejects malformed numbers and sends accepted contacts in international format", async () => {
