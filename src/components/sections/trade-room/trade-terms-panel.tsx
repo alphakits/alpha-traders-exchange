@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useRef, useState } from "react";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
 }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState("");
   const [safety, setSafety] = useState(false);
   const inFlight = useRef(false);
   const seller = request.sellerId === actorId;
@@ -58,6 +59,6 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
       {counter && face && !request.sellerSafetyAcknowledged ? <label className="flex gap-2 text-sm"><input type="checkbox" checked={safety} onChange={(event) => setSafety(event.target.checked)} />{isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT."}</label> : null}
       <Button disabled={disabled || busy || !value.trim() || (counter && face && !request.sellerSafetyAcknowledged && !safety)} onClick={() => void submit(counter ? "counter_offer" : "propose_amount")}>{busy ? (isAr ? "جارٍ الإرسال…" : "Sending…") : counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</Button>
     </>}
-    {error ? <p role="alert" className="text-sm text-red-300">{error}</p> : null}
+    {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{error}</ActionFeedback> : null}
   </section>;
 }

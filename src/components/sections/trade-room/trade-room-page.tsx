@@ -1,5 +1,6 @@
 "use client";
 
+import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { AlertTriangle, BellRing, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, Paperclip, ShieldCheck, Upload, WalletCards } from "lucide-react";
 import Image from "next/image";
@@ -1381,10 +1382,10 @@ function TradeRoomPageSession({
   const [room, setRoom] = useState<TradeRoomData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError, actionErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [cardlessCode, setCardlessCode] = useState("");
   const [cardlessVerificationKind, setCardlessVerificationKind] = useState<CardlessVerificationKind>("id_number");
   const [cardlessVerificationValue, setCardlessVerificationValue] = useState("");
@@ -1396,7 +1397,7 @@ function TradeRoomPageSession({
   const [completedActionLabel, setCompletedActionLabel] = useState<string | null>(null);
   const [stepPulse, setStepPulse] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
-  const [chatErrorMessage, setChatErrorMessage] = useState<string | null>(null);
+  const [chatErrorMessage, setChatErrorMessage, chatErrorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [pokeBusy, setPokeBusy] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [chatImage, setChatImage] = useState<File | null>(null);
@@ -1415,7 +1416,7 @@ function TradeRoomPageSession({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
-  const [reviewCommentError, setReviewCommentError] = useState<string | null>(null);
+  const [reviewCommentError, setReviewCommentError, reviewCommentErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [reviewDeferred, setReviewDeferred] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
@@ -1425,7 +1426,7 @@ function TradeRoomPageSession({
   const [walletCopied, setWalletCopied] = useState(false);
   const [bankDetails, setBankDetails] = useState<TradeRoomBankDetails | null>(null);
   const [bankDetailsBusy, setBankDetailsBusy] = useState(false);
-  const [bankDetailsError, setBankDetailsError] = useState<string | null>(null);
+  const [bankDetailsError, setBankDetailsError, bankDetailsErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [showManualCloseComposer, setShowManualCloseComposer] = useState(false);
   const [manualCloseReason, setManualCloseReason] = useState("");
   const [manualCloseExplanation, setManualCloseExplanation] = useState("");
@@ -1637,8 +1638,10 @@ function TradeRoomPageSession({
       window.removeEventListener("keydown", stop, true);
       window.removeEventListener("wheel", stop, true);
       window.removeEventListener("touchstart", stop, true);
+      window.removeEventListener(ACTION_FEEDBACK_REVEALED, stop);
     };
 
+    window.addEventListener(ACTION_FEEDBACK_REVEALED, stop);
     reveal();
     // Auth/session banners and status-specific controls can settle just after
     // the first layout. Re-measure briefly so the requested section remains
@@ -1957,7 +1960,7 @@ function TradeRoomPageSession({
     } catch {
       setActionError(isAr ? "تعذر نسخ عنوان المحفظة." : "Could not copy the wallet address.");
     }
-  }, [isAr, sellerWalletAddress]);
+  }, [isAr, sellerWalletAddress, setActionError]);
 
   const [adjustingAmount, setAdjustingAmount] = useState(false);
   const [adjustmentIlsAmount, setAdjustmentIlsAmount] = useState("");
@@ -1976,7 +1979,7 @@ function TradeRoomPageSession({
     } catch (error) {
       setActionError(localizedCaughtError(error, isAr ? "تعذر تأكيد تعديل المبلغ. حدّث الصفقة." : "Could not confirm the adjustment. Refresh the trade.", isAr));
     } finally { setAdjustingAmount(false); }
-  }, [adjustingAmount, adjustmentIlsAmount, actor.id, isAr, requestId]);
+  }, [adjustingAmount, setActionError, requestId, adjustmentIlsAmount, isAr, actor.id, setStatusMessage]);
 
   useEffect(() => {
     const revealConfirmation = () => {
@@ -2005,7 +2008,7 @@ function TradeRoomPageSession({
     setBankDetails(null);
     setBankDetailsBusy(false);
     setBankDetailsError(null);
-  }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails]);
+  }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails, setBankDetailsError]);
 
   const handleRevealBankDetails = useCallback(async () => {
     if (!bankDetailsRequestId || bankDetailsBusy) return;
@@ -2040,7 +2043,7 @@ function TradeRoomPageSession({
     } finally {
       setBankDetailsBusy(false);
     }
-  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, requestId]);
+  }, [actor.id, bankDetailsBusy, bankDetailsRequestId, fetchRoom, isAr, requestId, setBankDetailsError]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -2285,7 +2288,7 @@ function TradeRoomPageSession({
       setActionBusy(false);
       void fetchRoom(true);
     }
-  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, fetchRoom, isAr, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2425,7 +2428,7 @@ function TradeRoomPageSession({
       chatMessageInFlightRef.current = false;
       setChatBusy(false);
     }
-  }, [actor.id, actor.role, chatDraft, chatImage, isAr, refreshCanonicalSession, requestId, room]);
+  }, [actor.id, actor.role, chatDraft, chatImage, isAr, refreshCanonicalSession, requestId, room, setChatErrorMessage]);
 
   const handleCopyChatDraft = useCallback(async () => {
     if (!chatDraft) return;
@@ -2437,7 +2440,7 @@ function TradeRoomPageSession({
     } catch {
       setChatErrorMessage(isAr ? "تعذر نسخ الرسالة." : "Could not copy the message.");
     }
-  }, [chatDraft, isAr]);
+  }, [chatDraft, isAr, setChatErrorMessage, setStatusMessage]);
 
   const handlePoke = useCallback(async () => {
     if (!request || !room?.poke?.available || pokeBusy) return;
@@ -2483,7 +2486,7 @@ function TradeRoomPageSession({
       releaseTradeRoomMutation(pokeInFlightRef, mutationKey);
       setPokeBusy(false);
     }
-  }, [fetchRoom, isAr, pokeBusy, pokeCounterpartLabel, request, room?.poke?.available]);
+  }, [fetchRoom, isAr, pokeBusy, pokeCounterpartLabel, request, room?.poke?.available, setStatusMessage]);
 
   const handleUploadEvidence = useCallback(async (side: "buyer" | "seller") => {
     if (!request || !room) return;
@@ -2588,7 +2591,7 @@ function TradeRoomPageSession({
       await fetchRoom(true);
       setEvidenceBusy(null);
     }
-  }, [actor.id, buyerEvidenceFile, fetchRoom, isAr, request, requestId, room, sellerEvidenceFile]);
+  }, [actor.id, buyerEvidenceFile, fetchRoom, isAr, request, requestId, room, sellerEvidenceFile, setActionError, setStatusMessage]);
 
   const handlePrimaryAction = useCallback(async () => {
     if (!primaryAction) return;
@@ -2618,7 +2621,7 @@ function TradeRoomPageSession({
     }
     if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
-  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile]);
+  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError]);
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
@@ -2653,7 +2656,7 @@ function TradeRoomPageSession({
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setDisputeBusy(false);
     }
-  }, [disputeReason, fetchRoom, isAr, request]);
+  }, [disputeReason, fetchRoom, isAr, request, setStatusMessage]);
 
   const handleCancelTrade = useCallback(async () => {
     if (!request || !canBuyerCancelTrade(request, actor.id) || cancelBusy) return;
@@ -2685,7 +2688,7 @@ function TradeRoomPageSession({
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setCancelBusy(false);
     }
-  }, [actor.id, cancelBusy, isAr, request, router]);
+  }, [actor.id, cancelBusy, isAr, request, router, setStatusMessage]);
 
   const handleDeclineTrade = useCallback(async () => {
     if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy) return;
@@ -2742,7 +2745,7 @@ function TradeRoomPageSession({
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setManualCloseBusy(false);
     }
-  }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room]);
+  }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
@@ -2866,7 +2869,7 @@ function TradeRoomPageSession({
       reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
     }
-  }, [actionBusy, actor.id, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
+  }, [actionBusy, actor.id, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, setReviewCommentError, setStatusMessage, startBuyerCompletionSuccessFlow]);
 
   const handleReviewFormSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2937,7 +2940,7 @@ function TradeRoomPageSession({
   const handleChatDraftChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     setChatDraft(event.target.value);
     if (chatErrorMessage) setChatErrorMessage(null);
-  }, [chatErrorMessage]);
+  }, [chatErrorMessage, setChatErrorMessage]);
 
   if (isLoading) {
     return (
@@ -3265,7 +3268,7 @@ function TradeRoomPageSession({
                           {[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{"★".repeat(rating)} ({rating})</option>)}
                         </select>
                         <Textarea ref={reviewCommentInputRef} aria-label={isAr ? "تعليق عن المشتري" : "Buyer feedback"} placeholder={isAr ? "كيف كانت تجربتك مع المشتري؟" : "How was your experience with this buyer?"} maxLength={500} value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} disabled={reviewBusy || actionBusy} />
-                        {reviewCommentError ? <p role="alert" className="text-red-300">{reviewCommentError}</p> : null}
+                        {reviewCommentError ? <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-red-300">{reviewCommentError}</ActionFeedback> : null}
                         <Button type="submit" disabled={reviewBusy || actionBusy}>{reviewBusy ? (isAr ? "جاري الحفظ..." : "Saving...") : (isAr ? "إرسال التقييم" : "Submit buyer review")}</Button>
                       </form>
                     </details>
@@ -3328,7 +3331,7 @@ function TradeRoomPageSession({
                       </p>
                     ) : null}
                     {reviewCommentError ? (
-                      <p className="text-xs text-red-300">{reviewCommentError}</p>
+                      <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-300">{reviewCommentError}</ActionFeedback>
                     ) : null}
                     <Button
                       type="submit"
@@ -3428,7 +3431,7 @@ function TradeRoomPageSession({
                 )) : null}
                 <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || room.hasOpenDispute}
                   onBusyChange={(busy) => { actionInFlightRef.current = busy ? "trade-terms" : null; setAdjustingAmount(busy); }}
-                  onUpdated={(updated) => { if (!roomRef.current || roomRef.current.request.id !== updated.id) return; const nextRoom = applyRequestToRoom(roomRef.current, updated); roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom); }} />
+                  onUpdated={(updated) => { setStatusMessage(isAr ? "تم تحديث شروط الصفقة بنجاح." : "Trade terms updated successfully."); if (!roomRef.current || roomRef.current.request.id !== updated.id) return; const nextRoom = applyRequestToRoom(roomRef.current, updated); roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom); }} />
                 {isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
                   <div className="rounded-xl border border-white/15 p-3 text-sm">
                     <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${request.pricePerUsdt} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${request.pricePerUsdt} per USDT`}</p>
@@ -3447,7 +3450,7 @@ function TradeRoomPageSession({
                     {bankDetailsBusy ? (
                       <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "جارٍ تحميل تفاصيل الحساب البنكي..." : "Loading bank account details..."}</p>
                     ) : bankDetailsError ? (
-                      <p className="mt-2 text-sm text-amber-200">{bankDetailsError}</p>
+                      <ActionFeedback revealKey={bankDetailsErrorFeedbackKey} as="p" role="alert" className="mt-2 text-sm text-amber-200">{bankDetailsError}</ActionFeedback>
                     ) : bankDetails ? (
                       <div className="mt-2 space-y-1 text-sm text-[#E5E7EB]">
                         <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{bankDetails.accountHolderName}</bdi></span></p>
@@ -4105,10 +4108,10 @@ function TradeRoomPageSession({
                     </span>
                   </p>
                   {chatErrorMessage ? (
-                    <div id="trade-chat-error" role="alert" aria-live="assertive" data-testid="trade-chat-error" className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
+                    <ActionFeedback revealKey={chatErrorMessageFeedbackKey} role="alert" id="trade-chat-error"   data-testid="trade-chat-error" className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                       <span>{chatErrorMessage}</span>
-                    </div>
+                    </ActionFeedback>
                   ) : null}
                   {!isCashTrade ? (
                     <>
@@ -4209,14 +4212,14 @@ function TradeRoomPageSession({
         </div> : null}
 
         {statusMessage ? (
-          <div id="trade-action-result" tabIndex={-1} role="status" aria-live="polite" className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#D1D5DB]">
+          <ActionFeedback revealKey={statusMessageFeedbackKey} id="trade-action-result" tabIndex={-1} role="status" aria-live="polite" className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#D1D5DB]">
             <div className="flex items-center gap-2">
               {reviewCommentError ? <AlertTriangle className="h-4 w-4 text-red-300" />
                 : reviewBusy ? <LoaderCircle className="h-4 w-4 animate-spin" />
                   : <CheckCircle2 className="h-4 w-4 text-emerald-300" />}
               <span>{statusMessage}</span>
             </div>
-          </div>
+          </ActionFeedback>
         ) : null}
 
         {actionNotice ? (
@@ -4229,12 +4232,12 @@ function TradeRoomPageSession({
         ) : null}
 
         {actionError ? (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <ActionFeedback revealKey={actionErrorFeedbackKey} role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
               <span>{actionError}</span>
             </div>
-          </div>
+          </ActionFeedback>
         ) : null}
 
         {errorMessage ? (
