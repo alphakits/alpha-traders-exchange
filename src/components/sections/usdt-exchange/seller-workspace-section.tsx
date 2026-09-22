@@ -98,7 +98,6 @@ export type SellerWorkspaceSectionProps = {
   listingCommissionAgreement: boolean;
   listingCreateAmount: number;
   listingCreateBankAccountMismatch: boolean;
-  listingCreateCurrencyManualOverride: boolean;
   listingCreateForm: ListingCreateForm;
   listingCreateGuardCardTone: string;
   listingCreateGuardTone: string;
@@ -165,7 +164,6 @@ export type SellerWorkspaceSectionProps = {
   setCommissionPayerType: Dispatch<SetStateAction<"personal" | "exchange" | null>>;
   setCommissionTxSignature: Dispatch<SetStateAction<string>>;
   setListingCommissionAgreement: Dispatch<SetStateAction<boolean>>;
-  setListingCreateCurrencyManualOverride: Dispatch<SetStateAction<boolean>>;
   setListingCreateForm: Dispatch<SetStateAction<ListingCreateForm>>;
   setListingCreateResult: Dispatch<SetStateAction<ListingCreateResult | null>>;
   setSellerDashboardListingsTarget: Dispatch<SetStateAction<HTMLDivElement | null>>;
@@ -184,7 +182,6 @@ export type SellerWorkspaceSectionProps = {
   LocalizedEvidenceFileInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").LocalizedEvidenceFileInput;
   formatIls: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatIls;
   formatUsdt: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatUsdt;
-  formatIntegerForInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").formatIntegerForInput;
   normalizeDecimalInput: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").normalizeDecimalInput;
   renderBankLogo: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").renderBankLogo;
   shortListingRef: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").shortListingRef;
@@ -257,7 +254,6 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     listingCommissionAgreement,
     listingCreateAmount,
     listingCreateBankAccountMismatch,
-    listingCreateCurrencyManualOverride,
     listingCreateForm,
     listingCreateGuardCardTone,
     listingCreateGuardTone,
@@ -316,7 +312,6 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     setCommissionPayerType,
     setCommissionTxSignature,
     setListingCommissionAgreement,
-    setListingCreateCurrencyManualOverride,
     setListingCreateForm,
     setListingCreateResult,
     setSellerDashboardListingsTarget,
@@ -335,7 +330,6 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     LocalizedEvidenceFileInput,
     formatIls,
     formatUsdt,
-    formatIntegerForInput,
     normalizeDecimalInput,
     renderBankLogo,
     shortListingRef,
@@ -1106,16 +1100,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <FieldLabel htmlFor="create-currency" required>{isAr ? "العملة" : "Currency"}</FieldLabel>
                   <Input
                     id="create-currency"
-                    placeholder="ILS"
-                    value={listingCreateForm.currency}
-                    onChange={(event) => {
-                      setListingCreateCurrencyManualOverride(true);
-                      setListingCreateForm((prev) => ({ ...prev, currency: formatIntegerForInput(event.target.value) }));
-                    }}
+                    value="ILS"
+                    readOnly
+                    aria-describedby="create-currency-help"
                     className="h-11"
                   />
-                  <p className={`text-xs ${listingCreateCurrencyManualOverride ? "text-amber-300" : "text-emerald-300"}`}>
-                    {listingCreateCurrencyManualOverride ? (isAr ? "إدخال يدوي" : "Manual Override") : (isAr ? "محسوب تلقائياً" : "Auto Calculated")}
+                  <p id="create-currency-help" className="text-xs text-[#9CA3AF]">
+                    {isAr ? "الأسعار والإجماليات بالشيكل الإسرائيلي (ILS)." : "Prices and totals are in Israeli shekels (ILS)."}
                   </p>
                 </div>
                 <div className="space-y-2">

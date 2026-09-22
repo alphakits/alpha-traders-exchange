@@ -700,7 +700,8 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       ? requestDetailsHref(request.id)
       : sanitizeInternalNotificationHref(notification.relatedHref) ?? sellerProfileHref);
   const actionHref = commissionPaymentHref ?? (sanitizeInternalNotificationHref(notification.actionHref) || relatedHref);
-  const listing = request ? db.marketplaceListings.find((item) => item.id === request.listingId) : undefined;
+  const listingId = notification.relatedListingId ?? request?.listingId;
+  const listing = listingId ? db.marketplaceListings.find((item) => item.id === listingId) : undefined;
   // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
   const displayLookup = cachedLookup ?? createExchangeDisplayLookup({
     listings: db.marketplaceListings,
@@ -752,7 +753,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedRequestDisplayNumber: request?.displayNumber,
     relatedTradeId,
     relatedTradeDisplayNumber: request?.displayNumber,
-    relatedListingDisplayNumber: listing?.displayNumber,
+    relatedListingDisplayNumber: listing?.displayNumber ?? notification.relatedListingDisplayNumber,
     relatedSellerName: sellerContext?.displayName ?? notification.relatedSellerName,
     relatedSellerUsername: sellerContext?.username ?? notification.relatedSellerUsername,
     relatedHref,

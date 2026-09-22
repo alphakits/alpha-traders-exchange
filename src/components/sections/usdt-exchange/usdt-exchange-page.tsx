@@ -1597,7 +1597,7 @@ export function UsdtExchangePage({
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
     price: "",
-    currency: "",
+    currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: [...getDefaultListingPaymentMethods(initialSessionUser?.preferredPaymentMethods)] as string[],
     bankAccountId: "",
@@ -1608,7 +1608,6 @@ export function UsdtExchangePage({
   });
   const [sellerBankAccounts, setSellerBankAccounts] = useState<SellerBankAccount[]>([]);
   const [sellerBankAccountsLoading, setSellerBankAccountsLoading] = useState(false);
-  const [listingCreateCurrencyManualOverride, setListingCreateCurrencyManualOverride] = useState(false);
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
 
   useEffect(() => {
@@ -3340,7 +3339,6 @@ export function UsdtExchangePage({
     || listingCreateBankAccountMismatch
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
-  const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
   const listingCreationBlocked = !canAccessListingCreation || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
   const listingCreationBlockedReason = !canAccessListingCreation
     ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
@@ -3366,17 +3364,6 @@ export function UsdtExchangePage({
     : listingCreatePriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
-  useEffect(() => {
-    const canAutoPopulate = listingCreateAmount > 0 && listingCreatePrice > 0 && !listingCreatePriceInvalid;
-    if (!canAutoPopulate) {
-      setListingCreateForm((prev) => (prev.currency === "" ? prev : { ...prev, currency: "" }));
-      setListingCreateCurrencyManualOverride(false);
-      return;
-    }
-    if (listingCreateCurrencyManualOverride) return;
-    const nextValue = formatWholeNumber(listingCreateCurrencyValue);
-    setListingCreateForm((prev) => (prev.currency === nextValue ? prev : { ...prev, currency: nextValue }));
-  }, [listingCreateAmount, listingCreateCurrencyManualOverride, listingCreateCurrencyValue, listingCreatePrice, listingCreatePriceInvalid]);
   const listingEditPrice = toNumber(listingEditForm.price);
   const listingEditAmount = toNumber(listingEditForm.availableAmount);
   const listingEditMinTrade = toNumber(listingEditForm.minimumTrade);
@@ -4557,7 +4544,7 @@ export function UsdtExchangePage({
         ...prev,
         availableAmount: "",
         price: "",
-        currency: "",
+        currency: "ILS",
         paymentMethods: getDefaultListingPaymentMethods(sessionUser?.preferredPaymentMethods),
         bankAccountId: "",
         bankName: "",
@@ -4565,7 +4552,6 @@ export function UsdtExchangePage({
         maximumTrade: "",
         sellerDescription: "",
       }));
-      setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
       setListingCreateResult({
         tone: "success",
@@ -5883,7 +5869,6 @@ export function UsdtExchangePage({
             listingCommissionAgreement,
             listingCreateAmount,
             listingCreateBankAccountMismatch,
-            listingCreateCurrencyManualOverride,
             listingCreateForm,
             listingCreateGuardCardTone,
             listingCreateGuardTone,
@@ -5942,7 +5927,6 @@ export function UsdtExchangePage({
             setCommissionPayerType,
             setCommissionTxSignature,
             setListingCommissionAgreement,
-            setListingCreateCurrencyManualOverride,
             setListingCreateForm,
             setListingCreateResult,
             setSellerDashboardListingsTarget,
@@ -5961,7 +5945,6 @@ export function UsdtExchangePage({
             LocalizedEvidenceFileInput,
             formatIls,
             formatUsdt: formatCommissionUsdt,
-            formatIntegerForInput,
             normalizeDecimalInput,
             renderBankLogo,
             shortListingRef,
