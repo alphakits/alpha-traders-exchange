@@ -8,7 +8,7 @@ import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-s
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
-import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
+import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
@@ -6021,7 +6021,13 @@ export async function upsertUserProfileForAuth(input: {
       // not locked out before the privacy projection can redact it. Any actual
       // new display-name change remains subject to the content policy.
       if (nextFullName !== existing.fullName) assertNoExchangeDirectContact(nextFullName);
-      const nextWhatsappNumber = input.whatsappNumber.trim() || existing.whatsappNumber;
+      // The saved private contact owns this field, just like the profile name.
+      // Login metadata (including local-auth snapshots) can predate a profile
+      // save. Only use a valid provider number to fill a missing/invalid contact.
+      // Re-evaluate against the latest profile when the repository rebases.
+      const nextWhatsappNumber = normalizeRegistrationWhatsApp(existing.whatsappNumber)
+        ?? normalizeRegistrationWhatsApp(input.whatsappNumber)
+        ?? "";
       const nextPasswordHash = input.passwordHash ?? existing.passwordHash;
       const nextRole = resolvePrimaryRole(normalizedRoles);
       const nextEmailVerified = input.emailVerified === true ? true : existing.emailVerified === true;
@@ -6085,7 +6091,7 @@ export async function upsertUserProfileForAuth(input: {
     fullName: input.fullName.trim(),
     email,
     passwordHash: input.passwordHash ?? "",
-    whatsappNumber: input.whatsappNumber.trim(),
+    whatsappNumber: normalizeRegistrationWhatsApp(input.whatsappNumber) ?? "",
     preferredNetworks: [],
     profilePhotoUrl: "",
     languages: ["English"],
