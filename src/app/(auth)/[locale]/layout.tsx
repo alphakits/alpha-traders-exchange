@@ -7,6 +7,7 @@ import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME } from "@/lib/brand";
+import { LocaleSwitcher } from "@/components/layout/locale-switcher";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -49,7 +50,7 @@ export default async function AuthLocaleLayout({
           appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
         }`}
       >
-        <header className="relative z-10 flex justify-center px-4 pt-5 sm:pt-7">
+        <header className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pt-5 sm:pt-7">
           <Link href="/" locale={appLocale} className="inline-flex items-center gap-3 rounded-2xl border border-[#C9A227]/30 bg-black/45 px-3 py-2 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur">
             <Image
               src="/images/brand/alpha-traders-logo.webp"
@@ -64,6 +65,7 @@ export default async function AuthLocaleLayout({
               <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-[#D4AF37]">{appLocale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
             </span>
           </Link>
+          <LocaleSwitcher />
         </header>
         <main className="flex flex-1 items-center justify-center px-4 py-7 sm:px-6 sm:py-9 lg:px-8">{children}</main>
       </div>
