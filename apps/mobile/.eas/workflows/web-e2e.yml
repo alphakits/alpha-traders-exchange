@@ -1,36 +1,38 @@
-name: Alpha Exchange Exact Release Browser Reliability
-run_name: Browser reliability • release e15f917
+name: Alpha Exchange Isolated Draft Browser Reliability
+run_name: Browser reliability • draft 5825a42
 
 on:
   workflow_dispatch: {}
 
 jobs:
   browser_e2e:
-    name: Run 148 Chromium exchange flows
+    name: Run Chromium exchange regression suite
     runs_on: linux-medium
+    environment: preview
     env:
       CI: "1"
       GIT_LFS_SKIP_SMUDGE: "1"
       PLAYWRIGHT_HTML_OPEN: never
+      PLAYWRIGHT_JSON_OUTPUT_NAME: apps/mobile/playwright-results.json
       PLAYWRIGHT_HTML_OUTPUT_DIR: apps/mobile/playwright-report
     steps:
       - uses: eas/checkout
         with:
-          ref: e15f917cb6a868969296c2b431cdd2a8e87f3fdc
-      - name: Verify the exact release source
+          ref: 5825a42f56ec374839a7913a5aabc52c85419a7c
+      - name: Verify the exact draft source
         run: |
-          test "$(git rev-parse HEAD)" = "e15f917cb6a868969296c2b431cdd2a8e87f3fdc"
-          test "$(git rev-parse HEAD^{tree})" = "160fb6d1a66f555239a3950001ec4cd1efa55964"
+          test "$(git rev-parse HEAD)" = "5825a42f56ec374839a7913a5aabc52c85419a7c"
+          test "$(git rev-parse HEAD^{tree})" = "dfa1cdfaf8e18fe902a2bc450e225c1e647a4311"
           git diff --exit-code
           git diff --cached --exit-code
-          git log -1 --format='Verified release source: %H'
+          git log -1 --format='Verified draft source: %H'
         working_directory: ../..
       - uses: eas/install_node_modules
       - name: Install Chromium and system dependencies
         run: npx playwright install --with-deps chromium
         working_directory: ../..
       - name: Run production-mode browser reliability suite
-        run: npx playwright test --reporter=list,html --output=apps/mobile/playwright-results
+        run: npx playwright test --reporter=line,html,json --output=apps/mobile/playwright-results 2>&1 | tee apps/mobile/playwright-run.log
         working_directory: ../..
       - name: Upload browser evidence
         uses: eas/upload_artifact
@@ -39,6 +41,8 @@ jobs:
           type: other
           name: alpha-exchange-browser-evidence
           path: |
-            playwright-report/**/*
-            playwright-results/**/*
-          ignore_error: true
+            apps/mobile/playwright-report/**/*
+            apps/mobile/playwright-results/**/*
+            apps/mobile/playwright-results.json
+            apps/mobile/playwright-run.log
+          ignore_error: false
