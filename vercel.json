@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/whatsapp-delivery",
       "schedule": "3-59/5 * * * *"
+    },
+    {
+      "path": "/api/cron/marketplace-email-delivery",
+      "schedule": "* * * * *"
     }
   ]
 }

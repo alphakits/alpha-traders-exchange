@@ -1,3 +1,4 @@
+import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
@@ -8,7 +9,7 @@ import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -891,25 +892,6 @@ function isSafeStoredTradeRoomImageUrl(value: string | undefined) {
     && validateUploadContent(raw, mimeType as "image/jpeg" | "image/png" | "image/webp");
 }
 
-function getCardlessCredentialKey() {
-  const dedicatedSecret = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET?.trim();
-  if (dedicatedSecret && dedicatedSecret.length < 32) {
-    throw new Error("Cardless credential encryption secret must contain at least 32 characters.");
-  }
-  const secret = dedicatedSecret
-    || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-    || process.env.SUPABASE_DB_URL?.trim()
-    || (process.env.NODE_ENV === "test" ? "alpha-exchange-cardless-test-secret" : "");
-  if (!secret) throw new Error("Cardless credential encryption is not configured.");
-  return createHash("sha256").update(`alpha-exchange-cardless-v1\0${secret}`).digest();
-}
-
-function cardlessCredentialPayloadHash(requestId: string, code: string) {
-  return createHmac("sha256", getCardlessCredentialKey())
-    .update(`cardless-code\0${requestId}\0${code}`)
-    .digest("hex");
-}
-
 function containsCardlessCredentialLikeContent(value: string) {
   const normalized = value
     .normalize("NFKC")
@@ -919,27 +901,6 @@ function containsCardlessCredentialLikeContent(value: string) {
   // code separators. This prevents `12 34 56`, Arabic/full-width digits, and
   // zero-width variants from bypassing the protected credential action.
   return /(?:^|\D)\d(?:[\s\-–—_.:/\u200B-\u200D\u2060]*\d){3,11}(?:\D|$)/.test(normalized);
-}
-
-function encryptCardlessCredential(code: string, requestId: string, messageId: string) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", getCardlessCredentialKey(), iv);
-  cipher.setAAD(Buffer.from(`${requestId}\0${messageId}`));
-  const encrypted = Buffer.concat([cipher.update(code, "utf8"), cipher.final()]);
-  return `cardless:v1:${iv.toString("base64url")}:${cipher.getAuthTag().toString("base64url")}:${encrypted.toString("base64url")}`;
-}
-
-function decryptCardlessCredential(value: string, requestId: string, messageId: string) {
-  const [prefix, version, ivValue, tagValue, encryptedValue] = value.split(":");
-  if (prefix !== "cardless" || version !== "v1" || !ivValue || !tagValue || !encryptedValue) return null;
-  try {
-    const decipher = createDecipheriv("aes-256-gcm", getCardlessCredentialKey(), Buffer.from(ivValue, "base64url"));
-    decipher.setAAD(Buffer.from(`${requestId}\0${messageId}`));
-    decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
-    return Buffer.concat([decipher.update(Buffer.from(encryptedValue, "base64url")), decipher.final()]).toString("utf8");
-  } catch {
-    return null;
-  }
 }
 
 function sanitizeTradeRoomMessageForCounterparty(
@@ -13344,10 +13305,11 @@ async function updatePurchaseRequestStatusAttempt(
       const existingCredential = (request.messages ?? []).find((message) => message.credentialKind === "cardless_code");
       // Keep retries of already-sent legacy codes harmless, while requiring
       // both fields for new submissions and preventing changes after disclosure.
-      if (!cardlessDetails.ok && existingCredential?.payloadHash !== cardlessPayloadHash) {
+      const sameCredential = matchesCardlessCredentialPayloadHash(existingCredential?.payloadHash, request.id, cardlessCredentialPayload);
+      if (!cardlessDetails.ok && !sameCredential) {
         throw new TradeBlockedError("cardless-verification-required", "Enter the withdrawal code and the ID number or date of birth required by the bank. Refresh the Trade Room or use the website if the second field is missing.", request.id, { guard: "cardless-verification" });
       }
-      if (!existingCredential || existingCredential.payloadHash !== cardlessPayloadHash) {
+      if (!existingCredential || !sameCredential) {
         throw new TradeBlockedError("cardless-code-conflict", "Different withdrawal details were already submitted for this trade.", request.id, { guard: "cardless-code-idempotency" });
       }
     }
