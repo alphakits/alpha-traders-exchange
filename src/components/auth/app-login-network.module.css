@@ -52,7 +52,7 @@
 .benefit svg { flex-shrink: 0; color: #d9bd72; }
 .benefit:nth-child(3) svg { color: #78c8ae; }
 .form input { transition: border-color .18s ease, box-shadow .18s ease; }
-.form input:focus-visible { box-shadow: 0 0 18px #d4af3714; }
+.form input:not([type="checkbox"]):focus-visible { box-shadow: 0 0 0 2px #c9a227, 0 0 18px #d4af3714; }
 .form button[type="submit"] { position: relative; overflow: hidden; }
 .form button[type="submit"]::before {
   content: "";
