@@ -21,7 +21,7 @@ export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, c
   compact?: boolean;
 }) {
   return (
-    <div id="workspace-summary" className={cn("min-w-0 scroll-mt-24", !integrated && "mt-5")}>
+    <div id="workspace-summary" className={integrated ? "min-w-0 scroll-mt-24" : "mt-5 scroll-mt-24"}>
       <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
       <p className="mt-1 text-sm leading-6 text-[#B6BDC8]">{isAr ? "اختر المهمة التي تريد تنفيذها الآن." : "Choose what you want to do next."}</p>
       <div dir={compact ? "ltr" : undefined} className={cn("mt-3 grid gap-2", compact ? "grid-cols-2" : integrated ? "min-[360px]:grid-cols-2 xl:grid-cols-3" : "min-[360px]:grid-cols-2 xl:grid-cols-4")}>
@@ -42,7 +42,7 @@ export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, c
               dir={compact ? (isAr ? "rtl" : "ltr") : undefined}
               onClick={card.onClick}
               aria-label={`${card.title}: ${compact ? `${card.stat}. ` : ""}${card.subtitle}`}
-              className={cn("flex min-w-0 w-full flex-col rounded-2xl border p-3 text-start [overflow-wrap:anywhere] transition hover:-translate-y-0.5 hover:border-white/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4D87A]", compact || integrated ? "min-h-[100px]" : "min-h-[116px]", toneClass)}
+              className={cn("flex w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30", integrated && "min-w-0 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4D87A]", compact || integrated ? "min-h-[100px]" : "min-h-[116px]", toneClass)}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">

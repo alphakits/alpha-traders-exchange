@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import type { ClientSessionUser } from "@/lib/client-session-user";
@@ -19,6 +19,8 @@ let pending = false;
 let user = buyer;
 let requests: unknown[] = [];
 let requestsUnavailable = false;
+let viewportWidth = 1440;
+const mediaListeners = new Set<() => void>();
 const trade = { id: "home-active-trade", buyerId: buyer.id, sellerId: "home-seller", listingId: "listing-1", status: "accepted", paymentMethod: "Face-to-Face", usdtAmount: 200, pricePerUsdt: 3.1, totalIls: 620, createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z", timeline: [] };
 
 beforeEach(() => {
@@ -26,8 +28,18 @@ beforeEach(() => {
   user = buyer;
   requests = [trade];
   requestsUnavailable = false;
+  viewportWidth = 1440;
+  mediaListeners.clear();
   push.mockReset();
-  Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn((query: string) => ({
+    get matches() {
+      const min = query.match(/min-width:\s*(\d+)px/);
+      const max = query.match(/max-width:\s*(\d+)px/);
+      return min ? viewportWidth >= Number(min[1]) : max ? viewportWidth <= Number(max[1]) : false;
+    },
+    addEventListener: (_: string, listener: () => void) => mediaListeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) => mediaListeners.delete(listener),
+  })) });
   Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
   vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -190,6 +202,74 @@ describe("compact Exchange home", () => {
     const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
     fireEvent.click(workspace.getByRole("button", { name: /^Today's Market:/ }));
     expect(push).toHaveBeenLastCalledWith("/usdt-exchange#market-overview");
+  });
+
+  it.each([
+    ["en", 390, undefined], ["ar", 390, undefined],
+    ["en", 932, undefined], ["ar", 932, undefined],
+    ["en", 390, "seller"], ["ar", 390, "seller"],
+  ] as const)("preserves the existing phone layout and navigation (%s, %dpx, %s)", async (locale, width, mode) => {
+    viewportWidth = width;
+    const isAr = locale === "ar";
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    requests = [{ ...trade, id: "phone-existing-trade", sellerId: user.id }];
+    const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} workspaceMode={mode} />);
+    await waitFor(() => expect(document.getElementById("purchase-requests-section")).toBeTruthy());
+    const welcome = container.querySelector('[data-account-role="approved_seller"]') as HTMLElement;
+    expect(welcome.querySelector(".account-welcome__workspace-layout")).toBeNull();
+    expect(welcome.querySelector("#workspace-summary")).toBeNull();
+    expect(welcome.querySelector(".account-welcome__content > .account-welcome__identity")).toBeTruthy();
+    expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
+    const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+    expect(workspace.getAllByRole("button")).toHaveLength(7);
+    expect(workspace.getByRole("button", { name: isAr ? /^إنشاء عرض:/ : /^Create Listing:/ })).toBeTruthy();
+    const filter = within(document.getElementById("purchase-requests-section")!).getByRole("combobox") as HTMLSelectElement;
+    expect(filter.querySelector('option[value="active"]')).toBeNull();
+    fireEvent.change(filter, { target: { value: "accepted" } });
+    const search = screen.getByPlaceholderText(isAr ? "ابحث بمعرّف الصفقة أو المشتري أو العرض..." : "Search by trade ID, buyer, listing...") as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "existing search" } });
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^طلبات الشراء:/ : /^Purchase Requests:/ }));
+    expect(filter.value).toBe("accepted");
+    expect(search.value).toBe("existing search");
+    if (mode) {
+      expect(within(welcome).getByRole("link", { name: isAr ? "تصفح البائعين" : "Browse Sellers" }).getAttribute("href")).toBe("/usdt-exchange#marketplace");
+      expect(within(welcome).queryByRole("button", { name: isAr ? "الصفقات النشطة" : "Active Trades" })).toBeNull();
+    } else {
+      fireEvent.click(within(welcome).getByRole("button", { name: isAr ? "الصفقات النشطة" : "Active Trades" }));
+      expect(push).toHaveBeenLastCalledWith("/trade-room/phone-existing-trade");
+    }
+  });
+
+  it("keeps the existing phone empty state and trade destination", async () => {
+    viewportWidth = 390;
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    requests = [];
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    await screen.findByText("No purchase requests yet.");
+    expect(screen.queryByText("There are no active trades currently.")).toBeNull();
+    const welcome = within(container.querySelector('[data-account-role="approved_seller"]') as HTMLElement);
+    fireEvent.click(welcome.getByRole("button", { name: "Active Trades" }));
+    expect(push).toHaveBeenLastCalledWith("/trade-room");
+  });
+
+  it("moves one workspace at the desktop breakpoint and restores phone filters on resize", async () => {
+    viewportWidth = 1023;
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    requests = [{ ...trade, sellerId: user.id }, { ...trade, id: "finished-sale", sellerId: user.id, status: "completed" }];
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    await waitFor(() => expect(document.getElementById("purchase-requests-section")).toBeTruthy());
+    const welcome = container.querySelector('[data-account-role="approved_seller"]') as HTMLElement;
+    expect(welcome.querySelector("#workspace-summary")).toBeNull();
+    act(() => { viewportWidth = 1024; mediaListeners.forEach(listener => listener()); });
+    expect(welcome.querySelector("#workspace-summary")).toBeTruthy();
+    expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
+    fireEvent.click(within(welcome).getByRole("button", { name: "Active Trades" }));
+    expect((screen.getByRole("combobox", { name: "Filter purchase requests" }) as HTMLSelectElement).value).toBe("active");
+    act(() => { viewportWidth = 390; mediaListeners.forEach(listener => listener()); });
+    expect(welcome.querySelector("#workspace-summary")).toBeNull();
+    expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
+    expect((within(document.getElementById("purchase-requests-section")!).getByRole("combobox") as HTMLSelectElement).value).toBe("all");
+    expect(document.querySelector('[aria-controls="seller-trade-details-finished-sale"]')).toBeTruthy();
   });
 
 });

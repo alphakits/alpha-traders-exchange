@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
+import { useDesktopWorkspace } from "@/components/sections/usdt-exchange/use-desktop-workspace";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
@@ -1459,6 +1460,7 @@ export function UsdtExchangePage({
   const isAr = locale === "ar";
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
+  const isDesktopWorkspace = useDesktopWorkspace();
   const router = useRouter();
   const searchParams = useSearchParams();
   const commissionPaymentIntent = searchParams?.get("commission") ?? null;
@@ -1786,6 +1788,7 @@ export function UsdtExchangePage({
   const isApprovedSellerSession = sellerStatusForLanding === "approved_seller"
     && sessionUser?.sellerApprovalVerified === true;
   const hasSellerWorkspaceAccess = isApprovedSellerSession || sellerStatusForLanding === "suspended";
+  const desktopSellerNavigation = isDesktopWorkspace && hasSellerWorkspaceAccess;
   const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
@@ -1884,10 +1887,10 @@ export function UsdtExchangePage({
       return true;
     } catch {
       setPurchaseRequestsState("error");
-      if (!hasSellerWorkspaceAccess) setWorkspaceError(safeErrorMessage("workspace", isAr));
+      if (!desktopSellerNavigation) setWorkspaceError(safeErrorMessage("workspace", isAr));
       return false;
     }
-  }, [hasSellerWorkspaceAccess, isAr, tracedReadFetch]);
+  }, [desktopSellerNavigation, isAr, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
     const revisionAtStart = sellerWorkspaceRevisionRef.current;
@@ -2607,8 +2610,11 @@ export function UsdtExchangePage({
   const scrollToCreateListingSection = useCallback(() => {
     if (typeof document === "undefined") return false;
     const target = document.getElementById("create-listing") ?? document.getElementById("create-listing-form");
-    return focusWorkspaceSection(target?.id ?? "create-listing");
-  }, []);
+    if (desktopSellerNavigation) return focusWorkspaceSection(target?.id ?? "create-listing");
+    if (!target) return false;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }, [desktopSellerNavigation]);
 
   const scrollToMyListingsSection = useCallback(() => {
     return focusWorkspaceSection("my-listings-section");
@@ -3413,16 +3419,18 @@ export function UsdtExchangePage({
     () => groupOwnTrades(sellerRequests, sessionUser?.id ?? "", "seller").active,
     [sellerRequests, sessionUser?.id],
   );
+  // A resized desktop window must not leave the phone view on a desktop-only filter.
+  const visibleSellerTradeStatus = !desktopSellerNavigation && sellerTradeStatus === "active" ? "all" : sellerTradeStatus;
   const filteredSellerRequests = useMemo(() => {
-    const requests = sellerTradeStatus === "active" ? activeSellerRequests : sellerRequests;
+    const requests = visibleSellerTradeStatus === "active" ? activeSellerRequests : sellerRequests;
     return requests.filter((request) => {
-      if (sellerTradeStatus !== "all" && sellerTradeStatus !== "active" && request.status !== sellerTradeStatus) return false;
+      if (visibleSellerTradeStatus !== "all" && visibleSellerTradeStatus !== "active" && request.status !== visibleSellerTradeStatus) return false;
       const query = sellerTradeQuery.trim().toLowerCase();
       if (!query) return true;
       const haystack = `${request.tradeId ?? request.id} ${request.buyerName} ${request.listingId}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [activeSellerRequests, sellerRequests, sellerTradeQuery, sellerTradeStatus]);
+  }, [activeSellerRequests, sellerRequests, sellerTradeQuery, visibleSellerTradeStatus]);
   const sellerRequestSections = useMemo(() => groupTradeRequests(filteredSellerRequests, "seller", isAr), [filteredSellerRequests, isAr]);
   const sortedSellerRequests = useMemo(
     () => sortDashboardActivityNewestFirst(filteredSellerRequests),
@@ -3436,6 +3444,7 @@ export function UsdtExchangePage({
     () => sortDashboardActivityNewestFirst(myListings),
     [myListings],
   );
+  const recentSellerRequests = useMemo(() => sortDashboardActivityNewestFirst(sellerRequests), [sellerRequests]);
   const recentBuyerRequests = useMemo(() => sortDashboardActivityNewestFirst(buyerRequests), [buyerRequests]);
 
   useEffect(() => {
@@ -3668,12 +3677,14 @@ export function UsdtExchangePage({
     : (isAr ? "مساحة عملك جاهزة. راقب نشاطك أولاً، ثم انتقل إلى السوق." : "Your workspace is ready. Track activity first, then jump into the marketplace.");
 
   const openTradeCount = isSellerWorkspaceUser
-    ? activeSellerRequests.length
+    ? (desktopSellerNavigation ? activeSellerRequests.length : sellerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length)
     : buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length;
   const totalBuyerRequests = buyerRequests.length;
   const unreadNotificationsTotal = notificationUnreadCount ?? notifications.filter((item) => !item.isRead).length;
   const latestOpenBuyerTrade = recentBuyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
-  const latestOpenSellerTrade = activeSellerRequests[0];
+  const latestOpenSellerTrade = desktopSellerNavigation
+    ? activeSellerRequests[0]
+    : recentSellerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
   // Existing trades remain available through the workspace's Continue Trade
   // action. Background refreshes must never replace an intentional marketplace
   // visit or interrupt a notification click with a generic Trade Room redirect.
@@ -3818,7 +3829,7 @@ export function UsdtExchangePage({
     setSellerTradeStatus(activeOnly ? "active" : "all");
     focusWorkspaceSection("purchase-requests-section");
   };
-  const integrateSellerWorkspace = isSellerWorkspaceUser && welcomeRole !== "owner";
+  const integrateSellerWorkspace = desktopSellerNavigation && welcomeRole !== "owner";
 
   const workspaceCards: ExchangeWorkspaceAction[] = isSellerWorkspaceUser
     ? [
@@ -3851,13 +3862,17 @@ export function UsdtExchangePage({
       {
         key: "trades",
         title: isAr ? "طلبات الشراء" : "Purchase Requests",
-        subtitle: purchaseRequestsState === "ready"
+        subtitle: !desktopSellerNavigation || purchaseRequestsState === "ready"
           ? (isAr ? `${openTradeCount.toLocaleString("en-IL")} من الصفقات النشطة` : `${openTradeCount.toLocaleString("en-IL")} active trade${openTradeCount === 1 ? "" : "s"}`)
           : purchaseRequestsState === "error"
             ? (isAr ? "افتح الطلبات لإعادة المحاولة" : "Open requests to retry")
             : (isAr ? "جارٍ تحميل الصفقات..." : "Loading current trades…"),
-        stat: purchaseRequestsState === "ready" ? sellerRequests.length.toLocaleString("en-IL") : "—",
-        onClick: () => openSellerRequests(false),
+        stat: !desktopSellerNavigation || purchaseRequestsState === "ready" ? sellerRequests.length.toLocaleString("en-IL") : "—",
+        onClick: () => {
+          if (desktopSellerNavigation) return openSellerRequests(false);
+          if (focusWorkspaceSection("purchase-requests-section")) return;
+          router.push("/dashboard/seller#purchase-requests-section");
+        },
         icon: HandCoins,
         tone: "blue",
       },
@@ -3869,7 +3884,8 @@ export function UsdtExchangePage({
         onClick: () => {
           const target = document.getElementById("notification-center-section");
           if (target) {
-            focusWorkspaceSection(target.id);
+            if (desktopSellerNavigation) focusWorkspaceSection(target.id);
+            else target.scrollIntoView({ behavior: "smooth", block: "start" });
             return;
           }
           router.push("/notifications");
@@ -3885,7 +3901,8 @@ export function UsdtExchangePage({
           onClick: () => {
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
-              focusWorkspaceSection(target.id);
+              if (desktopSellerNavigation) focusWorkspaceSection(target.id);
+              else target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
             router.push("/usdt-exchange#market-overview");
@@ -4053,7 +4070,14 @@ export function UsdtExchangePage({
       {
         key: "hero-active-trades",
         label: isAr ? "الصفقات النشطة" : "Active Trades",
-        onClick: () => openSellerRequests(true),
+        onClick: () => {
+          if (desktopSellerNavigation) return openSellerRequests(true);
+          if (latestOpenSellerTrade) {
+            handleOpenTradeRoom(latestOpenSellerTrade.id);
+            return;
+          }
+          router.push("/trade-room");
+        },
       },
     ]
     : [
@@ -4857,7 +4881,7 @@ export function UsdtExchangePage({
     const visibleCount = notificationCenterExpanded ? sortedNotifications.length : defaultVisibleCount;
     const hasHiddenNotifications = sortedNotifications.length > defaultVisibleCount;
     return (
-      <Card id={sectionId} tabIndex={-1} className={cn("scroll-mt-24 border-white/10 bg-[#0B0B0B]/90", className)}>
+      <Card id={sectionId} tabIndex={desktopSellerNavigation ? -1 : undefined} className={cn("border-white/10 bg-[#0B0B0B]/90", desktopSellerNavigation && "scroll-mt-24", className)}>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -5403,7 +5427,7 @@ export function UsdtExchangePage({
         </div>
 
         {/* Professional live market panel */}
-        <div id="market-overview" tabIndex={-1} className="mt-4 scroll-mt-24 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
+        <div id="market-overview" tabIndex={desktopSellerNavigation ? -1 : undefined} className={cn("mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]", desktopSellerNavigation && "scroll-mt-24")}>
           <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-5">
             <div>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{isAr ? "السوق المباشر" : "Live Market"}</p>
@@ -5731,7 +5755,8 @@ export function UsdtExchangePage({
             isListingCreateSubmitDisabled,
             isMobileViewport,
             isWorkspaceWidgetsLoading,
-            purchaseRequestsState,
+            desktopNavigation: desktopSellerNavigation,
+            purchaseRequestsState: desktopSellerNavigation ? purchaseRequestsState : "ready",
             onRetryPurchaseRequests: () => {
               setPurchaseRequestsState("loading");
               void refreshMyPurchaseRequests();
@@ -5790,7 +5815,7 @@ export function UsdtExchangePage({
             sellerResponseDrafts,
             sellerSafetyAcknowledgements,
             sellerTradeQuery,
-            sellerTradeStatus,
+            sellerTradeStatus: visibleSellerTradeStatus,
             sellerWorkspaceMessage,
             sellerWorkspaceMessageFeedbackKey,
             sellerWorkspaceSummary,
