@@ -66,7 +66,9 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
   }
 
   if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
-    const choice = request.cookies.get(LOCALE_CHOICE_COOKIE)?.value;
+    const choice = request.cookies.get(AUTH_COOKIE_NAME)?.value
+      ? request.cookies.get(LOCALE_CHOICE_COOKIE)?.value
+      : undefined;
     const locale = choice === "ar" || choice === "en" ? choice : routing.defaultLocale;
     const localizedUrl = request.nextUrl.clone();
     localizedUrl.pathname = `/${locale}${pathname === "/" ? "" : pathname}`;

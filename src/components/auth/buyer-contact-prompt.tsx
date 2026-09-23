@@ -74,7 +74,7 @@ export function BuyerContactPrompt({ locale }: { locale: "en" | "ar" }) {
       const response = await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
       if (!response.ok) throw new Error("logout");
       window.dispatchEvent(new Event("alpha-auth-signed-out"));
-      window.location.assign(`/${locale}/login`);
+      window.location.assign("/en/login");
     } catch {
       setError(isAr ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Unable to sign out. Please try again.");
       setSaving(false);

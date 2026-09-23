@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { clearClientLocaleChoice, englishLocalePath } from "@/i18n/locale-preference";
 
 type RedirectUser = { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined;
 
@@ -125,7 +126,10 @@ export function LoginForm({
         return;
       }
 
-      const target = loginDestination(locale, redirectTo, userForRedirect);
+      // A new authenticated session always starts in English. A restored
+      // existing session above retains the language selected during that session.
+      clearClientLocaleChoice();
+      const target = englishLocalePath(loginDestination("en", redirectTo, userForRedirect));
       noteLoginJourneyRedirectStart(Date.now());
       window.dispatchEvent(new Event("alpha-auth-changed"));
       redirectStartedRef.current = true;

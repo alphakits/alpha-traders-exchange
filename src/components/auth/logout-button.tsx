@@ -4,6 +4,7 @@ import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-f
 import { useEffect, useRef, useState } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import { Button, type ButtonProps } from "@/components/ui/button";
+import { clearClientLocaleChoice } from "@/i18n/locale-preference";
 
 type LogoutButtonProps = Omit<ButtonProps, "onClick"> & {
   locale: AppLocale;
@@ -52,11 +53,11 @@ export function LogoutButton({
         const payload = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(payload?.error || (locale === "ar" ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Failed to sign out. Please try again."));
       }
+      clearClientLocaleChoice();
       onSignedOut?.();
       window.dispatchEvent(new Event("alpha-auth-signed-out"));
       window.dispatchEvent(new Event("alpha-auth-changed"));
-      await new Promise((resolve) => window.setTimeout(resolve, 50));
-      window.location.replace(`/${locale}/login`);
+      window.location.replace("/en/login");
     } catch (error) {
       window.clearTimeout(safetyTimeout);
       if (error instanceof Error && error.name === "AbortError") {

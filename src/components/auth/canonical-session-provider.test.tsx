@@ -291,6 +291,7 @@ describe("CanonicalSessionProvider", () => {
   });
 
   it("clears a stale bootstrap user and safely routes to sign-in when the canonical session is anonymous", async () => {
+    document.cookie = "ALPHA_LOCALE_CHOICE=ar; Path=/";
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -317,12 +318,14 @@ describe("CanonicalSessionProvider", () => {
 
       await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
       expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fusdt-exchange%3Ftab%3Dsell%23create-listing");
+      expect(document.cookie).not.toContain("ALPHA_LOCALE_CHOICE=ar");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }
   });
 
   it("retains the last confirmed account during an outage without redirecting to Login", async () => {
+    document.cookie = "ALPHA_LOCALE_CHOICE=ar; Path=/";
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -343,6 +346,7 @@ describe("CanonicalSessionProvider", () => {
 
       await waitFor(() => expect(screen.getByText("bootstrap-seller:error")).toBeTruthy());
       expect(replaceSpy).not.toHaveBeenCalled();
+      expect(document.cookie).toContain("ALPHA_LOCALE_CHOICE=ar");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }
@@ -353,7 +357,7 @@ describe("CanonicalSessionProvider", () => {
       pathname: "/ar/trade-room/trade-1",
       search: "?action=upload-payment-receipt",
       hash: "#evidence",
-    })).toBe("/ar/login?sessionExpired=1&redirectTo=%2Far%2Ftrade-room%2Ftrade-1%3Faction%3Dupload-payment-receipt%23evidence");
+    })).toBe("/en/login?sessionExpired=1&redirectTo=%2Far%2Ftrade-room%2Ftrade-1%3Faction%3Dupload-payment-receipt%23evidence");
     expect(getSessionExpiryLoginDestination({ pathname: "/en/login", search: "", hash: "" })).toBeNull();
   });
 

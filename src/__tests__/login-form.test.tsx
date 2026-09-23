@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginForm } from "@/components/auth/login-form";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
 
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
@@ -12,6 +13,29 @@ vi.mock("@/i18n/navigation", () => ({
 describe("LoginForm", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    [undefined, "/en/usdt-exchange"],
+    ["/ar/trade-room/trade-1?tab=messages#latest", "/en/trade-room/trade-1?tab=messages#latest"],
+  ])("starts a new login in English while preserving its destination %s", async (redirectTo, expected) => {
+    const originalLocation = window.location;
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace } });
+    document.cookie = `${LOCALE_CHOICE_COOKIE}=ar; Path=/`;
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { role: "buyer", roles: ["buyer"] } }) });
+    vi.stubGlobal("fetch", fetch);
+    try {
+      render(<LoginForm locale="ar" redirectTo={redirectTo} />);
+      fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "buyer@example.test" } });
+      fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "test-password" } });
+      fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(expected));
+      expect(document.cookie).not.toContain(`${LOCALE_CHOICE_COOKIE}=ar`);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
   });
 
   it.each(["/ar/trade-room/trade-1", "//outside.test", "/ar/login", "/login"])("restores a valid cookie session from Login with safe destination %s", async (redirectTo) => {
