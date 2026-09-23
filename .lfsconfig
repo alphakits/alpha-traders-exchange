@@ -1,0 +1,4 @@
+# Mobile build branch only: the native app loads website course media online.
+# Keep web-only LFS pointers during checkout; .easignore excludes this directory.
+[lfs]
+    fetchexclude = public/files/**
