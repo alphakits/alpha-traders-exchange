@@ -233,7 +233,7 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
     expect(screen.getByText("Test User")).toBeTruthy();
-    expect(screen.getByText(/Your name is visible only to you\. Public AT ID/)).toBeTruthy();
+    expect(screen.getByText("Your name stays private.")).toBeTruthy();
     expect(screen.queryByText("Administration")).toBeNull();
     expect(screen.queryByRole("link", { name: /admin dashboard/i })).toBeNull();
     expect(screen.getByRole("link", { name: /open buyer dashboard/i })).toBeTruthy();
@@ -252,7 +252,7 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("هوية التداول العامة")).toBeTruthy());
     expect(screen.getByText("Test User")).toBeTruthy();
-    expect(screen.getByText(/اسمك ظاهر لك فقط/)).toBeTruthy();
+    expect(screen.getByText("اسمك يبقى خاصًا بك.")).toBeTruthy();
     expect(screen.queryByText("إدارة مسار حسابك:")).toBeNull();
     expect(screen.queryByRole("link", { name: "اختيار دور المشتري" })).toBeNull();
     expect(screen.queryByRole("button", { name: "المتابعة كضيف" })).toBeNull();
