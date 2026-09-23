@@ -1,4 +1,4 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PropsWithChildren } from "react";
 import type { WebViewProps } from "react-native-webview";
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   setItem: vi.fn(),
   loadTokens: vi.fn(),
   props: null as WebViewProps | null,
+  launchReady: null as (() => void) | null,
 }));
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: { getItem: mocks.getItem, setItem: mocks.setItem },
@@ -26,6 +27,10 @@ vi.mock("react-native", () => ({
   StyleSheet: { create: (styles: unknown) => styles },
 }));
 vi.mock("./branded-text", () => ({ BrandedText: ({ children }: PropsWithChildren) => children }));
+vi.mock("./launch-screen", () => ({ LaunchScreen: ({ onReady }: { onReady: () => void }) => {
+  mocks.launchReady = onReady;
+  return <div data-testid="launch-screen" />;
+} }));
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: ({ children }: PropsWithChildren) => children }));
 vi.mock("react-native-webview", () => ({ default: (props: WebViewProps) => { mocks.props = props; return null; } }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: { version: "1.2.0" } } }));
@@ -67,6 +72,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.values.clear();
   mocks.props = null;
+  mocks.launchReady = null;
   mocks.values.set("alpha.mobile.website.session-migrated.v1", "1");
   mocks.getItem.mockImplementation(async (key: string) => mocks.values.get(key) ?? null);
   mocks.setItem.mockImplementation(async (key: string, value: string) => { mocks.values.set(key, value); });
@@ -74,6 +80,29 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("active mobile website shell language", () => {
+  it("reveals the animated native screen before web loading finishes, then removes it immediately", async () => {
+    const ready = vi.fn();
+    render(<WebsiteAppShell onNativeReady={ready} />);
+    await waitFor(() => expect(mocks.props).not.toBeNull());
+    expect(screen.queryByTestId("launch-screen")).not.toBeNull();
+    act(() => mocks.launchReady?.());
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("launch-screen")).not.toBeNull();
+    act(() => mocks.props?.onLoadEnd?.({ nativeEvent: { url: `${origin}/en/login`, canGoBack: false } } as never));
+    expect(screen.queryByTestId("launch-screen")).toBeNull();
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(mocks.props?.sharedCookiesEnabled).toBe(true);
+    expect(mocks.props?.domStorageEnabled).toBe(true);
+  });
+
+  it("replaces opening animation with retry controls when the website fails", async () => {
+    render(<WebsiteAppShell />);
+    await waitFor(() => expect(mocks.props).not.toBeNull());
+    act(() => mocks.props?.onError?.({ nativeEvent: { url: `${origin}/en/login` } } as never));
+    expect(screen.queryByTestId("launch-screen")).toBeNull();
+    expect(document.body.textContent).toContain("Try again");
+  });
+
   it("ignores the old Arabic device preference and resumes the destination in English", async () => {
     mocks.values.set("alpha.mobile.locale.v1", "ar");
     mocks.values.set(resumeKey, `${origin}/ar/trades?filter=completed#history`);
