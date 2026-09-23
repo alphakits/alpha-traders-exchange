@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginForm } from "@/components/auth/login-form";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
@@ -14,6 +14,37 @@ describe("LoginForm", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+  });
+
+  afterEach(() => {
+    delete window.ReactNativeWebView;
+  });
+
+  it("keeps the existing website login without the app-only artwork", () => {
+    const page = render(<LoginForm locale="en" />);
+    expect(page.container.querySelector('[data-login-surface="web"]')).not.toBeNull();
+    expect(page.container.querySelector("[data-app-login-network]")).toBeNull();
+    expect(screen.getByText(/Welcome back to/)).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Remember Me" })).toBeTruthy();
+  });
+
+  it.each([
+    ["en", "Password", "Show password"],
+    ["ar", "كلمة المرور", "إظهار كلمة المرور"],
+  ] as const)("shows the app design with working login controls in %s", (locale, passwordLabel, showLabel) => {
+    const postMessage = vi.fn();
+    window.ReactNativeWebView = { postMessage };
+    const page = render(<LoginForm locale={locale} />);
+    expect(page.container.querySelector('[data-login-surface="app"]')).not.toBeNull();
+    expect(page.container.querySelector("[data-app-login-network]")?.getAttribute("aria-hidden")).toBe("true");
+    const password = screen.getByLabelText(passwordLabel) as HTMLInputElement;
+    fireEvent.change(password, { target: { value: "app-test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: showLabel }));
+    expect(password.type).toBe("text");
+    expect(password.value).toBe("app-test-password");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("false");
+    expect(postMessage).not.toHaveBeenCalled();
   });
 
   it.each([
