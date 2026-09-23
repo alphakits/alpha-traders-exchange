@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FileClock, MessageCircle, ShieldCheck } from "lucide-react";
 import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
+import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { currencyText } from "@/components/ui/currency-text";
 import { formatTradeId } from "@/lib/format-id";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
@@ -27,8 +28,7 @@ type Props = { locale: "ar" | "en"; requestId: string };
 const panelClass = "scroll-mt-28 rounded-2xl border border-white/10 bg-[#0B0B0B] p-4 sm:p-5";
 const linkClass = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-medium text-white hover:border-[#C9A227] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#C9A227]";
 
-/** Deliberately independent of the live room: inspecting history never sends
- * chat receipts, opens a stream, redirects to reviews, or changes a trade. */
+/** Reading history has no side effects. Owner mutations are explicit actions. */
 export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
   const isAr = locale === "ar";
   const [room, setRoom] = useState<OwnerTradeHistoryData | null>(null);
@@ -40,7 +40,7 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
     const controller = new AbortController();
     let active = true;
     setLoading(true);
-    setRoom(null);
+    setRoom((current) => current?.request.id === requestId ? current : null);
     setError(null);
     const timeout = window.setTimeout(() => controller.abort(), 15_000);
     void (async () => {
@@ -67,15 +67,15 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
         <a href={`/${locale}/admin/alpha-exchange?section=purchase-requests&requestId=${encodeURIComponent(requestId)}&details=1`} className={linkClass}>
           {isAr ? "العودة إلى طلبات الشراء" : "Back to purchases"}
         </a>
-        {loading ? <p role="status" className={panelClass}>{isAr ? "جاري تحميل سجل غرفة الصفقة…" : "Loading trade room history…"}</p> : null}
+        {loading && !room ? <p role="status" className={panelClass}>{isAr ? "جاري تحميل سجل غرفة الصفقة…" : "Loading trade room history…"}</p> : null}
         {error ? <div role="alert" className={panelClass}><p>{error}</p><Button type="button" variant="secondary" className="mt-3" onClick={() => setAttempt((value) => value + 1)}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></div> : null}
-        {room ? <OwnerTradeHistory locale={locale} room={room} /> : null}
+        {room ? <OwnerTradeHistory locale={locale} room={room} onUpdated={() => setAttempt((value) => value + 1)} /> : null}
       </div>
     </main>
   );
 }
 
-export function OwnerTradeHistory({ locale, room }: { locale: "ar" | "en"; room: OwnerTradeHistoryData }) {
+export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | "en"; room: OwnerTradeHistoryData; onUpdated?: () => void }) {
   const isAr = locale === "ar";
   const t = (en: string, ar: string) => isAr ? ar : en;
   const request = room.request;
@@ -106,7 +106,7 @@ export function OwnerTradeHistory({ locale, room }: { locale: "ar" | "en"; room:
 
   return <>
     <header className={`${panelClass} border-rose-400/25 bg-gradient-to-br from-rose-400/[0.07] to-transparent`}>
-      <p className="flex items-center gap-2 text-xs font-medium text-rose-200"><ShieldCheck className="h-4 w-4" aria-hidden="true" />{t("Owner review · read only", "مراجعة المالك · للقراءة فقط")}</p>
+      <p className="flex items-center gap-2 text-xs font-medium text-rose-200"><ShieldCheck className="h-4 w-4" aria-hidden="true" />{onUpdated ? t("Owner trade management", "إدارة الصفقة للمالك") : t("Owner review · read only", "مراجعة المالك · للقراءة فقط")}</p>
       <h1 className="mt-2 text-xl font-semibold">{t("Trade room history", "سجل غرفة الصفقة")} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi></h1>
       <p className="mt-2 text-sm text-[#D1D5DB]">{t("Review the saved conversation, attachments, and every recorded trade event.", "راجع المحادثة والمرفقات المحفوظة وجميع أحداث الصفقة المسجلة.")}</p>
       <p className="mt-2 text-xs text-[#9CA3AF]">{t("All times are shown in Israel time.", "جميع الأوقات معروضة حسب توقيت إسرائيل.")}</p>
@@ -116,6 +116,7 @@ export function OwnerTradeHistory({ locale, room }: { locale: "ar" | "en"; room:
         <a className={linkClass} href="#history-timeline"><FileClock className="h-4 w-4" aria-hidden="true" />{t("Timeline", "السجل الزمني")} ({timeline.length})</a>
         <a className={linkClass} href="#history-evidence">{t("Evidence & reviews", "الإثباتات والتقييمات")}</a>
         {disputes.length || auditLogs.length ? <a className={linkClass} href="#history-audit">{t("Disputes & audit", "النزاعات وسجل الإجراءات")}</a> : null}
+        {onUpdated ? <a className={linkClass} href="#owner-trade-actions">{t("Owner Actions", "إجراءات المالك")}</a> : null}
       </nav>
     </header>
 
@@ -197,5 +198,6 @@ export function OwnerTradeHistory({ locale, room }: { locale: "ar" | "en"; room:
         <time dateTime={entry.createdAt} className="mt-2 block text-xs text-[#9CA3AF]">{date(entry.createdAt)}</time>
       </li>)}</ol> : null}
     </section> : null}
+    {onUpdated ? <TradeOwnerActions key={request.id} locale={locale} request={request} isOwner openDispute={disputes.find((dispute) => dispute.status === "open")} onUpdated={onUpdated} /> : null}
   </>;
 }

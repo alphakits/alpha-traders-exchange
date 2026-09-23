@@ -78,7 +78,7 @@ describe("owner trade history", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("EventSource", stream);
     render(<TradeRoomPage locale="en" requestId="request-1" actor={{ id: "owner-1", role: "owner", fullName: "Owner" }} />);
-    await screen.findByText("Owner review · read only");
+    await screen.findByText("Owner trade management");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe("/api/alpha-exchange/trade-room/request-1?view=history");
     expect(stream).not.toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe("owner trade history", () => {
     await screen.findByRole("alert");
     expect(screen.queryByText("Saved chat 0")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
-    await screen.findByText("مراجعة المالك · للقراءة فقط");
+    await screen.findByText("إدارة الصفقة للمالك");
     expect(screen.getByRole("main").getAttribute("dir")).toBe("rtl");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });

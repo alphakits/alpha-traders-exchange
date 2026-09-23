@@ -3,6 +3,7 @@ import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
+import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
@@ -13361,6 +13362,7 @@ async function updatePurchaseRequestStatusAttempt(
   const isCashTradeCompletion = input.completionMode === "cash_trade" || input.completionMode === "face_to_face";
   const isSellerCompletion = input.completionMode === "seller";
   const isAdminCompletion = input.completionMode === "admin_override";
+  if (isAdminCompletion) assertTradeAdmin(db, input.actorUserId, input.completionReason ?? "");
   const isCompletionOverride = isCashTradeCompletion || isSellerCompletion || isAdminCompletion;
   const isCashUsdtSentConfirmation = isSeller
     && input.nextStatus === "usdt_sent"
@@ -14505,6 +14507,7 @@ async function updatePurchaseRequestStatusAttempt(
       // This prevents Accept-vs-Cancel races, duplicate lifecycle effects, and
       // accepting two buyers for one listing while preserving unrelated writes.
       validateLatestBeforeCommit: (canonicalSnapshot) => {
+        if (isAdminCompletion) assertTradeAdmin(canonicalSnapshot, input.actorUserId, input.completionReason ?? "");
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
         if (!canonicalRequest || canonicalRequest.status !== stateBefore
           || JSON.stringify(canonicalRequest.termsProposal) !== JSON.stringify(request.termsProposal)
@@ -17952,6 +17955,16 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   };
 }
 
+function assertTradeAdmin(db: AlphaExchangeDb, actorUserId: string, reason: string, ownerOnly = false) {
+  const actor = db.users.find((user) => user.id === actorUserId);
+  if (!actor || actor.disabled || !(hasRole(actor, "owner") || (!ownerOnly && hasRole(actor, "admin")))) {
+    throw new Error(ownerOnly ? "Owner access required." : "Admin access required.");
+  }
+  if (!reason.trim()) throw new Error("Reason is required.");
+  if (reason.trim().length > 1000) throw new Error("Reason is too long.");
+  return actor;
+}
+
 export async function forceCompleteTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
   const result = await updatePurchaseRequestStatus({
     requestId: input.requestId,
@@ -18017,17 +18030,25 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
   };
 }
 
-export async function forceCancelTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
+export async function forceCancelTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string; ownerOnly?: boolean }) {
   const db = await readDb({ bypassCache: true });
+  assertTradeAdmin(db, input.actorUserId, input.reason, input.ownerOnly);
   const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
+  if (request.status === "cancelled" || request.status === "declined") return enrichRequestWithEvidence(db, request, input.actorUserId);
+  if (db.disputes.some((dispute) => dispute.purchaseRequestId === request.id && dispute.status === "open")) {
+    throw new Error("Resolve the open dispute before closing this trade.");
+  }
   assertTradeCanBeForceClosed(db, request);
-  const now = nowIso();
+  const now = nowIsoAfter(request.updatedAt);
   const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
     status: "cancelled",
+    closedAt: now,
+    closedByUserId: input.actorUserId,
+    closeReason: input.reason.trim(),
     updatedAt: now,
     inactivityWarningSentAt: undefined,
     actionReminderState: undefined,
@@ -18079,12 +18100,14 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
   await writeDb(db, {
     selectedTables: TRADE_STATUS_BASE_TABLES,
     validateLatestBeforeCommit: (canonicalSnapshot) => {
+      assertTradeAdmin(canonicalSnapshot, input.actorUserId, input.reason, input.ownerOnly);
       const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
       if (
         !canonicalRequest
         || canonicalRequest.status !== request.status
         || canonicalRequest.updatedAt !== request.updatedAt
         || hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)
+        || canonicalSnapshot.disputes.some((dispute) => dispute.purchaseRequestId === request.id && dispute.status === "open")
       ) {
         throw new TradeBlockedError(
           "concurrent-force-cancel-change",
@@ -18132,27 +18155,67 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
   return enriched;
 }
 
+/** Closing an already completed trade is administrative only. Never cancel it,
+ * restore sold inventory, remove reviews, or change the commission. */
+export async function forceCloseTradeByOwner(input: { requestId: string; reason: string; actorUserId: string }) {
+  const db = await readDb({ bypassCache: true });
+  assertTradeAdmin(db, input.actorUserId, input.reason, true);
+  const request = db.purchaseRequests.find((item) => item.id === input.requestId);
+  if (!request) throw new Error("Purchase request not found.");
+  if (!isFinishedTrade(request)) return forceCancelTradeByAdmin({ ...input, ownerOnly: true });
+  return updateFinishedTradeByAdmin(input, "close", db);
+}
+
+async function updateFinishedTradeByAdmin(
+  input: { requestId: string; reason: string; actorUserId: string },
+  action: "close" | "unlock-review",
+  initialDb?: AlphaExchangeDb,
+) {
+  const db = initialDb ?? await readDb({ bypassCache: true });
+  let committed: PurchaseRequest | undefined;
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    const actor = assertTradeAdmin(snapshot, input.actorUserId, input.reason, action === "close");
+    const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
+    if (!request) throw new Error("Purchase request not found.");
+    if (!isFinishedTrade(request)) throw new Error("Only completed trades can use this action.");
+    if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) {
+      throw new Error("Resolve the open dispute before changing this trade.");
+    }
+    committed = request;
+    if (action === "close" && request.closedAt) return snapshot;
+    const now = nowIsoAfter(request.updatedAt);
+    const message = action === "close" ? "Owner closed the completed trade; history and settlement preserved." : "Admin unlocked review window";
+    if (action === "close") {
+      request.closedAt = now;
+      request.closedByUserId = input.actorUserId;
+      request.closeReason = input.reason.trim();
+    } else {
+      request.reviewUnlockedAt = now;
+    }
+    request.updatedAt = now;
+    appendTradeTimelineEntry(request, {
+      type: action === "close" ? "trade_closed_manually" : "review_unlocked",
+      actorUserId: input.actorUserId, actorRole: actor.role, message, createdAt: now,
+    });
+    await appendAuditLog(snapshot, {
+      action: "admin_override", actorUserId: input.actorUserId,
+      purchaseRequestId: request.id, listingId: request.listingId,
+      details: message, reason: input.reason.trim(),
+      newValue: { status: request.status, closedAt: request.closedAt, reviewUnlockedAt: request.reviewUnlockedAt },
+    });
+    return snapshot;
+  };
+  await apply(db);
+  await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply });
+  if (!committed) throw new Error("Failed to update trade.");
+  publishRealtimeEvent({ type: "trade.status_changed", payload: {
+    requestId: committed.id, status: committed.status, timeline: committed.timeline, publishedAtEpochMs: Date.now(),
+  } });
+  return committed;
+}
+
 export async function unlockTradeReviewByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
-  const db = await readDb();
-  const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
-  if (index === -1) throw new Error("Purchase request not found.");
-  const request = db.purchaseRequests[index];
-  const now = nowIso();
-  db.purchaseRequests[index] = { ...request, reviewUnlockedAt: now, updatedAt: now };
-  appendTradeTimelineEntry(db.purchaseRequests[index], {
-    type: "review_unlocked",
-    actorUserId: input.actorUserId,
-    actorRole: resolveActorRole(db, input.actorUserId),
-    message: "Admin unlocked review window",
-  });
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    purchaseRequestId: input.requestId,
-    details: "Admin unlocked review window",
-    reason: input.reason,
-  });
-  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
+  return updateFinishedTradeByAdmin(input, "unlock-review");
 }
 
 export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {

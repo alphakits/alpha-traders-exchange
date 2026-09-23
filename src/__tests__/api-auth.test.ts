@@ -138,10 +138,10 @@ describe("requireApiAdmin", () => {
     expect(unauthorized).toBeNull();
   });
 
-  it("returns an owner carrying the additive admin role", async () => {
+  it.each([{ roles: ["owner"] }, { roles: ["owner", "admin"] }])("returns an owner with roles $roles", async ({ roles }) => {
     const u = {
       ...makeUser({ role: "owner", email: ALPHA_EXCHANGE_OWNER_EMAIL }),
-      roles: ["owner", "admin"],
+      roles,
     };
     mockGetCurrentSessionUser.mockResolvedValue(u as never);
     const { user, unauthorized } = await requireApiAdmin();
