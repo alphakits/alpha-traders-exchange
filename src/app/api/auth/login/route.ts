@@ -11,6 +11,7 @@ import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 type LoginTimelineStep = {
@@ -247,6 +248,9 @@ export async function POST(request: NextRequest) {
       const sessionMs = sessionEndedAt - sessionStartedAt;
       pushTimelineStep(timeline, "Database session creation", sessionStartedAt, sessionEndedAt, { provider: "local" });
       const cookieWriteStartedAt = Date.now();
+      cookieStore.set(LOCALE_CHOICE_COOKIE, "", {
+        path: "/", sameSite: "lax", secure: secureCookies, maxAge: 0,
+      });
       cookieStore.set(AUTH_COOKIE_NAME, token, {
         httpOnly: true,
         secure: secureCookies,
@@ -346,6 +350,9 @@ export async function POST(request: NextRequest) {
     const sessionMs = sessionEndedAt - sessionStartedAt;
     pushTimelineStep(timeline, "Database session creation", sessionStartedAt, sessionEndedAt, { provider: "supabase" });
     const cookieWriteStartedAt = Date.now();
+    cookieStore.set(LOCALE_CHOICE_COOKIE, "", {
+      path: "/", sameSite: "lax", secure: secureCookies, maxAge: 0,
+    });
     cookieStore.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
       secure: secureCookies,

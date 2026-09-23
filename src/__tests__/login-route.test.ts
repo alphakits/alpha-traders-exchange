@@ -119,6 +119,19 @@ beforeEach(() => {
 });
 
 describe("POST /api/auth/login", () => {
+  it("resets session language after a successful Supabase login", async () => {
+    supabaseAuthMocks.signInWithPassword.mockResolvedValue({
+      data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } },
+      error: null,
+    });
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(200);
+    expect(setCookie).toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", "", expect.objectContaining({ maxAge: 0, path: "/" }));
+  });
+
   it("returns a friendly error when the JSON body is malformed", async () => {
     const request = new Request("https://example.com/api/auth/login", {
       method: "POST",
@@ -143,6 +156,7 @@ describe("POST /api/auth/login", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(401);
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
     expect(await response.json()).toEqual({ error: "Invalid credentials." });
   });
 
@@ -245,6 +259,7 @@ describe("POST /api/auth/login", () => {
       emailVerified: true,
     }));
     expect(mockCreateUserSession).toHaveBeenCalledWith(verifiedLocalUser.id, 14);
+    expect(setCookie).toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", "", expect.objectContaining({ maxAge: 0, path: "/" }));
     expect(setCookie).toHaveBeenCalledWith("alpha-verified", "1", expect.any(Object));
     expect(setCookie).toHaveBeenCalledWith("alpha-phone-verified", "", expect.any(Object));
     expect(setCookie).not.toHaveBeenCalledWith("alpha-phone-verified", "1", expect.any(Object));

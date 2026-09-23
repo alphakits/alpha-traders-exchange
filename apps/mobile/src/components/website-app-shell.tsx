@@ -1,7 +1,6 @@
 import { BrandedText as Text } from "./branded-text";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import { getLocales } from "expo-localization";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,10 +45,14 @@ import {
 import {
   ALPHA_TRADERS_WEB_ORIGIN,
   isTrustedWebsiteDocumentUrl,
-  trustedWebsiteResumeUrl,
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
 } from "../web/website-navigation";
+import {
+  DEFAULT_MOBILE_LOCALE,
+  WEBSITE_SESSION_LOCALE_KEY,
+  websiteSessionResume,
+} from "../web/website-session-language";
 import {
   pendingPushUrlAfterConsumption,
   resolvePreparedWebsiteSource,
@@ -69,7 +72,6 @@ import {
 import { useNetworkStatus } from "../network/network-context";
 import { useMobileAppReadiness } from "../readiness/use-mobile-app-readiness";
 
-const LEGACY_LOCALE_KEY = "alpha.mobile.locale.v1";
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
 const SESSION_MIGRATED_KEY = "alpha.mobile.website.session-migrated.v1";
 
@@ -77,21 +79,12 @@ type WebsiteAppShellProps = {
   onNativeReady?: () => void;
 };
 
-function inferredLocale(): MobileLocale {
-  return getLocales()[0]?.languageCode === "ar" ? "ar" : "en";
-}
-
 function clientPlatform() {
   return Platform.OS === "ios" ? "ios" : "android";
 }
 
 function appVersion() {
   return Constants.expoConfig?.version ?? MOBILE_CURRENT_APP_VERSION;
-}
-
-async function resolvedLocale() {
-  const stored = await AsyncStorage.getItem(LEGACY_LOCALE_KEY);
-  return stored === "ar" || stored === "en" ? stored : inferredLocale();
 }
 
 async function currentNativeTokens(locale: MobileLocale): Promise<MobileAuthTokens | null> {
@@ -116,12 +109,12 @@ async function currentNativeTokens(locale: MobileLocale): Promise<MobileAuthToke
 }
 
 async function createInitialSource(): Promise<{ locale: MobileLocale; source: WebsiteSource }> {
-  const [locale, storedResumeUrl, storedMigrationState] = await Promise.all([
-    resolvedLocale(),
+  const [storedLocale, storedResumeUrl, storedMigrationState] = await Promise.all([
+    AsyncStorage.getItem(WEBSITE_SESSION_LOCALE_KEY),
     AsyncStorage.getItem(RESUME_URL_KEY),
     AsyncStorage.getItem(SESSION_MIGRATED_KEY),
   ]);
-  const savedUrl = trustedWebsiteResumeUrl(storedResumeUrl, locale);
+  const { locale, uri: savedUrl } = websiteSessionResume(storedLocale, storedResumeUrl);
   const migrationComplete = storedMigrationState === "1";
   if (migrationComplete) return { locale, source: { uri: savedUrl } };
 
@@ -187,8 +180,9 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const readyReported = useRef(false);
   const hasLoadedContentRef = useRef(false);
   const loadErrorRef = useRef(false);
-  const localeRef = useRef<MobileLocale>(inferredLocale());
+  const localeRef = useRef<MobileLocale>(DEFAULT_MOBILE_LOCALE);
   const activeSessionRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
+  const pendingLocaleWriteRef = useRef(Promise.resolve());
   const pendingBadgeRef = useRef<{ userId: string; unreadCount: number } | null>(null);
   const pendingReviewRef = useRef<string | null>(null);
   const pendingPushUrlRef = useRef<string | null>(null);
@@ -202,7 +196,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   } | null>(null);
   const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
   const [source, setSource] = useState<WebsiteSource | null>(null);
-  const [locale, setLocale] = useState<MobileLocale>(inferredLocale);
+  const [locale, setLocale] = useState<MobileLocale>(DEFAULT_MOBILE_LOCALE);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -240,7 +234,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       sourcePreparationInFlightRef.current = false;
       setSource(prepared.source);
     } catch {
-      const fallbackLocale = inferredLocale();
+      const fallbackLocale = DEFAULT_MOBILE_LOCALE;
       localeRef.current = fallbackLocale;
       setLocale(fallbackLocale);
       const prepared = resolvePreparedWebsiteSource(
@@ -449,9 +443,8 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     setLocale(nextLocale);
     void Promise.all([
       AsyncStorage.setItem(RESUME_URL_KEY, `${ALPHA_TRADERS_WEB_ORIGIN}${resumeUrl}`),
-      AsyncStorage.setItem(LEGACY_LOCALE_KEY, nextLocale),
       AsyncStorage.setItem(SESSION_MIGRATED_KEY, "1"),
-    ]);
+    ]).catch(() => undefined);
   }, []);
 
   const handleWebsiteMessage = useCallback((event: WebViewMessageEvent) => {
@@ -461,6 +454,13 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     const message = parseWebToNativeBridgeMessage(event.nativeEvent.data);
     if (!message) return;
     if (message.type === "alpha.web.session") {
+      const sessionLocale = message.authenticated ? message.locale : DEFAULT_MOBILE_LOCALE;
+      localeRef.current = sessionLocale;
+      setLocale(sessionLocale);
+      // Best-effort local persistence must never delay sign-in or sign-out.
+      pendingLocaleWriteRef.current = pendingLocaleWriteRef.current
+        .then(() => AsyncStorage.setItem(WEBSITE_SESSION_LOCALE_KEY, sessionLocale))
+        .catch(() => undefined);
       if (!message.authenticated) {
         activeSessionRef.current = null;
         pendingBadgeRef.current = null;

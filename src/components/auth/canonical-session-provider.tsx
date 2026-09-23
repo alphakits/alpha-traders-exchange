@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AppLocale } from "@/i18n/routing";
+import { clearClientLocaleChoice } from "@/i18n/locale-preference";
 
 export type CanonicalSessionRefreshResult = "authenticated" | "anonymous" | "unavailable";
 
@@ -33,7 +34,7 @@ export function getSessionExpiryLoginDestination(location: Pick<Location, "pathn
   const locale = pathname.match(/^\/(ar|en)(?:\/|$)/)?.[1] ?? "en";
   if (new RegExp(`^/${locale}/(?:login|register)(?:/|$)`).test(pathname)) return null;
   const intendedDestination = `${pathname}${location.search ?? ""}${location.hash ?? ""}`;
-  return `/${locale}/login?sessionExpired=1&redirectTo=${encodeURIComponent(intendedDestination)}`;
+  return `/en/login?sessionExpired=1&redirectTo=${encodeURIComponent(intendedDestination)}`;
 }
 
 export function CanonicalSessionProvider({
@@ -175,6 +176,7 @@ export function CanonicalSessionProvider({
     void refresh({ background: hasInitialSession });
     const handleAuthChange = () => void refresh({ force: true });
     const handleSignedOut = () => {
+      clearClientLocaleChoice();
       hadAuthenticatedSessionRef.current = false;
       expiryRedirectStartedRef.current = true;
       recoveryNeededRef.current = false;
@@ -272,6 +274,7 @@ export function CanonicalSessionProvider({
     const destination = getSessionExpiryLoginDestination(window.location);
     if (!destination) return;
     expiryRedirectStartedRef.current = true;
+    clearClientLocaleChoice();
     window.location.replace(destination);
   }, [error, isResolving, user]);
 

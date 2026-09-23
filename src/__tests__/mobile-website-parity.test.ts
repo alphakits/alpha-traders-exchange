@@ -46,7 +46,7 @@ describe("mobile website parity", () => {
     expect(shell).toContain("allowFileAccess={false}");
     expect(shell).toContain('readiness.status === "update_required"');
     expect(shell).toContain("useMobileAppReadiness(locale, isOnline)");
-    expect(shell).toContain("const [locale, storedResumeUrl, storedMigrationState] = await Promise.all([");
+    expect(shell).toContain("const [storedLocale, storedResumeUrl, storedMigrationState] = await Promise.all([");
     expect(shell).toContain('readiness.status === "checking" || (isLoading && !loadFailed)');
     expect(shell).toContain('loadFailed && readiness.status !== "checking"');
     expect(shell).toContain('accessibilityLiveRegion="polite"');
