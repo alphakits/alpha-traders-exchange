@@ -142,7 +142,7 @@ test.describe("Authentication", () => {
     await expect(page).toHaveURL(/\/en\/login/);
     // A visible, accessible message must be shown without leaking provider or
     // infrastructure details when the configured auth backend is unavailable.
-    const error = page.getByRole("alert");
+    const error = page.getByRole("main").getByRole("alert");
     await expect(error).toBeVisible({ timeout: 10_000 });
     await expect(error).toContainText(/invalid|incorrect|not found|unable to sign in|try again/i);
     await expect(error).not.toContainText(/supabase|database|configuration|environment variable/i);
