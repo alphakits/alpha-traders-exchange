@@ -3,12 +3,15 @@ import Image from "next/image";
 import { LockKeyhole } from "lucide-react";
 import { currencyText } from "@/components/ui/currency-text";
 import { cn } from "@/lib/utils";
+import { SellerRankIdentity } from "@/components/profile/seller-rank-identity";
+import { RankRadiance } from "@/components/ui/rank-badge";
 
 /** The account holder's private header. Member public profiles use AT identity; the owner is public. */
 export function PrivateProfileHeader({
   locale,
   fullName,
   publicOwner = false,
+  sellerRank,
   publicId,
   avatarUrl,
   coverUrl,
@@ -22,6 +25,7 @@ export function PrivateProfileHeader({
   locale: "en" | "ar";
   fullName: string;
   publicOwner?: boolean;
+  sellerRank?: string;
   publicId: string;
   avatarUrl?: string;
   coverUrl?: string;
@@ -37,9 +41,11 @@ export function PrivateProfileHeader({
 
   return (
     <div data-private-profile-header>
-      <div className={cn("relative h-36 border-b border-white/10 bg-gradient-to-r md:h-44", coverClassName)}>
+      <div className={cn("relative h-36 border-b border-white/10 bg-gradient-to-r md:h-44", coverClassName, sellerRank && "seller-prestige-cover")}>
         {coverUrl ? <Image src={coverUrl} alt={isAr ? "صورة الغلاف" : "Cover"} fill unoptimized className="object-cover opacity-90" /> : null}
         <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/75" />
+        <RankRadiance rank={publicOwner ? "owner" : sellerRank} />
+        {sellerRank ? <SellerRankIdentity rank={sellerRank} locale={locale} owner={publicOwner} /> : null}
         <div className="absolute end-3 top-3 flex flex-wrap gap-2">{coverActions}</div>
       </div>
 

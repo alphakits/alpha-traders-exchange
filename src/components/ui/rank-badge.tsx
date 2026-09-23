@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Gem, Hexagon, Medal, Shield, Sparkles, Star, Trophy } from "lucide-react";
+import { Gem, Hexagon, Medal, Shield, Sparkle, Sparkles, Star, Trophy } from "lucide-react";
 import { rankIdentityLabel, rankVisualKey, type RankVisualKey } from "@/lib/rank-identity";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,17 @@ const emblems = {
   elite: Sparkles,
   legendary: Trophy,
 } satisfies Record<RankVisualKey, typeof Medal>;
+
+/** Decorative only: no effect on eligibility, earned achievements, or profile privacy. */
+export function RankRadiance({ rank }: { rank?: string | null }) {
+  if (rank !== "gold" && rank !== "diamond") return null;
+  return (
+    <span className={`rank-radiance rank-radiance--${rank}`} aria-hidden="true">
+      <span><Sparkle /></span><span><Sparkle /></span>
+      {rank === "diamond" ? <span><Sparkle /></span> : null}
+    </span>
+  );
+}
 
 export function RankEmblem({ rank, className }: { rank?: string | null; className?: string }) {
   const key = rankVisualKey(rank);

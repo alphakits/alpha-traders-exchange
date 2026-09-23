@@ -5,6 +5,7 @@ import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 import { GoldButton } from "./gold-button";
+import { SELLER_PROFILE_TONES } from "./rank-tones";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
 import { safeRemoteImageUrl } from "../media/safe-media-url";
 import {
@@ -31,14 +32,9 @@ type RankTone = {
   pill: string;
 };
 
-const RANK_TONES: Record<"bronze" | "silver" | "gold" | "diamond" | "elite" | "owner", RankTone> = {
-  bronze: { accent: "#C97A45", accentSoft: "rgba(201,122,69,0.12)", border: "rgba(201,122,69,0.42)", card: "rgba(28,17,12,0.95)", name: "#F2C59F", pill: "rgba(88,48,26,0.78)" },
-  silver: { accent: "#C8D1DF", accentSoft: "rgba(194,205,220,0.12)", border: "rgba(194,205,220,0.45)", card: "rgba(24,27,33,0.95)", name: "#F1F4F9", pill: "rgba(71,80,96,0.78)" },
-  gold: { accent: "#D7A82D", accentSoft: "rgba(212,175,55,0.13)", border: "rgba(212,175,55,0.46)", card: "rgba(31,23,11,0.96)", name: "#FDE59A", pill: "rgba(112,79,12,0.8)" },
-  diamond: { accent: "#8EC5FF", accentSoft: "rgba(138,197,255,0.13)", border: "rgba(138,197,255,0.48)", card: "rgba(12,24,42,0.96)", name: "#D9F2FF", pill: "rgba(38,71,116,0.8)" },
-  elite: { accent: "#F4D87A", accentSoft: "rgba(212,175,55,0.14)", border: "rgba(212,175,55,0.52)", card: "rgba(37,14,17,0.97)", name: "#F8D778", pill: "rgba(104,19,22,0.86)" },
-  owner: { accent: "#F4D87A", accentSoft: "rgba(185,28,28,0.17)", border: "rgba(239,68,68,0.58)", card: "rgba(42,12,16,0.98)", name: "#FFD98A", pill: "rgba(122,15,19,0.9)" },
-};
+const RANK_TONES = Object.fromEntries(Object.entries(SELLER_PROFILE_TONES).map(([rank, tone]) => [rank, {
+  accent: tone.accent, accentSoft: tone.soft, border: tone.border, card: tone.surface, name: tone.light, pill: tone.soft,
+}])) as Record<keyof typeof SELLER_PROFILE_TONES, RankTone>;
 
 function rankLabel(level: MobileMarketplaceListing["seller"]["level"], isAr: boolean, owner: boolean) {
   if (owner) return isAr ? "بائع أسطوري" : "Legendary Seller";

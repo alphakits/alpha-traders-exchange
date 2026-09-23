@@ -2,11 +2,13 @@ import { OwnerPrivateContact } from "@/components/profile/owner-private-contact"
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { ArrowRight, BadgeCheck, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, Trophy, WalletCards, Zap } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
+import { SellerRankIdentity, SellerRankCollection } from "@/components/profile/seller-rank-identity";
+import { rankVisualKey } from "@/lib/rank-identity";
+import { RankBadge, RankEmblem, RankRadiance } from "@/components/ui/rank-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
@@ -36,12 +38,17 @@ function formatSellerBadgeLabel(badge: string, isAr: boolean) {
   return isAr ? "إنجاز للبائع" : badge.replaceAll("_", " ");
 }
 
+function SellerAchievementIcon({ badge }: { badge: string }) {
+  const Icon = badge === "fast_responder" ? Zap : badge === "top_rated" ? Star : badge === "most_active" ? TrendingUp : badge === "trades_1000_plus" ? Trophy : badge === "elite_seller" ? Sparkles : ShieldCheck;
+  return <Icon aria-hidden="true" />;
+}
+
 function sellerRankTheme(level?: SellerLevel) {
   if (level === "elite") return "from-[#F8E7A0] via-white to-[#C9A227] text-transparent bg-clip-text";
-  if (level === "diamond") return "text-[#7CC9FF]";
-  if (level === "gold") return "text-[#E8C547]";
-  if (level === "silver") return "text-[#C9CED9]";
-  return "text-[#B8824B]";
+  if (level === "diamond") return "text-[var(--rank-diamond-accent)]";
+  if (level === "gold") return "text-[var(--rank-gold-accent)]";
+  if (level === "silver") return "text-[var(--rank-silver-accent)]";
+  return "text-[var(--rank-bronze-accent)]";
 }
 
 function sellerLevelToneKey(level?: SellerLevel) {
@@ -277,7 +284,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
   ];
 
   return (
-    <main className="min-h-screen bg-[#050505] text-white">
+    <main className="seller-prestige-page seller-public-profile min-h-screen text-white" data-profile-rank={isOwnerSeller ? "owner" : rankVisualKey(profile.sellerLevel)}>
       <div className="section-container page-shell flex flex-col gap-8">
         <Card
           className={cn(
@@ -295,7 +302,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
             </div>
           ) : null}
           <div
-            className="relative h-[19rem] md:h-[22rem]"
+            className="seller-public-hero relative"
             style={{
               backgroundImage: seller.coverBannerUrl
                 ? `linear-gradient(180deg, rgba(5,5,5,0.16), rgba(5,5,5,0.86)), url(${seller.coverBannerUrl})`
@@ -308,13 +315,15 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
             <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-black/85" />
             <div className={cn("absolute inset-0 opacity-95", !seller.coverBannerUrl && (isOwnerSeller ? "owner-legendary-surface" : `seller-rank-surface seller-rank-surface--${sellerRankKey}`))} />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.05),transparent_30%)]" />
-            <div className="absolute bottom-0 left-0 right-0 p-5 md:p-6">
+            <div className="relative p-4 md:p-6">
+              <RankRadiance rank={isOwnerSeller ? "owner" : profile.sellerLevel} />
+              <SellerRankIdentity rank={profile.sellerLevel} locale={locale} owner={isOwnerSeller} />
               <div className={cn(
                 "rounded-[1.6rem] border border-white/10 bg-black/35 p-5 shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl md:p-6",
                 isOwnerSeller ? "border-red-500/25" : `seller-rank-accent seller-rank-accent--${sellerRankKey}`,
               )}>
                 <div className={cn("flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between", isAr ? "lg:flex-row-reverse" : "")}>
-                  <div className={cn("flex items-end gap-4", isAr ? "flex-row-reverse" : "")}>
+                  <div className={cn("seller-public-identity flex flex-wrap items-center gap-4", isAr ? "flex-row-reverse" : "")}>
                     <div className={cn("relative seller-avatar-ring", `seller-avatar-ring--${sellerRankKey}`)}>
                       {seller.profilePhotoUrl ? (
                         <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={128} height={128} unoptimized className="h-24 w-24 rounded-full border border-transparent object-cover md:h-28 md:w-28" />
@@ -462,6 +471,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   <TrendingUp className="h-5 w-5 text-[#C9A227]" />
                   <h2 className="text-lg font-semibold text-white">{isAr ? "السمعة" : "Prestige"}</h2>
                 </div>
+                <SellerRankCollection rank={profile.sellerLevel} locale={locale} />
                 {profile.progressToNextRankPercent !== undefined ? (
                 <div className="mt-4">
                   <div className="mb-2 flex items-center justify-between text-sm text-[#D1D5DB]">
@@ -469,7 +479,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <bdi dir="ltr" className="text-white">{profile.progressToNextRankPercent.toFixed(0)}{isAr ? "٪" : "%"}</bdi>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#FDE68A] to-[#C9A227]" style={{ width: `${Math.min(100, profile.progressToNextRankPercent)}%` }} />
+                    <div className="seller-prestige-progress-fill h-full rounded-full" style={{ width: `${Math.min(100, profile.progressToNextRankPercent)}%` }} />
                   </div>
                 </div>
                 ) : null}
@@ -526,7 +536,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
         />
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card id="seller-active-listings" className="border-white/10 bg-[#0B0B0B]/95">
+          <Card className="border-white/10 bg-[#0B0B0B]/95">
             <CardHeader>
               <CardTitle>{isAr ? "إحصائيات الثقة" : "Trust statistics"}</CardTitle>
               <CardDescription>{isAr ? "مقاييس الأداء التي تعكس موثوقية البائع." : "Performance metrics that frame the seller's reliability."}</CardDescription>
@@ -543,9 +553,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
               <CardTitle>{isAr ? "الشارات" : "Badges"}</CardTitle>
               <CardDescription>{isAr ? "أوسمة الثقة والاحتراف." : "Recognition earned through trust and consistency."}</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
+            <CardContent className="seller-earned-badges">
               {profile.badges.length ? profile.badges.map((badge) => (
-                <span key={badge} className="rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 px-3 py-2 text-sm text-[#FDE68A]">{currencyText(badgeLabel(badge, isAr))}</span>
+                <div key={badge} className="seller-earned-badge"><SellerAchievementIcon badge={badge} /><span>{currencyText(badgeLabel(badge, isAr))}</span></div>
               )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد شارات بعد." : "No badges yet."}</p>}
             </CardContent>
           </Card>
@@ -592,7 +602,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
             </CardContent>
           </Card>
 
-          <Card className="border-white/10 bg-[#0B0B0B]/95">
+          <Card id="seller-active-listings" className="scroll-mt-24 border-white/10 bg-[#0B0B0B]/95">
             <CardHeader>
               <CardTitle>{isAr ? "العروض النشطة" : "Active listings"}</CardTitle>
               <CardDescription>{isAr ? "الصفقات المفتوحة المعروضة حاليًا." : "Open offers currently advertised by the seller."}</CardDescription>
@@ -642,9 +652,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {data.similarSellers.length ? data.similarSellers.map((sellerItem) => (
-              <div key={`${sellerItem.sellerUsername}-${sellerItem.sellerName}`} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
+              <div key={`${sellerItem.sellerUsername}-${sellerItem.sellerName}`} className="seller-prestige-mini surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5" data-profile-rank={rankVisualKey(sellerItem.sellerLevel)}>
                 <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{currencyText(sellerItem.sellerName.slice(0, 2).toUpperCase())}</div>
+                  <RankEmblem rank={sellerItem.sellerLevel} className="!h-12 !w-12 [&>svg]:!h-6 [&>svg]:!w-6" />
                   <div>
                     <p className="font-medium text-white"><bdi dir="auto">{currencyText(sellerItem.sellerName)}</bdi></p>
                   </div>
