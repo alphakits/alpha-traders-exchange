@@ -124,6 +124,22 @@ describe("useAuthenticatedNotificationStream", () => {
     expect(MockEventSource.instances[1].close).not.toHaveBeenCalled();
   });
 
+  it("rotates a healthy connection without an auth refresh or duplicate reconnect", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    await act(async () => {
+      MockEventSource.instances[0].emit("reconnect", new MessageEvent("reconnect", { data: "{}" }));
+      MockEventSource.instances[0].emit("error");
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("reopens after iOS restores the same document from the back-forward cache", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) }));
     vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);

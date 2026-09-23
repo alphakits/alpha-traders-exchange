@@ -3,6 +3,7 @@ import { getTradeRoomData, getTradeRoomRevision, type TradeRoomData } from "@/li
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { SSE_RECONNECT_FRAME, SSE_ROTATION_INTERVAL_MS } from "@/lib/sse-lifecycle";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -10,6 +11,7 @@ type RouteContext = {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 const DEBUG = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 // Same-instance writes arrive immediately through the event bus. A tiny,
@@ -72,6 +74,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const initialSnapshotMs = Date.now() - initialSnapshotStartedAt;
 
   const encoder = new TextEncoder();
+  let cancelStream = () => {};
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
@@ -81,11 +84,15 @@ export async function GET(request: NextRequest, context: RouteContext) {
       let unsubscribe: (() => void) | null = null;
       let keepAlive: ReturnType<typeof setInterval> | null = null;
       let revisionPoll: ReturnType<typeof setInterval> | null = null;
+      let rotation: ReturnType<typeof setTimeout> | null = null;
       let pendingInitialSnapshot: TradeRoomData | null = initialSnapshot;
       let lastKnownRevision = revisionKey(initialSnapshot.request);
       const cleanup = () => {
         if (closed) return;
         closed = true;
+        if (rotation) clearTimeout(rotation);
+        rotation = null;
+        request.signal.removeEventListener("abort", cleanup);
         if (keepAlive) {
           clearInterval(keepAlive);
           keepAlive = null;
@@ -102,6 +109,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
           // Stream can already be closed by the runtime when abort races with send.
         }
       };
+      cancelStream = cleanup;
       const enqueueSafe = (payload: string) => {
         if (closed) return false;
         try {
@@ -206,6 +214,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
           revisionInFlight = false;
         });
       }, CROSS_INSTANCE_REVISION_POLL_MS);
+      rotation = setTimeout(() => {
+        enqueueSafe(SSE_RECONNECT_FRAME);
+        cleanup();
+      }, SSE_ROTATION_INTERVAL_MS);
 
       const signal = request.signal;
       if (signal.aborted) {
@@ -213,10 +225,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
         return;
       }
 
-      signal.addEventListener("abort", () => {
-        cleanup();
-      }, { once: true });
+      signal.addEventListener("abort", cleanup, { once: true });
     },
+    cancel() { cancelStream(); },
   });
 
   return new Response(stream, {

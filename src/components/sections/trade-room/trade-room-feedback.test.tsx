@@ -97,6 +97,27 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
 });
 
 describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s live recovery", (method) => {
+  it("renews a planned stream connection without repeating a trade action", async () => {
+    vi.useFakeTimers();
+    const current = room(method, "accepted");
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />); });
+    const old = RoomStream.instances[0];
+    await act(async () => old.snapshot(current));
+    await act(async () => {
+      old.dispatchEvent(new MessageEvent("reconnect", { data: "{}" }));
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(old.close).toHaveBeenCalled();
+    expect(RoomStream.instances).toHaveLength(2);
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => RoomStream.instances[1].snapshot(current));
+    expect(screen.getByText("Connected")).toBeTruthy();
+  });
+
   it("replaces a suspended stream and refreshes on return without a reload or a repeated mutation", async () => {
     let current = room(method, "accepted");
     const fetchMock = vi.fn(() => Promise.resolve(Response.json(current)));
