@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getCommissionRecordsForAutomaticReconciliation,
   reverifyPendingCommissionPayments,
+  recoverPendingCommissionPaymentConfirmationEmails,
   submitSellerCommissionWalletPayment,
 } from "@/lib/alpha-exchange-store";
 import {
@@ -11,13 +12,13 @@ import {
 } from "@/lib/commission-deposit-discovery";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { logEvent } from "@/lib/structured-logging";
+import { COMMISSION_PAYMENT_CLOCK_SKEW_MS } from "@/lib/commission-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_AUTO_RECONCILIATIONS_PER_RUN = 2;
-const PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS = 2 * 60_000;
 
 type Candidate = Awaited<ReturnType<typeof getCommissionRecordsForAutomaticReconciliation>>[number];
 
@@ -41,7 +42,7 @@ function expectedMicros(record: Candidate) {
 function emptySummary() {
   return {
     candidates: 0, scannedTransfers: 0, matched: 0, verified: 0, pending: 0, rejected: 0, errors: 0, legacyMatched: 0,
-    skippedUsed: 0, unmatchedAmount: 0, baseAmountOnly: 0, ambiguous: 0, beforeIntent: 0,
+    skippedUsed: 0, retriedRejected: 0, unmatchedAmount: 0, baseAmountOnly: 0, ambiguous: 0, beforeIntent: 0,
     providers: {} as Record<string, { configured: boolean; complete: boolean; pages: number; deposits: number; error?: string; fallback?: string }>,
   };
 }
@@ -57,7 +58,7 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
   ));
   summary.candidates = candidates.length;
   if (!candidates.length) return summary;
-  const minTimestamp = Math.min(...candidates.map(lowerBound)) - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS;
+  const minTimestamp = Math.min(...candidates.map(lowerBound)) - COMMISSION_PAYMENT_CLOCK_SKEW_MS;
   const providers = [
     ["TRC20", scanTronCommissionDeposits], ["BEP20", scanBep20CommissionDeposits], ["BINANCE_DEPOSITS", scanBinanceCommissionDeposits],
   ] as const;
@@ -96,7 +97,25 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
     const amount = expectedMicros(record)!;
     byAmount.set(amount, [...(byAmount.get(amount) ?? []), record]);
   }
-  for (const deposit of deposits.sort((a, b) => a.timestamp - b.timestamp)) {
+  const depositQueue = deposits.map((deposit) => ({
+    deposit,
+    previouslyRejected: (byAmount.get(deposit.amountMicros) ?? []).find((record) => (
+      record.paymentVerificationStatus === "failed" && signatureKey(record.paymentSignature) === signatureKey(deposit.signature)
+    )),
+  })).sort((left, right) => {
+    // Fresh receipts and replacement references get the limited batch slots
+    // first. A previously rejected TxID remains eligible: it may only now be
+    // visible after the earlier not-found retry window expired.
+    const rejectionOrder = Number(Boolean(left.previouslyRejected)) - Number(Boolean(right.previouslyRejected));
+    if (rejectionOrder) return rejectionOrder;
+    if (left.previouslyRejected && right.previouslyRejected) {
+      const lastAttempt = (record: Candidate) => new Date(record.updatedAt).getTime() || 0;
+      const retryOrder = lastAttempt(left.previouslyRejected) - lastAttempt(right.previouslyRejected);
+      if (retryOrder) return retryOrder;
+    }
+    return left.deposit.timestamp - right.deposit.timestamp;
+  });
+  for (const { deposit } of depositQueue) {
     if (summary.matched >= MAX_AUTO_RECONCILIATIONS_PER_RUN || Date.now() >= deadline) break;
     const key = signatureKey(deposit.signature);
     if (seen.has(key)) continue;
@@ -108,7 +127,7 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
       if (candidates.some((record) => Math.round(Number(record.commissionAmount) * 1_000_000) === deposit.amountMicros)) summary.baseAmountOnly++;
       continue;
     }
-    const matches = amountMatches.filter((record) => deposit.timestamp >= lowerBound(record) - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS);
+    const matches = amountMatches.filter((record) => deposit.timestamp >= lowerBound(record) - COMMISSION_PAYMENT_CLOCK_SKEW_MS);
     if (!matches.length) { summary.beforeIntent++; continue; }
     // Do not remove used candidates before checking ambiguity: a second transfer
     // cannot resolve an initially ambiguous shared amount by process of elimination.
@@ -116,6 +135,7 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
     const record = matches[0];
     if (used.has(record.id)) continue;
     used.add(record.id);
+    if (record.paymentVerificationStatus === "failed" && signatureKey(record.paymentSignature) === key) summary.retriedRejected++;
     summary.matched++;
     if (record.paymentExpectedAmountMode === "legacy_base") summary.legacyMatched++;
     try {
@@ -155,15 +175,28 @@ export async function GET(request: NextRequest) {
   try {
     const pendingLimit = autoReconciliation.matched > 0 ? 1 : 2;
     const result = await reverifyPendingCommissionPayments({ limit: pendingLimit, deadline: startedAt + 45_000 });
-    const ok = autoReconciliation.errors === 0 && result.errors === 0;
+    let emailRecovery = { checked: 0, queued: 0, errors: 0, pending: 0, budgetExhausted: false };
+    const emailBudgetMs = Math.min(8_000, Math.max(0, startedAt + 55_000 - Date.now()));
+    if (emailBudgetMs >= 6_000) {
+      try {
+        emailRecovery = await recoverPendingCommissionPaymentConfirmationEmails({ limit: 2, maxDurationMs: emailBudgetMs });
+      } catch {
+        emailRecovery.errors++;
+        logEvent("error", { event: "commission_payment_confirmation_recovery", outcome: "failed", reason: "email_recovery_failed" });
+      }
+    } else {
+      // Persisted delivery markers remain due for the next scheduled run.
+      emailRecovery.budgetExhausted = true;
+    }
+    const ok = autoReconciliation.errors === 0 && result.errors === 0 && emailRecovery.errors === 0;
     logEvent(ok ? "info" : "error", {
       event: "commission_payment_verification_cron", outcome: ok ? "success" : "failed",
-      reason: ok ? undefined : "commission_verification_degraded", metadata: { ...result, autoReconciliation,
+      reason: ok ? undefined : "commission_verification_degraded", metadata: { ...result, autoReconciliation, emailRecovery,
         // Nested objects are truncated by the runtime console renderer.
         providerHealth: JSON.stringify(autoReconciliation.providers),
       },
     });
-    return NextResponse.json({ ok, autoReconciliation, ...result }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok, autoReconciliation, ...result, emailRecovery }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
   } catch {
     logEvent("error", { event: "commission_payment_verification_cron", outcome: "failed", reason: "verification_sweep_failed", metadata: { autoReconciliation } });
     return NextResponse.json({ error: "Commission verification sweep failed.", autoReconciliation }, { status: 500, headers: { "Cache-Control": "no-store" } });

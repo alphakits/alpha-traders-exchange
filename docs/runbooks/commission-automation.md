@@ -12,6 +12,10 @@ The protected `/api/cron/commission-payment-verification` job runs every minute 
 
 Discovery scans up to five pages of 200 entries with a shared 12-second deadline per provider. Incomplete history is reported as degraded, not as an empty/successful full scan. Larger historical backlogs require a separate bounded backfill. Provider errors do not stop the other providers or submitted-payment retries. The same payment signature cannot settle two records; failed unique-intent submissions can recover automatically when the actual payment appears. Original legacy submissions retain their original TxID binding.
 
+Discovery and final receipt verification share the same five-minute timestamp tolerance. New receipts and replacement references are processed before previously rejected references; rejected references remain retryable and rotate by their last attempt so delayed provider history can recover without blocking other payments.
+
+The seller website refreshes unpaid commissions every 30 seconds and when the page regains focus, including payments without a submitted TxID. A settled commission closes its payment panel before another commission can be selected. The server also publishes an explicit `commission_payment_verified` notification when the final outstanding commission settles.
+
 An exact six-decimal amount is the payment reference for the shared recipient wallet. Rounded payments, deducted network fees, payments to another recipient, unsupported assets, ambiguous matches and pre-intent transfers are not auto-credited. Do not waive those checks or tell a seller to pay twice. Investigate any already-received unmatched payment with its original evidence.
 
 ## Configuration
@@ -31,6 +35,8 @@ A complete authenticated Binance history scan can cover BEP20 discovery when the
 Inspect `commission_payment_verification_cron` in production runtime logs. Summaries include provider configuration, page completeness, candidate and transfer counts, matches, verified/pending/rejected results, skipped used references, ambiguous matches, and `baseAmountOnly` for deposits equal to the base fee rather than the assigned payment amount. Diagnostics exclude credentials and customer identities.
 
 `providerHealth` is a serialized summary so runtime console truncation does not hide provider results as `[Object]`. Individual failures also emit `commission_deposit_discovery` with a fixed reason code and provider name.
+
+Commission settlement persists pending confirmation-email work in the same write as payment. The existing idempotent email outbox handles provider delivery; the commission job recovers interrupted enqueue work within a bounded remaining runtime budget. Inspect `emailRecovery` for checked, queued, pending, errors and exhausted-budget counts. Recovery applies only to explicit pending markers, not every historical paid commission.
 
 HTTP 401 = unauthorized caller. HTTP 503 = missing scheduler secret or degraded scan/retry. HTTP 500 = pending sweep failure. HTTP 200 alone is not proof a payment was received: inspect `verified` and `autoReconciliation.verified`.
 

@@ -948,6 +948,14 @@ export interface CommissionRecord {
   /** Superseded issued amounts that remain reserved and can never be assigned again. */
   paymentReservedExpectedAmounts?: number[];
   paymentSubmittedAt?: string;
+  /** Persisted with settlement until its idempotent confirmation email is queued. */
+  paymentConfirmationEmailPending?: {
+    id: string;
+    requestedAt: string;
+    lastAttemptAt?: string;
+    amountDueUsdt: number;
+    remainingCommissions: Array<{ id: string; displayNumber?: number }>;
+  };
   dueAt?: string;
   paidAt?: string;
   overdueNotifiedAt?: string;
