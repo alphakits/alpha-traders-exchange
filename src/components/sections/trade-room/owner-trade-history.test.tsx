@@ -36,6 +36,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("owner trade history", () => {
+  it.each([
+    ["2026-09-23T10:00:00.000Z", "13:00:00"],
+    ["2026-01-23T10:00:00.000Z", "12:00:00"],
+  ])("uses Israel time, including seasonal clock changes, for %s", (createdAt, expectedTime) => {
+    const room = historyRoom();
+    room.messages = [{ ...room.messages[0], createdAt }];
+    render(<OwnerTradeHistory locale="en" room={room} />);
+    const chat = screen.getByRole("region", { name: "Chat history (1)" });
+    expect(chat.querySelector("time")?.textContent).toContain(expectedTime);
+    expect(screen.getByText("All times are shown in Israel time.")).toBeTruthy();
+  });
+
   it("shows the entire transcript, individual timeline events, historical evidence, reviews and dispute resolution", () => {
     const room = historyRoom();
     room.messages[1].imageUrl = "/api/alpha-exchange/trade-room/request-1/chat-image/message-1";
