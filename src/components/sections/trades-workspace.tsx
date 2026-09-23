@@ -9,6 +9,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { groupOwnTrades, type TradeWorkspaceSide } from "@/lib/trades-workspace";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 import { getTradeStatusDisplayLabel } from "@/lib/trade-workflow";
+import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 export function TradeRequestGroups({ requests, userId, side, locale }: {
@@ -32,7 +33,7 @@ export function TradeRequestGroups({ requests, userId, side, locale }: {
         </span>
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
-        <time dateTime={Number.isNaN(date.getTime()) ? undefined : date.toISOString()} className="text-xs text-[#9CA3AF]">{Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { dateStyle: "medium", timeStyle: "short" })}</time>
+        <time dateTime={Number.isNaN(date.getTime()) ? undefined : date.toISOString()} className="text-xs text-[#9CA3AF]">{Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { dateStyle: "medium", timeStyle: "short", timeZone: ISRAEL_TIME_ZONE })}</time>
         <Link href={buildTradeRoomDestination(request, userId)} className={buttonVariants({ variant: completed ? "secondary" : "default", size: "sm", className: "min-h-11" })}>
           {completed ? (isAr ? "عرض الصفقة" : "View trade") : request.status === "pending" && side === "seller" ? (isAr ? "مراجعة الطلب" : "Review request") : (isAr ? "فتح الصفقة" : "Open trade")}
           <ArrowRight className={`ms-2 h-4 w-4 ${isAr ? "rotate-180" : ""}`} aria-hidden="true" />

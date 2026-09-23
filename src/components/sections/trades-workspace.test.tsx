@@ -15,6 +15,9 @@ describe("Trades workspace", () => {
     expect(screen.queryByText("other")).toBeNull();
     expect(within(regions[0]).getByRole("link").getAttribute("href")).toBe("/trade-room/new-request?action=open-trade#status-banner");
     expect(within(regions[1]).getByRole("link").getAttribute("href")).toContain("action=review-trade");
+    // Server and browser must show Israel time regardless of their default zone.
+    expect(regions[0].querySelector("time")?.textContent).toContain("12:00");
+    expect(regions[0].querySelector("time")?.getAttribute("datetime")).toBe("2026-09-23T09:00:00.000Z");
   });
   it("opens seller requests at the accept step and keeps sales separate from purchases", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ requests: [request("incoming", "pending"), { ...request("my-purchase", "pending", "seller"), sellerId: "another-seller" }] }))));
