@@ -1,5 +1,5 @@
 name: Alpha Exchange Isolated Draft Browser Reliability
-run_name: Browser reliability • draft 93fcfa6
+run_name: Browser reliability • draft 7eb2fdc
 
 on:
   workflow_dispatch: {}
@@ -18,11 +18,11 @@ jobs:
     steps:
       - uses: eas/checkout
         with:
-          ref: 93fcfa66a2a18d8a08919fcd23a97e9e096f764b
+          ref: 7eb2fdc9061a831c38a57365a24313d702cb0580
       - name: Verify the exact draft source
         run: |
-          test "$(git rev-parse HEAD)" = "93fcfa66a2a18d8a08919fcd23a97e9e096f764b"
-          test "$(git rev-parse HEAD^{tree})" = "5b9f7a841bf7bfc9034f0f17ac45263d5faff35b"
+          test "$(git rev-parse HEAD)" = "7eb2fdc9061a831c38a57365a24313d702cb0580"
+          test "$(git rev-parse HEAD^{tree})" = "f8aa47beacc7fc0d7fb652d1a625c4b081760950"
           git diff --exit-code
           git diff --cached --exit-code
           git log -1 --format='Verified draft source: %H'
