@@ -435,7 +435,10 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Live Listings:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Active Trades:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(0);
+      await expect(main.locator("#my-trade-requests-section")).toBeVisible();
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);

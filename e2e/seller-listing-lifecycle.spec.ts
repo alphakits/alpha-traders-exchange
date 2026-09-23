@@ -938,7 +938,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
     }
   });
   await seller.page.reload({ waitUntil: "domcontentloaded" });
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: /^🚨 Commission Due:/ })).toHaveCount(0);
   await expect(main.locator("#commission-status")).toContainText("No commission due");
 
   await seller.context.close();
