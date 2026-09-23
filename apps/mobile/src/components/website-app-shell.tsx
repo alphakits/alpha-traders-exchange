@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "./branded-text";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { getLocales } from "expo-localization";
@@ -13,7 +14,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";

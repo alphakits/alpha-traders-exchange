@@ -1,5 +1,7 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
@@ -1046,7 +1048,7 @@ export function AccountSettingsPanel({
                     <div>
                       <p className="text-sm font-semibold text-white">WhatsApp Business</p>
                       <p className="mt-1 text-xs text-[#9CA3AF]">
-                        {whatsAppAvailabilityMessage(whatsappChannel.status, isAr)}
+                        {brandText(whatsAppAvailabilityMessage(whatsappChannel.status, isAr))}
                       </p>
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${whatsappChannel.sendingEnabled ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-200"}`}>
@@ -1072,9 +1074,9 @@ export function AccountSettingsPanel({
                     />
                   </div>
                   <p className="text-xs leading-5 text-[#9CA3AF]">
-                    {whatsappChannel.consentText ?? (isAr
+                    {brandText(whatsappChannel.consentText ?? (isAr
                       ? "عند التفعيل، أوافق على استلام تنبيهات Alpha Traders على رقم WhatsApp الموثّق. لا تتضمن الرسائل نص المحادثة أو تفاصيل المعاملة، ويمكنني إيقافها من الإعدادات أو بالرد STOP."
-                      : "By enabling, I agree to receive Alpha Traders alerts on my verified WhatsApp number. Messages do not include chat text or transaction details, and I can opt out in Settings or by replying STOP.")}
+                      : "By enabling, I agree to receive Alpha Traders alerts on my verified WhatsApp number. Messages do not include chat text or transaction details, and I can opt out in Settings or by replying STOP."))}
                   </p>
                   {whatsappChannel.consented ? (
                     <Button

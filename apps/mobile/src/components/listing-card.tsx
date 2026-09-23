@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";

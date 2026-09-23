@@ -1,5 +1,7 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
@@ -91,9 +93,9 @@ export default function VerifyEmailPage() {
       <div className="surface-panel mx-auto w-full max-w-xl p-6 md:p-8">
         <h1 className="page-title">{isAr ? "تأكيد البريد الإلكتروني" : "Verify Email"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr
+          {brandText(isAr
             ? "تحقق من بريدك الإلكتروني لتفعيل حساب Alpha Traders."
-            : "Verify your email to activate your Alpha Traders account."}
+            : "Verify your email to activate your Alpha Traders account.")}
         </p>
 
         {!token && !tokenHash ? (

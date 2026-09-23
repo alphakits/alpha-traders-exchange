@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "./branded-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import type { MobileLocale } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";

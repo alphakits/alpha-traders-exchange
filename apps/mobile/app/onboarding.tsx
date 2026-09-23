@@ -1,10 +1,10 @@
+import { BrandedText as Text } from "../src/components/branded-text";
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";

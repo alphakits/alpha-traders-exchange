@@ -1,9 +1,10 @@
 "use client";
 
+
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountId } from "@/lib/public-account-identity";
 
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
 import { useState, type Dispatch, type FormEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
@@ -463,7 +464,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription>
-                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid."}
+                {brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid.")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -629,9 +630,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <div className="min-w-0 space-y-1.5">
                       <p className="font-semibold text-blue-200">{isAr ? "التحقق من الدفع قيد الانتظار" : "Payment verification pending"}</p>
                       <p className="text-xs leading-5">
-                        {isAr
+                        {brandText(isAr
                           ? "تم حفظ معرّف المعاملة، وستواصل Alpha Traders التحقق منه تلقائياً بعد التأكيد النهائي على الشبكة المختارة. لا ترسل دفعة أخرى أثناء الانتظار."
-                          : "Your TxID is saved. Alpha Traders will keep checking it automatically after blockchain final confirmation. Do not send another payment while it is pending."}
+                          : "Your TxID is saved. Alpha Traders will keep checking it automatically after blockchain final confirmation. Do not send another payment while it is pending.")}
                       </p>
                       {selectedCommissionPayment.paymentVerificationNotes ? (
                         <p className="rounded-lg border border-blue-400/20 bg-blue-950/40 px-2.5 py-2 text-xs text-blue-100">
@@ -646,13 +647,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </p>
                       ) : null}
                       <p className="text-xs font-medium text-blue-200">
-                        {isLegacyPendingCommissionPayment
+                        {brandText(isLegacyPendingCommissionPayment
                           ? (isAr
                             ? "معرّف المعاملة الأصلي مرتبط بهذه الدفعة القديمة ولا يمكن استبداله أثناء التحقق. سيستمر التحقق تلقائياً؛ لا تدفع مرة أخرى. إذا كان المعرّف المحفوظ غير صحيح، فتواصل مع دعم Alpha Traders."
                             : "The original TxID is bound to this pre-upgrade payment and cannot be replaced while verification is pending. Automatic verification will continue; do not pay again. If the saved TxID is wrong, contact Alpha Traders support.")
                           : (isAr
                             ? "إذا كان المعرّف المحفوظ غير صحيح، الصق معرّف المعاملة البديل أدناه وأرسله للتحقق."
-                            : "If the saved TxID is wrong, paste a replacement transaction ID below and submit it for verification.")}
+                            : "If the saved TxID is wrong, paste a replacement transaction ID below and submit it for verification."))}
                       </p>
                     </div>
                   </div>
@@ -769,7 +770,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
                           <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically."}</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{brandText(isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically.")}</p>
                         </div>
                         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
                       </button>
@@ -1274,7 +1275,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#F3F4F6]">
                   <p className="text-xs uppercase tracking-[0.12em] text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
-                  <p className="mt-1">{isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade."}</p>
+                  <p className="mt-1">{brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
                   <label className="mt-3 inline-flex cursor-pointer items-start gap-2 text-xs text-[#E5E7EB]">
                     <input
                       type="checkbox"
@@ -1282,7 +1283,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       onChange={(event) => setListingCommissionAgreement(event.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
                     />
-                    <span>{isAr ? "أفهم وأوافق على سياسة عمولة Alpha Traders البالغة 1%." : "I understand and agree to Alpha Traders’ 1% commission policy."}</span>
+                    <span>{brandText(isAr ? "أفهم وأوافق على سياسة عمولة Alpha Traders البالغة 1%." : "I understand and agree to Alpha Traders’ 1% commission policy.")}</span>
                   </label>
                   <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>

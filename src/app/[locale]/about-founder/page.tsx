@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import { getLocale } from "next-intl/server";
 import { buildPageMetadata } from "@/lib/seo";
 
@@ -18,13 +19,13 @@ export default async function AboutFounderPage() {
     <section className="section-container page-shell">
       <h1 className="page-title">{isAr ? "عن المؤسس" : "About Founder"}</h1>
       <p className="page-subtitle">
-        {isAr ? "رؤية تأسيس Alpha Traders ومنهج التعليم المنضبط." : "The vision behind Alpha Traders and disciplined education."}
+        {brandText(isAr ? "رؤية تأسيس Alpha Traders ومنهج التعليم المنضبط." : "The vision behind Alpha Traders and disciplined education.")}
       </p>
       <div className="mt-6 max-w-3xl space-y-4 text-[#9CA3AF]">
         <p>
-          {isAr
+          {brandText(isAr
             ? "أُسست Alpha Traders لتقديم تعليم تداول عربي مجاني بمستوى عالمي، بعيداً عن الترويج الوهمي."
-            : "Alpha Traders was built to deliver world-class free Arabic trading education without hype."}
+            : "Alpha Traders was built to deliver world-class free Arabic trading education without hype.")}
         </p>
         <p>
           {isAr

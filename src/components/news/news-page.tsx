@@ -1,5 +1,7 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import { useEffect, useState } from "react";
 import { ArrowUpRight, CalendarDays, Clock3, Folder, RefreshCw } from "lucide-react";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -126,7 +128,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     <div className="section-container py-6 sm:py-9" dir={isAr ? "rtl" : "ltr"}>
       <div className="mx-auto max-w-5xl">
         <div className="flex items-start justify-between gap-3">
-          <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D4AF37]">ALPHA TRADERS</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{isAr ? "أخبار الدولار" : "USD news"}</h1><p className="mt-2 max-w-xl text-sm leading-relaxed text-[#9CA3AF]">{isAr ? "الأحداث الاقتصادية ذات التأثير المرتفع ومواعيدها ونتائجها، في مكان واحد." : "High-impact economic events, upcoming releases and published results, in one place."}</p></div>
+          <div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D4AF37]">{brandText("ALPHA TRADERS")}</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{isAr ? "أخبار الدولار" : "USD news"}</h1><p className="mt-2 max-w-xl text-sm leading-relaxed text-[#9CA3AF]">{isAr ? "الأحداث الاقتصادية ذات التأثير المرتفع ومواعيدها ونتائجها، في مكان واحد." : "High-impact economic events, upcoming releases and published results, in one place."}</p></div>
           <Button variant="secondary" size="icon" loading={refreshing} aria-label={isAr ? "تحديث الأخبار" : "Refresh news"} onClick={() => setRefreshKey((value) => value + 1)}><RefreshCw className="h-4 w-4" /></Button>
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-y border-white/10 py-3 text-xs">

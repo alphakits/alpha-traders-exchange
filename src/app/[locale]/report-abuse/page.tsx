@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import { buildPageMetadata } from "@/lib/seo";
 import { ContactForm } from "@/components/sections/contact/contact-form";
 
@@ -36,9 +37,9 @@ export default async function ReportAbusePage({
         <h1 className="page-title">{isAr ? "الإبلاغ عن إساءة" : "Report Abuse"}</h1>
         <div className="mt-4 space-y-4 text-sm leading-7 text-[#D1D5DB]">
           <p>
-            {isAr
+            {brandText(isAr
               ? "إذا واجهت سلوكًا مسيئًا أو نشاطًا مشبوهًا، يرجى إبلاغ فريق Alpha Traders فورًا."
-              : "If you encounter abusive behavior or suspicious activity, report it to the Alpha Traders team immediately."}
+              : "If you encounter abusive behavior or suspicious activity, report it to the Alpha Traders team immediately.")}
           </p>
           <p>
             {isAr

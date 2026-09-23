@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "../components/branded-text";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../auth/auth-context";

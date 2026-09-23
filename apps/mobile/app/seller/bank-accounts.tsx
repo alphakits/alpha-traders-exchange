@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Switch, TextInput, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";

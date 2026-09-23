@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "../src/components/branded-text";
+import { StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { GoldButton } from "../src/components/gold-button";

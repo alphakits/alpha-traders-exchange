@@ -1,5 +1,7 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import Image from "next/image";
 import { CheckCircle2, Play, UserRound } from "lucide-react";
 import { useLocale } from "next-intl";
@@ -84,16 +86,16 @@ export function FounderPreview() {
 
           {/* Headline */}
           <h2 className="text-2xl font-semibold leading-snug text-white md:text-3xl">
-            {isRtl
+            {brandText(isRtl
               ? "تعرف على مؤسس Alpha Traders"
-              : "Meet the Founder of Alpha Traders"}
+              : "Meet the Founder of Alpha Traders")}
           </h2>
 
           {/* Paragraph */}
           <p className="max-w-lg text-sm leading-7 text-[#9CA3AF]">
-            {isRtl
+            {brandText(isRtl
               ? "تم إنشاء Alpha Traders لمساعدة المتداولين على التعلم باحتراف واستخدام سوق منظم يركز على الشفافية والتعليم والنمو على المدى الطويل."
-              : "Alpha Traders was created to help traders learn professionally and use a structured marketplace focused on transparency, education, and long-term growth."}
+              : "Alpha Traders was created to help traders learn professionally and use a structured marketplace focused on transparency, education, and long-term growth.")}
           </p>
 
           {/* Bullets */}

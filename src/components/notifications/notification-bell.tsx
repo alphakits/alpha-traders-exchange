@@ -1,5 +1,7 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
@@ -535,10 +537,10 @@ function NotificationBellSession({
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white"><bdi dir="auto">{formatNotificationTitle(notification, locale)}</bdi></p>
+                          <p className="truncate text-sm font-medium text-white"><bdi dir="auto">{brandText(formatNotificationTitle(notification, locale))}</bdi></p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]"><bdi dir="auto">{formatNotificationRelativeTime(notification.createdAt, locale)}</bdi></span>
                         </div>
-                        <p className="mt-1 line-clamp-2"><bdi dir="auto">{formatNotificationMessage(notification, locale)}</bdi></p>
+                        <p className="mt-1 line-clamp-2"><bdi dir="auto">{brandText(formatNotificationMessage(notification, locale))}</bdi></p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">{isAr ? "غير مقروء" : "Unread"}</span> : null}
                           {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}

@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
 import { updateMobileTradeTerms } from "../api/mobile-api";
@@ -12,7 +13,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";

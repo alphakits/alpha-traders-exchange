@@ -1,5 +1,7 @@
 "use client";
 
+import { brandText } from "@/components/ui/currency-text";
+
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useState, type FormEvent } from "react";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
@@ -158,7 +160,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           <Input aria-label={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" minLength={8} required value={form.confirmPassword} onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} />
           <Input aria-label={isAr ? "رقم واتساب" : "WhatsApp Number"} aria-describedby="registration-whatsapp-help" placeholder={isAr ? "رقم واتساب (مطلوب)" : "WhatsApp Number (required)"} type="tel" autoComplete="tel" maxLength={30} required dir="ltr" value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
           <p id="registration-whatsapp-help" className="text-xs text-[#9CA3AF]">
-            {isAr ? "رقم واتساب مطلوب ليتواصل معك فريق Alpha Traders بشأن الحساب والدعم. لا يظهر للعامة افتراضيًا. أدخل رقمًا محليًا يبدأ بـ 05 أو رقمًا دوليًا مع رمز الدولة." : "Your WhatsApp number is required so Alpha Traders can contact you about your account and support. It is not public by default. Use an Israeli 05 number or include the international country code."}
+            {brandText(isAr ? "رقم واتساب مطلوب ليتواصل معك فريق Alpha Traders بشأن الحساب والدعم. لا يظهر للعامة افتراضيًا. أدخل رقمًا محليًا يبدأ بـ 05 أو رقمًا دوليًا مع رمز الدولة." : "Your WhatsApp number is required so Alpha Traders can contact you about your account and support. It is not public by default. Use an Israeli 05 number or include the international country code.")}
           </p>
           <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
             <input

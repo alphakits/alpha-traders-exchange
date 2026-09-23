@@ -1,4 +1,4 @@
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { PUBLIC_TRUST_LAST_UPDATED } from "@/lib/public-trust";
@@ -149,9 +149,9 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
       <div className="surface-panel mx-auto max-w-4xl p-5 sm:p-6 md:p-8">
         <h1 className="page-title">{isAr ? "الشروط والأحكام" : "Terms of Service"}</h1>
         <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">
-          {isAr
+          {brandText(isAr
             ? "باستخدام Alpha Traders أو Alpha Exchange، فإنك توافق على هذه الشروط وسياسات المنصة المعروضة أثناء استخدام الخدمة."
-            : "By using Alpha Traders or Alpha Exchange, you agree to these terms and the platform rules shown while using the service."}
+            : "By using Alpha Traders or Alpha Exchange, you agree to these terms and the platform rules shown while using the service.")}
         </p>
 
         <div className="mt-8 space-y-4">
@@ -168,25 +168,25 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
         <div id="aml-policy" className="mt-4 scroll-mt-28 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5">
           <h2 className="text-base font-semibold text-white">{isAr ? "مراجعة النشاط المشبوه (AML)" : "Suspicious-activity review (AML)"}</h2>
           <p className="mt-2 text-sm leading-7 text-[#D1D5DB]">
-            {isAr
+            {brandText(isAr
               ? "قد تراجع Alpha Traders النشاط المشتبه به، وتطلب معلومات، وتقيد استخدام المنصة، وتحفظ السجلات أو تقدم البلاغات عندما يتطلب القانون المعمول به ذلك. لا يمثل هذا القسم ادعاءً بوجود ترخيص مالي محدد."
-              : "Alpha Traders may review suspected activity, request information, restrict platform use, preserve records, or make reports when required by applicable law. This section is not a claim that Alpha Traders holds a particular financial-services licence."}
+              : "Alpha Traders may review suspected activity, request information, restrict platform use, preserve records, or make reports when required by applicable law. This section is not a claim that Alpha Traders holds a particular financial-services licence.")}
           </p>
         </div>
         <div id="kyc-policy" className="mt-4 scroll-mt-28 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5">
           <h2 className="text-base font-semibold text-white">{isAr ? "معلومات التحقق (KYC)" : "Verification information (KYC)"}</h2>
           <p className="mt-2 text-sm leading-7 text-[#D1D5DB]">
-            {isAr
+            {brandText(isAr
               ? "قد يُطلب من المستخدم معلومات تحقق إضافية لأسباب تتعلق بالأمان أو النزاعات أو مخاطر المنصة أو القانون. يجب تقديم الوثائق الحساسة فقط من خلال قناة رسمية تطلبها Alpha Traders، ولا يجوز نشرها في الملفات العامة أو قنوات المجتمع."
-              : "Users may be asked for additional verification information for security, dispute, platform-risk, or legal reasons. Sensitive documents should be submitted only through an official channel requested by Alpha Traders and must not be posted in public profiles or community channels."}
+              : "Users may be asked for additional verification information for security, dispute, platform-risk, or legal reasons. Sensitive documents should be submitted only through an official channel requested by Alpha Traders and must not be posted in public profiles or community channels.")}
           </p>
         </div>
         <div id="compliance-policy" className="mt-4 scroll-mt-28 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5">
           <h2 className="text-base font-semibold text-white">{isAr ? "الامتثال للقانون" : "Compliance with law"}</h2>
           <p className="mt-2 text-sm leading-7 text-[#D1D5DB]">
-            {isAr
+            {brandText(isAr
               ? "يتحمل المستخدم مسؤولية التأكد من أن استخدامه للخدمة وطرق الدفع والمحافظ والأصول الرقمية مسموح في مكانه. قد تُقيد Alpha Traders ميزات عندما يكون ذلك مطلوبًا لأسباب قانونية أو أمنية أو تشغيلية."
-              : "Users are responsible for ensuring their use of the service, payment methods, wallets, and digital assets is permitted where they are located. Alpha Traders may restrict features when reasonably required for legal, security, or operational reasons."}
+              : "Users are responsible for ensuring their use of the service, payment methods, wallets, and digital assets is permitted where they are located. Alpha Traders may restrict features when reasonably required for legal, security, or operational reasons.")}
           </p>
         </div>
 

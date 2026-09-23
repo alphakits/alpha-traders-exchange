@@ -1,4 +1,4 @@
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import {
   Activity,
@@ -202,7 +202,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
-                  {BRAND_PRIMARY_NAME}
+                  {brandText(BRAND_PRIMARY_NAME)}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
                   {isAr ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}
@@ -256,7 +256,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
-                  {BRAND_PRIMARY_NAME}
+                  {brandText(BRAND_PRIMARY_NAME)}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
                   {isAr ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}
@@ -309,7 +309,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
 
           <div className="rounded-2xl border border-white/10 bg-black/35 p-5 shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
-              {isAr ? "انضم إلى Alpha Traders" : "Join Alpha Traders"}
+              {brandText(isAr ? "انضم إلى Alpha Traders" : "Join Alpha Traders")}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               {[
@@ -350,7 +350,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
 
       <div className="relative border-t border-white/10 bg-black/40">
         <div className="section-container flex flex-col gap-2 py-4 text-xs text-[#B8BFCC] md:flex-row md:items-center md:justify-between">
-          <p>© {year} Alpha Traders</p>
+          <p>© {year}{brandText(" Alpha Traders")}</p>
           <p>{isAr ? "مبني للمتداولين المحترفين. صُنع بدقة. الإصدار 1.3" : "Built for Professional Traders. Made with precision. Version 1.3"}</p>
           <p className="inline-flex items-center gap-2 text-emerald-300">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
