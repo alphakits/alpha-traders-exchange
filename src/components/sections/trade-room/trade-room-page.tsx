@@ -14,6 +14,7 @@ import { navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { publishTradeHeaderActivity, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { TradeTermsPanel } from "./trade-terms-panel";
+import { OwnerTradeHistoryPage } from "./owner-trade-history";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1302,6 +1303,12 @@ export function canRevealTradeRoomBankDetails(request: PurchaseRequest | null, i
 }
 
 export function TradeRoomPage(props: TradeRoomPageProps) {
+  const searchParams = useSearchParams();
+  // The history API resolves owner access from the canonical account. Never
+  // fall through to participant hooks when a stale session role opens history.
+  if (searchParams.get("view") === "history") {
+    return <OwnerTradeHistoryPage key={getTradeRoomSessionKey(props.actor.id, props.requestId)} locale={props.locale} requestId={props.requestId} />;
+  }
   return <TradeRoomPageSession key={getTradeRoomSessionKey(props.actor.id, props.requestId)} {...props} />;
 }
 

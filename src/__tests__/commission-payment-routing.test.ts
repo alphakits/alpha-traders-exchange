@@ -705,7 +705,7 @@ describe("commission wallet payment routing", () => {
     });
   });
 
-  it("does not grandfather an old non-TRC20 or non-canonical payment rail", async () => {
+  it.each([false, true])("requires original-payment review for an incompatible legacy rail (assigned: %s)", async (alreadyAssigned) => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     db.commissionRecords[0] = {
       ...db.commissionRecords[0],
@@ -714,9 +714,9 @@ describe("commission wallet payment routing", () => {
       paymentSignature: `0x${"e".repeat(64)}`,
       paymentVerificationStatus: "pending_verification",
       paymentSubmittedAt: new Date().toISOString(),
-      paymentExpectedAmount: undefined,
-      paymentExpectedAmountMode: undefined,
-      paymentExpectedAmountAssignedAt: undefined,
+      paymentExpectedAmount: alreadyAssigned ? 5 : undefined,
+      paymentExpectedAmountMode: alreadyAssigned ? "legacy_base" : undefined,
+      paymentExpectedAmountAssignedAt: alreadyAssigned ? new Date().toISOString() : undefined,
     };
 
     await getSellerCommissionStatus(SELLER_ID);
@@ -728,6 +728,11 @@ describe("commission wallet payment routing", () => {
       paymentVerificationNotes: expect.stringMatching(/cannot be checked automatically/i),
       paymentReservedExpectedAmounts: [5],
     });
+    expect(currentCommission().paymentSignature).toBe(`0x${"e".repeat(64)}`);
+    expect(currentCommission().paymentStatus).not.toBe("paid");
+    expect(currentCommission().paymentVerificationNotes).toMatch(/do not send another transfer/i);
+    expect(currentCommission().paymentVerificationNotes).toMatch(/owner to review the original payment reference and receipt/i);
+    expect(currentCommission().paymentVerificationNotes).not.toMatch(/send the newly shown exact amount/i);
   });
 
   it("automatically reconciles a pre-upgrade verified-but-unpaid commission", async () => {

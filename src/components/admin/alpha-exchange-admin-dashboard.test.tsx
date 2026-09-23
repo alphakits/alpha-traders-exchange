@@ -109,6 +109,46 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     vi.unstubAllGlobals();
   });
 
+  it("includes review-open and locked trades in Completed and links owner details to the read-only room", async () => {
+    navigationState.search = "section=purchase-requests";
+    const purchaseRequests = ["review_open", "locked", "completed", "pending"].map((status, index) => ({
+      id: `request-${index}`, buyerId: "buyer-1", buyerName: `Buyer ${index}`, sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests })));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    await screen.findByRole("heading", { name: "Purchase Requests" });
+    const statusFilter = screen.getAllByRole("combobox").find((element) => within(element).queryByRole("option", { name: "Status: All" }));
+    expect(statusFilter).toBeTruthy();
+    fireEvent.change(statusFilter!, { target: { value: "completed" } });
+    expect(screen.getAllByRole("button", { name: "View Details" })).toHaveLength(3);
+    expect(screen.queryByText("Buyer 3")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "View Details" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Purchase Request Details" });
+    expect(within(dialog).getByRole("link", { name: "Open trade room history" }).getAttribute("href")).toBe("/en/trade-room/request-0?view=history");
+  });
+
+  it.each(["completed", "review_open", "locked"])("returns from %s history to the selected purchase without active-trade actions", async (status) => {
+    navigationState.search = "section=purchase-requests&requestId=history-request&details=1";
+    const purchaseRequests = [{
+      id: "history-request", buyerId: "buyer-1", buyerName: "Historical Buyer", sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests })));
+    const { rerender } = render(<AlphaExchangeAdminDashboard isOwner />);
+    const dialog = await screen.findByRole("dialog", { name: "Purchase Request Details" });
+    expect(within(dialog).getByText("Historical Buyer")).toBeTruthy();
+    expect(within(dialog).getByRole("link", { name: "Open trade room history" }).getAttribute("href")).toBe("/en/trade-room/history-request?view=history");
+    expect(within(dialog).queryByRole("button", { name: "Force Complete" })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Force Cancel" })).toBeNull();
+    if (status !== "completed") expect(within(dialog).getByRole("button", { name: "Unlock Review" })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close request details" }));
+    rerender(<AlphaExchangeAdminDashboard isOwner />);
+    expect(screen.queryByRole("dialog", { name: "Purchase Request Details" })).toBeNull();
+  });
+
   it("selects, filters, focuses, and scrolls to an exact listing target once per navigation", async () => {
     const { rerender } = render(<AlphaExchangeAdminDashboard />);
 

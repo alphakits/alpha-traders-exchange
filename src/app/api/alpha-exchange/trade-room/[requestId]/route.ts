@@ -13,13 +13,14 @@ const PRIVATE_NO_STORE_HEADERS = {
   Pragma: "no-cache",
 };
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
 
   const { requestId } = await context.params;
+  const ownerHistory = request.nextUrl.searchParams.get("view") === "history";
   const startedAt = Date.now();
   const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   if (debug) console.log("[trade-room-open] api request", {
@@ -33,8 +34,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
-      markMessagesRead: true,
+      markMessagesRead: !ownerHistory,
       strongConsistency: true,
+      ownerHistory,
     });
     if (debug) console.log("[trade-room-open] api response", {
       requestId,
@@ -65,7 +67,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : "Failed to load trade room.";
     const status = message === "Trade not found."
       ? 404
-      : message === "You are not allowed to access trade evidence."
+      : message === "You are not allowed to access trade evidence." || message === "You are not allowed to access trade history."
         ? 403
         : 400;
     const code = status === 404

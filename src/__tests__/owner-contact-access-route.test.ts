@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ session: vi.fn(), dashboard: vi.fn(), applications: vi.fn() }));
+const mocks = vi.hoisted(() => ({ session: vi.fn(), dashboard: vi.fn(), applications: vi.fn(), approvalEmail: vi.fn() }));
 vi.mock("@/lib/auth", () => ({
   getCurrentSessionUserForAuthorization: mocks.session,
   getCurrentSessionToken: vi.fn().mockResolvedValue(null),
@@ -11,9 +11,12 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   getAdminPrepDashboardData: mocks.dashboard,
   getAllSellerApplicationsForAdmin: mocks.applications,
   getPendingSellerApplicationsForAdmin: mocks.applications,
+  sendSellerApprovalEmailByAdmin: mocks.approvalEmail,
 }));
 import { GET as dashboard } from "@/app/api/alpha-exchange/admin-prep/route";
 import { GET as applications } from "@/app/api/alpha-exchange/admin/seller-applications/route";
+import { POST as approvalEmail } from "@/app/api/alpha-exchange/admin/seller-applications/[applicationId]/approval-email/route";
+import { NextRequest } from "next/server";
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -22,8 +25,10 @@ describe("owner-only personal records", () => {
     mocks.session.mockResolvedValue({ id: "other", role, roles: [role], sellerStatus: "buyer", emailVerified: true });
     expect((await dashboard()).status).toBe(403);
     expect((await applications()).status).toBe(403);
+    expect((await approvalEmail(new NextRequest("https://example.test/api/approval-email", { method: "POST" }), { params: Promise.resolve({ applicationId: "application-1" }) })).status).toBe(403);
     expect(mocks.dashboard).not.toHaveBeenCalled();
     expect(mocks.applications).not.toHaveBeenCalled();
+    expect(mocks.approvalEmail).not.toHaveBeenCalled();
   });
 
   it("uses the authenticated owner ID and prevents shared caching", async () => {

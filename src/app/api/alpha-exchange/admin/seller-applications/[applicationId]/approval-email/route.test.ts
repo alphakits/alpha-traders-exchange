@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), send: vi.fn(), limit: vi.fn() }));
-vi.mock("@/lib/api-auth", () => ({ requireApiAdmin: mocks.auth }));
+vi.mock("@/lib/api-auth", () => ({ requireApiOwner: mocks.auth }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ sendSellerApprovalEmailByAdmin: mocks.send }));
 vi.mock("@/lib/rate-limit", async (original) => ({
   ...await original<typeof import("@/lib/rate-limit")>(), checkSharedRateLimit: mocks.limit,
@@ -14,14 +14,14 @@ function request() {
     method: "POST", body: JSON.stringify({ to: "untrusted@example.test", userId: "someone-else" }),
   });
 }
-describe("admin approval-email recovery", () => {
+describe("owner approval-email recovery", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.auth.mockResolvedValue({ user: { id: "owner-1", role: "owner" } });
     mocks.limit.mockResolvedValue({ allowed: true });
     mocks.send.mockResolvedValue({ ok: true });
   });
-  it("uses the authenticated admin and application only, and reports provider acceptance", async () => {
+  it("uses the authenticated owner and application only, and reports provider acceptance", async () => {
     const response = await POST(request(), context);
     expect(response.status).toBe(200);
     expect(mocks.send).toHaveBeenCalledWith("application-1", "owner-1");

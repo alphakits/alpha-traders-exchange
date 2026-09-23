@@ -360,6 +360,32 @@ describe("AlphaExchangeRepository", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).startsWith("select payload from alpha_exchange.purchase_requests"))).toBe(false);
   });
 
+  it.each(["completed", "locked", "review_open"] as const)("loads full owner history for a %s trade in one targeted query", async status => {
+    const messages = Array.from({ length: 125 }, (_, index) => ({ id: `message-${index}`, message: `History ${index}` }));
+    const request = { id: "history-trade", buyerId: "buyer", sellerId: "seller", status, messages, timeline: [{ id: "completed-event" }] };
+    const query = vi.fn().mockResolvedValue({ rows: [{
+      request_payload: request, listing_payload: null,
+      viewer_payload: { id: "owner", role: "owner", fullName: "Owner" },
+      buyer_payload: { id: "buyer", role: "buyer" }, seller_payload: { id: "seller", role: "approved_seller" },
+      evidence_payloads: [{ id: "old-evidence", status: "replaced" }, { id: "current-evidence", status: "uploaded" }],
+      dispute_payloads: [{ id: "resolved-dispute", status: "resolved" }],
+      audit_payloads: [{ id: "completed-audit", purchaseRequestId: "history-trade" }], commission_payloads: [], version: "43",
+    }] });
+    const repository = new AlphaExchangeRepository({ query, connect: vi.fn(), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
+
+    const snapshot = await repository.loadTradeRoomSnapshot(["history-trade"], "owner", true);
+
+    expect(snapshot?.purchaseRequests[0].messages).toHaveLength(125);
+    expect(snapshot?.purchaseRequests[0].status).toBe(status);
+    expect(snapshot?.tradeEvidenceFiles).toHaveLength(2);
+    expect(snapshot?.disputes[0]).toMatchObject({ id: "resolved-dispute" });
+    expect(snapshot?.auditLogs[0]).toMatchObject({ id: "completed-audit" });
+    expect(snapshot?.users).toContainEqual(expect.objectContaining({ id: "owner", role: "owner" }));
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("audit.purchase_request_id = request.id"), [["history-trade"], "history-trade", "owner", true]);
+  });
+
   it("loads only the explicitly selected critical-path snapshot tables", async () => {
     const query = vi.fn((queryText: string) => {
       if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });

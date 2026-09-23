@@ -1555,6 +1555,10 @@ export function UsdtExchangePage({
   const [qaCommissionModeEnabled, setQaCommissionModeEnabled] = useState(false);
   const [qaCommissionResetEnabled, setQaCommissionResetEnabled] = useState(false);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
+  const openCommissionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    openCommissionIdRef.current = commissionPayOpen ? sellerCommissionStatus?.commissionId ?? null : null;
+  }, [commissionPayOpen, sellerCommissionStatus?.commissionId]);
   const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("TRC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
   const [commissionPayBusy, setCommissionPayBusy] = useState(false);
@@ -1921,10 +1925,41 @@ export function UsdtExchangePage({
           setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
         }
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
+        let incomingCommissionStatus = myListingsJson.commissionStatus ?? null;
+        const openCommissionId = openCommissionIdRef.current;
+        if (incomingCommissionStatus && openCommissionId && Array.isArray(incomingCommissionStatus.payableRecords)
+          && !incomingCommissionStatus.payableRecords.some((record) => record.commissionId === openCommissionId)) {
+          // Every refresh path (poll, focus, notification or manual action) must
+          // retire a settled payment panel before showing another record. A
+          // no-TxID deposit can settle without ever entering pending_verification.
+          openCommissionIdRef.current = null;
+          setCommissionPayOpen(false);
+          setCommissionPayMessage(null);
+          setCommissionTxSignature("");
+          setCommissionPayerType(null);
+          setCommissionAdvancedOpen(false);
+          const nextRecord = incomingCommissionStatus.payableRecords[0];
+          incomingCommissionStatus = {
+            ...incomingCommissionStatus,
+            commissionId: nextRecord?.commissionId,
+            payableAmountDue: nextRecord?.paymentAmountDue ?? nextRecord?.amountDue ?? 0,
+            dueAt: nextRecord?.dueAt,
+            source: nextRecord?.source,
+            issueReason: nextRecord?.issueReason,
+            relatedRequestId: nextRecord?.relatedRequestId,
+            relatedTradeId: nextRecord?.relatedTradeId,
+            relatedTradeDisplayNumber: nextRecord?.relatedTradeDisplayNumber,
+            selectionError: undefined,
+          };
+          setSellerWorkspaceMessage(incomingCommissionStatus.pendingCount
+            ? (isAr ? "تم تحديث حالة الدفع. اختر العمولة التالية المستحقة عندما تكون مستعدًا." : "Payment status updated. Select the next outstanding commission when you are ready.")
+            : (isAr ? "تم التحقق من الدفع وتسوية جميع العمولات المستحقة." : "Payment verified. All commission dues are settled."));
+        }
         setSellerCommissionStatus((current) => {
-          const incoming = myListingsJson.commissionStatus ?? null;
-          const selected = !options?.commissionId && current?.commissionId
-            ? incoming?.payableRecords?.find((record) => record.commissionId === current.commissionId)
+          const incoming = incomingCommissionStatus;
+          const selectedIdToPreserve = openCommissionIdRef.current ?? (!options?.commissionId ? current?.commissionId : undefined);
+          const selected = selectedIdToPreserve
+            ? incoming?.payableRecords?.find((record) => record.commissionId === selectedIdToPreserve)
             : undefined;
           // A slower general workspace response must not switch a payment
           // panel from the requested trade to the oldest outstanding fee.
@@ -1938,7 +1973,7 @@ export function UsdtExchangePage({
             selectionError: undefined,
           } : incoming;
         });
-        refreshedCommissionStatus = myListingsJson.commissionStatus ?? null;
+        refreshedCommissionStatus = incomingCommissionStatus;
         setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
@@ -1964,7 +1999,7 @@ export function UsdtExchangePage({
       setWorkspaceError(safeErrorMessage("workspace", isAr));
       return null;
     }
-  }, [isAr, refreshMyPurchaseRequests, tracedReadFetch]);
+  }, [isAr, refreshMyPurchaseRequests, setCommissionPayMessage, setSellerWorkspaceMessage, tracedReadFetch]);
 
   // Purchase requests are financial state, so the workspace must converge even
   // when a user disabled in-app notifications or an SSE connection was lost.
@@ -2014,19 +2049,17 @@ export function UsdtExchangePage({
     void refreshSellerWorkspace();
   }, [refreshSellerWorkspace]);
 
-  const hasPendingCommissionVerification = sellerCommissionStatus?.payableRecords?.some(
-    (record) => record.paymentVerificationStatus === "pending_verification",
-  ) === true;
+  const hasUnpaidCommissions = (sellerCommissionStatus?.pendingCount ?? 0) > 0;
   const selectedCommissionIdForRefresh = sellerCommissionStatus?.commissionId?.trim() || undefined;
 
   // A seller can keep this dashboard open while an administrator issues a
   // commission. Reconcile when the page regains focus even when there was no
   // existing debt to activate the payment-verification poller below.
   useEffect(() => {
-    // Pending verification has its own interval and resume listeners below.
+    // Unpaid commissions have their own interval and resume listeners below.
     // Let that effect preserve the selected record without issuing a second
     // focus/visibility refresh at the same time.
-    if (!hasSellerWorkspaceAccess || isSessionResolving || hasPendingCommissionVerification) return;
+    if (!hasSellerWorkspaceAccess || isSessionResolving || hasUnpaidCommissions) return;
     const refreshAfterResume = () => {
       if (document.visibilityState !== "visible" || commissionPayOpen || sellerWorkspaceResumeRefreshInFlightRef.current) return;
       sellerWorkspaceResumeRefreshInFlightRef.current = true;
@@ -2040,10 +2073,10 @@ export function UsdtExchangePage({
       window.removeEventListener("focus", refreshAfterResume);
       document.removeEventListener("visibilitychange", refreshAfterResume);
     };
-  }, [commissionPayOpen, hasPendingCommissionVerification, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
+  }, [commissionPayOpen, hasUnpaidCommissions, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
 
   useEffect(() => {
-    if (!hasSellerWorkspaceAccess || !hasPendingCommissionVerification) return;
+    if (!hasSellerWorkspaceAccess || isSessionResolving || !hasUnpaidCommissions) return;
 
     let disposed = false;
     let refreshInFlight = false;
@@ -2051,27 +2084,12 @@ export function UsdtExchangePage({
       if (disposed || refreshInFlight) return;
       refreshInFlight = true;
       try {
-        const refreshed = await refreshSellerWorkspace(
-          selectedCommissionIdForRefresh
-            ? { commissionId: selectedCommissionIdForRefresh }
+        const selectedCommissionId = openCommissionIdRef.current;
+        await refreshSellerWorkspace(
+          selectedCommissionId
+            ? { commissionId: selectedCommissionId }
             : undefined,
         );
-        const selectedRecordStillPayable = !selectedCommissionIdForRefresh
-          || refreshed?.payableRecords?.some((record) => record.commissionId === selectedCommissionIdForRefresh) === true;
-        // The cron may have settled the selected record between polls. Close
-        // its panel before restoring the ordinary selection so pending copy or
-        // a 0.000000 amount cannot silently move to another commission.
-        if (!disposed && refreshed && !selectedRecordStillPayable) {
-          const fallbackStatus = await refreshSellerWorkspace();
-          if (disposed) return;
-          setCommissionPayMessage(null);
-          setCommissionPayOpen(false);
-          setCommissionPayerType(null);
-          setCommissionAdvancedOpen(false);
-          setSellerWorkspaceMessage(fallbackStatus?.pendingCount
-            ? (isAr ? "تم تحديث حالة الدفع. اختر العمولة التالية المستحقة عندما تكون مستعدًا." : "Payment status updated. Select the next outstanding commission when you are ready.")
-            : (isAr ? "تم التحقق من الدفع وتسوية جميع العمولات المستحقة." : "Payment verified. All commission dues are settled."));
-        }
       } finally {
         refreshInFlight = false;
       }
@@ -2090,7 +2108,7 @@ export function UsdtExchangePage({
       window.removeEventListener("focus", refreshAfterResume);
       document.removeEventListener("visibilitychange", refreshAfterResume);
     };
-  }, [hasPendingCommissionVerification, hasSellerWorkspaceAccess, isAr, refreshSellerWorkspace, selectedCommissionIdForRefresh, setCommissionPayMessage, setSellerWorkspaceMessage]);
+  }, [hasUnpaidCommissions, hasSellerWorkspaceAccess, isSessionResolving, refreshSellerWorkspace]);
 
   const refreshDiscordSharingStatus = useCallback(async () => {
     const response = await tracedReadFetch(
@@ -2539,11 +2557,11 @@ export function UsdtExchangePage({
         setNotificationUnreadCount(Math.max(0, payload.unreadCount));
       }
 
-      // A commission notification is also the cross-instance signal that the
-      // server persisted a new payable record. Previously the bell updated but
-      // an already-open seller workspace remained incorrectly "all clear".
+      // Due and verified notifications both change the seller's payable state.
+      // Include final settlement even when no next commission link is present.
       const commissionSignature = payload.notifications
-        .filter((notification) => Boolean(getCommissionPaymentNotificationDestination(notification)))
+        .filter((notification) => notification.reason === "commission_payment_verified"
+          || Boolean(getCommissionPaymentNotificationDestination(notification)))
         .map((notification) => `${notification.id}:${notification.updatedAt ?? notification.createdAt}`)
         .sort()
         .join("|");

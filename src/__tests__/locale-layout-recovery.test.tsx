@@ -16,6 +16,7 @@ vi.mock("@/components/layout/html-attributes-setter", () => ({ HtmlAttributesSet
 vi.mock("@/components/pwa/offline-banner", () => ({ OfflineBanner: () => null }));
 vi.mock("@/components/pwa/pwa-install-prompt", () => ({ PwaInstallPrompt: () => null }));
 vi.mock("@/components/mobile/native-app-bridge", () => ({ NativeAppBridge: () => null }));
+vi.mock("@/components/auth/buyer-contact-prompt", () => ({ BuyerContactPrompt: () => null }));
 
 import LocaleLayout from "@/app/[locale]/layout";
 

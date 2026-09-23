@@ -2835,7 +2835,7 @@ export class AlphaExchangeRepository {
    * revision changed; it must never fan out through the full exchange
    * snapshot on a per-connection timer.
    */
-  async loadTradeRoomSnapshot(lookupCandidates: string[], viewerUserId?: string): Promise<SnapshotWithVersion | null> {
+  async loadTradeRoomSnapshot(lookupCandidates: string[], viewerUserId?: string, includeOwnerHistory = false): Promise<SnapshotWithVersion | null> {
     await this.ensureReady();
     const candidates = Array.from(new Set(lookupCandidates.map((value) => value.trim()).filter(Boolean)));
     if (candidates.length === 0) return null;
@@ -2858,6 +2858,7 @@ export class AlphaExchangeRepository {
       dispute_payloads: TradeDisputeCase[] | null;
       commission_payloads: CommissionRecord[] | null;
       evidence_payloads: TradeEvidenceFile[] | null;
+      audit_payloads: AuditLogEntry[] | null;
       version: string;
     };
 
@@ -2883,6 +2884,11 @@ export class AlphaExchangeRepository {
              from alpha_exchange.evidence evidence
             where evidence.purchase_request_id = request.id
          ), '[]'::jsonb) as evidence_payloads,
+         case when $4::boolean then coalesce((
+           select jsonb_agg(audit.payload order by audit.created_at asc)
+             from alpha_exchange.audit_logs audit
+            where audit.purchase_request_id = request.id
+         ), '[]'::jsonb) else '[]'::jsonb end as audit_payloads,
          meta.version::text as version
        from alpha_exchange.purchase_requests request
        left join alpha_exchange.listings listing on listing.id = request.listing_id
@@ -2893,7 +2899,7 @@ export class AlphaExchangeRepository {
        where request.id = any($1::text[])
        order by case when request.id = $2 then 0 else 1 end, request.updated_at desc
        limit 1`,
-      [candidates, candidates[0], viewerUserId ?? null],
+      [candidates, candidates[0], viewerUserId ?? null, includeOwnerHistory],
     );
     const row = result.rows[0];
     if (!row?.request_payload) return null;
@@ -2907,6 +2913,7 @@ export class AlphaExchangeRepository {
     snapshot.disputes = Array.isArray(row.dispute_payloads) ? row.dispute_payloads : [];
     snapshot.commissionRecords = Array.isArray(row.commission_payloads) ? row.commission_payloads : [];
     snapshot.tradeEvidenceFiles = Array.isArray(row.evidence_payloads) ? row.evidence_payloads : [];
+    snapshot.auditLogs = Array.isArray(row.audit_payloads) ? row.audit_payloads : [];
     return attachVersion(snapshot, Number(row.version ?? "0"));
   }
 

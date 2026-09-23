@@ -553,6 +553,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [announcementMessageAr, setAnnouncementMessageAr] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
   const lastFocusedDeepLinkRef = useRef<string | null>(null);
+  const lastOpenedPurchaseRef = useRef<string | null>(null);
   const [deepLinkTargetElement, setDeepLinkTargetElement] = useState<HTMLElement | null>(null);
   const setSellerApplicationRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
   const setMarketplaceListingRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
@@ -563,6 +564,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     () => parseAdminDashboardDestination(new URLSearchParams(searchParamsKey)),
     [searchParamsKey],
   );
+  const returnToPurchaseDetails = searchParams.get("details") === "1";
+
+  useEffect(() => {
+    const requestId = adminDestination.purchaseRequestId;
+    if (!isOwner || !returnToPurchaseDetails || !requestId) {
+      lastOpenedPurchaseRef.current = null;
+      return;
+    }
+    if (loading || !data || lastOpenedPurchaseRef.current === requestId) return;
+    const request = data.purchaseRequests.find((item) => item.id === requestId);
+    if (!request) return;
+    lastOpenedPurchaseRef.current = requestId;
+    setSelectedRequest(request);
+  }, [adminDestination.purchaseRequestId, data, isOwner, loading, returnToPurchaseDetails]);
 
   useEffect(() => {
     let cancelled = false;
@@ -865,7 +880,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   const requestsRows = useMemo(() => {
     const items = (data?.purchaseRequests ?? []).filter((request) => {
-      if (requestsStatus !== "all" && request.status !== requestsStatus) return false;
+      if (requestsStatus === "completed") {
+        if (!["completed", "review_open", "locked"].includes(request.status) && !request.completedAt) return false;
+      } else if (requestsStatus !== "all" && request.status !== requestsStatus) return false;
       const query = requestsQuery.trim().toLowerCase();
       if (!query) return true;
       const listing = listingById.get(request.listingId);
@@ -4310,6 +4327,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   <X className="h-4 w-4" />
                 </button>
               </div>
+              {isOwner ? <div className="mt-4 rounded-xl border border-rose-400/25 bg-rose-400/5 p-3">
+                <a href={`/${locale}/trade-room/${encodeURIComponent(selectedRequest.id)}?view=history`} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-400/35 px-4 py-3 text-center text-sm font-semibold text-rose-200 hover:bg-rose-400/10">
+                  <FileClock className="h-4 w-4 shrink-0" aria-hidden="true" />{t("Open trade room history", "فتح سجل غرفة الصفقة")}
+                </a>
+                <p className="mt-2 text-xs text-[#9CA3AF]">{t("Read the full chat, attachments, timeline and reviews in a read-only view.", "راجع كامل المحادثة والمرفقات والسجل الزمني والتقييمات للقراءة فقط.")}</p>
+              </div> : null}
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
                 <p>{t("Request ID:", "رقم الطلب:")} <span className="font-mono font-medium text-white">{currencyText(displayRequestId(selectedRequest))}</span></p>
                 <p>{t("Trade ID:", "رقم الصفقة:")} <span className="font-mono font-medium text-white">{currencyText(displayTradeId(selectedRequest))}</span></p>
@@ -4403,12 +4426,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
                   <p className="mb-3 text-sm font-medium text-amber-300">{t("Admin Actions", "إجراءات الإدارة")}</p>
                   <div className="flex flex-wrap gap-2">
+                    {!selectedRequest.completedAt && selectedRequest.status !== "review_open" && selectedRequest.status !== "locked" ? <>
                     <Button type="button" size="sm" disabled={Boolean(selectedOpenDispute)} onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
                       {t("Force Complete", "إكمال إجباري")}
                     </Button>
                     <Button type="button" size="sm" variant="secondary" disabled={Boolean(selectedOpenDispute)} onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
                       {t("Force Cancel", "إلغاء إجباري")}
                     </Button>
+                    </> : null}
                     <Button type="button" size="sm" variant="secondary" onClick={() => void handleUnlockReview(selectedRequest.id)}>
                       {t("Unlock Review", "فتح التقييم")}
                     </Button>
