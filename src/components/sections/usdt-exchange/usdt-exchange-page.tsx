@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -12,6 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { AccountWelcome } from "@/components/ui/account-welcome";
+import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
+import { RankBadge } from "@/components/ui/rank-badge";
+import { accountRoleIdentity } from "@/lib/account-role-identity";
+import { rankSurfaceTone } from "@/lib/rank-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
@@ -505,7 +511,7 @@ export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEn
         <span className="me-1 text-xs text-[#9CA3AF]">
           {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit", timeZone: ISRAEL_TIME_ZONE })}
         </span>
-        {message}
+        {currencyText(message)}
         {count > 1 ? <span className="ms-1 text-xs text-[#9CA3AF]">×{count}</span> : null}
       </span>
     </div>
@@ -518,7 +524,7 @@ export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEn
       {olderEvents.length ? (
         <details className="group rounded-lg border border-white/10 bg-black/20 px-3 py-2">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-[#D1D5DB]">
-            <span>{isAr ? `عرض ${olderEvents.length.toLocaleString("ar-IL-u-nu-latn")} تحديثات سابقة` : `Show ${olderEvents.length} earlier update${olderEvents.length === 1 ? "" : "s"}`}</span>
+            <span>{currencyText(isAr ? `عرض ${olderEvents.length.toLocaleString("ar-IL-u-nu-latn")} تحديثات سابقة` : `Show ${olderEvents.length} earlier update${olderEvents.length === 1 ? "" : "s"}`)}</span>
             <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
           <div className="mt-2 space-y-2 border-t border-white/10 pt-2">{olderEvents.map(renderEvent)}</div>
@@ -560,7 +566,7 @@ export function LocalizedEvidenceFileInput({
         <span>{isAr ? "اختيار ملف" : "Choose file"}</span>
       </label>
       <span id={fileNameId} className="min-w-0 break-all text-sm leading-5 text-[#D1D5DB]" aria-live="polite">
-        {selectedFile?.name ?? (isAr ? "لم يتم اختيار ملف" : "No file selected")}
+        {currencyText(selectedFile?.name ?? (isAr ? "لم يتم اختيار ملف" : "No file selected"))}
       </span>
     </div>
   );
@@ -660,10 +666,10 @@ export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
       <rect x="2" y="2" width="52" height="52" rx="14" fill={`url(#bank-grad-${bank.id})`} />
       <rect x="7" y="8" width="4" height="40" rx="2" fill={bank.accent} opacity="0.95" />
       <text x="16" y="24" fill="white" fontSize="9" fontWeight="700" fontFamily="Arial, sans-serif" letterSpacing="0.4">
-        {wordmark.top}
+        {currencyText(wordmark.top)}
       </text>
       <text x="16" y="36" fill={bank.accent} fontSize="7" fontWeight="700" fontFamily="Arial, sans-serif" letterSpacing="0.3">
-        {wordmark.bottom}
+        {currencyText(wordmark.bottom)}
       </text>
     </svg>
   );
@@ -957,13 +963,7 @@ export function sellerLevelLabel(level?: SellerLevel, isAr = false) {
 }
 
 function sellerLevelToneKey(level?: SellerLevel) {
-  const rank = String(level ?? "bronze");
-  if (rank === "legendary") return "legendary";
-  if (rank === "diamond") return "diamond";
-  if (rank === "platinum") return "platinum";
-  if (rank === "gold") return "gold";
-  if (rank === "silver") return "silver";
-  return "bronze";
+  return rankSurfaceTone(level);
 }
 
 function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
@@ -1052,10 +1052,7 @@ function keepLatestItems<T>(items: T[], limit: number) {
 }
 
 export function roleBadgeVariantFromSession(user: SessionUser) {
-  if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) return "owner" as const;
-  if (user.role === "admin") return "administrator" as const;
-  if (hasRole(user, "approved_seller")) return "approved_seller" as const;
-  return "buyer" as const;
+  return accountRoleIdentity(user);
 }
 
 function listingRequiresFaceToFaceSafetyNotice(method: string | null | undefined) {
@@ -1194,17 +1191,17 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 />
               ) : (
                 <div className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border border-transparent text-sm font-semibold", isOwnerListing ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#D1D5DB]")}>
-                  {safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")
+                  {currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")
                     .split(" ")
                     .map((part) => part[0])
                     .join("")
-                    .slice(0, 2)}
+                    .slice(0, 2))}
                 </div>
               )}
             </div>
             <div>
               <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")}</CardTitle>
+                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller"))}</CardTitle>
                 {isOwnerListing ? <RoleBadge variant="owner" locale={isAr ? "ar" : "en"} /> : null}
               </div>
               {isOwnerListing ? (
@@ -1212,20 +1209,18 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               ) : null}
               <p className="seller-listing-seller-subtitle mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
                 <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-                  {isOwnerListing ? (isAr ? "المالك" : "Owner") : (isAr ? `بائع ${sellerLevelLabel(listing.sellerReputation?.level, true)}` : `${sellerLevelLabel(listing.sellerReputation?.level)} Seller`)}
+                  {currencyText(isOwnerListing ? (isAr ? "المالك" : "Owner") : (isAr ? `بائع ${sellerLevelLabel(listing.sellerReputation?.level, true)}` : `${sellerLevelLabel(listing.sellerReputation?.level)} Seller`))}
                 </span>
                 <span className="seller-listing-status-separator"> • </span>
                 <span className={cn("seller-listing-presence inline-flex items-center gap-1.5", `seller-presence--${presence.tone}`)}>
                   <span className={cn("seller-presence-dot", `seller-presence-dot--${presence.tone}`)} aria-hidden="true" />
-                  {isAr ? presence.labelAr : presence.label}
+                  {currencyText(isAr ? presence.labelAr : presence.label)}
                 </span>
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {shortListingRef(listing)}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
-                  {isOwnerListing ? (isAr ? "بائع أسطوري" : "Legendary Seller") : (isAr ? `بائع ${sellerLevelLabel(sellerLevel, true)}` : `${sellerLevelLabel(sellerLevel)} Seller`)}
-                </span>
+                <RankBadge rank={isOwnerListing ? "legendary" : sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
                 {isOwnerListing ? (
                   <>
                     <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ {isAr ? "البريد موثّق" : "Email Verified"}</span>
@@ -1256,7 +1251,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
           <div className="grid gap-4 md:grid-cols-[minmax(0,1.18fr)_auto_minmax(0,1fr)] md:items-stretch">
             <div className="seller-asset-usdt-card seller-card-keymetric min-w-0 rounded-xl border p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                {isAr ? "USDT المتاح" : "Available USDT"}
+                {currencyText(isAr ? "USDT المتاح" : "Available USDT")}
               </p>
               <div className="seller-asset-usdt-amount-row">
                 <div className="seller-asset-usdt-amount-content">
@@ -1264,11 +1259,11 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                     ₮
                   </span>
                   <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
-                    {formattedAvailableAmount}
+                    {currencyText(formattedAvailableAmount)}
                   </p>
                 </div>
               </div>
-              <p className="mt-2 text-sm font-medium text-emerald-100">USDT</p>
+              <p className="mt-2 text-sm font-medium text-emerald-100"><span className="currency-usdt">USDT</span></p>
               <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
                 {isAr ? "جاهز للتداول" : "Ready to trade"}
@@ -1283,12 +1278,12 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
                 {toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / USDT</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / <span className="currency-usdt">USDT</span></p>
               <div className="seller-live-market-panel mt-2 rounded-lg border p-2 text-[11px] text-[#CFCFCF]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]">USDT / ILS</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]"><span className="currency-usdt">USDT</span> / ILS</p>
                   </div>
                   <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
                 </div>
@@ -1312,7 +1307,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{isAr ? `${parseMinutes(listing.responseTime) || 5} دقائق` : safeText(listing.responseTime, "5 min")}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(isAr ? `${parseMinutes(listing.responseTime) || 5} دقائق` : safeText(listing.responseTime, "5 min"))}</p>
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
@@ -1323,21 +1318,21 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
         </div>
         <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{presence.online ? (isAr ? presence.labelAr : presence.label) : formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt, isAr)}</span></p>
-            <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
+            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(presence.online ? (isAr ? presence.labelAr : presence.label) : formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt, isAr))}</span></p>
+            <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{currencyText(safeText(listing.network))}</span></p>
             <div>
               <p>{isAr ? "الدفع" : "Payment"}:</p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
                   <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                    {paymentMethodLabel(method, isAr)}
+                    {currencyText(paymentMethodLabel(method, isAr))}
                   </span>
                 ))}
               </div>
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – {Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT</span></p>
+            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – {Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></span></p>
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
@@ -1345,7 +1340,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 <span className="seller-escrow-brand">Alpha Traders</span>
               </span>
             </p>
-            <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel")}</span></p>
+            <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{currencyText(safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel"))}</span></p>
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1445,7 +1440,7 @@ const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, i
       aria-label={isAr ? `صلاحية العرض: ${countdown.labelAr}` : `Listing eligibility: ${countdown.label}`}
     >
       {urgent ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />}
-      {isAr ? countdown.labelAr : countdown.label}
+      {currencyText(isAr ? countdown.labelAr : countdown.label)}
     </span>
   );
 });
@@ -3662,13 +3657,15 @@ export function UsdtExchangePage({
     const interval = window.setInterval(updateGreeting, 15 * 60 * 1000);
     return () => window.clearInterval(interval);
   }, [isAr]);
-  const sellerApprovalDate = sellerApplication?.updatedAt ?? sessionUser?.createdAt;
+  const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
   const workspaceDisplayId = toWorkspaceDisplayId(sessionUser, isSellerWorkspaceUser);
   const workspacePrimaryName = safeText(sessionUser?.fullName, isAr ? "المتداول" : "Trader").split(" ")[0] || (isAr ? "المتداول" : "Trader");
-  const workspacePositiveMessage = isSellerWorkspaceUser
+  const workspacePositiveMessage = welcomeRole === "owner"
+    ? (isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready.")
+    : isSellerWorkspaceUser
     ? sellerStatusForLanding === "suspended"
       ? (isAr ? "حساب البائع معلّق، لكن يمكنك دفع العمولات المستحقة ومتابعة التحقق منها هنا." : "Your seller account is suspended, but you can pay outstanding commissions and track verification here.")
-      : (isAr ? "كل شيء تحت سيطرتك. عروضك وصفقاتك وتنبيهاتك جاهزة." : "You are in control. Your listings, trades, and alerts are ready.")
+      : (isAr ? "كل شيء تحت سيطرتك. عروضك وصفقاتك وتنبيهاتك جاهزة." : "Your listings, trades, and alerts are ready.")
     : (isAr ? "مساحة عملك جاهزة. راقب نشاطك أولاً، ثم انتقل إلى السوق." : "Your workspace is ready. Track activity first, then jump into the marketplace.");
 
   const openTradeCount = isSellerWorkspaceUser
@@ -4042,7 +4039,12 @@ export function UsdtExchangePage({
       : card)
     : workspaceCards;
 
-  const heroPrimaryActions = isSellerWorkspaceUser
+  const heroPrimaryActions = welcomeRole === "owner"
+    ? [
+      { key: "hero-owner-dashboard", label: isAr ? "لوحة المالك" : "Owner Dashboard", onClick: () => router.push("/admin/alpha-exchange") },
+      { key: "hero-owner-trades", label: isAr ? "الصفقات النشطة" : "Active Trades", onClick: () => router.push("/trade-room") },
+    ]
+    : isSellerWorkspaceUser
     ? [
       {
         key: "hero-create-listing",
@@ -4869,7 +4871,7 @@ export function UsdtExchangePage({
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
           {isAr ? "مركز الإشعارات" : "Notification Center"}
-          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] text-[#C9A227]">{isAr ? `${unreadNotificationsCount} غير مقروء` : `${unreadNotificationsCount} unread`}</span>
+          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] text-[#C9A227]">{currencyText(isAr ? `${unreadNotificationsCount} غير مقروء` : `${unreadNotificationsCount} unread`)}</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -4922,17 +4924,17 @@ export function UsdtExchangePage({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-2">
                       <div>
-                        <p className="text-sm font-semibold text-white">{replaceExchangeEntityIdsWithHints(copy.title, notification)}</p>
+                        <p className="text-sm font-semibold text-white">{currencyText(replaceExchangeEntityIdsWithHints(copy.title, notification))}</p>
                         <p className="mt-1 text-[11px] text-[#93C5FD]">
-                          {notification.relatedListingDisplayNumber ? `${isAr ? "العرض" : "Listing"} ${formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}` : null}
-                          {notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedTradeDisplayNumber, notification.relatedTradeId)}` : null}
-                          {notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedRequestDisplayNumber, notification.relatedRequestId)}` : null}
+                          {currencyText(notification.relatedListingDisplayNumber ? `${isAr ? "العرض" : "Listing"} ${formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}` : null)}
+                          {currencyText(notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedTradeDisplayNumber, notification.relatedTradeId)}` : null)}
+                          {currencyText(notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedRequestDisplayNumber, notification.relatedRequestId)}` : null)}
                         </p>
                       </div>
-                      <p className="max-w-3xl text-sm leading-6 text-white/90">{replaceExchangeEntityIdsWithHints(copy.message, notification)}</p>
+                      <p className="max-w-3xl text-sm leading-6 text-white/90">{currencyText(replaceExchangeEntityIdsWithHints(copy.message, notification))}</p>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#9CA3AF]">
-                        <span>{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
-                        <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 capitalize text-[#D1D5DB]">{notificationCategoryLabel(notification.category, isAr)}</span>
+                        <span>{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
+                        <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 capitalize text-[#D1D5DB]">{currencyText(notificationCategoryLabel(notification.category, isAr))}</span>
                       </div>
                       {hasAction ? (
                         <button
@@ -4940,7 +4942,7 @@ export function UsdtExchangePage({
                           onClick={() => void handleNotificationActionClick(notification)}
                           className="inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-3 py-1.5 text-[11px] font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70"
                         >
-                          {actionLabel}
+                          {currencyText(actionLabel)}
                         </button>
                       ) : null}
                     </div>
@@ -4965,7 +4967,7 @@ export function UsdtExchangePage({
                 variant="secondary"
                 onClick={() => setNotificationCenterExpanded((prev) => !prev)}
               >
-                {notificationCenterExpanded ? (isAr ? "عرض أقل" : "Show less") : (isAr ? `عرض المزيد (${sortedNotifications.length - defaultVisibleCount})` : `View more (${sortedNotifications.length - defaultVisibleCount})`)}
+                {currencyText(notificationCenterExpanded ? (isAr ? "عرض أقل" : "Show less") : (isAr ? `عرض المزيد (${sortedNotifications.length - defaultVisibleCount})` : `View more (${sortedNotifications.length - defaultVisibleCount})`))}
               </Button>
             </div>
           ) : null}
@@ -5006,9 +5008,9 @@ export function UsdtExchangePage({
             {!marketplaceUpdates.length ? <p className="text-xs text-[#9CA3AF]">{isAr ? "لا توجد تحديثات بعد. سيظهر نشاطك هنا عند بدء التداول." : "No updates yet. Your activity appears here as soon as you trade."}</p> : null}
             {marketplaceUpdates.map((update) => (
               <div key={update.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                <p className="font-medium text-white">{update.title}</p>
-                <p className="mt-1">{update.details}</p>
-                <p className="mt-1 text-[#9CA3AF]">{formatNotificationRelativeTime(update.createdAt, locale)}</p>
+                <p className="font-medium text-white">{currencyText(update.title)}</p>
+                <p className="mt-1">{currencyText(update.details)}</p>
+                <p className="mt-1 text-[#9CA3AF]">{currencyText(formatNotificationRelativeTime(update.createdAt, locale))}</p>
               </div>
             ))}
           </div>
@@ -5023,9 +5025,9 @@ export function UsdtExchangePage({
               <p className="text-white">
                 {isAr ? "الرتبة التالية" : "Next Rank"}: <span className="font-semibold text-[#F3D979]">{sellerNextTier ? (<span className="inline-flex items-center gap-1"><Trophy className="h-3.5 w-3.5 text-[#F4D87A]" />{sellerLevelLabel(sellerNextTier.rank, isAr)}</span>) : (isAr ? "وصلت إلى أعلى رتبة" : "Top Tier Reached")}</span>
               </p>
-              <p>{isAr ? "الحجم المكتمل" : "Completed Volume"}: <span className="font-semibold text-white">{formatWholeNumber(sellerCompletedVolumeUsdt)} USDT</span></p>
-              <p>{isAr ? "المطلوب" : "Required"}: <span className="font-semibold text-white">{formatWholeNumber(sellerRequiredVolumeUsdt)} USDT</span></p>
-              <p>{isAr ? "المتبقي" : "Remaining"}: <span className="font-semibold text-white">{formatWholeNumber(sellerRemainingVolumeUsdt)} USDT</span></p>
+              <p>{isAr ? "الحجم المكتمل" : "Completed Volume"}: <span className="font-semibold text-white">{currencyText(formatWholeNumber(sellerCompletedVolumeUsdt))} <span className="currency-usdt">USDT</span></span></p>
+              <p>{isAr ? "المطلوب" : "Required"}: <span className="font-semibold text-white">{currencyText(formatWholeNumber(sellerRequiredVolumeUsdt))} <span className="currency-usdt">USDT</span></span></p>
+              <p>{isAr ? "المتبقي" : "Remaining"}: <span className="font-semibold text-white">{currencyText(formatWholeNumber(sellerRemainingVolumeUsdt))} <span className="currency-usdt">USDT</span></span></p>
               <p>{isAr ? "التقدم" : "Progress"}: <span className="font-semibold text-white">{Math.round(sellerLevelProgressPercent)}%</span></p>
             </div>
             <div className="mt-3">
@@ -5038,12 +5040,12 @@ export function UsdtExchangePage({
                 </div>
               </div>
               <p className="mt-2 text-base font-semibold text-[#FDE68A]">
-                {sellerNextTier
+                {currencyText(sellerNextTier
                   ? (isAr ? `متبقي ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT فقط للوصول إلى رتبة ${sellerLevelLabel(sellerNextTier.rank, true)}` : `Only ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT remaining to reach ${sellerLevelLabel(sellerNextTier.rank)}`)
-                  : (isAr ? "لقد وصلت بالفعل إلى أعلى رتبة للبائعين." : "You are already at the highest seller tier.")}
+                  : (isAr ? "لقد وصلت بالفعل إلى أعلى رتبة للبائعين." : "You are already at the highest seller tier."))}
               </p>
               {sellerNextTier ? <p className="mt-1 text-xs text-[#F4D87A]">{isAr ? `واصل التداول لفتح مزايا رتبة ${sellerLevelLabel(sellerNextTier.rank, true)}.` : <>Keep trading to unlock {sellerLevelLabel(sellerNextTier.rank)} benefits.</>}</p> : null}
-              <p className="mt-1 text-xs text-[#F3F4F6]">{formatWholeNumber(sellerCompletedVolumeUsdt)} / {formatWholeNumber(sellerRequiredVolumeUsdt)} USDT {isAr ? "مكتمل" : "completed"}</p>
+              <p className="mt-1 text-xs text-[#F3F4F6]">{currencyText(formatWholeNumber(sellerCompletedVolumeUsdt))} / {currencyText(formatWholeNumber(sellerRequiredVolumeUsdt))} <span className="currency-usdt">USDT</span> {isAr ? "مكتمل" : "completed"}</p>
             </div>
           </div>
         </div>
@@ -5067,8 +5069,8 @@ export function UsdtExchangePage({
             { label: isAr ? "البائعون الموثوقون" : "Trusted Sellers", value: buyerOverviewStats.uniqueTrustedSellers.toLocaleString("en-IL") },
           ].map((item) => (
             <div key={item.label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{item.label}</p>
-              <p className="mt-2 text-lg font-semibold text-white">{item.value}</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText(item.label)}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{currencyText(item.value)}</p>
             </div>
           ))}
         </div>
@@ -5080,18 +5082,18 @@ export function UsdtExchangePage({
               {buyerOverviewStats.recentTrades.map((request) => (
                 <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
                   <div>
-                    <p className="font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                    <p className="mt-0.5">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT • {paymentMethodLabel(request.paymentMethod, isAr)}</p>
+                    <p className="font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
+                    <p className="mt-0.5">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> • {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                   </div>
-                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{tradeStatusLabel(request.status, isAr)}</span>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{currencyText(tradeStatusLabel(request.status, isAr))}</span>
                 </div>
               ))}
             </div>
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
-            <p className="mt-3 text-3xl font-semibold text-white">{Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} USDT</p>
-            <p className="mt-1 text-sm text-[#E5E7EB]">{isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange."}</p>
+            <p className="mt-3 text-3xl font-semibold text-white">{Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+            <p className="mt-1 text-sm text-[#E5E7EB]">{currencyText(isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange.")}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span>{isAr ? "أيام نشطة" : "Active Trading Days"}</span>
@@ -5103,7 +5105,7 @@ export function UsdtExchangePage({
               </div>
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span>{isAr ? "متوسط سعر الشراء" : "Average Purchase Price"}</span>
-                <span className="font-semibold text-white">{formatIls(buyerOverviewStats.averagePurchasePrice)}</span>
+                <span className="font-semibold text-white">{currencyText(formatIls(buyerOverviewStats.averagePurchasePrice))}</span>
               </div>
             </div>
           </div>
@@ -5146,97 +5148,21 @@ export function UsdtExchangePage({
     <section className="section-container page-shell exchange-marketplace-shell overflow-x-clip">
       {statusMessage && !selectedListing ? (
         <ActionFeedback revealKey={statusMessageFeedbackKey} className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-[#FDE68A]">
-          {statusMessage}
+          {currencyText(statusMessage)}
         </ActionFeedback>
       ) : null}
       {sessionUser ? (
         <>
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-7">
-            <div className="pointer-events-none absolute inset-0 opacity-40">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(201,162,39,0.18),transparent_42%),radial-gradient(circle_at_85%_25%,rgba(59,130,246,0.16),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
-            </div>
-            <div className="relative z-10">
-              {isSellerWorkspaceUser ? (
-                <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1.5 text-xs text-[#F4D87A]">
-                  <span className="font-semibold uppercase tracking-[0.12em]">{isAr ? "حالة البائع" : "Seller Status"}</span>
-                  {isApprovedSeller ? <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />}
-                  <span className="text-[#E5E7EB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved Seller") : (isAr ? "حساب البائع معلّق" : "Seller account suspended")}</span>
-                </div>
-              ) : (
-                <p className="text-xs uppercase tracking-[0.18em] text-[#D4AF37]">{greetingLabel}</p>
-              )}
-              <h1 className="mt-2 text-2xl font-semibold text-white md:text-4xl">
-                {isAr ? `مرحباً بعودتك، ${workspacePrimaryName}` : `Welcome back, ${workspacePrimaryName}`}
-              </h1>
-              <p className="mt-1 text-sm text-[#D1D5DB]">{workspacePositiveMessage}</p>
-              {!isSellerWorkspaceUser ? (
-                <div className="buyer-rank-hero-card mt-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#6CAEFF]/30 bg-[#0F172A]/80 shadow-[0_0_32px_rgba(108,174,255,0.16)]">
-                        <ShieldCheck className="h-6 w-6 text-[#BFDBFE]" />
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-[#93C5FD]">{isAr ? "هوية المشتري" : "Buyer identity"}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <h2 className={cn("text-[1.35rem] font-semibold text-white md:text-[1.6rem]", "profile-identity-name--buyer")}>{isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer")}</h2>
-                          <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerProfileSummary?.key ?? "bronze"}`)}>
-                            {isAr ? "رتبة المشتري" : "Buyer rank"}
-                          </span>
-                        </div>
-                        <p className="mt-2 max-w-2xl text-sm text-[#D1D5DB]">
-                          {isAr ? (buyerProfileSummary?.descriptionAr ?? "تُحتسب رتبتك من إجمالي مشتريات USDT المكتملة.") : (buyerProfileSummary?.description ?? "Your rank is calculated from your lifetime completed USDT purchases.")}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="min-w-[min(18rem,100%)] rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-[#94A3B8]">
-                        <span>{isAr ? "التقدم نحو الرتبة التالية" : "Progress to next rank"}</span>
-                        <span>{Math.round(buyerProfileSummary?.progressPercent ?? 0)}%</span>
-                      </div>
-                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className={cn("relative h-full rounded-full transition-[width] duration-700 ease-out", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "bronze"}`)}
-                          style={{ width: `${buyerProfileSummary?.progressPercent ?? 0}%` }}
-                        />
-                      </div>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "تم شراؤه" : "Purchased"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white"><bdi dir="ltr">{formatWholeNumber(buyerProfileSummary?.lifetimeCompletedVolumeUsdt ?? 0)} USDT</bdi></p>
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.nextRank ? (isAr ? buyerProfileSummary.nextRankLabelAr : buyerProfileSummary.nextRankLabel) : (isAr ? "أعلى رتبة" : "Top tier")}</p>
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المتبقي" : "Remaining"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white"><bdi dir="ltr">{formatWholeNumber(buyerProfileSummary?.remainingVolumeUsdt ?? 15_000)} USDT</bdi></p>
-                        </div>
-                      </div>
-                      <p className="mt-3 text-center text-xs font-medium text-[#BFDBFE]">
-                        {buyerProfileSummary?.nextRank
-                          ? (isAr
-                            ? `${formatWholeNumber(buyerProfileSummary.lifetimeCompletedVolumeUsdt)} / ${formatWholeNumber(buyerProfileSummary.requiredVolumeUsdt)} USDT مكتمل`
-                            : `${formatWholeNumber(buyerProfileSummary.lifetimeCompletedVolumeUsdt)} / ${formatWholeNumber(buyerProfileSummary.requiredVolumeUsdt)} USDT completed`)
-                          : (isAr ? "لقد وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-              {isApprovedSeller ? (
-                <>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">
-                    {isAr ? "تاريخ الموافقة" : "Approval Date"}: {sellerApprovalDate
-                      ? new Date(sellerApprovalDate).toLocaleDateString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })
-                      : "—"}
-                  </p>
-                  <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{greetingLabel}</p>
-                </>
-              ) : null}
+          <AccountWelcome
+            role={welcomeRole}
+            locale={isAr ? "ar" : "en"}
+            name={workspacePrimaryName}
+            description={workspacePositiveMessage}
+            greeting={greetingLabel}
+            suspended={sellerStatusForLanding === "suspended"}
+          >
               {!isDashboardWorkspace ? (
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="account-welcome__actions">
                   {heroPrimaryActions.map((action, index) => (
                     <Button
                       key={action.key}
@@ -5245,36 +5171,45 @@ export function UsdtExchangePage({
                       className="min-h-11"
                       onClick={action.onClick}
                     >
-                      {action.label}
+                      {currencyText(action.label)}
                     </Button>
                   ))}
                 </div>
-              ) : null}
-              {isDashboardWorkspace ? (
-                <div className="mt-4">
-                  {isSellerWorkspaceUser ? (
-                    <p className="mb-3 text-sm text-[#F4D87A]">{sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr)}</p>
-                  ) : null}
+              ) : (
+                <div className="account-welcome__actions">
+                  {welcomeRole === "owner" ? <Link href="/admin/alpha-exchange" className="gold-gradient inline-flex min-h-11 items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-black">{isAr ? "لوحة المالك" : "Owner Dashboard"}</Link> : (
                   <Link href="/usdt-exchange#marketplace" className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#E7C65B] px-6 py-3 text-sm font-semibold text-black shadow-[0_4px_20px_rgba(201,162,39,0.15)] transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#D4AF37] sm:w-auto">
                     <Store className="h-4 w-4" aria-hidden="true" />
                     {isAr ? "تصفح البائعين" : "Browse Sellers"}
                     <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" />
                   </Link>
+                  )}
+                </div>
+              )}
+              {!isSellerWorkspaceUser && welcomeRole !== "owner" && welcomeRole !== "administrator" ? (
+                <BuyerRankCard summary={buyerProfileSummary} locale={isAr ? "ar" : "en"} />
+              ) : null}
+              {isDashboardWorkspace ? (
+                <div className="mt-4">
+                  {isSellerWorkspaceUser ? (
+                    <div className="mb-3">{welcomeRole !== "owner" ? <RankBadge rank={sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}</div>
+                  ) : null}
+
                 </div>
               ) : (
               <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اسم التداول" : "Trading Name"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{safeText(sessionUser.fullName, isAr ? "المتداول" : "Trader")}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText(safeText(sessionUser.fullName, isAr ? "المتداول" : "Trader"))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isSellerWorkspaceUser ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{isSellerWorkspaceUser ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer"))}</p>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "owner" ? (isAr ? "دور الحساب" : "Account Role") : isSellerWorkspaceUser ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
+                  <div className="mt-2">{welcomeRole === "owner" ? <RoleBadge variant="owner" locale={isAr ? "ar" : "en"} /> : <RankBadge rank={isSellerWorkspaceUser ? sellerOverviewStats.reputation?.level : buyerProfileSummary?.key} locale={isAr ? "ar" : "en"} audience={isSellerWorkspaceUser ? "seller" : "buyer"} />}</div>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "معرّف AT" : "AT ID"}</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <Link href="/profile" className="text-sm font-semibold text-[#93C5FD] underline-offset-2 hover:underline">{workspaceDisplayId}</Link>
+                    <Link href="/profile" className="text-sm font-semibold text-[#93C5FD] underline-offset-2 hover:underline">{currencyText(workspaceDisplayId)}</Link>
                     <Button
                       type="button"
                       size="sm"
@@ -5294,12 +5229,11 @@ export function UsdtExchangePage({
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">USDT / ILS {formatIls(marketPricePerUsdt)}</p>
+                  <p className="mt-1 text-sm font-semibold text-white"><span className="currency-usdt">USDT</span> / ILS {currencyText(formatIls(marketPricePerUsdt))}</p>
                 </div>
               </div>
               )}
-            </div>
-          </div>
+          </AccountWelcome>
 
           {showBuyerSellerApplicationUpFront && (!isDashboardWorkspace || sellerApplicationEligibility !== "application_pending") ? sellerApplicationPanel : null}
           {isDashboardWorkspace && isApprovedSeller ? (
@@ -5341,15 +5275,15 @@ export function UsdtExchangePage({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold leading-5 text-white">{card.title}</p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#C8CDD5]">{card.subtitle}</p>
+                        <p className="text-sm font-semibold leading-5 text-white">{currencyText(card.title)}</p>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#C8CDD5]">{currencyText(card.subtitle)}</p>
                       </div>
                       <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/20">
                         <Icon className="h-4 w-4 text-[#F4D87A]" />
                       </span>
                     </div>
                     <p className={cn("mt-auto pt-2 font-semibold", statIsAction ? "inline-flex items-center gap-1 text-sm text-[#F4D87A]" : "text-xl tracking-tight text-white")}>
-                      {card.stat}
+                      {currencyText(card.stat)}
                       {statIsAction ? <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" /> : null}
                     </p>
                   </button>
@@ -5375,9 +5309,9 @@ export function UsdtExchangePage({
                     onClick={item.onClick}
                     className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4 text-start transition hover:-translate-y-0.5 hover:border-amber-400/35 hover:bg-amber-500/12"
                   >
-                    <p className="text-xs uppercase tracking-[0.14em] text-amber-200/80">{item.title}</p>
-                    <p className="mt-2 text-sm font-semibold text-white">{item.body}</p>
-                    <p className="mt-3 text-xs font-medium text-amber-200">{item.action}</p>
+                    <p className="text-xs uppercase tracking-[0.14em] text-amber-200/80">{currencyText(item.title)}</p>
+                    <p className="mt-2 text-sm font-semibold text-white">{currencyText(item.body)}</p>
+                    <p className="mt-3 text-xs font-medium text-amber-200">{currencyText(item.action)}</p>
                   </button>
                 ))}
               </CardContent>
@@ -5404,13 +5338,13 @@ export function UsdtExchangePage({
             Alpha Exchange
           </p>
           <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">{isApprovedSeller ? (isAr ? "إعادة الدخول إلى مساحة البيع" : "Returning to your seller workspace") : (isAr ? "إعادة الدخول إلى مساحة الشراء" : "Returning to your buyer workspace")}</p>
-          <h1 className="mt-2 text-4xl font-semibold leading-tight text-white md:text-6xl md:leading-[1.1]">{workspaceIdentityName}</h1>
+          <h1 className="mt-2 text-4xl font-semibold leading-tight text-white md:text-6xl md:leading-[1.1]">{currencyText(workspaceIdentityName)}</h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-white/85 md:text-lg">
             {workspacePositiveMessage}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved seller") : (isAr ? "مشتري نشط" : "Active buyer")}</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{workspaceDisplayId}</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{currencyText(workspaceDisplayId)}</span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? "جاهز للتصفح" : "Ready to browse")}</span>
           </div>
           <div className={`mt-7 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
@@ -5477,11 +5411,11 @@ export function UsdtExchangePage({
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                       <Icon className="h-4 w-4" />
                     </span>
-                    <CardTitle className="text-base">{item.title}</CardTitle>
+                    <CardTitle className="text-base">{currencyText(item.title)}</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription>{item.body}</CardDescription>
+                  <CardDescription>{currencyText(item.body)}</CardDescription>
                 </CardContent>
               </Card>
             );
@@ -5495,7 +5429,7 @@ export function UsdtExchangePage({
         <Card className="mt-6 border-amber-500/30 bg-[#0B0B0B]/95">
           <CardContent className="flex items-center gap-3 p-4 text-sm text-[#FDE68A]">
             <AlertTriangle className="h-4 w-4" />
-            <span>{workspaceError}</span>
+            <span>{currencyText(workspaceError)}</span>
           </CardContent>
         </Card>
       ) : null}
@@ -5512,8 +5446,8 @@ export function UsdtExchangePage({
                   {index + 1}
                 </span>
                 <div>
-                  <h3 className="text-lg font-semibold">{step.title}</h3>
-                  <p className="mt-1 text-sm leading-7 text-[#9CA3AF]">{step.body}</p>
+                  <h3 className="text-lg font-semibold">{currencyText(step.title)}</h3>
+                  <p className="mt-1 text-sm leading-7 text-[#9CA3AF]">{currencyText(step.body)}</p>
                 </div>
               </div>
               {index < timelineSteps.length - 1 ? (
@@ -5568,18 +5502,18 @@ export function UsdtExchangePage({
                         className="min-w-[230px] snap-start rounded-2xl border border-[#C9A227]/20 bg-[linear-gradient(155deg,rgba(201,162,39,0.14),rgba(8,8,8,0.9)_42%,rgba(8,8,8,0.98))] p-4 shadow-[0_10px_28px_rgba(0,0,0,0.35)] md:min-w-0"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-[#F4D87A]">{pair.label}</p>
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-[#F4D87A]">{currencyText(pair.label)}</p>
                           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${positive ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-rose-500/35 bg-rose-500/10 text-rose-300"}`}>
-                            {formatMarketCardChange(pair.changePercent)}
+                            {currencyText(formatMarketCardChange(pair.changePercent))}
                           </span>
                         </div>
-                        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{formatMarketCardPrice(pair.key, pair.price)}</p>
+                        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{currencyText(formatMarketCardPrice(pair.key, pair.price))}</p>
                         <div className="mt-3 h-10 rounded-xl border border-white/10 bg-black/30 px-2 py-1">
                           <svg viewBox="0 0 100 32" className="h-full w-full" preserveAspectRatio="none" role="img" aria-label={marketTrendAriaLabel(pair.label, isAr)}>
                             <path d={spark} fill="none" stroke={positive ? "#34D399" : "#F87171"} strokeWidth="2" strokeLinecap="round" />
                           </svg>
                         </div>
-                        <p className="mt-2 text-xs leading-5 text-[#AEB5C0]">{marketReferenceLabel(pair.reference, pair.source, isAr)}</p>
+                        <p className="mt-2 text-xs leading-5 text-[#AEB5C0]">{currencyText(marketReferenceLabel(pair.reference, pair.source, isAr))}</p>
                       </article>
                     );
                   })}
@@ -5589,7 +5523,7 @@ export function UsdtExchangePage({
           })()}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] px-4 py-2.5 text-[11px] text-[#9CA3AF] sm:px-5">
             <span>
-              {isAr ? "آخر تحديث" : "Last update"}: {formatIsraelMarketTime(marketSnapshot?.updatedAt, isAr)}
+              {isAr ? "آخر تحديث" : "Last update"}: {currencyText(formatIsraelMarketTime(marketSnapshot?.updatedAt, isAr))}
             </span>
             <span>{isAr ? "الحالة" : "Status"}: <span className={marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}>{marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "متدهور" : "Degraded")}</span></span>
           </div>
@@ -5674,8 +5608,8 @@ export function UsdtExchangePage({
                   <div key={`recent-completed-${trade.id}`} className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                     <div>
-                      <p className="font-medium text-white">{shortTradeRef(trade, isAr)}</p>
-                      <p className="mt-0.5">{Math.trunc(toNumber(trade.usdtAmount)).toLocaleString("en-US")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
+                      <p className="font-medium text-white">{currencyText(shortTradeRef(trade, isAr))}</p>
+                      <p className="mt-0.5">{Math.trunc(toNumber(trade.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {currencyText(trade.currency)}</p>
                       <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })}</p>
                     </div>
                   </div>
@@ -5690,9 +5624,9 @@ export function UsdtExchangePage({
                   aria-expanded={showAllCompletedTrades}
                   onClick={() => setShowAllCompletedTrades((value) => !value)}
                 >
-                  {showAllCompletedTrades
+                  {currencyText(showAllCompletedTrades
                     ? (isAr ? "عرض أقل" : "Show less")
-                    : (isAr ? `عرض ${recentCompletedTrades.length - 1} صفقات إضافية` : `Show ${recentCompletedTrades.length - 1} more`)}
+                    : (isAr ? `عرض ${recentCompletedTrades.length - 1} صفقات إضافية` : `Show ${recentCompletedTrades.length - 1} more`))}
                 </Button>
               ) : null}
             </CardContent>
@@ -5781,7 +5715,7 @@ export function UsdtExchangePage({
           <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
             <CardContent className="p-6 text-center">
               <p className="text-base font-medium text-white">
-                {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now."}
+                {currencyText(isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now.")}
               </p>
               <p className="mt-2 text-sm text-[#9CA3AF]">
                 {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
@@ -5821,11 +5755,11 @@ export function UsdtExchangePage({
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                       <Icon className="h-4.5 w-4.5" />
                     </span>
-                    <CardTitle className="text-xl">{feature.title}</CardTitle>
+                    <CardTitle className="text-xl">{currencyText(feature.title)}</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription className="text-sm leading-7">{feature.body}</CardDescription>
+                  <CardDescription className="text-sm leading-7">{currencyText(feature.body)}</CardDescription>
                 </CardContent>
               </Card>
             );
@@ -6044,8 +5978,8 @@ export function UsdtExchangePage({
                 <div className="mx-auto mb-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                   <Icon className="h-4 w-4" />
                 </div>
-                <p className="text-xl font-semibold text-white">{item.value}</p>
-                <p className="mt-1 text-sm text-[#9CA3AF]">{isAr ? item.labelAr : item.label}</p>
+                <p className="text-xl font-semibold text-white">{currencyText(item.value)}</p>
+                <p className="mt-1 text-sm text-[#9CA3AF]">{currencyText(isAr ? item.labelAr : item.label)}</p>
               </CardContent>
             </Card>
           );
@@ -6060,10 +5994,10 @@ export function UsdtExchangePage({
           {faqs.map((item) => (
             <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5 transition-colors hover:border-white/20">
               <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
-                {item.q}
+                {currencyText(item.q)}
                 <CheckCircle2 className="h-4 w-4 text-[#C9A227] transition group-open:rotate-12" />
               </summary>
-              <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{item.a}</p>
+              <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{currencyText(item.a)}</p>
             </details>
           ))}
         </div>
@@ -6075,7 +6009,7 @@ export function UsdtExchangePage({
         <CardContent className="relative p-6 md:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_20%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_86%_78%,rgba(201,162,39,0.12),transparent_40%)]" />
           <div className={`relative z-10 ${isAr ? "md:text-right" : ""}`}>
-            <h3 className="text-2xl font-semibold md:text-3xl">{isAr ? "جاهز لتبادل USDT؟" : "Ready to Exchange USDT?"}</h3>
+            <h3 className="text-2xl font-semibold md:text-3xl">{currencyText(isAr ? "جاهز لتبادل USDT؟" : "Ready to Exchange USDT?")}</h3>
             <p className="mt-2 max-w-3xl text-[#D1D5DB]">
               {isAr
                 ? "انضم إلى مجتمع Alpha Traders واستمتع بسوق احترافي يربط بين البائعين والمشترين عبر Alpha Exchange."
@@ -6109,14 +6043,14 @@ export function UsdtExchangePage({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-white">{isAr ? "إزالة العرض" : "Remove listing"}</h3>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يتم تسجيل سبب الإزالة للشفافية." : `Removing ${shortListingRef(removalListing)} is recorded for marketplace accountability.`}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(isAr ? "يتم تسجيل سبب الإزالة للشفافية." : `Removing ${shortListingRef(removalListing)} is recorded for marketplace accountability.`)}</p>
                 </div>
                 <button type="button" aria-label={isAr ? "إغلاق نافذة إزالة العرض" : "Close removal dialog"} onClick={() => setRemovalListing(null)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="mt-4 space-y-3">
-                {removalError ? <ActionFeedback revealKey={removalErrorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{removalError}</ActionFeedback> : null}
+                {removalError ? <ActionFeedback revealKey={removalErrorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">{currencyText(removalError)}</ActionFeedback> : null}
                 <div>
                   <label htmlFor="removal-reason" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">{isAr ? "السبب" : "Reason"} <span className="text-red-300">*</span></label>
                   <select

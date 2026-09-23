@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Award, CheckCircle2, ShieldCheck, Sparkles, Star, UserRound } from "lucide-react";
@@ -237,12 +238,12 @@ export default async function PublicUserProfilePage({
                   {data.profile.profilePhotoUrl ? (
                     <Image src={data.profile.profilePhotoUrl} alt={publicTradingName} width={112} height={112} unoptimized className="h-full w-full rounded-2xl object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center rounded-2xl bg-black/70 text-2xl font-semibold text-[#F4D87A]">{initials}</div>
+                    <div className="flex h-full w-full items-center justify-center rounded-2xl bg-black/70 text-2xl font-semibold text-[#F4D87A]">{currencyText(initials)}</div>
                   )}
                 </div>
                 <div className="pb-1">
                   <h1 className={isVerifiedSeller ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
-                    <bdi dir="auto">{publicTradingName}</bdi>
+                    <bdi dir="auto">{currencyText(publicTradingName)}</bdi>
                   </h1>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     {isVerifiedSeller ? (
@@ -292,11 +293,11 @@ export default async function PublicUserProfilePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدولة" : "Country"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{publicCountryLabel(data.profile.country, isAr)}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{currencyText(publicCountryLabel(data.profile.country, isAr))}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.map((language) => publicLanguageLabel(language, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified")}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{currencyText(data.profile.languages.length ? data.profile.languages.map((language) => publicLanguageLabel(language, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified"))}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>
@@ -320,7 +321,7 @@ export default async function PublicUserProfilePage({
               <CardTitle>{isAr ? "نبذة احترافية" : "Professional overview"}</CardTitle>
             </CardHeader>
             <CardContent className="text-sm leading-7 text-[#D1D5DB]">
-              <bdi dir="auto">{data.profile.bio || (isAr ? "لا توجد نبذة منشورة بعد." : "No professional bio published yet.")}</bdi>
+              <bdi dir="auto">{currencyText(data.profile.bio || (isAr ? "لا توجد نبذة منشورة بعد." : "No professional bio published yet."))}</bdi>
             </CardContent>
           </Card>
           <Card className="border-white/10 bg-[#0B0B0B]/92">
@@ -349,11 +350,11 @@ export default async function PublicUserProfilePage({
                       <p className="mt-2 text-xl font-semibold text-white">{sellerTierLabel(sellerIdentity.sellerLevel, isAr)}</p>
                     </div>
                     <p className="text-xs text-[#E5E7EB]">
-                      {sellerIdentity.nextRank
+                      {currencyText(sellerIdentity.nextRank
                         ? `${isAr ? "التالي" : "Next"}: ${sellerTierLabel(sellerIdentity.nextRank, isAr)}`
                         : isAr
                           ? "أعلى مستوى"
-                          : "Top tier"}
+                          : "Top tier")}
                     </p>
                   </div>
                   {sellerIdentity.amountToNextRankUsdt !== undefined ? <>
@@ -362,7 +363,7 @@ export default async function PublicUserProfilePage({
                   </div>
                   <p className="mt-2 text-xs text-[#E5E7EB]">
                     {sellerIdentity.nextRank
-                      ? <><bdi dir="ltr">{sellerIdentity.amountToNextRankUsdt.toLocaleString("en-IL")} USDT</bdi> {isAr ? "للمستوى التالي" : "to the next tier"}</>
+                      ? <><bdi dir="ltr">{sellerIdentity.amountToNextRankUsdt.toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></bdi> {isAr ? "للمستوى التالي" : "to the next tier"}</>
                       : isAr
                         ? "تم الوصول لأعلى مستوى."
                         : "Highest tier achieved."}
@@ -384,7 +385,7 @@ export default async function PublicUserProfilePage({
                     {(sellerIdentity.badges ?? []).slice(0, 6).map((badge) => (
                       <span key={badge} className="inline-flex items-center gap-1 rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2.5 py-1 text-[11px] text-[#BFDBFE]">
                         <Star className="h-3.5 w-3.5 text-[#93C5FD]" />
-                        {sellerBadgeLabel(badge, isAr)}
+                        {currencyText(sellerBadgeLabel(badge, isAr))}
                       </span>
                     ))}
                     {!sellerIdentity.badges.length ? (
@@ -399,8 +400,8 @@ export default async function PublicUserProfilePage({
                     <div className="mt-2 space-y-2">
                       {sellerIdentity.latestReviews.slice(0, 3).map((review) => (
                         <div key={review.id} className="rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white"><bdi dir="auto">{review.buyerName}</bdi> • <bdi dir="ltr">{review.rating.toFixed(1)}★</bdi></p>
-                          <p className="mt-1"><bdi dir="auto">{review.comment}</bdi></p>
+                          <p className="font-medium text-white"><bdi dir="auto">{currencyText(review.buyerName)}</bdi> • <bdi dir="ltr">{review.rating.toFixed(1)}★</bdi></p>
+                          <p className="mt-1"><bdi dir="auto">{currencyText(review.comment)}</bdi></p>
                         </div>
                       ))}
                       {!sellerIdentity.latestReviews.length ? <p className="text-xs text-[#9CA3AF]">{isAr ? "لا توجد تقييمات منشورة بعد." : "No reviews published yet."}</p> : null}
@@ -411,7 +412,7 @@ export default async function PublicUserProfilePage({
                     <div className="mt-2 space-y-2">
                       {sellerIdentity.recentActivity.slice(0, 4).map((activity) => (
                         <div key={activity.id} className="rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{sellerActivityLabel(activity, isAr)}</p>
+                          <p className="font-medium text-white">{currencyText(sellerActivityLabel(activity, isAr))}</p>
                           <p className="mt-1 text-[#9CA3AF]">{new Date(activity.createdAt).toLocaleString(dateLocale)}</p>
                         </div>
                       ))}

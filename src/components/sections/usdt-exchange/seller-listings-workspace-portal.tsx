@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
@@ -179,7 +180,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
           >
             <CardHeader>
               {sellerWorkspaceMessage ? (
-                <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} as="p" role="status" aria-live="polite" className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white">{sellerWorkspaceMessage}</ActionFeedback>
+                <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} as="p" role="status" aria-live="polite" className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white">{currencyText(sellerWorkspaceMessage)}</ActionFeedback>
               ) : null}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -276,12 +277,12 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                       onClick={() => setSellerExpandedListingId((current) => current === listing.id ? null : listing.id)}
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {shortListingRef(listing)}</p>
-                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
+                        <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
+                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{currencyText(listingAttention)}</p>
                       </div>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US")} USDT</p>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{formatIls(toNumber(listing.price))}</p>
-                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{listingPaymentMethods}</p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{currencyText(formatIls(toNumber(listing.price)))}</p>
+                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{currencyText(listingPaymentMethods)}</p>
                       <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
                       <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
                     </button>
@@ -298,7 +299,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                       </p>
                     ) : null}
                     <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{listingStatusLabel(listing.status, isAr)}</span></p>
+                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{currencyText(listingStatusLabel(listing.status, isAr))}</span></p>
                       <p>{isAr ? "الإجراء المطلوب" : "Required action"}: <span className="text-white">{listingRequiredAction}</span></p>
                       <p>{isAr ? "طلبات الشراء" : "Purchase requests"}: <span className="text-white">{requestsCount}</span></p>
                       <p>{isAr ? "آخر نشاط" : "Last activity"}: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
@@ -393,11 +394,11 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <p className={`text-xs transition-colors duration-200 ${
                             listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                           }`}>
-                            {listingEditPriceInvalid
+                            {currencyText(listingEditPriceInvalid
                               ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                               : listingEditPriceValid
                                 ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
+                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`))}
                           </p>
                         </div>
                         <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder={isAr ? "العملة" : "Currency"} />
@@ -440,7 +441,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                       : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
                                   }`}
                                 >
-                                  <p className="text-xs font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
+                                  <p className="text-xs font-medium text-white">{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</p>
                                 </button>
                               );
                             })}
@@ -474,7 +475,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                       {renderBankLogo(bank)}
                                     </span>
                                     <div>
-                                      <p className="text-xs font-medium text-white">{getIsraeliBankDisplayName(bank.name, locale)}</p>
+                                      <p className="text-xs font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
                                       <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
                                     </div>
                                   </div>
@@ -483,7 +484,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                               );
                             })}
                           </div>
-                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingEditSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</p> : null}
+                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {currencyText(listingEditSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", "))}</p> : null}
                         </div>
                         ) : null}
                         {listingEditRequiresBankAccount ? (
@@ -564,15 +565,15 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
                             <div className="space-y-1">
                               <p className="font-medium">
-                                {listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active")}
+                                {currencyText(listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active"))}
                               </p>
-                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {formatIls(marketPricePerUsdt)} {isAr ? "لكل 1 USDT" : "per 1 USDT"}</p>
-                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {formatIls(maxAllowedListingPrice)}</p>
-                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">{isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT."}</p> : null}
+                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {currencyText(formatIls(marketPricePerUsdt))} {currencyText(isAr ? "لكل 1 USDT" : "per 1 USDT")}</p>
+                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {currencyText(formatIls(maxAllowedListingPrice))}</p>
+                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">{currencyText(isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT.")}</p> : null}
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
                               {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}
                               {listingEditBankAccountMismatch ? <p className="text-amber-200">{isAr ? "يجب أن تشمل البنوك المدعومة بنك استلام الدفعات المحدد." : "Supported banks must include the selected payout bank."}</p> : null}
-                              {listingEditAmount > 0 ? <p>{Math.trunc(listingEditAmount).toLocaleString("en-US")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
+                              {listingEditAmount > 0 ? <p>{Math.trunc(listingEditAmount).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> ≈ {currencyText(formatIls(listingEditAmount * marketPricePerUsdt))}</p> : null}
                             </div>
                           </div>
                         </div>
@@ -596,9 +597,9 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     variant="secondary"
                     onClick={() => setSellerListingsExpanded((current) => !current)}
                   >
-                    {sellerListingsExpanded
+                    {currencyText(sellerListingsExpanded
                       ? (isAr ? "عرض عدد أقل من العروض" : "Show fewer listings")
-                      : (isAr ? `عرض جميع العروض (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})` : `View All Listings (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})`)}
+                      : (isAr ? `عرض جميع العروض (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})` : `View All Listings (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})`))}
                   </Button>
                 </div>
               ) : null}

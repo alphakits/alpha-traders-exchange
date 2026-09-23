@@ -584,7 +584,7 @@ html[lang="ar"] :where(body, body *) {
   box-shadow: 0 8px 20px rgba(30, 64, 175, 0.25), 0 0 18px rgba(59, 130, 246, 0.22);
 }
 
-.role-badge--approved-seller {
+.role-badge.role-badge--approved-seller {
   border-color: rgba(251, 191, 36, 0.52);
   color: #fde68a;
   background: linear-gradient(140deg, rgba(180, 83, 9, 0.64), rgba(251, 146, 60, 0.32), rgba(201, 162, 39, 0.28));
@@ -649,6 +649,128 @@ html[lang="ar"] :where(body, body *) {
   font-weight: 700;
   letter-spacing: 0.18em;
 }
+
+.currency-usdt {
+  color: var(--usdt-ink, #34d399) !important;
+  -webkit-text-fill-color: var(--usdt-ink, #34d399);
+}
+
+.gold-gradient { --usdt-ink: #065f46; }
+option[value="USDT"], option[value="usdt"] { color: #34d399; }
+select:has(option[value="USDT"]:checked), select:has(option[value="usdt"]:checked) { color: #34d399; }
+input[placeholder*="usdt" i]::placeholder { color: #34d399; }
+
+.role-badge--student {
+  color: #e9d5ff;
+  border-color: #c084fc70;
+  background: linear-gradient(135deg, #581c87cc, #a855f733);
+}
+
+.role-badge--pending-seller {
+  color: #fed7aa;
+  border-color: #fb923c70;
+  background: linear-gradient(135deg, #7c2d12cc, #f9731633);
+}
+
+.role-badge.role-badge--approved-seller {
+  color: #fff1b9;
+  border-color: #f4cd6b9e;
+  background: linear-gradient(120deg, #59400e, #a87820 35%, #6c4b12 65%, #3e2b0a);
+  box-shadow: inset 0 1px 0 #ffedb95c, 0 0 24px #d4af372b;
+}
+
+.account-welcome {
+  --welcome-accent: 100, 168, 255;
+  --welcome-ink: #c6e1ff;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-width: 0;
+  padding: clamp(1.25rem, 3.5vw, 2.25rem);
+  border: 1px solid rgba(var(--welcome-accent), .4);
+  border-radius: 1.75rem;
+  background: radial-gradient(ellipse at 8% 0%, rgba(var(--welcome-accent), .2), transparent 65%),
+    linear-gradient(135deg, #111c31, #080c15 65%, #07090e);
+  box-shadow: inset 0 1px 0 rgba(var(--welcome-accent), .3), 0 20px 65px #0005;
+}
+
+.account-welcome--owner {
+  --welcome-accent: 248, 80, 92;
+  --welcome-ink: #ffc5be;
+  background: radial-gradient(ellipse at 3% 0%, #d52b3c66, transparent 65%),
+    linear-gradient(125deg, #54111e, #290911 58%, #11070b);
+  border-color: #fa6a7078;
+  box-shadow: inset 0 1px 0 #ffcab747, 0 0 32px #d8233b1c, 0 20px 65px #0005;
+}
+
+.account-welcome--approved_seller, .account-welcome--administrator {
+  --welcome-accent: 230, 189, 85;
+  --welcome-ink: #f8dfa0;
+  background: radial-gradient(ellipse at 8% 0%, #d4af372e, transparent 68%),
+    linear-gradient(135deg, #2c2515, #13110b 65%, #0b0b09);
+}
+
+.account-welcome--student { --welcome-accent: 192, 132, 252; --welcome-ink: #e9d5ff; }
+.account-welcome--pending_seller { --welcome-accent: 251, 146, 60; --welcome-ink: #fed7aa; }
+.account-welcome--moderator { --welcome-accent: 203, 213, 225; --welcome-ink: #e2e8f0; }
+.account-welcome--guest { --welcome-accent: 52, 211, 153; --welcome-ink: #a7f3d0; }
+.account-welcome--suspended { --welcome-accent: 251, 191, 36; --welcome-ink: #fde68a; }
+
+.account-welcome__reflection {
+  position: absolute;
+  pointer-events: none;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 35%, #ffffff08 46%, transparent 57%),
+    linear-gradient(180deg, #ffffff08, transparent 24%);
+}
+
+.account-welcome__content { position: relative; min-width: 0; }
+.account-welcome__emblem { display: grid; place-items: center; flex-shrink: 0; width: 4.4rem; height: 4.7rem; color: var(--welcome-ink); border: 1px solid rgba(var(--welcome-accent), .7); border-radius: 1.4rem 1.4rem 2rem 2rem; background: linear-gradient(145deg, rgba(var(--welcome-accent), .6), rgba(var(--welcome-accent), .12) 38%, #0007 68%, rgba(var(--welcome-accent), .36)); box-shadow: inset 0 1px 1px #fff8, inset 0 -3px 12px #0005, 0 0 25px rgba(var(--welcome-accent), .13); transform: rotate(5deg); }
+.account-welcome__emblem svg { width: 2.3rem; height: 2.3rem; transform: rotate(-5deg); }
+.account-welcome--owner .account-welcome__emblem { color: #ffe0a4; border-color: #e9bb6eaa; }
+.account-welcome__identity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.account-welcome__eyebrow, .account-welcome__time { color: var(--welcome-ink); font-size: .65rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+.account-welcome__badge { padding: .6rem .85rem; font-size: .7rem; }
+.account-welcome__badge .role-badge__content { gap: .45rem; }
+.account-welcome__badge .role-badge__content > svg:first-child { width: 1.15rem; height: 1.15rem; }
+.account-welcome__title { margin-top: 1.6rem; color: #fff; font-size: clamp(1.65rem, 4.7vw, 2.5rem); font-weight: 650; line-height: 1.16; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.account-welcome__greeting { margin-top: .8rem; color: var(--welcome-ink); font-size: .95rem; font-weight: 500; }
+.account-welcome__description { margin-top: .3rem; max-width: 44rem; color: #d1d5db; font-size: .875rem; line-height: 1.65; }
+.account-welcome__time { margin-top: .85rem; }
+.account-welcome__actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1.5rem; }
+.account-welcome__actions > button { min-height: 2.9rem; }
+.account-welcome .buyer-rank-hero-card { border-color: #8dbdff38; background: linear-gradient(135deg, #111e32c9, #080d18d9); padding: 1.1rem; }
+.buyer-rank-hero-card .buyer-rank-hero-emblem { width: 3rem; height: 3rem; }
+.buyer-rank-hero-card .buyer-rank-hero-emblem .rank-emblem__icon { width: 1.6rem; height: 1.6rem; }
+
+.rank-badge, .rank-emblem { --rank-light: #f4bd93; --rank-mid: #c58151; --rank-dark: #472716; }
+.rank-badge--silver, .rank-emblem--silver { --rank-light: #edf4ff; --rank-mid: #a7b9d1; --rank-dark: #303d51; }
+.rank-badge--gold, .rank-emblem--gold { --rank-light: #fff2b7; --rank-mid: #dfb849; --rank-dark: #4d3b10; }
+.rank-badge--platinum, .rank-emblem--platinum { --rank-light: #ccfbf1; --rank-mid: #5fc6b4; --rank-dark: #164a46; }
+.rank-badge--diamond, .rank-emblem--diamond { --rank-light: #e0f7ff; --rank-mid: #77c6ff; --rank-dark: #173c60; }
+.rank-badge--elite, .rank-emblem--elite { --rank-light: #f0deff; --rank-mid: #c09aff; --rank-dark: #452268; }
+.rank-badge--legendary, .rank-emblem--legendary { --rank-light: #ffeec0; --rank-mid: #f1c462; --rank-dark: #673754; }
+
+.rank-emblem {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--rank-mid);
+  border-radius: 50%;
+  color: var(--rank-light);
+  background: linear-gradient(140deg, var(--rank-mid), var(--rank-dark) 45%, var(--rank-dark) 65%, var(--rank-mid));
+  box-shadow: inset 0 1px 1px #ffffff6b, inset 0 -2px 5px #0005;
+}
+.rank-emblem__icon { width: .95rem; height: .95rem; }
+.rank-emblem--diamond, .rank-emblem--platinum { border-radius: 30%; }
+.rank-emblem--elite, .rank-emblem--legendary { border-radius: 30% 30% 45% 45%; }
+.rank-badge { display: inline-flex; vertical-align: middle; align-items: center; gap: .45rem; max-width: 100%; padding: .25rem .7rem .25rem .3rem; border: 1px solid var(--rank-mid); border-radius: 999px; background: linear-gradient(115deg, var(--rank-dark), #111318); color: var(--rank-light); font-size: .7rem; line-height: 1.35; font-weight: 600; box-shadow: inset 0 1px 0 #ffffff1f; }
+[dir="rtl"] .rank-badge { padding: .25rem .3rem .25rem .7rem; }
 
 .seller-rank-surface {
   position: relative;

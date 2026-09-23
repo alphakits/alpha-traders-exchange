@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useMemo, useState } from "react";
 
 type Locale = "ar" | "en";
@@ -23,7 +24,7 @@ function tradingViewUrl(symbol: string, locale: Locale) {
 function TradingViewFrame({ title, symbol, locale }: { title: string; symbol: string; locale: Locale }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-      <div className="border-b border-white/10 px-4 py-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{title}</div>
+      <div className="border-b border-white/10 px-4 py-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText(title)}</div>
       <iframe
         title={title}
         src={tradingViewUrl(symbol, locale)}
@@ -59,7 +60,7 @@ export function TradingViewMarketCharts({ locale }: { locale: Locale }) {
             }`}
             onClick={() => setTab(item.key)}
           >
-            {item.label}
+            {currencyText(item.label)}
           </button>
         ))}
       </div>

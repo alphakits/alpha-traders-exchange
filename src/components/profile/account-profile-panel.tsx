@@ -1,11 +1,14 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
+import { rankSurfaceTone } from "@/lib/rank-identity";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
+import { RankBadge } from "@/components/ui/rank-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -281,18 +284,13 @@ function tierLabel(level: string, isAr: boolean) {
   if (normalized === "gold") return isAr ? "ذهبي" : "Gold";
   if (normalized === "platinum") return isAr ? "بلاتيني" : "Platinum";
   if (normalized === "diamond") return isAr ? "ألماسي" : "Diamond";
+  if (normalized === "elite") return isAr ? "نخبة Alpha" : "Alpha Elite";
   if (normalized === "legendary") return isAr ? "أسطوري" : "Legendary";
   return level;
 }
 
 function tierVisualKey(level: string) {
-  const normalized = level.toLowerCase();
-  if (normalized === "silver") return "silver";
-  if (normalized === "gold") return "gold";
-  if (normalized === "platinum") return "platinum";
-  if (normalized === "diamond") return "diamond";
-  if (normalized === "legendary") return "legendary";
-  return "bronze";
+  return rankSurfaceTone(level);
 }
 
 function profileTheme(variant: RoleBadgeVariant) {
@@ -751,7 +749,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     return (
       <section className="section-container page-shell">
         <Card className="mx-auto max-w-6xl border-white/10 bg-[#0B0B0B]/95">
-          <CardContent className="p-6 text-sm text-[#D1D5DB]">{message ?? (isAr ? "تعذر تحميل الهوية." : "Failed to load identity.")}</CardContent>
+          <CardContent className="p-6 text-sm text-[#D1D5DB]">{currencyText(message ?? (isAr ? "تعذر تحميل الهوية." : "Failed to load identity."))}</CardContent>
         </Card>
       </section>
     );
@@ -845,18 +843,18 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   {avatarUrl ? (
                     <Image src={avatarUrl} alt={isAr ? "الصورة الشخصية" : "Profile"} width={112} height={112} unoptimized className="h-full w-full object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{initials}</div>
+                    <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{currencyText(initials)}</div>
                   )}
                 </div>
                 <div className="pb-1">
-                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{payload.profile.fullName}</p>
+                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{currencyText(payload.profile.fullName)}</p>
                   {isOwner ? (
                     <div className="mt-1">
                       <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
                       <p className="text-xs text-[#9CA3AF]">{isAr ? "وصول كامل للمنصة • جميع الصلاحيات" : "Full platform access • All permissions"}</p>
                     </div>
                   ) : (
-                    <p className="mt-1 text-sm text-[#A6AFBE]">@{payload.profile.username}</p>
+                    <p className="mt-1 text-sm text-[#A6AFBE]">@{currencyText(payload.profile.username)}</p>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <RoleBadge variant={payload.roleBadge} locale={locale} />
@@ -871,9 +869,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                       </span>
                     ) : null}
                     {isSeller ? (
-                      <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwner ? "legendary" : sellerRankKey}`)}>
-                        {isOwner ? (isAr ? "بائع أسطوري" : "Legendary Seller") : isAr ? `بائع ${tierLabel(sellerLevelForUi, true)}` : `${tierLabel(sellerLevelForUi, false)} Seller`}
-                      </span>
+                      <RankBadge rank={isOwner ? "legendary" : sellerLevelForUi} locale={locale} audience="seller" />
                     ) : null}
                   </div>
                 </div>
@@ -893,8 +889,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
             <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة الحساب" : "Account status"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{statusCopy}</p>
-                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? theme.trustLabelAr : theme.trustLabel}</p>
+                <p className="mt-2 text-sm font-medium text-white">{currencyText(statusCopy)}</p>
+                <p className="mt-1 text-xs text-[#AAB3C2]">{currencyText(isAr ? theme.trustLabelAr : theme.trustLabel)}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عضو منذ" : "Member since"}</p>
@@ -940,8 +936,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
           }}
         />
 
-        {photoError ? <ActionFeedback revealKey={photoErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{photoError}</ActionFeedback> : null}
-        {coverError ? <ActionFeedback revealKey={coverErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{coverError}</ActionFeedback> : null}
+        {photoError ? <ActionFeedback revealKey={photoErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{currencyText(photoError)}</ActionFeedback> : null}
+        {coverError ? <ActionFeedback revealKey={coverErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{currencyText(coverError)}</ActionFeedback> : null}
 
         <AccountNotificationPreferences key={payload.profile.id} locale={locale} />
         <NewsPreferences key={`news-${payload.profile.id}`} locale={locale} />
@@ -978,7 +974,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
                 <div>
                 <Input maxLength={100} value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
-                <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يمكنك تغيير اسمك مرة واحدة كل 7 أيام." : "You can change your name once every 7 days."}{payload.profile.nextNameChangeAt && Date.parse(payload.profile.nextNameChangeAt) > Date.now() ? ` ${isAr ? "التغيير التالي:" : "Next change:"} ${new Date(payload.profile.nextNameChangeAt).toLocaleString(isAr ? "ar" : "en-GB")}` : ""}</p>
+                <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يمكنك تغيير اسمك مرة واحدة كل 7 أيام." : "You can change your name once every 7 days."}{currencyText(payload.profile.nextNameChangeAt && Date.parse(payload.profile.nextNameChangeAt) > Date.now() ? ` ${isAr ? "التغيير التالي:" : "Next change:"} ${new Date(payload.profile.nextNameChangeAt).toLocaleString(isAr ? "ar" : "en-GB")}` : "")}</p>
                 </div>
                 <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
                 <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} />
@@ -999,7 +995,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     if (typeof value !== "boolean") return null;
                     return (
                       <label key={item.key} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-                        <span>{isAr ? item.labelAr : item.label}</span>
+                        <span>{currencyText(isAr ? item.labelAr : item.label)}</span>
                         <input
                           type="checkbox"
                           className="h-4 w-4 accent-[#C9A227]"
@@ -1025,7 +1021,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     {isAr ? "الحسابات المرتبطة" : "Connected accounts"}
                   </Link>
                 </div>
-                {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" className="text-xs text-[#D1D5DB] md:col-span-2">{message}</ActionFeedback> : null}
+                {message ? <ActionFeedback revealKey={messageFeedbackKey} as="p" className="text-xs text-[#D1D5DB] md:col-span-2">{currencyText(message)}</ActionFeedback> : null}
               </form>
             </CardContent>
           </Card>
@@ -1044,27 +1040,27 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   <>
                     <div className={cn("seller-rank-tier-card rounded-2xl border p-4", `seller-rank-tier-card--${sellerRankKey}`)}>
                       <p className={cn("text-xs uppercase tracking-[0.14em]", `seller-rank-tier-label seller-rank-tier-label--${sellerRankKey}`)}>{isAr ? "مستوى البائع" : "Seller tier"}</p>
-                      <p className={cn("mt-2 text-xl font-semibold", `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{tierLabel(sellerLevelForUi, isAr)}</p>
+                      <p className={cn("mt-2 text-xl font-semibold", `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{currencyText(tierLabel(sellerLevelForUi, isAr))}</p>
                       <p className="mt-1 text-xs text-[#E5E7EB]">
-                        {payload.stats.nextLevel
+                        {currencyText(payload.stats.nextLevel
                           ? `${isAr ? "المستوى التالي" : "Next tier"}: ${tierLabel(payload.stats.nextLevel, isAr)}`
                           : isAr
                             ? "وصلت إلى أعلى مستوى."
-                            : "Top tier reached."}
+                            : "Top tier reached.")}
                       </p>
                       <div className="mt-3 h-2.5 rounded-full bg-black/35">
                         <div className={cn("h-full rounded-full", `seller-rank-progress seller-rank-progress--${sellerRankKey}`)} style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
                       </div>
                       <p className="mt-2 text-xs text-[#E5E7EB]">
-                        {isAr
+                        {currencyText(isAr
                           ? `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT للوصول للمستوى التالي`
-                          : `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT to unlock the next level`}
+                          : `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT to unlock the next level`)}
                       </p>
                     </div>
 
                     <div className="grid gap-2 text-sm sm:grid-cols-2">
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></p></div>
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييم المتوسط" : "Average rating"}</p><p className="mt-1 font-semibold text-white">{payload.stats.averageRating.toFixed(2)} ★</p></div>
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeListings.toLocaleString("en-IL")}</p></div>
@@ -1076,7 +1072,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         {(payload.stats.promotionHistory.length ? payload.stats.promotionHistory.slice(0, 4) : [{ id: "start", rank: payload.stats.sellerLevel, promotedAt: payload.profile.memberSince }]).map((entry) => (
                           <p key={entry.id} className="flex items-center gap-1.5">
                             <Trophy className="h-3.5 w-3.5 text-[#C9A227]" />
-                            <span>{tierLabel(entry.rank, isAr)} • {new Date(entry.promotedAt).toLocaleDateString(dateLocale)}</span>
+                            <span>{currencyText(tierLabel(entry.rank, isAr))} • {new Date(entry.promotedAt).toLocaleDateString(dateLocale)}</span>
                           </p>
                         ))}
                       </div>
@@ -1086,16 +1082,13 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "نشاطك كمشترٍ" : "Your buyer activity"}</p>
-                          <p className="mt-1 text-lg font-semibold text-white">{buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer")}</p>
+                          <p className="mt-1 text-lg font-semibold text-white">{currencyText(buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer"))}</p>
                           <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? "مستوى البائع ورتبة المشتري يُحسبان بشكل مستقل." : "Your seller level and buyer rank are tracked independently."}</p>
                         </div>
-                        <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerRankSummary?.key ?? "bronze"}`)}>
-                          <Trophy className="h-3.5 w-3.5" />
-                          {(buyerRankSummary?.key ?? "bronze").toUpperCase()}
-                        </span>
+                        <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" />
                       </div>
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT</p></div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></p></div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "المشتريات المكتملة" : "Completed purchases"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.completedTrades ?? 0).toLocaleString("en-IL")}</p></div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييمات المكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.reviewsGiven ?? 0).toLocaleString("en-IL")}</p></div>
                       </div>
@@ -1103,11 +1096,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         <div className={cn("h-full rounded-full", `buyer-rank-progress buyer-rank-progress--${buyerRankSummary?.key ?? "bronze"}`)} style={{ width: `${Math.max(3, Math.min(100, buyerRankSummary?.progressPercent ?? 0))}%` }} />
                       </div>
                       <p className="mt-2 text-xs text-[#D1D5DB]">
-                        {buyerRankSummary?.nextRank
+                        {currencyText(buyerRankSummary?.nextRank
                           ? (isAr
                             ? `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT متبقية للوصول إلى ${buyerRankSummary.nextRankLabelAr}`
                             : `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT remaining to reach ${buyerRankSummary.nextRankLabel}`)
-                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
+                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank."))}
                       </p>
                     </div>
                   </>
@@ -1118,25 +1111,22 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         <div>
                           <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "رتبة المشتري" : "Buyer rank"}</p>
                           <p className="mt-2 text-xl font-semibold text-white">
-                            {buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer")}
+                            {currencyText(buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer"))}
                           </p>
                         </div>
-                        <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerRankSummary?.key ?? "bronze"}`)}>
-                          <Trophy className="h-3.5 w-3.5" />
-                          {(buyerRankSummary?.key ?? "bronze").toUpperCase()}
-                        </span>
+                        <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" />
                       </div>
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <p className="text-[#9CA3AF]">{isAr ? "إجمالي ما اشتريته" : "Lifetime purchases"}</p>
-                          <p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT</p>
+                          <p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></p>
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <p className="text-[#9CA3AF]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
                           <p className="mt-1 font-semibold text-white">
-                            {buyerRankSummary?.nextRank
+                            {currencyText(buyerRankSummary?.nextRank
                               ? (isAr ? buyerRankSummary.nextRankLabelAr : buyerRankSummary.nextRankLabel)
-                              : (isAr ? "أعلى رتبة" : "Top rank")}
+                              : (isAr ? "أعلى رتبة" : "Top rank"))}
                           </p>
                         </div>
                       </div>
@@ -1147,11 +1137,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         />
                       </div>
                       <p className="mt-2 text-xs text-[#D1D5DB]">
-                        {buyerRankSummary?.nextRank
+                        {currencyText(buyerRankSummary?.nextRank
                           ? (isAr
                             ? `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT متبقية للوصول إلى ${buyerRankSummary.nextRankLabelAr}`
                             : `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT remaining to reach ${buyerRankSummary.nextRankLabel}`)
-                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
+                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank."))}
                       </p>
                     </div>
                     <div className="grid gap-2 text-sm sm:grid-cols-3">
@@ -1166,7 +1156,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                           {buyerAchievements.map((achievement) => (
                             <p key={achievement} className="flex items-center gap-2 rounded-lg border border-[#C9A227]/15 bg-[#C9A227]/5 px-3 py-2 text-xs text-[#E5E7EB]">
                               <Trophy className="h-3.5 w-3.5 shrink-0 text-[#C9A227]" />
-                              <span>{achievement}</span>
+                              <span>{currencyText(achievement)}</span>
                             </p>
                           ))}
                         </div>
@@ -1201,8 +1191,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                 <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                   <item.icon className="h-4 w-4" />
                 </span>
-                <p className="mt-3 text-sm font-semibold text-white">{item.title}</p>
-                <p className="mt-1 text-xs leading-6 text-[#AAB3C2]">{item.body}</p>
+                <p className="mt-3 text-sm font-semibold text-white">{currencyText(item.title)}</p>
+                <p className="mt-1 text-xs leading-6 text-[#AAB3C2]">{currencyText(item.body)}</p>
               </CardContent>
             </Card>
           ))}

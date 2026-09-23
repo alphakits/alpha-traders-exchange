@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { AlertTriangle, CheckCircle2, LockKeyhole, ShieldCheck } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
@@ -140,7 +141,7 @@ export default async function SafetyTrustCenterPage({ params }: { params: Promis
               <LockKeyhole className="h-5 w-5 shrink-0 text-[#D4AF37]" aria-hidden="true" />
               {copy.settlementTitle}
             </h2>
-            <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{copy.settlement}</p>
+            <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(copy.settlement)}</p>
           </article>
           <article className="rounded-2xl border border-white/10 bg-black/30 p-5 sm:p-6">
             <h2 className="text-lg font-semibold text-white">{copy.channelsTitle}</h2>
@@ -167,9 +168,9 @@ export default async function SafetyTrustCenterPage({ params }: { params: Promis
             {faqs.map((faq) => (
               <details key={faq.id} className="group rounded-2xl border border-white/10 bg-black/30 p-4 open:border-[#C9A227]/30 sm:p-5">
                 <summary className="cursor-pointer list-none pr-7 text-sm font-semibold leading-6 text-white marker:hidden sm:text-base">
-                  {faq.question}
+                  {currencyText(faq.question)}
                 </summary>
-                <p className="mt-3 border-t border-white/10 pt-3 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p>
+                <p className="mt-3 border-t border-white/10 pt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(faq.answer)}</p>
               </details>
             ))}
           </div>

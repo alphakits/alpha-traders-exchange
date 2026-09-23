@@ -60,7 +60,7 @@ describe("AlphaMarketCenterView", () => {
 
     expect(screen.getByText("مركز ألفا للسوق")).toBeTruthy();
     expect(screen.getByText("$100,000").closest("bdi")?.getAttribute("dir")).toBe("ltr");
-    expect(screen.getByText("BTC/USDT").closest("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(screen.getByText((_, element) => element?.tagName === "BDI" && element.textContent === "BTC/USDT").closest("bdi")?.getAttribute("dir")).toBe("ltr");
     expect(container.querySelectorAll('bdi[dir="ltr"]').length).toBeGreaterThan(5);
   });
 });

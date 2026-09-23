@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
@@ -44,8 +45,8 @@ export default async function HelpCenterPage({ params }: { params: Promise<{ loc
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           {guides.map((guide, index) => (
             <article key={guide} className="rounded-2xl border border-white/10 bg-black/30 p-4">
-              <p className="text-xs font-semibold text-[#D4AF37]">{isAr ? `الخطوة ${index + 1}` : `STEP ${index + 1}`}</p>
-              <p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{guide}</p>
+              <p className="text-xs font-semibold text-[#D4AF37]">{currencyText(isAr ? `الخطوة ${index + 1}` : `STEP ${index + 1}`)}</p>
+              <p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{currencyText(guide)}</p>
             </article>
           ))}
         </div>

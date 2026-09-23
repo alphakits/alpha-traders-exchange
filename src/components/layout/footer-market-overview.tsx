@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { MarketPair, MarketPairKey } from "@/types/market";
@@ -86,13 +87,13 @@ export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
               key={pair.key}
               className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2"
             >
-              <bdi dir="ltr" className="me-auto whitespace-nowrap">{pair.label}</bdi>
+              <bdi dir="ltr" className="me-auto whitespace-nowrap">{currencyText(pair.label)}</bdi>
               <span className="flex shrink-0 items-center gap-2 sm:gap-3">
                 <bdi dir="ltr" className="whitespace-nowrap font-semibold text-white">
-                  {formatPrice(pair.key, pair.price)}
+                  {currencyText(formatPrice(pair.key, pair.price))}
                 </bdi>
                 <bdi dir="ltr" className={`min-w-[4.25rem] whitespace-nowrap text-end ${changeColor}`}>
-                  {formatChange(pair.changePercent)}
+                  {currencyText(formatChange(pair.changePercent))}
                 </bdi>
               </span>
             </div>
@@ -103,7 +104,7 @@ export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
       <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-[#9CA3AF] sm:text-[11px]">
         <span>
           {isAr ? "آخر تحديث" : "Last update"}: {" "}
-          <bdi dir="ltr">{formatIsraelTime(snapshot?.updatedAt, isAr)}</bdi>
+          <bdi dir="ltr">{currencyText(formatIsraelTime(snapshot?.updatedAt, isAr))}</bdi>
         </span>
         <span>
           {isAr ? "الحالة" : "Status"}: {" "}

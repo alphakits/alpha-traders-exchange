@@ -467,7 +467,7 @@ describe("AccountProfilePanel", () => {
     render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
 
     await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
-    expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
+    expect(screen.getByRole("progressbar", { name: "Buyer rank progress" })).toBeTruthy();
     expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
   });
 
@@ -545,7 +545,7 @@ describe("AccountProfilePanel", () => {
     render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
 
     await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
-    expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
+    expect(screen.getByRole("progressbar", { name: "Buyer rank progress" })).toBeTruthy();
     expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText("Become an Approved Seller")).toBeTruthy());
     expect(screen.getAllByText("Become an Approved Seller")).toHaveLength(1);

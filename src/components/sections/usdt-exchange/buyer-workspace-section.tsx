@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { HandCoins } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -163,11 +164,11 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">⏰</span>
                   <div>
-                    <p className="font-semibold text-[#FDE68A]">{isAr ? "إجراء مطلوب — تأكيد استلام USDT" : "Action Required — Confirm USDT Receipt"}</p>
+                    <p className="font-semibold text-[#FDE68A]">{currencyText(isAr ? "إجراء مطلوب — تأكيد استلام USDT" : "Action Required — Confirm USDT Receipt")}</p>
                     <p className="mt-0.5 text-sm text-[#E5E7EB]">
-                      {isAr
+                      {currencyText(isAr
                         ? "لديك صفقة تنتظر تأكيد استلام USDT. يرجى التأكيد لإكمال صفقتك والسماح بعمليات الشراء الجديدة."
-                        : "You have a trade waiting for your USDT receipt confirmation. Please confirm receipt to complete your trade and unblock new purchases."}
+                        : "You have a trade waiting for your USDT receipt confirmation. Please confirm receipt to complete your trade and unblock new purchases.")}
                     </p>
                   </div>
                 </div>
@@ -241,18 +242,18 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             onClick={() => setBuyerExpandedTradeId((prev) => prev === request.id ? null : request.id)}
                           >
                             <div>
-                              <p className="text-sm font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "العرض" : "Listing"} {shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</p>
+                              <p className="text-sm font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber }))}</p>
                               {request.priceMode === "buyer_offer" ? <span className="mt-1.5 inline-flex rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">{isAr ? "عرض سعر" : "Price Offer"}</span> : null}
                             </div>
                             <div className="text-xs">
-                              <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                              <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
                             </div>
                             <div className="text-sm text-[#D1D5DB]">
-                              <p>{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT</p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</p>
+                              <p>{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {currencyText(request.currency)}</p>
                             </div>
-                            <p className="text-sm text-[#D1D5DB]">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod, isAr)}</p>
+                            <p className="text-sm text-[#D1D5DB]">{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                             <p className="text-sm text-[#D1D5DB]">{new Date(request.completedAt ?? request.updatedAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>
                             <p className="text-sm text-[#C9A227] md:text-end">{isExpanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "توسيع" : "Expand")}</p>
                           </button>
@@ -260,14 +261,14 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             <div id={`buyer-trade-details-${request.id}`} className="space-y-3 border-t border-white/10 bg-black/25 px-4 py-4">
                               <div className="grid gap-2 text-sm md:grid-cols-3">
                                 <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
-                                <p>{request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT")}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
+                                <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
                                 {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر البائع الأصلي" : "Original Seller Price"}: <span className="text-white">₪{toNumber(request.listingPriceAtRequest).toFixed(2)}</span></p> : null}
                                 <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
                                 {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
                               </div>
                               <div className="rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                                <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
-                                <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer", isAr)}</p>
+                                <p className="font-medium text-white">{currencyText(paymentMethodEmoji(request.paymentMethod))} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
+                                <p className="mt-1">{currencyText(paymentMethodTradeInstruction(request.paymentMethod, "buyer", isAr))}</p>
                                 <p className="mt-1">{isAr ? <>راجع التفاصيل في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                               </div>
                               <div className="flex flex-wrap gap-2">
@@ -292,9 +293,9 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                 <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
                                   <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
                                   <p className="mt-1">
-                                    {isAr
+                                    {currencyText(isAr
                                       ? "استخدم غرفة التداول للخطوة التالية الواضحة. بعد تأكيد النقد، يؤكد البائع إرسال USDT ثم يحدد الصفقة كمكتملة. لا يلزم تأكيد المشتري."
-                                      : "Use the Trade Room for the guided next step. After cash confirmation, the seller confirms USDT sent and then marks the trade completed. The buyer does not need to confirm."}
+                                      : "Use the Trade Room for the guided next step. After cash confirmation, the seller confirms USDT sent and then marks the trade completed. The buyer does not need to confirm.")}
                                   </p>
                                 </div>
                               ) : (
@@ -303,7 +304,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                   <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
                                   {request.buyerEvidence ? (
                                     <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {request.buyerEvidence.fileName}
+                                      {currencyText(request.buyerEvidence.fileName)}
                                     </a>
                                   ) : (
                                     <p className="mt-1 text-[#9CA3AF]">{isAr ? "يجب رفع الإثبات قبل تحديد الدفعة كمُرسلة." : "Upload required before marking payment sent."}</p>
@@ -313,7 +314,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                   <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
                                   {request.sellerEvidence ? (
                                     <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {request.sellerEvidence.fileName}
+                                      {currencyText(request.sellerEvidence.fileName)}
                                     </a>
                                   ) : (
                                     <p className="mt-1 text-[#9CA3AF]">{isAr ? "بانتظار إثبات البائع." : "Waiting for seller evidence."}</p>
@@ -367,13 +368,13 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                               {request.buyerReview ? (
                                 <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                                   <p className="font-medium text-white">{isAr ? "تقييم المشتري" : "Buyer Review"}</p>
-                                  <p className="mt-1">{request.buyerReview.comment}</p>
+                                  <p className="mt-1">{currencyText(request.buyerReview.comment)}</p>
                                 </div>
                               ) : null}
                               {request.sellerResponse ? (
                                 <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
                                   <p className="font-medium text-white">{isAr ? "رد البائع" : "Seller Response"}</p>
-                                  <p className="mt-1">{request.sellerResponse.message}</p>
+                                  <p className="mt-1">{currencyText(request.sellerResponse.message)}</p>
                                 </div>
                               ) : null}
                             </div>
@@ -418,17 +419,17 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                 ) : (
                   groupedActivityHistory.map((group) => (
                     <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText(group.label)}</p>
                       <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
                         {group.items.slice(0, 3).map((entry) => {
                           const copy = localizeActivityCopy(entry, locale);
                           return (
                             <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                               <div className="flex items-start justify-between gap-3">
-                                <p className="font-medium text-white"><bdi dir="auto">{copy.title}</bdi></p>
+                                <p className="font-medium text-white"><bdi dir="auto">{currencyText(copy.title)}</bdi></p>
                                 <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
                               </div>
-                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{copy.details}</bdi></p>
+                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{currencyText(copy.details)}</bdi></p>
                             </div>
                           );
                         })}

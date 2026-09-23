@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
@@ -82,8 +83,8 @@ function PremiumCard({ title, subtitle, icon: Icon, accent, children }: PremiumC
           <Icon className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-white md:text-xl">{title}</h2>
-          <p className="mt-1 text-sm text-[#C8CDD8]">{subtitle}</p>
+          <h2 className="text-lg font-semibold text-white md:text-xl">{currencyText(title)}</h2>
+          <p className="mt-1 text-sm text-[#C8CDD8]">{currencyText(subtitle)}</p>
         </div>
       </div>
       <div className="mt-4">{children}</div>
@@ -386,8 +387,8 @@ export function GuestOnboarding({
                 </Button>
               </div>
             </div>
-            {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{error}</ActionFeedback> : null}
-            {status ? <p className="mt-2 text-xs text-emerald-300">{status}</p> : null}
+            {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{currencyText(error)}</ActionFeedback> : null}
+            {status ? <p className="mt-2 text-xs text-emerald-300">{currencyText(status)}</p> : null}
           </PremiumCard>
 
           <PremiumCard
@@ -466,7 +467,7 @@ export function GuestOnboarding({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <span>{sellerMethodLabel(option.id, isAr)}</span>
+                                    <span>{currencyText(sellerMethodLabel(option.id, isAr))}</span>
                                     {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐</span> : null}
                                   </div>
                                 </button>
@@ -495,7 +496,7 @@ export function GuestOnboarding({
                 </div>
               ) : sellerStep === "otp_sent" ? (
                 <div key="seller-otp" className="alpha-reveal-fade grid gap-2">
-                  {sellerStatus2 ? <p className="text-xs text-emerald-300">{sellerStatus2}</p> : null}
+                  {sellerStatus2 ? <p className="text-xs text-emerald-300">{currencyText(sellerStatus2)}</p> : null}
                   <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                     <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -516,7 +517,7 @@ export function GuestOnboarding({
                                       : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
                                   }`}
                                 >
-                                  {sellerMethodLabel(option.id, isAr)}
+                                  {currencyText(sellerMethodLabel(option.id, isAr))}
                                 </button>
                               );
                             })}
@@ -586,7 +587,7 @@ export function GuestOnboarding({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <span>{sellerMethodLabel(option.id, isAr)}</span>
+                                    <span>{currencyText(sellerMethodLabel(option.id, isAr))}</span>
                                     {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ {isAr ? "موصى به" : "Recommended"}</span> : null}
                                   </div>
                                 </button>
@@ -652,7 +653,7 @@ export function GuestOnboarding({
                   )}
                 </div>
               )}
-            {sellerError ? <ActionFeedback revealKey={sellerErrorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{sellerError}</ActionFeedback> : null}
+            {sellerError ? <ActionFeedback revealKey={sellerErrorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{currencyText(sellerError)}</ActionFeedback> : null}
           </PremiumCard>
 
           <PremiumCard

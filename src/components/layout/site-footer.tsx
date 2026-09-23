@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import {
   Activity,
@@ -136,7 +137,7 @@ function FooterNavSection({ section, locale }: { section: FooterSection; locale:
   return (
     <div className="space-y-3">
       <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
-        {isAr ? section.ar : section.en}
+        {currencyText(isAr ? section.ar : section.en)}
       </h4>
       <ul className="space-y-2">
         {section.items.map((item) => {
@@ -150,7 +151,7 @@ function FooterNavSection({ section, locale }: { section: FooterSection; locale:
               >
                 <Icon className="h-3.5 w-3.5 text-[#C9A227]/80 transition-transform duration-200 group-hover:translate-x-0.5" />
                 <span className="relative">
-                  {isAr ? item.ar : item.en}
+                  {currencyText(isAr ? item.ar : item.en)}
                   <span className="pointer-events-none absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-[#C9A227]/80 transition-transform duration-200 group-hover:scale-x-100" />
                 </span>
               </Link>
@@ -209,9 +210,9 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               </div>
             </Link>
             <p className="mt-3 text-sm text-[#BFC6D2]">
-              {isAr
+              {currencyText(isAr
                 ? "تعليم تداول احترافي وسوق USDT منظم نظير إلى نظير مع ضوابط واضحة للمخاطر."
-                : "Professional Trading Education • Structured peer-to-peer USDT marketplace with clear risk controls."}
+                : "Professional Trading Education • Structured peer-to-peer USDT marketplace with clear risk controls.")}
             </p>
             <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-[#D5DBE6]">
               {[
@@ -222,7 +223,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               ].map((point) => (
                 <p key={point} className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#D4AF37]" />
-                  <span>{point}</span>
+                  <span>{currencyText(point)}</span>
                 </p>
               ))}
             </div>
@@ -233,7 +234,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]">
                 <span className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#D4AF37]" />
-                  {isAr ? section.ar : section.en}
+                  {currencyText(isAr ? section.ar : section.en)}
                 </span>
               </summary>
               <div className="mt-3 border-t border-white/10 pt-3">
@@ -263,9 +264,9 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               </div>
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-[#BFC6D2]">
-              {isAr
+              {currencyText(isAr
                 ? "تعليم تداول احترافي وسوق USDT منظم نظير إلى نظير مع ضوابط واضحة للمخاطر."
-                : "Professional Trading Education • Structured peer-to-peer USDT marketplace with clear risk controls."}
+                : "Professional Trading Education • Structured peer-to-peer USDT marketplace with clear risk controls.")}
             </p>
             <div className="mt-4 space-y-2 text-sm text-[#D5DBE6]">
               {[
@@ -276,7 +277,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               ].map((point) => (
                 <p key={point} className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#D4AF37]" />
-                  <span>{point}</span>
+                  <span>{currencyText(point)}</span>
                 </p>
               ))}
             </div>
@@ -328,7 +329,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                     rel="noreferrer"
                     className="group inline-flex min-h-11 items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-sm text-[#D6DCE8] transition hover:border-[#D4AF37]/55 hover:bg-[#D4AF37]/10"
                   >
-                    <span>{item.label}</span>
+                    <span>{currencyText(item.label)}</span>
                     <Icon className="h-3.5 w-3.5 text-[#D4AF37] transition-transform duration-200 group-hover:translate-x-0.5" />
                   </a>
                 );
@@ -341,7 +342,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
           {TRUST_POINTS.map((item) => (
             <span key={item.en} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1">
               <CheckCircle2 className="h-3.5 w-3.5 text-[#D4AF37]" />
-              {isAr ? item.ar : item.en}
+              {currencyText(isAr ? item.ar : item.en)}
             </span>
           ))}
         </div>

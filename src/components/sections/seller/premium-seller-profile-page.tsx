@@ -1,9 +1,11 @@
+import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { ArrowRight, BadgeCheck, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleBadge } from "@/components/ui/role-badge";
+import { RankBadge } from "@/components/ui/rank-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
@@ -144,9 +146,9 @@ function StatCard({ label, value, accent = false, isUsdt = false }: { label: str
     <div className={`rounded-2xl border border-white/10 bg-black/20 p-4 ${accent ? "border-[#C9A227]/25 bg-[#C9A227]/10" : ""}`}>
       <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">
         {isUsdt ? <UsdtIcon /> : null}
-        {label}
+        {currencyText(label)}
       </p>
-      <p className="mt-2 text-xl font-semibold text-white"><bdi dir="ltr">{value}</bdi></p>
+      <p className="mt-2 text-xl font-semibold text-white"><bdi dir="ltr">{currencyText(value)}</bdi></p>
     </div>
   );
 }
@@ -317,17 +319,17 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                         <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={128} height={128} unoptimized className="h-24 w-24 rounded-full border border-transparent object-cover md:h-28 md:w-28" />
                       ) : (
                         <div className={cn("flex h-24 w-24 items-center justify-center rounded-full border border-transparent text-2xl font-semibold md:h-28 md:w-28", isOwnerSeller ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#F5E7C1]")}>
-                          {seller.sellerName.slice(0, 2).toUpperCase()}
+                          {currencyText(seller.sellerName.slice(0, 2).toUpperCase())}
                         </div>
                       )}
                       <span className={cn("absolute bottom-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-[0_10px_20px_rgba(0,0,0,0.25)]", isAr ? "left-1" : "right-1", presence.tone === "online" ? "bg-emerald-500/90 text-white" : presence.tone === "recent" ? "bg-amber-500/90 text-black" : "bg-white/20 text-white")}>
                         <span className={cn("h-1.5 w-1.5 rounded-full", presence.tone === "online" ? "bg-white" : presence.tone === "recent" ? "bg-black/70" : "bg-[#D1D5DB]")} />
-                        {isAr ? presence.labelAr : presence.label}
+                        {currencyText(isAr ? presence.labelAr : presence.label)}
                       </span>
                     </div>
                     <div className={isAr ? "text-right" : ""}>
                       <div className={cn("flex items-center gap-2", isAr ? "flex-row-reverse" : "")}>
-                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}><bdi dir="auto">{seller.sellerName}</bdi></h1>
+                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}><bdi dir="auto">{currencyText(seller.sellerName)}</bdi></h1>
                         <BadgeCheck className={cn("h-5 w-5", isOwnerSeller ? "text-red-300" : "text-[#C9A227]")} />
                       </div>
                       <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">
@@ -340,11 +342,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                       <div className={cn("mt-3 flex flex-wrap gap-2", isAr ? "justify-end" : "")}>
                         {isOwnerSeller ? <RoleBadge variant="owner" locale={locale} /> : null}
                         <RoleBadge variant="approved_seller" locale={locale} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                        <span className={cn("seller-rank-pill", `seller-rank-pill--${sellerRankKey}`)}>{formatSellerLevelLabel(profile.sellerLevel, isAr)}</span>
+                        <RankBadge rank={isOwnerSeller ? "legendary" : profile.sellerLevel} locale={locale} audience="seller" />
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
                         {seller.isEmailVerified ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{isAr ? "بريد إلكتروني موثّق" : "Verified Email"}</span> : null}
                         {heroBadgeItems.map((badge) => (
-                          <span key={badge} className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-[#D1D5DB]">{badge}</span>
+                          <span key={badge} className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-[#D1D5DB]">{currencyText(badge)}</span>
                         ))}
                       </div>
                     </div>
@@ -404,9 +406,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <div key={stat.label} className={cn("seller-hero-stat rounded-2xl border px-4 py-3", isOwnerSeller ? "border-red-500/20 bg-red-950/10" : `seller-rank-microcard seller-rank-microcard--${sellerRankKey}`)}>
                       <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
                         <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${sellerRankKey}`)}>{stat.icon}</span>
-                        {stat.label}
+                        {currencyText(stat.label)}
                       </p>
-                      <p className="mt-2 text-sm font-semibold text-white md:text-base"><bdi dir="ltr">{stat.value}</bdi></p>
+                      <p className="mt-2 text-sm font-semibold text-white md:text-base"><bdi dir="ltr">{currencyText(stat.value)}</bdi></p>
                     </div>
                   ))}
                 </div>
@@ -423,11 +425,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "البلد" : "Country"}</p>
-                  <p className="mt-2 font-medium text-white">{countryLabel(seller.country, isAr)}</p>
+                  <p className="mt-2 font-medium text-white">{currencyText(countryLabel(seller.country, isAr))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                  <p className="mt-2 font-medium text-white">{seller.languages.length ? seller.languages.map((language) => languageLabel(language, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified")}</p>
+                  <p className="mt-2 font-medium text-white">{currencyText(seller.languages.length ? seller.languages.map((language) => languageLabel(language, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified"))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
@@ -449,7 +451,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <ShieldCheck className="h-5 w-5" />
                   </div>
                 </div>
-                <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{seller.bio || (isAr ? "بائع موثوق في Alpha Exchange." : "A trusted seller on Alpha Exchange.")}</bdi></p>
+                <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{currencyText(seller.bio || (isAr ? "بائع موثوق في Alpha Exchange." : "A trusted seller on Alpha Exchange."))}</bdi></p>
               </div>
             </div>
 
@@ -482,7 +484,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   {profile.amountToNextRankUsdt !== undefined ? (
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "المتبقي إلى الترقية" : "Remaining volume"}</p>
-                    <p className="mt-1 font-semibold text-white"><bdi dir="ltr">{profile.amountToNextRankUsdt.toLocaleString("en-IL")} USDT</bdi></p>
+                    <p className="mt-1 font-semibold text-white"><bdi dir="ltr">{profile.amountToNextRankUsdt.toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></bdi></p>
                   </div>
                   ) : null}
                 </div>
@@ -496,15 +498,15 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</p>
-                    <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.map((method) => paymentMethodLabel(method, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified")}</p>
+                    <p className="mt-1 font-medium text-white">{currencyText(paymentMethods.length ? paymentMethods.map((method) => paymentMethodLabel(method, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified"))}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "الشبكات المدعومة" : "Supported networks"}</p>
-                    <p className="mt-1 font-medium text-white">{supportedNetworks.length ? <bdi dir="ltr">{supportedNetworks.join(", ")}</bdi> : (isAr ? "غير محددة" : "Not specified")}</p>
+                    <p className="mt-1 font-medium text-white">{supportedNetworks.length ? <bdi dir="ltr">{currencyText(supportedNetworks.join(", "))}</bdi> : (isAr ? "غير محددة" : "Not specified")}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-[#9CA3AF]">{isAr ? "USDT المتاح" : "Available USDT"}</p>
-                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? <bdi dir="ltr">{availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT</bdi> : (isAr ? "غير متاح" : "Not available")}</p>
+                    <p className="text-[#9CA3AF]">{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</p>
+                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? <bdi dir="ltr">{availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} <span className="currency-usdt">USDT</span></bdi> : (isAr ? "غير متاح" : "Not available")}</p>
                   </div>
                 </div>
                 <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only."}</p>
@@ -541,7 +543,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {profile.badges.length ? profile.badges.map((badge) => (
-                <span key={badge} className="rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 px-3 py-2 text-sm text-[#FDE68A]">{badgeLabel(badge, isAr)}</span>
+                <span key={badge} className="rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 px-3 py-2 text-sm text-[#FDE68A]">{currencyText(badgeLabel(badge, isAr))}</span>
               )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد شارات بعد." : "No badges yet."}</p>}
             </CardContent>
           </Card>
@@ -568,21 +570,21 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div key={review.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{seller.sellerName.slice(0, 2).toUpperCase()}</div>
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{currencyText(seller.sellerName.slice(0, 2).toUpperCase())}</div>
                       <div>
-                        <p className="font-medium text-white"><bdi dir="auto">{seller.sellerName}</bdi></p>
+                        <p className="font-medium text-white"><bdi dir="auto">{currencyText(seller.sellerName)}</bdi></p>
                         <p className="text-xs text-[#9CA3AF]">{new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</p>
                       </div>
                     </div>
                     <div className="text-sm text-[#FDE68A]">{Array.from({ length: review.rating }).map((_, index) => <span key={`${review.id}-${index}`}>★</span>)}</div>
                   </div>
-                  <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{review.comment}</bdi></p>
+                  <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{currencyText(review.comment)}</bdi></p>
                   <div className={`mt-3 flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: <bdi dir="ltr">{review.tradeAmount} USDT</bdi></span>
+                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: <bdi dir="ltr">{currencyText(review.tradeAmount)} <span className="currency-usdt">USDT</span></bdi></span>
                     <span>{isAr ? "التاريخ" : "Trade date"}: {new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</span>
-                    <bdi dir="ltr">{review.network}</bdi>
+                    <bdi dir="ltr">{currencyText(review.network)}</bdi>
                   </div>
-                  {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]"><bdi dir="auto">{review.sellerReply}</bdi></div> : null}
+                  {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]"><bdi dir="auto">{currencyText(review.sellerReply)}</bdi></div> : null}
                 </div>
               )) : <p className="empty-state-panel">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
             </CardContent>
@@ -598,18 +600,18 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div key={listing.id} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div>
-                      <p className="text-lg font-semibold text-white"><bdi dir="ltr">{listing.price} ILS / USDT</bdi></p>
-                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{listing.availableAmount} USDT</bdi></p>
+                      <p className="text-lg font-semibold text-white"><bdi dir="ltr">{currencyText(listing.price)} ILS / <span className="currency-usdt">USDT</span></bdi></p>
+                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{currencyText(listing.availableAmount)} <span className="currency-usdt">USDT</span></bdi></p>
                     </div>
-                    <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]"><bdi dir="ltr">{listing.network}</bdi></span>
+                    <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]"><bdi dir="ltr">{currencyText(listing.network)}</bdi></span>
                   </div>
                   <div className={`mt-3 flex flex-wrap items-center gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
                     {resolveSellerListingPaymentMethods(listing).map((method) => (
                       <span key={method} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
-                        <WalletCards className="h-4 w-4 text-[#C9A227]" />{paymentMethodLabel(method, isAr)}
+                        <WalletCards className="h-4 w-4 text-[#C9A227]" />{currencyText(paymentMethodLabel(method, isAr))}
                       </span>
                     ))}
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" /><bdi dir="ltr">{listing.network}</bdi></span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" /><bdi dir="ltr">{currencyText(listing.network)}</bdi></span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "مسار صفقة مسجّل عبر Alpha Traders" : "Trade flow recorded by Alpha Traders"}</span>
                   </div>
                   <SellerListingPurchaseAction
@@ -640,9 +642,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
             {data.similarSellers.length ? data.similarSellers.map((sellerItem) => (
               <div key={`${sellerItem.sellerUsername}-${sellerItem.sellerName}`} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                 <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{sellerItem.sellerName.slice(0, 2).toUpperCase()}</div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{currencyText(sellerItem.sellerName.slice(0, 2).toUpperCase())}</div>
                   <div>
-                    <p className="font-medium text-white"><bdi dir="auto">{sellerItem.sellerName}</bdi></p>
+                    <p className="font-medium text-white"><bdi dir="auto">{currencyText(sellerItem.sellerName)}</bdi></p>
                   </div>
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>

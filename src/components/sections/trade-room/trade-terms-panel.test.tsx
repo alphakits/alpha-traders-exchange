@@ -22,7 +22,7 @@ describe("trade proposal controls", () => {
     const request = { ...base, termsProposal: { id: "offer-2", kind: "counter_offer" as const, status: "pending" as const, usdtAmount: "250.125", pricePerUsdt: "3.10", fiatAmount: "775.39", createdAt: base.updatedAt } };
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ request }) }); vi.stubGlobal("fetch", fetch);
     render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
-    expect(screen.getByText(/250.125 USDT/)).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.tagName === "P" && /250.125 USDT/.test(element.textContent ?? ""))).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Accept these terms" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "accept_counter_offer", proposalId: "offer-2" });
@@ -30,7 +30,7 @@ describe("trade proposal controls", () => {
   it("explains why correction is locked after USDT is sent", () => {
     render(<TradeTermsPanel request={{ ...base, status: "usdt_sent" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
     expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/USDT release has started/)).toBeTruthy();
+    expect(screen.getByText((_, element) => element?.tagName === "P" && /USDT release has started/.test(element.textContent ?? ""))).toBeTruthy();
   });
 });
 

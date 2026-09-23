@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
 import { getTranslations } from "next-intl/server";
@@ -76,17 +77,17 @@ export async function HomePage({
                   style={{ width: 40, height: 40 }}
                   className="rounded-xl object-cover shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
                 />
-                <span>{t("badge")}</span>
+                <span>{currencyText(t("badge"))}</span>
               </div>
               <h1 className="text-4xl font-semibold leading-tight md:text-6xl md:leading-[1.08]">
-                {t("headlineLine1")}
+                {currencyText(t("headlineLine1"))}
                 <br />
-                {t("headlineLine2")}
+                {currencyText(t("headlineLine2"))}
               </h1>
-              <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{t("subheadline")}</p>
+              <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{currencyText(t("subheadline"))}</p>
               <div className={`alpha-reveal-fade alpha-delay-2 mt-8 flex flex-wrap gap-3 ${isRtl ? "md:justify-end" : "md:justify-start"}`}>
                 <Link href={academyHref} className={cn(buttonVariants(), "gap-2")}>
-                    {t("startLearning")}
+                    {currencyText(t("startLearning"))}
                     {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                   </Link>
                 <Link
@@ -97,13 +98,13 @@ export async function HomePage({
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#D32F2F] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_14px_rgba(0,0,0,0.26)]">
                     <Play className="ms-0.5 h-4.5 w-4.5 fill-white text-white" aria-hidden="true" />
                   </span>
-                  <span>{t("watchIntro")}</span>
+                  <span>{currencyText(t("watchIntro"))}</span>
                 </Link>
                 <Link
                   href="/usdt-exchange"
                   className="group relative inline-flex h-11 items-center justify-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-6 text-sm font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
                 >
-                  <span className="relative z-10">{t("exploreExchange")}</span>
+                  <span className="relative z-10">{currencyText(t("exploreExchange"))}</span>
                   <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
                 </Link>
               </div>
@@ -131,9 +132,9 @@ export async function HomePage({
                 {isRtl ? "ما الذي تبحث عنه اليوم؟" : "What are you here for today?"}
               </h2>
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
-                {isRtl
+                {currencyText(isRtl
                   ? "سواء كنت تريد تعلم التداول باحتراف أو شراء وبيع USDT بأمان، Alpha Traders يقدم لك المسار المناسب."
-                  : "Whether you want to learn trading or use a structured workflow to buy and sell USDT, Alpha Traders gives you a clear path."}
+                  : "Whether you want to learn trading or use a structured workflow to buy and sell USDT, Alpha Traders gives you a clear path.")}
               </p>
             </div>
 
@@ -156,7 +157,7 @@ export async function HomePage({
                         : ["Beginner Friendly", "Advanced Lessons", "Community", "Professional Education"]
                       ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
-                          {item}
+                          {currencyText(item)}
                         </span>
                       ))}
                     </div>
@@ -172,13 +173,13 @@ export async function HomePage({
                 <Card className="h-full border-[#6CAEFF]/30 bg-[#0B0B0B]/95 transition duration-300 hover:-translate-y-1 hover:border-[#6CAEFF]/50 hover:shadow-[0_22px_60px_rgba(17,87,188,0.25)]">
                   <CardHeader>
                     <CardDescription className="text-[#93C5FD]">💵 Alpha Exchange</CardDescription>
-                    <CardTitle>{isRtl ? "شراء وبيع USDT مع بائعين معتمدين" : "Buy and Sell USDT with Approved Sellers."}</CardTitle>
+                    <CardTitle>{currencyText(isRtl ? "شراء وبيع USDT مع بائعين معتمدين" : "Buy and Sell USDT with Approved Sellers.")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-sm leading-7 text-[#9CA3AF]">
-                      {isRtl
+                      {currencyText(isRtl
                         ? "استخدم مسار USDT منظمًا مع بائعين راجعت Alpha Exchange صلاحية وصولهم."
-                        : "Use a structured USDT workflow with sellers whose platform access was reviewed by Alpha Exchange."}
+                        : "Use a structured USDT workflow with sellers whose platform access was reviewed by Alpha Exchange.")}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
                       {(isRtl
@@ -186,7 +187,7 @@ export async function HomePage({
                         : ["Approved Sellers", "Trust Score", "Reviews", "Recorded Trade Flow", "Owner Approval"]
                       ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
-                          {item}
+                          {currencyText(item)}
                         </span>
                       ))}
                     </div>
@@ -285,7 +286,7 @@ export async function HomePage({
                       </div>
                     )}
                     <CardHeader className="space-y-3">
-                      <CardDescription className="text-[#C9A227]">{stageLabel}</CardDescription>
+                      <CardDescription className="text-[#C9A227]">{currencyText(stageLabel)}</CardDescription>
                       <CardTitle className="text-xl">{locale === "ar" ? card.titleAr : card.title}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -379,12 +380,12 @@ export async function HomePage({
                 <CardTitle>
                   <span className={`inline-flex items-center gap-2 ${isRtl ? "flex-row-reverse" : ""}`}>
                     {getLessonIcon(lesson.slug)}
-                    <span>{locale === "ar" ? lesson.titleAr : lesson.title}</span>
+                    <span>{currencyText(locale === "ar" ? lesson.titleAr : lesson.title)}</span>
                   </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-[#9CA3AF]">{locale === "ar" ? lesson.descriptionAr : lesson.description}</p>
+                <p className="text-sm text-[#9CA3AF]">{currencyText(locale === "ar" ? lesson.descriptionAr : lesson.description)}</p>
                 <Link href={`/lessons/${lesson.slug}`} className="mt-4 inline-flex min-h-11 items-center rounded-lg px-1 text-sm text-[#C9A227] hover:underline">
                   {locale === "ar" ? "ابدأ الدرس" : "Start lesson"}
                 </Link>
@@ -448,11 +449,11 @@ export async function HomePage({
         ) : courses.map((course) => (
           <Card key={course.id} className="h-full">
             <CardHeader>
-              <CardDescription>{formatAcademyLevel(course.level, locale === "ar" ? "ar" : "en")}</CardDescription>
-              <CardTitle>{locale === "ar" ? course.titleAr : course.title}</CardTitle>
+              <CardDescription>{currencyText(formatAcademyLevel(course.level, locale === "ar" ? "ar" : "en"))}</CardDescription>
+              <CardTitle>{currencyText(locale === "ar" ? course.titleAr : course.title)}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-[#9CA3AF]">{locale === "ar" ? course.summaryAr : course.summary}</p>
+              <p className="text-sm text-[#9CA3AF]">{currencyText(locale === "ar" ? course.summaryAr : course.summary)}</p>
               {courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug] ? (
                 <div className="space-y-1 text-xs text-[#D1D5DB]">
                   {(locale === "ar"

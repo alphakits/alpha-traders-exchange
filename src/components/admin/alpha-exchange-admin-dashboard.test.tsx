@@ -339,7 +339,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const cardList = screen.getByTestId("commission-card-list");
     const card = within(cardList).getByTestId(`commission-card-${commission.id}`);
     expect(within(card).getByText("Rayan Mariah")).toBeTruthy();
-    expect(within(card).getByText("4.180001 USDT")).toBeTruthy();
+    expect(within(card).getByText((_, element) => element?.textContent === "4.180001 USDT" && !Array.from(element.children).some(child => child.textContent === "4.180001 USDT"))).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
 
     const markPaid = within(card).getByRole("button", { name: "Mark Paid" });
@@ -349,7 +349,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Confirm commission payment" });
     expect(within(dialog).getByText("Rayan Mariah")).toBeTruthy();
-    expect(within(dialog).getByText("4.180001 USDT")).toBeTruthy();
+    expect(within(dialog).getByText((_, element) => element?.textContent === "4.180001 USDT" && !Array.from(element.children).some(child => child.textContent === "4.180001 USDT"))).toBeTruthy();
     const reason = within(dialog).getByLabelText("Payment reference or reason") as HTMLTextAreaElement;
     fireEvent.change(reason, { target: { value: "Received via Binance internal transfer 410678442518." } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
