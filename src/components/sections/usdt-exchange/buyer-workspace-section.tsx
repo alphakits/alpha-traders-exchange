@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { localizeActivityCopy } from "@/lib/notification-localization";
 import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { cn } from "@/lib/utils";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus } from "@/types/alpha-exchange";
 
@@ -21,8 +22,12 @@ export type BuyerWorkspaceSectionProps = {
   buyerOverviewCard: ReactNode;
   buyerRequests: PurchaseRequest[];
   buyerTradeQuery: string;
-  buyerTradeStatus: PurchaseRequestStatus | "all";
+  buyerTradeStatus: PurchaseRequestStatus | "all" | "active";
   buyerTradeVisibleCount: number;
+  desktopNavigation?: boolean;
+  purchaseRequestsState?: "loading" | "ready" | "error";
+  onRetryPurchaseRequests?: () => void;
+  onBrowseSellers?: () => void;
   evidenceUploading: Record<string, boolean>;
   filteredBuyerRequests: PurchaseRequest[];
   groupedActivityHistory: Array<{ dayKey: string; label: string; items: AlphaExchangeActivityLogEntry[] }>;
@@ -40,7 +45,7 @@ export type BuyerWorkspaceSectionProps = {
   setBuyerEvidenceFiles: Dispatch<SetStateAction<Record<string, File | null>>>;
   setBuyerExpandedTradeId: Dispatch<SetStateAction<string | null>>;
   setBuyerTradeQuery: Dispatch<SetStateAction<string>>;
-  setBuyerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all">>;
+  setBuyerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all" | "active">>;
   setBuyerTradeVisibleCount: Dispatch<SetStateAction<number>>;
   setTradeReviewDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   sortedBuyerRequests: PurchaseRequest[];
@@ -71,6 +76,10 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
     buyerTradeQuery,
     buyerTradeStatus,
     buyerTradeVisibleCount,
+    desktopNavigation = false,
+    purchaseRequestsState = "ready",
+    onRetryPurchaseRequests,
+    onBrowseSellers,
     evidenceUploading,
     filteredBuyerRequests,
     groupedActivityHistory,
@@ -183,7 +192,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
           {buyerOverviewCard}
 
           {sessionUser ? (
-            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
+            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} tabIndex={-1} className={cn("border-white/10 bg-[#0B0B0B]/90 md:col-span-2", desktopNavigation && "scroll-mt-24")}>
               <CardHeader>
                 <CardTitle>{isAr ? "سجل صفقاتي" : "My Trade History"}</CardTitle>
                 <CardDescription>{isAr ? "الأحدث أولاً، مع صفوف مختصرة وتفاصيل قابلة للتوسيع لكل صفقة." : "Newest first, compact rows, and expandable details for each trade."}</CardDescription>
@@ -191,8 +200,9 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
               <CardContent className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-2">
                   <Input placeholder={isAr ? "ابحث بمعرّف الصفقة أو العرض..." : "Search by trade ID or listing..."} value={buyerTradeQuery} onChange={(event) => setBuyerTradeQuery(event.target.value)} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={buyerTradeStatus} onChange={(event) => setBuyerTradeStatus(event.target.value as typeof buyerTradeStatus)}>
+                  <select aria-label={desktopNavigation ? (isAr ? "تصفية صفقات المشتري" : "Filter buyer trades") : undefined} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={buyerTradeStatus} onChange={(event) => setBuyerTradeStatus(event.target.value as typeof buyerTradeStatus)}>
                     <option value="all">{isAr ? "الحالة: الكل" : "Status: All"}</option>
+                    {desktopNavigation ? <option value="active">{isAr ? "الصفقات النشطة" : "Active trades"}</option> : null}
                     <option value="pending">{tradeStatusLabel("pending", isAr)}</option>
                     <option value="accepted">{tradeStatusLabel("accepted", isAr)}</option>
                     <option value="payment_sent">{tradeStatusLabel("payment_sent", isAr)}</option>
@@ -200,11 +210,45 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                     <option value="usdt_release_pending">{tradeStatusLabel("usdt_release_pending", isAr)}</option>
                     <option value="usdt_sent">{tradeStatusLabel("usdt_sent", isAr)}</option>
                     <option value="review_open">{tradeStatusLabel("review_open", isAr)}</option>
+                    {desktopNavigation ? <option value="completed">{tradeStatusLabel("completed", isAr)}</option> : null}
                     <option value="declined">{tradeStatusLabel("declined", isAr)}</option>
                     <option value="cancelled">{tradeStatusLabel("cancelled", isAr)}</option>
                   </select>
                 </div>
-                {!filteredBuyerRequests.length ? (
+                {desktopNavigation && purchaseRequestsState === "loading" ? (
+                  <div role="status" aria-label={isAr ? "جارٍ تحميل الصفقات" : "Loading trades"} className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
+                    <div className="h-12 animate-pulse rounded-xl bg-white/10" />
+                  </div>
+                ) : null}
+                {desktopNavigation && purchaseRequestsState === "error" ? (
+                  <div role="alert" className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+                    <p>{isAr ? "تعذر تحميل أحدث صفقاتك. حاول مرة أخرى." : "We couldn't load your latest trades. Please try again."}</p>
+                    <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={onRetryPurchaseRequests}>
+                      {isAr ? "إعادة المحاولة" : "Retry"}
+                    </Button>
+                  </div>
+                ) : null}
+                {desktopNavigation && purchaseRequestsState === "ready" && !filteredBuyerRequests.length ? (
+                  <div role="status" className="rounded-xl border border-white/10 bg-black/20 p-5 text-center">
+                    <HandCoins className="mx-auto h-5 w-5 text-[#C9A227]" />
+                    <p className="mt-2 text-sm font-medium text-white">{buyerTradeStatus === "active" && !buyerTradeQuery.trim()
+                      ? (isAr ? "لا توجد صفقات نشطة حالياً." : "There are no active trades currently.")
+                      : buyerRequests.length === 0
+                        ? (isAr ? "لا توجد صفقات بعد" : "No trades yet")
+                        : (isAr ? "لا توجد صفقات مطابقة للفلاتر الحالية." : "No trades found for current filters.")}</p>
+                    <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "تصفح البائعين لبدء صفقة جديدة، أو راجع سجل صفقاتك." : "Browse sellers to start a new trade, or review your trade history."}</p>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={onBrowseSellers}>
+                        {isAr ? "تصفح البائعين" : "Browse Sellers"}
+                      </Button>
+                      {buyerRequests.length > 0 ? <Button type="button" size="sm" variant="secondary" onClick={() => { setBuyerTradeQuery(""); setBuyerTradeStatus("all"); }}>
+                        {isAr ? "عرض جميع الصفقات" : "View All Trades"}
+                      </Button> : null}
+                    </div>
+                  </div>
+                ) : null}
+                {!desktopNavigation && !filteredBuyerRequests.length ? (
                   buyerRequests.length === 0 ? (
                     <div className="rounded-xl border border-white/10 bg-black/20 p-5 text-center">
                       <HandCoins className="mx-auto h-5 w-5 text-[#C9A227]" />

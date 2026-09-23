@@ -19,6 +19,7 @@ let pending = false;
 let user = buyer;
 let requests: unknown[] = [];
 let requestsUnavailable = false;
+let requestsLoading: Promise<void> | null = null;
 let viewportWidth = 1440;
 const mediaListeners = new Set<() => void>();
 const trade = { id: "home-active-trade", buyerId: buyer.id, sellerId: "home-seller", listingId: "listing-1", status: "accepted", paymentMethod: "Face-to-Face", usdtAmount: 200, pricePerUsdt: 3.1, totalIls: 620, createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z", timeline: [] };
@@ -28,6 +29,7 @@ beforeEach(() => {
   user = buyer;
   requests = [trade];
   requestsUnavailable = false;
+  requestsLoading = null;
   viewportWidth = 1440;
   mediaListeners.clear();
   push.mockReset();
@@ -51,6 +53,7 @@ beforeEach(() => {
       : { stats: { kind: "buyer", lifetimeCompletedVolumeUsdt: 52_500 } };
     else if (url.includes("/seller-application")) data = { application: pending ? { id: "application-home", status: "pending", createdAt: trade.createdAt } : null };
     else if (url.includes("/purchase-requests")) {
+      if (requestsLoading) await requestsLoading;
       if (requestsUnavailable) return new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 });
       data = { requests };
     }
@@ -64,6 +67,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("compact Exchange home", () => {
   it.each(["en", "ar"] as const)("keeps rank progress, moves browsing up, and opens the active trade in one click (%s)", async (locale) => {
+    viewportWidth = 390;
     const isAr = locale === "ar";
     const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} workspaceMode="buyer" />);
     await screen.findByText(isAr ? "مشتري ذهبي" : "Gold Buyer");
@@ -114,6 +118,7 @@ describe("compact Exchange home", () => {
   });
 
   it("keeps the existing marketplace welcome and workspace layout", async () => {
+    viewportWidth = 390;
     const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
     expect(screen.getByText("AT ID")).toBeTruthy();
     expect(within(container.querySelector("#workspace-summary")! as HTMLElement).getAllByRole("button")).toHaveLength(6);
@@ -272,4 +277,151 @@ describe("compact Exchange home", () => {
     expect(document.querySelector('[aria-controls="seller-trade-details-finished-sale"]')).toBeTruthy();
   });
 
+});
+
+describe("desktop buyer workspace", () => {
+  it.each([["en", undefined], ["ar", undefined], ["en", "buyer"], ["ar", "buyer"]] as const)("integrates one workspace and navigates every buyer control (%s, %s)", async (locale, mode) => {
+    const isAr = locale === "ar";
+    requests = [
+      { ...trade, id: "buyer-current" },
+      { ...trade, id: "buyer-pending", status: "pending" },
+      ...["completed", "review_open", "locked", "cancelled", "declined"].map(status => ({ ...trade, id: `buyer-${status}`, status })),
+      { ...trade, id: "buyer-completed-timestamp", completedAt: trade.updatedAt },
+      { ...trade, id: "different-buyer", buyerId: "another-buyer" },
+    ];
+    const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} workspaceMode={mode} />);
+    await screen.findByRole("heading", { name: isAr ? "مشتري ذهبي" : "Gold Buyer" });
+    const filter = await screen.findByRole("combobox", { name: isAr ? "تصفية صفقات المشتري" : "Filter buyer trades" }) as HTMLSelectElement;
+    await screen.findByText(isAr ? "انضم كبائع معتمد" : "Become an Approved Seller");
+    expect(screen.queryByText(isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller")).toBeNull();
+    const welcome = within(container.querySelector('[data-account-role="buyer"]') as HTMLElement);
+    const workspaceElement = container.querySelector('[data-account-role="buyer"] #workspace-summary') as HTMLElement;
+    expect(workspaceElement).toBeTruthy();
+    expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
+    const workspace = within(workspaceElement);
+    expect(workspace.getAllByRole("button")).toHaveLength(6);
+    const activeTrades = workspace.getByRole("button", { name: isAr ? /^الصفقات النشطة:/ : /^Active Trades:/ });
+    await waitFor(() => expect(activeTrades.textContent).toContain("2"));
+    fireEvent.change(filter, { target: { value: "cancelled" } });
+    const search = screen.getByPlaceholderText(isAr ? "ابحث بمعرّف الصفقة أو العرض..." : "Search by trade ID or listing...") as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "stale filter" } });
+    fireEvent.click(activeTrades);
+    expect(filter.value).toBe("active");
+    expect(search.value).toBe("");
+    await waitFor(() => expect(document.activeElement?.id).toBe("my-trade-requests-section"));
+    const history = document.getElementById("my-trade-requests-section")!;
+    expect(history.querySelectorAll('[aria-controls^="buyer-trade-details-"]')).toHaveLength(2);
+    expect(history.querySelector('[aria-controls="buyer-trade-details-buyer-current"]')).toBeTruthy();
+    expect(history.querySelector('[aria-controls="buyer-trade-details-buyer-pending"]')).toBeTruthy();
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.click(history.querySelector('[aria-controls="buyer-trade-details-buyer-current"]')!);
+    fireEvent.click(within(document.getElementById("buyer-trade-details-buyer-current")!).getByRole("button", { name: isAr ? "متابعة الصفقة النقدية" : "Continue Cash Trade" }));
+    expect(push).toHaveBeenLastCalledWith("/trade-room/buyer-current");
+    fireEvent.click(welcome.getByRole("button", { name: isAr ? "طلبات صفقاتي" : "My Trade Requests" }));
+    expect(filter.value).toBe("all");
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^الإشعارات:/ : /^Notifications:/ }));
+    expect(document.activeElement?.id).toBe("notification-center-section");
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^نظرة عامة على السوق:/ : /^Market Overview:/ }));
+    if (mode) expect(push).toHaveBeenLastCalledWith("/usdt-exchange#market-overview");
+    else expect(document.activeElement?.id).toBe("market-overview");
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^ملفي وإنجازاتي:/ : /^My Profile & Achievements:/ }));
+    expect(push).toHaveBeenLastCalledWith("/profile");
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^إعدادات الحساب:/ : /^Account Settings:/ }));
+    expect(push).toHaveBeenLastCalledWith("/settings");
+    for (const button of [welcome.getByRole("button", { name: isAr ? "تصفح البائعين" : "Browse Sellers" }), workspace.getByRole("button", { name: isAr ? /^العروض المباشرة:/ : /^Live Listings:/ })]) {
+      fireEvent.click(button);
+      if (mode) expect(push).toHaveBeenLastCalledWith("/usdt-exchange#buyer-marketplace-listings");
+      else expect(document.activeElement?.id).toBe("buyer-marketplace-listings");
+    }
+  });
+
+  it.each(["en", "ar"] as const)("explains an empty active queue and links back to listings and history (%s)", async (locale) => {
+    const isAr = locale === "ar";
+    requests = [{ ...trade, id: "completed-purchase", status: "completed" }];
+    const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^الصفقات النشطة:/ : /^Active Trades:/ }));
+    await screen.findByText(isAr ? "لا توجد صفقات نشطة حالياً." : "There are no active trades currently.");
+    expect(document.activeElement?.id).toBe("my-trade-requests-section");
+    const history = within(document.getElementById("my-trade-requests-section")!);
+    fireEvent.click(history.getByRole("button", { name: isAr ? "تصفح البائعين" : "Browse Sellers" }));
+    expect(document.activeElement?.id).toBe("buyer-marketplace-listings");
+    fireEvent.click(history.getByRole("button", { name: isAr ? "عرض جميع الصفقات" : "View All Trades" }));
+    expect(document.querySelector('[aria-controls="buyer-trade-details-completed-purchase"]')).toBeTruthy();
+    fireEvent.change(history.getByRole("combobox"), { target: { value: "completed" } });
+    expect(document.querySelector('[aria-controls="buyer-trade-details-completed-purchase"]')).toBeTruthy();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("shows loading and retry states instead of incorrectly claiming there are no active trades", async () => {
+    let finishLoading!: () => void;
+    requestsLoading = new Promise(resolve => { finishLoading = resolve; });
+    requests = [];
+    requestsUnavailable = true;
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="buyer" />);
+    const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+    fireEvent.click(workspace.getByRole("button", { name: /^Active Trades:/ }));
+    await screen.findByRole("status", { name: "Loading trades" });
+    expect(screen.queryByText("There are no active trades currently.")).toBeNull();
+    await act(async () => finishLoading());
+    await screen.findByText("We couldn't load your latest trades. Please try again.");
+    expect(screen.queryByText("There are no active trades currently.")).toBeNull();
+    requestsUnavailable = false;
+    fireEvent.click(within(document.getElementById("my-trade-requests-section")!).getByRole("button", { name: "Retry" }));
+    await screen.findByText("There are no active trades currently.");
+    fireEvent.click(within(document.getElementById("my-trade-requests-section")!).getByRole("button", { name: "Browse Sellers" }));
+    expect(push).toHaveBeenLastCalledWith("/usdt-exchange#buyer-marketplace-listings");
+  });
+
+  it.each([["en", 390], ["ar", 390], ["en", 932], ["ar", 932]] as const)("preserves the buyer phone marketplace and its navigation (%s, %dpx)", async (locale, width) => {
+    viewportWidth = width;
+    const isAr = locale === "ar";
+    const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    await screen.findByText(isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller");
+    const welcome = container.querySelector('[data-account-role="buyer"]') as HTMLElement;
+    expect(welcome.querySelector("#workspace-summary")).toBeNull();
+    const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+    expect(workspace.getAllByRole("button")).toHaveLength(6);
+    expect(within(welcome).getByRole("button", { name: isAr ? "تصفّح السوق" : "Browse Marketplace" })).toBeTruthy();
+    expect(workspace.queryByRole("button", { name: isAr ? /^إعدادات الحساب:/ : /^Account Settings:/ })).toBeNull();
+    await waitFor(() => expect(workspace.getByRole("button", { name: isAr ? /^الصفقات النشطة:/ : /^Active Trades:/ }).textContent).toContain("1"));
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^الصفقات النشطة:/ : /^Active Trades:/ }));
+    expect(push).toHaveBeenLastCalledWith("/trade-room/home-active-trade");
+    const history = await screen.findByText(isAr ? "سجل صفقاتي" : "My Trade History");
+    expect(history).toBeTruthy();
+    expect(document.querySelector('#my-trade-requests-section option[value="active"]')).toBeNull();
+  });
+
+  it("restores the phone view and full history when shrinking a desktop buyer window", async () => {
+    viewportWidth = 1024;
+    requests = [{ ...trade, status: "completed" }];
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    fireEvent.click(within(container.querySelector("#workspace-summary") as HTMLElement).getByRole("button", { name: /^Active Trades:/ }));
+    await screen.findByText("There are no active trades currently.");
+    act(() => { viewportWidth = 1023; mediaListeners.forEach(listener => listener()); });
+    expect(container.querySelector('[data-account-role="buyer"] #workspace-summary')).toBeNull();
+    expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
+    expect((within(document.getElementById("my-trade-requests-section")!).getByRole("combobox") as HTMLSelectElement).value).toBe("all");
+    expect(document.querySelector('[aria-controls="buyer-trade-details-home-active-trade"]')).toBeTruthy();
+    await screen.findByText("Find an Approved Seller");
+  });
+
+  it("focuses the actual listings after a desktop dashboard deep link", async () => {
+    window.history.replaceState({}, "", "/en/usdt-exchange#buyer-marketplace-listings");
+    try {
+      render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+      await waitFor(() => expect(document.activeElement?.id).toBe("buyer-marketplace-listings"));
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
+  it("does not apply the buyer redesign to the owner account", async () => {
+    user = { ...buyer, role: "owner", roles: ["owner", "buyer"] };
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="buyer" />);
+    const welcome = container.querySelector('[data-account-role="owner"]') as HTMLElement;
+    expect(welcome.querySelector("#workspace-summary")).toBeNull();
+    expect(within(welcome).getByRole("link", { name: "Owner Dashboard" }).getAttribute("href")).toBe("/admin/alpha-exchange");
+    await screen.findByText("My Trade History");
+  });
 });

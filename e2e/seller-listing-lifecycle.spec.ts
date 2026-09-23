@@ -433,7 +433,8 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   }
   await expect(page.getByRole("heading", { name: "My Listings" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
-  await expect(page).toHaveURL(/#listing-publish-result$/);
+  await expect(page.locator("#listing-publish-result")).toBeFocused();
+  await expect(page.locator("#listing-publish-result")).toBeInViewport();
   await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
   await expect(page.locator(`[id="listing-${payload.listing.id}"]`)).toHaveCount(0);
   expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });
@@ -1108,9 +1109,11 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.status).toBe("review_open");
   expect(Boolean(firstTrade.completedAt)).toBeTruthy();
 
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page.getByRole("button", { name: "Return home", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`));
   await seller.page.reload();
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page.getByRole("button", { name: "Return home", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`));
 
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
