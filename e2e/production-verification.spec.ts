@@ -37,7 +37,6 @@ const ids = {
 };
 const sellerEmail = `${ids.sellerOnline}@example.test`;
 const formsEmail = `${ids.sellerForms}@example.test`;
-const adminEmail = `${ids.admin}@example.test`;
 const allSeededIds = Object.values(ids);
 const iso = (ms: number) => new Date(Date.now() + ms).toISOString();
 
@@ -348,8 +347,8 @@ test.describe("Journeys", () => {
     await expect(page.getByRole("heading", { name: /Create Listing/i }).first()).toBeVisible({ timeout: 30000 });
   });
 
-  test("admin reaches Listing Reliability panel", async ({ page }) => {
-    await login(page.request, adminEmail, adminPassword);
+  test("owner reaches Listing Reliability panel", async ({ page }) => {
+    await login(page.request, "e2e-global-owner@example.test", "E2eOwner!Launch2026");
     await page.goto("/en/admin/alpha-exchange");
     await page.getByRole("button", { name: /Listing Reliability/ }).click();
     await expect(page.getByText("Sellers tracked")).toBeVisible({ timeout: 15000 });

@@ -1303,7 +1303,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await Promise.all([seller.context.close(), buyer.context.close()]);
 });
 
-test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
+test("owner dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
   test.setTimeout(300_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -1325,8 +1325,8 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   const extendCandidate = await createListing(seller.page.request, { availableAmount: "222", price: "3.12" });
   await waitForPersistence();
 
-  const admin = await createSession(browser, ADMIN_EMAIL, ADMIN_PASSWORD);
-  const page = admin.page;
+  const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
+  const page = owner.page;
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(renewCandidate.listing.id)}`);
   await expect(page.getByRole("heading", { name: "Marketplace Listings" })).toBeVisible({ timeout: 60_000 });
 
@@ -1395,5 +1395,5 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   await expect(page.getByText("Notification History")).toBeVisible();
   await expect(page.locator("tbody tr").filter({ hasText: "Listing force closed" }).first()).toBeVisible();
 
-  await Promise.all([seller.context.close(), buyer.context.close(), admin.context.close()]);
+  await Promise.all([seller.context.close(), buyer.context.close(), owner.context.close()]);
 });
