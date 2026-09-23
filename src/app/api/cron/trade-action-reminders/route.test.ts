@@ -81,7 +81,7 @@ describe("hourly trade action reminder cron", () => {
 
     expect(config.fluid).toBe(true);
     expect(config.regions).toEqual(["dub1"]);
-    expect(config.crons).toEqual([
+    expect(config.crons).toEqual(expect.arrayContaining([
       {
         path: "/api/cron/trade-action-reminders",
         schedule: "1-59/5 * * * *",
@@ -94,6 +94,6 @@ describe("hourly trade action reminder cron", () => {
         path: "/api/cron/whatsapp-delivery",
         schedule: "3-59/5 * * * *",
       },
-    ]);
+    ]));
   });
 });

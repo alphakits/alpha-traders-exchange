@@ -1,25 +1,25 @@
 "use client";
 
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import { parseInternalAppUrl } from "@/lib/internal-app-url";
 
 const PENDING_RESULT_KEY = "alpha:pending-action-result";
 
 export function navigateAfterSuccess(router: AppRouterInstance, destination?: string | null, message?: string) {
-  if (!destination) return false;
+  if (typeof window === "undefined") return false;
+  const target = parseInternalAppUrl(destination, window.location.origin);
+  if (!target) return false;
   if (message && typeof window !== "undefined") {
     try {
-      const target = new URL(destination, window.location.origin);
-      if (target.origin === window.location.origin) {
-        window.sessionStorage.setItem(PENDING_RESULT_KEY, JSON.stringify({ path: normalizePath(target.pathname), message, createdAt: Date.now() }));
-      }
+      window.sessionStorage.setItem(PENDING_RESULT_KEY, JSON.stringify({ path: normalizePath(target.pathname), message, createdAt: Date.now() }));
     } catch { /* Navigation still works when browser storage is unavailable. */ }
   }
-  router.push(destination);
+  router.push(`${target.pathname}${target.search}${target.hash}`);
   return true;
 }
 
 function normalizePath(pathname: string) {
-  return pathname.replace(/^\/(en|ar)(?=\/)/, "") || "/";
+  return pathname.replace(/^\/(en|ar)(?=\/|$)/, "").replace(/\/+$/, "") || "/";
 }
 
 /** Consume a confirmed result once, only on its destination page. */
@@ -44,9 +44,10 @@ export function navigateOrRevealResult(
   resultId: string,
 ) {
   if (!destination || typeof window === "undefined") return false;
-  const target = new URL(destination, window.location.origin);
+  const target = parseInternalAppUrl(destination, window.location.origin);
+  if (!target) return false;
   if (normalizePath(target.pathname) !== normalizePath(window.location.pathname)) {
-    router.push(destination);
+    router.push(`${target.pathname}${target.search}${target.hash}`);
     return true;
   }
 

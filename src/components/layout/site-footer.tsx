@@ -70,7 +70,7 @@ const LEARN_SECTION: FooterSection = {
     { href: "/lessons#advanced-strategies", en: "Advanced Strategies", ar: "استراتيجيات متقدمة", icon: Activity },
     { href: "/lessons#risk-management", en: "Risk Management", ar: "إدارة المخاطر", icon: ShieldCheck },
     { href: "/lessons#trading-psychology", en: "Trading Psychology", ar: "علم نفس التداول", icon: UserCircle2 },
-    { href: "/community#market-news", en: "Market News", ar: "أخبار السوق", icon: Activity },
+    { href: "/news", en: "Market News", ar: "أخبار السوق", icon: Activity },
     { href: "/help-center#faq", en: "FAQ", ar: "الأسئلة الشائعة", icon: MessageCircle },
   ],
 };
@@ -102,7 +102,7 @@ const ACCOUNT_SECTION: FooterSection = {
     { href: "/dashboard/seller", en: "Seller Dashboard", ar: "لوحة البائع", icon: Store },
     { href: "/settings", en: "Settings", ar: "الإعدادات", icon: Settings },
     { href: "/account-deletion", en: "Account Deletion", ar: "حذف الحساب", icon: UserCircle2 },
-    { href: "/settings#notifications", en: "Notifications", ar: "الإشعارات", icon: Bell },
+    { href: "/notifications", en: "Notifications", ar: "الإشعارات", icon: Bell },
   ],
 };
 
