@@ -20,18 +20,12 @@ import type { PurchaseRequest } from "@/types/alpha-exchange";
 export const metadata = { title: "Welcome design preview", robots: { index: false, follow: false } };
 
 /** Non-production component review: no account access, permissions or live data. */
-export default async function WelcomePreview({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ view?: string; rank?: string; width?: string }> }) {
+export default async function WelcomePreview({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ view?: string; rank?: string }> }) {
   if (process.env.VERCEL_ENV === "production") notFound();
   const locale = (await params).locale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   const view = (await searchParams).view;
-  if (view === "seller-workspace") {
-    const width = (await searchParams).width;
-    if (width && ["320", "390", "768", "1024", "1440"].includes(width)) {
-      return <main className="p-4"><p className="mb-3 text-sm text-[#9CA3AF]">{isAr ? "معاينة حساب توضيحي" : "Sample seller account preview"} · {width}px</p><iframe title="Seller workspace preview" src={`/${locale}/welcome-preview?view=seller-workspace`} style={{ width: Number(width), height: 1600, border: 0, display: "block", margin: "0 auto" }} /></main>;
-    }
-    return <SellerWorkspaceDesignPreview locale={locale} />;
-  }
+  if (view === "seller-workspace") return <SellerWorkspaceDesignPreview locale={locale} />;
   if (view === "seller-design" || view === "seller-public") return <SellerDesignPreview locale={locale} rank={(await searchParams).rank} publicView={view === "seller-public"} />;
   if (view === "history") {
     const sample: OwnerTradeHistoryData = {
