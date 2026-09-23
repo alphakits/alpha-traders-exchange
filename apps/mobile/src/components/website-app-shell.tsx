@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
+  Alert,
   BackHandler,
   Image,
   Linking,
@@ -36,9 +37,12 @@ import {
 } from "@alpha-traders/contracts";
 import { MobileApiError, refreshMobile } from "../api/mobile-api";
 import {
+  clearRememberedLogin,
   clearStoredTokens,
   getOrCreateDeviceId,
+  loadRememberedLogin,
   loadStoredTokens,
+  saveRememberedLogin,
   saveStoredTokens,
 } from "../auth/session-storage";
 import {
@@ -71,6 +75,7 @@ import {
 import { useNetworkStatus } from "../network/network-context";
 import { useMobileAppReadiness } from "../readiness/use-mobile-app-readiness";
 import { LaunchScreen } from "./launch-screen";
+import { handleRememberedLoginMessage, rememberedLoginReplyScript } from "../web/remembered-login-bridge";
 
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
 const SESSION_MIGRATED_KEY = "alpha.mobile.website.session-migrated.v1";
@@ -451,6 +456,18 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     // The bridge can register push tokens and update native state. Only a
     // first-party top-level document may send privileged messages into it.
     if (!isTrustedWebsiteDocumentUrl(event.nativeEvent.url)) return;
+    const { url, data } = event.nativeEvent;
+    void handleRememberedLoginMessage(url, data, {
+      load: loadRememberedLogin, save: saveRememberedLogin, clear: clearRememberedLogin,
+    }).then((response) => {
+      if (!response) return;
+      const script = rememberedLoginReplyScript(url, response);
+      if (script) webViewRef.current?.injectJavaScript(script);
+      if (response.status === "failed") {
+        Alert.alert(localeRef.current === "ar" ? "تذكرني" : "Remember me",
+          localeRef.current === "ar" ? "تعذر تحديث بيانات الدخول المحفوظة على هذا الهاتف. يرجى المحاولة مرة أخرى." : "We couldn't update the saved login details on this phone. Please try again.");
+      }
+    }).catch(() => undefined);
     const message = parseWebToNativeBridgeMessage(event.nativeEvent.data);
     if (!message) return;
     if (message.type === "alpha.web.session") {

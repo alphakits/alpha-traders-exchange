@@ -45,6 +45,7 @@ vi.mock("expo-notifications", () => ({
 vi.mock("../api/mobile-api", () => ({ MobileApiError: class extends Error {}, refreshMobile: vi.fn() }));
 vi.mock("../auth/session-storage", () => ({
   loadStoredTokens: mocks.loadTokens,
+  loadRememberedLogin: vi.fn(), saveRememberedLogin: vi.fn(), clearRememberedLogin: vi.fn(),
   saveStoredTokens: vi.fn(), clearStoredTokens: vi.fn(), getOrCreateDeviceId: vi.fn(),
 }));
 vi.mock("../notifications/native-notifications", () => ({

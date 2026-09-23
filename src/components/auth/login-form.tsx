@@ -15,6 +15,7 @@ import { LoginAtmosphere } from "./login-atmosphere";
 import { AppLoginNetwork } from "./app-login-network";
 import styles from "./login-atmosphere.module.css";
 import appStyles from "./app-login-network.module.css";
+import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
@@ -56,6 +57,10 @@ export function LoginForm({
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
   const [showPassword, setShowPassword] = useState(false);
   const [isNativeApp, setIsNativeApp] = useState(false);
+  const rememberedLoginSupported = useRef(false);
+  const rememberedLoginReady = useRef<ReturnType<typeof requestAppRememberedLogin> | null>(null);
+  const editedCredentials = useRef(false);
+  const [needsRememberedLoginUpdate, setNeedsRememberedLoginUpdate] = useState(false);
   const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(
     sessionExpired
       ? (isAr ? "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى." : "Your session expired. Please sign in again.")
@@ -74,8 +79,8 @@ export function LoginForm({
     // Appearance only: a phone browser keeps the website layout. The installed
     // app provides this bridge before the document loads through its WebView.
     setIsNativeApp(typeof window.ReactNativeWebView?.postMessage === "function");
-    // Store only the checkbox preference. Credentials stay in the form and
-    // authentication remains in the existing server-issued HttpOnly cookie.
+    // Browser storage holds only the checkbox. Installed apps keep remembered
+    // credentials in native secure storage, separate from the HttpOnly session.
     try {
       const saved = localStorage.getItem(REMEMBER_ME_PREFERENCE);
       if (saved === "true" || saved === "false") {
@@ -87,6 +92,24 @@ export function LoginForm({
     document.addEventListener("visibilitychange", hidePassword);
     return () => document.removeEventListener("visibilitychange", hidePassword);
   }, []);
+  useEffect(() => {
+    if (!window.ReactNativeWebView?.postMessage) return;
+    let cancelled = false;
+    let optedOut = false;
+    try { optedOut = localStorage.getItem(REMEMBER_ME_PREFERENCE) === "false"; } catch { /* Optional preference storage. */ }
+    const ready = requestAppRememberedLogin(optedOut || passwordResetSuccess ? "clear" : "load");
+    rememberedLoginReady.current = ready;
+    void ready.then(response => {
+      if (cancelled) return;
+      if (response) rememberedLoginSupported.current = true;
+      setNeedsRememberedLoginUpdate(!response && !rememberedLoginSupported.current);
+      if (response?.status !== "ok" || !response.credentials || editedCredentials.current) return;
+      const credentials = response.credentials;
+      setForm(previous => previous.rememberMe && !previous.email && !previous.password
+        ? { ...previous, ...credentials } : previous);
+    });
+    return () => { cancelled = true; };
+  }, [passwordResetSuccess]);
   useEffect(() => {
     // A restored phone document can still show Login even though its HttpOnly
     // cookie is valid. Return only after a fresh server session check succeeds.
@@ -151,6 +174,16 @@ export function LoginForm({
             : "Logged in, but we couldn't confirm your session. Please try again.",
         );
         return;
+      }
+
+      // Persist only credentials that the server has just accepted. Wait for
+      // the native write before replacing the login document. Older apps keep
+      // their existing cookie/session behavior until their native update.
+      // Fast autofill/submit can finish before the initial native capability
+      // check. Let that bounded request settle before deciding whether to save.
+      await rememberedLoginReady.current;
+      if (rememberedLoginSupported.current) {
+        await requestAppRememberedLogin(form.rememberMe ? "save" : "clear", { email: form.email, password: form.password });
       }
 
       // A new authenticated session always starts in English. A restored
@@ -275,12 +308,12 @@ export function LoginForm({
             <form className={`${isNativeApp ? appStyles.form : ""} mt-6 grid gap-4`} onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
               <div className={`${isNativeApp ? appStyles.field : ""} grid gap-2`}>
                 <label htmlFor="login-email" className="text-sm text-[#B7B7B7]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
-                <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={isNativeApp && isLoginSubmitting} value={form.email} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, email: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
               </div>
               <div className={`${isNativeApp ? appStyles.field : ""} grid gap-2`}>
                 <label htmlFor="login-password" className="text-sm text-[#B7B7B7]">{isAr ? "كلمة المرور" : "Password"}</label>
                 <div className="relative">
-                  <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                  <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required disabled={isNativeApp && isLoginSubmitting} value={form.password} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, password: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
                   <button
                     type="button"
                     aria-label={showPassword ? (isAr ? "إخفاء كلمة المرور" : "Hide password") : (isAr ? "إظهار كلمة المرور" : "Show password")}
@@ -296,10 +329,15 @@ export function LoginForm({
               </div>
               <div className={`${isNativeApp ? appStyles.options : ""} flex flex-wrap items-center justify-between gap-x-3 text-sm`}>
                 <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[#D1D5DB]">
-                  <input name="rememberMe" type="checkbox" checked={form.rememberMe} onChange={(event) => {
+                  <input name="rememberMe" type="checkbox" disabled={isNativeApp && isLoginSubmitting} checked={form.rememberMe} onChange={(event) => {
                     const checked = event.target.checked;
                     setForm((prev) => ({ ...prev, rememberMe: checked }));
                     try { localStorage.setItem(REMEMBER_ME_PREFERENCE, String(checked)); } catch { /* Storage is optional. */ }
+                    if (!checked && isNativeApp) {
+                      void requestAppRememberedLogin("clear").then(response => {
+                        if (response) { rememberedLoginSupported.current = true; setNeedsRememberedLoginUpdate(false); }
+                      });
+                    }
                   }} className="h-5 w-5 rounded border-white/30 bg-transparent accent-[#C9A227]" />
                   {isAr ? "تذكرني" : "Remember Me"}
                 </label>
@@ -307,6 +345,7 @@ export function LoginForm({
                   {isAr ? "هل نسيت كلمة المرور؟" : "Forgot your password?"}
                 </Link>
               </div>
+              {isNativeApp && needsRememberedLoginUpdate && form.rememberMe ? <p className="text-xs text-[#D1D5DB]" role="status">{isAr ? "حدّث التطبيق لحفظ بريدك وكلمة مرورك على هذا الهاتف." : "Update the app to remember your email and password on this phone."}</p> : null}
               <Button type="submit" className="h-12 text-base" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
                 {isAr ? "تسجيل الدخول" : "Login"}
               </Button>

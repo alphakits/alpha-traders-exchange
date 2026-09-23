@@ -336,11 +336,11 @@ check(
   "The approved-seller identity checklist is incomplete.",
 );
 check(
-  sellerApprovalRoute.includes("requireApiAdmin")
+  sellerApprovalRoute.includes("await requireApiOwner()")
     && mobileAdminOverviewRoute.includes("await requireAdmin(request, requestId)")
     && !sellerApprovalRoute.includes("isSellerApprovalChecklistComplete")
     && !mobileAdminOverviewRoute.includes("isSellerApprovalChecklistComplete"),
-  "Seller approval must remain an authenticated admin decision after WhatsApp review without an extra checklist.",
+  "Seller approval must remain an authenticated owner decision after WhatsApp review without an extra checklist.",
 );
 check(
   sellerRoles.includes("isOwnerApprovedSeller(user)")
@@ -349,10 +349,10 @@ check(
   "Seller operations must require canonical approval and deny pending, rejected, or suspended sellers.",
 );
 check(
-  sellerVerificationReconciliationRoute.includes("requireApiAdmin")
+  sellerVerificationReconciliationRoute.includes("await requireApiOwner()")
     && sellerVerificationReconciliationRoute.includes("isSellerApprovalChecklistComplete")
     && sellerVerificationReconciliationRoute.includes("recordApprovedSellerVerificationByAdmin"),
-  "The legacy seller-verification reconciliation path is missing an authenticated complete-checklist gate.",
+  "The legacy seller-verification reconciliation path is missing an authenticated owner and complete-checklist gate.",
 );
 check(
   !genericRoleRoute.includes('"approved_seller"')

@@ -44,7 +44,7 @@ describe("LoginForm", () => {
     expect(password.value).toBe("app-test-password");
     fireEvent.click(screen.getByRole("checkbox"));
     expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("false");
-    expect(postMessage).not.toHaveBeenCalled();
+    expect(postMessage.mock.calls.map(([raw]) => JSON.parse(raw).action)).toEqual(["load", "clear"]);
   });
 
   it.each([
