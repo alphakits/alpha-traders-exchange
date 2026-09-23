@@ -94,7 +94,7 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
         // Components are rendered under the provider in production. The
         // fallback cycle keeps isolated component tests from relying on the
         // browser's uncontrolled native EventSource retry behavior.
-        // A named SSE error is an application snapshot failure, not a lost login.
+        // A named SSE event is a snapshot failure or planned rotation, not lost auth.
         if (event instanceof MessageEvent || !refreshCanonicalSession) {
           setStreamCycle((value) => value + 1);
           return;
@@ -128,6 +128,7 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
 
     stream.addEventListener("notifications", handleNotifications);
     stream.addEventListener("error", onError as EventListener);
+    stream.addEventListener("reconnect", onError as EventListener);
     window.addEventListener("pagehide", handlePageExit);
     window.addEventListener("beforeunload", handlePageExit);
     window.addEventListener("pageshow", handlePageShow);
@@ -143,6 +144,7 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       window.removeEventListener("online", handleOnline);
       stream.removeEventListener("notifications", handleNotifications);
       stream.removeEventListener("error", onError as EventListener);
+      stream.removeEventListener("reconnect", onError as EventListener);
       stream.close();
     };
   }, [canonicalSessionResolving, canonicalUserId, documentVisible, enabled, hasCanonicalSession, refreshCanonicalSession, streamCycle]);

@@ -1702,6 +1702,7 @@ function TradeRoomPageSession({
     if (!canonicalSessionReady || document.visibilityState === "hidden") return;
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
     let closed = false;
+    let reconnecting = false;
     setStreamConnected(false);
 
     const scheduleReconnect = () => {
@@ -1714,7 +1715,7 @@ function TradeRoomPageSession({
     };
 
     const onTradeRoom = (event: Event) => {
-      if (closed || document.visibilityState === "hidden") return;
+      if (closed || reconnecting || document.visibilityState === "hidden") return;
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as TradeRoomData;
@@ -1773,7 +1774,8 @@ function TradeRoomPageSession({
       // The first authoritative snapshot marks the connection as ready.
     };
     const onError = (event: Event) => {
-      if (closed || document.visibilityState === "hidden") return;
+      if (closed || reconnecting || document.visibilityState === "hidden") return;
+      reconnecting = true;
       setStreamConnected(false);
       stream.close();
       streamReconnectAttemptsRef.current += 1;
@@ -1790,6 +1792,9 @@ function TradeRoomPageSession({
     stream.addEventListener("trade-room", onTradeRoom);
     stream.addEventListener("open", onOpen as EventListener);
     stream.addEventListener("error", onError as EventListener);
+    // A planned rotation is a MessageEvent, so the recovery path skips the
+    // duplicate auth read and obtains a fresh authorized room snapshot instead.
+    stream.addEventListener("reconnect", onError as EventListener);
 
     const handlePageExit = () => {
       closed = true;

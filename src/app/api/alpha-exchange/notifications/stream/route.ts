@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { getNotificationRevisionForUser, getNotificationsForUser } from "@/lib/alpha-exchange-store";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
+import { SSE_RECONNECT_FRAME, SSE_ROTATION_INTERVAL_MS } from "@/lib/sse-lifecycle";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 // Local events remain immediate. Across instances, poll a cheap recipient
 // revision before loading the enriched snapshot so idle browser tabs do not
@@ -32,6 +34,7 @@ export async function GET(request: NextRequest) {
   if (!user) return unauthorized;
 
   const encoder = new TextEncoder();
+  let cancelStream = () => {};
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let lastSignature = "";
@@ -42,12 +45,16 @@ export async function GET(request: NextRequest) {
       let unsubscribe: () => void = () => {};
       let poll: ReturnType<typeof setInterval> | null = null;
       let keepAlive: ReturnType<typeof setInterval> | null = null;
+      let rotation: ReturnType<typeof setTimeout> | null = null;
       let cleanedUp = false;
 
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
         closed = true;
+        if (rotation) clearTimeout(rotation);
+        rotation = null;
+        request.signal.removeEventListener("abort", closeStream);
         if (poll) {
           clearInterval(poll);
           poll = null;
@@ -81,6 +88,7 @@ export async function GET(request: NextRequest) {
           // Stream may already be closed.
         }
       };
+      cancelStream = closeStream;
 
       const sendSnapshot = async () => {
         if (closed) return;
@@ -147,6 +155,10 @@ export async function GET(request: NextRequest) {
       keepAlive = setInterval(() => {
         safeEnqueue(": keepalive\n\n");
       }, 15000);
+      rotation = setTimeout(() => {
+        safeEnqueue(SSE_RECONNECT_FRAME);
+        closeStream();
+      }, SSE_ROTATION_INTERVAL_MS);
 
       const signal = request.signal;
       if (signal.aborted) {
@@ -154,10 +166,9 @@ export async function GET(request: NextRequest) {
         return;
       }
 
-      signal.addEventListener("abort", () => {
-        closeStream();
-      }, { once: true });
+      signal.addEventListener("abort", closeStream, { once: true });
     },
+    cancel() { cancelStream(); },
   });
 
   return new NextResponse(stream, {
