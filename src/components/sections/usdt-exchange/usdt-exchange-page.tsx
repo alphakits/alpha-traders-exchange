@@ -1725,7 +1725,7 @@ export function UsdtExchangePage({
   const [onlineOnlyFilter, setOnlineOnlyFilter] = useState(false);
   const [sortBy, setSortBy] = useState<"trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest">("trust-desc");
   const [buyerTradeQuery, setBuyerTradeQuery] = useState("");
-  const [buyerTradeStatus, setBuyerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
+  const [buyerTradeStatus, setBuyerTradeStatus] = useState<"all" | "active" | PurchaseRequest["status"]>("all");
   const [sellerTradeQuery, setSellerTradeQuery] = useState("");
   const [sellerTradeStatus, setSellerTradeStatus] = useState<"all" | "active" | PurchaseRequest["status"]>("all");
   const [buyerExpandedTradeId, setBuyerExpandedTradeId] = useState<string | null>(null);
@@ -1789,6 +1789,8 @@ export function UsdtExchangePage({
     && sessionUser?.sellerApprovalVerified === true;
   const hasSellerWorkspaceAccess = isApprovedSellerSession || sellerStatusForLanding === "suspended";
   const desktopSellerNavigation = isDesktopWorkspace && hasSellerWorkspaceAccess;
+  const desktopBuyerNavigation = isDesktopWorkspace && !hasSellerWorkspaceAccess && Boolean(sessionUser && accountRoleIdentity(sessionUser) === "buyer");
+  const desktopWorkspaceNavigation = desktopSellerNavigation || desktopBuyerNavigation;
   const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
@@ -1887,10 +1889,10 @@ export function UsdtExchangePage({
       return true;
     } catch {
       setPurchaseRequestsState("error");
-      if (!desktopSellerNavigation) setWorkspaceError(safeErrorMessage("workspace", isAr));
+      if (!desktopWorkspaceNavigation) setWorkspaceError(safeErrorMessage("workspace", isAr));
       return false;
     }
-  }, [desktopSellerNavigation, isAr, tracedReadFetch]);
+  }, [desktopWorkspaceNavigation, isAr, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
     const revisionAtStart = sellerWorkspaceRevisionRef.current;
@@ -2623,6 +2625,17 @@ export function UsdtExchangePage({
   const scrollToBuyerTradeHistorySection = useCallback(() => {
     return focusWorkspaceSection(BUYER_TRADE_HISTORY_SECTION_ID);
   }, []);
+
+  useEffect(() => {
+    if (!desktopBuyerNavigation || isDashboardWorkspace) return;
+    const focusDesktopDestination = () => {
+      const sectionId = window.location.hash.slice(1);
+      if (sectionId === "buyer-marketplace-listings" || sectionId === "market-overview") focusWorkspaceSection(sectionId);
+    };
+    focusDesktopDestination();
+    window.addEventListener("hashchange", focusDesktopDestination);
+    return () => window.removeEventListener("hashchange", focusDesktopDestination);
+  }, [desktopBuyerNavigation, isDashboardWorkspace]);
 
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
     const requestId = sellerProfileRequestIdRef.current + 1;
@@ -3406,15 +3419,21 @@ export function UsdtExchangePage({
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const showSellerWorkspace = !isMobileViewport || showDeepDeferredSections;
+  const activeBuyerRequests = useMemo(
+    () => groupOwnTrades(buyerRequests, sessionUser?.id ?? "", "buyer").active,
+    [buyerRequests, sessionUser?.id],
+  );
+  const visibleBuyerTradeStatus = !desktopBuyerNavigation && buyerTradeStatus === "active" ? "all" : buyerTradeStatus;
   const filteredBuyerRequests = useMemo(() => {
-    return buyerRequests.filter((request) => {
-      if (buyerTradeStatus !== "all" && request.status !== buyerTradeStatus) return false;
+    const requests = visibleBuyerTradeStatus === "active" ? activeBuyerRequests : buyerRequests;
+    return requests.filter((request) => {
+      if (visibleBuyerTradeStatus !== "all" && visibleBuyerTradeStatus !== "active" && request.status !== visibleBuyerTradeStatus) return false;
       const query = buyerTradeQuery.trim().toLowerCase();
       if (!query) return true;
       const haystack = `${request.tradeId ?? request.id} ${request.listingId} ${request.buyerName} ${request.sellerId}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [buyerRequests, buyerTradeQuery, buyerTradeStatus]);
+  }, [activeBuyerRequests, buyerRequests, buyerTradeQuery, visibleBuyerTradeStatus]);
   const activeSellerRequests = useMemo(
     () => groupOwnTrades(sellerRequests, sessionUser?.id ?? "", "seller").active,
     [sellerRequests, sessionUser?.id],
@@ -3597,7 +3616,7 @@ export function UsdtExchangePage({
   useEffect(() => {
     setBuyerTradeVisibleCount(isMobileViewport ? 1 : 2);
     setBuyerExpandedTradeId(null);
-  }, [buyerTradeQuery, buyerTradeStatus, isMobileViewport, sessionUser?.id]);
+  }, [buyerTradeQuery, visibleBuyerTradeStatus, isMobileViewport, sessionUser?.id]);
 
   useEffect(() => {
     setSellerPrimaryRequestsExpanded(false);
@@ -3678,10 +3697,12 @@ export function UsdtExchangePage({
 
   const openTradeCount = isSellerWorkspaceUser
     ? (desktopSellerNavigation ? activeSellerRequests.length : sellerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length)
-    : buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length;
+    : (desktopBuyerNavigation ? activeBuyerRequests.length : buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length);
   const totalBuyerRequests = buyerRequests.length;
   const unreadNotificationsTotal = notificationUnreadCount ?? notifications.filter((item) => !item.isRead).length;
-  const latestOpenBuyerTrade = recentBuyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
+  const latestOpenBuyerTrade = desktopBuyerNavigation
+    ? activeBuyerRequests[0]
+    : recentBuyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
   const latestOpenSellerTrade = desktopSellerNavigation
     ? activeSellerRequests[0]
     : recentSellerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
@@ -3830,6 +3851,19 @@ export function UsdtExchangePage({
     focusWorkspaceSection("purchase-requests-section");
   };
   const integrateSellerWorkspace = desktopSellerNavigation && welcomeRole !== "owner";
+  const integrateWorkspace = integrateSellerWorkspace || desktopBuyerNavigation;
+  const openBuyerRequests = (activeOnly: boolean) => {
+    setBuyerTradeQuery("");
+    setBuyerTradeStatus(activeOnly ? "active" : "all");
+    scrollToBuyerTradeHistorySection();
+  };
+  const openBuyerMarketplace = () => {
+    if (!isDashboardWorkspace) {
+      focusWorkspaceSection("buyer-marketplace-listings");
+      return;
+    }
+    router.push("/usdt-exchange#buyer-marketplace-listings");
+  };
 
   const workspaceCards: ExchangeWorkspaceAction[] = isSellerWorkspaceUser
     ? [
@@ -3936,6 +3970,7 @@ export function UsdtExchangePage({
         subtitle: isAr ? "العروض المباشرة" : "Live Offers",
         stat: `${marketplacePulse.liveListings.toLocaleString("en-IL")}`,
           onClick: () => {
+            if (desktopBuyerNavigation) return openBuyerMarketplace();
             const target = document.getElementById("marketplace");
             if (!isDashboardWorkspace && target) {
               target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3952,6 +3987,7 @@ export function UsdtExchangePage({
         subtitle: isAr ? "قائمة الطلبات" : "Request Queue",
         stat: `${totalBuyerRequests.toLocaleString("en-IL")}`,
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerRequests(false);
           if (scrollToBuyerTradeHistorySection()) return;
           router.push(`/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
@@ -3961,9 +3997,16 @@ export function UsdtExchangePage({
       {
         key: "active-trades",
         title: isAr ? "الصفقات النشطة" : "Active Trades",
-        subtitle: isAr ? "متابعة الصفقة" : "Continue Trade",
-        stat: `${openTradeCount.toLocaleString("en-IL")}`,
+        subtitle: !desktopBuyerNavigation
+          ? (isAr ? "متابعة الصفقة" : "Continue Trade")
+          : purchaseRequestsState === "ready"
+            ? (isAr ? "عرض صفقاتك الحالية" : "View your current trades")
+            : purchaseRequestsState === "error"
+              ? (isAr ? "افتح الصفقات لإعادة المحاولة" : "Open trades to retry")
+              : (isAr ? "جارٍ تحميل الصفقات..." : "Loading current trades…"),
+        stat: !desktopBuyerNavigation || purchaseRequestsState === "ready" ? openTradeCount.toLocaleString("en-IL") : "—",
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerRequests(true);
           if (latestOpenBuyerTrade) {
             handleOpenTradeRoom(latestOpenBuyerTrade.id);
             return;
@@ -3979,6 +4022,10 @@ export function UsdtExchangePage({
         subtitle: isAr ? "مركز الإشعارات" : "Notification Center",
         stat: `${unreadNotificationsTotal.toLocaleString("en-IL")}`,
         onClick: () => {
+          if (desktopBuyerNavigation) {
+            focusWorkspaceSection("notification-center-section");
+            return;
+          }
           const target = document.getElementById("notification-center-section");
           if (target) {
             target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3995,6 +4042,10 @@ export function UsdtExchangePage({
         subtitle: isAr ? "سوق اليوم" : "Today’s Market",
         stat: formatIls(marketPricePerUsdt),
           onClick: () => {
+            if (desktopBuyerNavigation && !isDashboardWorkspace) {
+              focusWorkspaceSection("market-overview");
+              return;
+            }
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
               target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4015,6 +4066,17 @@ export function UsdtExchangePage({
         tone: "blue",
       },
     ];
+  if (desktopBuyerNavigation) {
+    workspaceCards.push({
+      key: "account-settings",
+      title: isAr ? "إعدادات الحساب" : "Account Settings",
+      subtitle: isAr ? "الملف الشخصي والأمان" : "Profile and security",
+      stat: isAr ? "إدارة الحساب" : "Manage account",
+      onClick: () => router.push("/settings"),
+      icon: ShieldCheck,
+      tone: "green",
+    });
+  }
   if (standardCommissionDueActive) {
     workspaceCards.push({
       key: "commission",
@@ -4046,8 +4108,12 @@ export function UsdtExchangePage({
     });
   }
 
-  const compactBuyerWorkspace = isDashboardWorkspace && !isSellerWorkspaceUser;
-  const visibleWorkspaceCards = compactBuyerWorkspace
+  const compactBuyerWorkspace = isDashboardWorkspace && !isSellerWorkspaceUser && !desktopBuyerNavigation;
+  const visibleWorkspaceCards = desktopBuyerNavigation
+    ? workspaceCards.filter((card) => card.key !== "orders").map((card) => card.key === "browse-marketplace"
+      ? { ...card, title: isAr ? "العروض المباشرة" : "Live Listings", subtitle: isAr ? "تصفح البائعين" : "Browse Sellers" }
+      : card)
+    : compactBuyerWorkspace
     ? workspaceCards.filter((card) => card.key === "browse-marketplace" || card.key === "active-trades").map((card) => card.key === "browse-marketplace"
       ? { ...card, title: isAr ? "العروض المباشرة" : "Live Listings", subtitle: isAr ? "تصفح البائعين" : "Browse Sellers" }
       : card)
@@ -4083,8 +4149,9 @@ export function UsdtExchangePage({
     : [
       {
         key: "hero-browse-marketplace",
-        label: isAr ? "تصفّح السوق" : "Browse Marketplace",
+        label: desktopBuyerNavigation ? (isAr ? "تصفح البائعين" : "Browse Sellers") : (isAr ? "تصفّح السوق" : "Browse Marketplace"),
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerMarketplace();
           const target = document.getElementById("marketplace");
           if (target) {
             target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4097,6 +4164,7 @@ export function UsdtExchangePage({
         key: "hero-my-trades",
         label: isAr ? "طلبات صفقاتي" : "My Trade Requests",
         onClick: () => {
+          if (desktopBuyerNavigation) return openBuyerRequests(false);
           if (scrollToBuyerTradeHistorySection()) return;
           router.push(`/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
@@ -4881,7 +4949,7 @@ export function UsdtExchangePage({
     const visibleCount = notificationCenterExpanded ? sortedNotifications.length : defaultVisibleCount;
     const hasHiddenNotifications = sortedNotifications.length > defaultVisibleCount;
     return (
-      <Card id={sectionId} tabIndex={desktopSellerNavigation ? -1 : undefined} className={cn("border-white/10 bg-[#0B0B0B]/90", desktopSellerNavigation && "scroll-mt-24", className)}>
+      <Card id={sectionId} tabIndex={desktopWorkspaceNavigation ? -1 : undefined} className={cn("border-white/10 bg-[#0B0B0B]/90", desktopWorkspaceNavigation && "scroll-mt-24", className)}>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -5102,6 +5170,7 @@ export function UsdtExchangePage({
       isAr={isAr}
       prominent={showBuyerSellerApplicationUpFront}
       compact={isDashboardWorkspace}
+      hideBuyerDiscovery={desktopBuyerNavigation}
       isLoading={isSellerApplicationLoading}
       isApprovedSellerSession={isApprovedSellerSession}
       shouldCondense={shouldCondenseSellerApplication}
@@ -5129,9 +5198,9 @@ export function UsdtExchangePage({
   ) : null;
 
   const workspaceNavigation = (
-    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateSellerWorkspace} compact={compactBuyerWorkspace} />
+    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} />
   );
-  const welcomeActions = !isDashboardWorkspace || integrateSellerWorkspace ? (
+  const welcomeActions = !isDashboardWorkspace || integrateWorkspace ? (
     <div className="account-welcome__actions">
       {heroPrimaryActions.map((action, index) => (
         <Button
@@ -5176,7 +5245,7 @@ export function UsdtExchangePage({
             greeting={greetingLabel}
             suspended={sellerStatusForLanding === "suspended"}
             actions={welcomeActions}
-            workspace={integrateSellerWorkspace ? workspaceNavigation : undefined}
+            workspace={integrateWorkspace ? workspaceNavigation : undefined}
           >
               {welcomeRole === "buyer" ? (
                 <BuyerRankCard summary={buyerProfileSummary} locale={isAr ? "ar" : "en"} />
@@ -5245,7 +5314,7 @@ export function UsdtExchangePage({
             </Card>
           ) : null}
 
-          {!integrateSellerWorkspace ? workspaceNavigation : null}
+          {!integrateWorkspace ? workspaceNavigation : null}
 
           {needsAttentionItems.length ? (
             <Card className="mt-4 border-amber-500/30 bg-[#0B0B0B]/92">
@@ -5427,7 +5496,7 @@ export function UsdtExchangePage({
         </div>
 
         {/* Professional live market panel */}
-        <div id="market-overview" tabIndex={desktopSellerNavigation ? -1 : undefined} className={cn("mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]", desktopSellerNavigation && "scroll-mt-24")}>
+        <div id="market-overview" tabIndex={desktopWorkspaceNavigation ? -1 : undefined} className={cn("mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]", desktopWorkspaceNavigation && "scroll-mt-24")}>
           <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-5">
             <div>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{isAr ? "السوق المباشر" : "Live Market"}</p>
@@ -5638,7 +5707,7 @@ export function UsdtExchangePage({
           </Card>
         ) : null}
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3">
+        <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (
                 <Card key={`skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -5885,8 +5954,15 @@ export function UsdtExchangePage({
             buyerOverviewCard,
             buyerRequests,
             buyerTradeQuery,
-            buyerTradeStatus,
+            buyerTradeStatus: visibleBuyerTradeStatus,
             buyerTradeVisibleCount,
+            desktopNavigation: desktopBuyerNavigation,
+            purchaseRequestsState: desktopBuyerNavigation ? purchaseRequestsState : "ready",
+            onRetryPurchaseRequests: () => {
+              setPurchaseRequestsState("loading");
+              void refreshMyPurchaseRequests();
+            },
+            onBrowseSellers: openBuyerMarketplace,
             evidenceUploading,
             filteredBuyerRequests,
             groupedActivityHistory,
