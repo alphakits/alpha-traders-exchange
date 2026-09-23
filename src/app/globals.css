@@ -682,6 +682,9 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .account-welcome {
   --welcome-accent: 100, 168, 255;
   --welcome-ink: #c6e1ff;
+  --welcome-title-light: #f0f9ff;
+  --welcome-title-metal: var(--welcome-ink);
+  --welcome-title-depth: #82baff;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -697,6 +700,9 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .account-welcome--owner {
   --welcome-accent: 248, 80, 92;
   --welcome-ink: #ffc5be;
+  --welcome-title-light: #fff1df;
+  --welcome-title-metal: #ffa8a5;
+  --welcome-title-depth: #ef7580;
   background: radial-gradient(ellipse at 3% 0%, #d52b3c66, transparent 65%),
     linear-gradient(125deg, #54111e, #290911 58%, #11070b);
   border-color: #fa6a7078;
@@ -706,15 +712,18 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .account-welcome--approved_seller, .account-welcome--administrator {
   --welcome-accent: 230, 189, 85;
   --welcome-ink: #f8dfa0;
+  --welcome-title-light: #fff9df;
+  --welcome-title-metal: #f4d675;
+  --welcome-title-depth: #d6ac4e;
   background: radial-gradient(ellipse at 8% 0%, #d4af372e, transparent 68%),
     linear-gradient(135deg, #2c2515, #13110b 65%, #0b0b09);
 }
 
-.account-welcome--student { --welcome-accent: 192, 132, 252; --welcome-ink: #e9d5ff; }
-.account-welcome--pending_seller { --welcome-accent: 251, 146, 60; --welcome-ink: #fed7aa; }
-.account-welcome--moderator { --welcome-accent: 203, 213, 225; --welcome-ink: #e2e8f0; }
-.account-welcome--guest { --welcome-accent: 52, 211, 153; --welcome-ink: #a7f3d0; }
-.account-welcome--suspended { --welcome-accent: 251, 191, 36; --welcome-ink: #fde68a; }
+.account-welcome--student { --welcome-accent: 192, 132, 252; --welcome-ink: #e9d5ff; --welcome-title-depth: #c89af7; }
+.account-welcome--pending_seller { --welcome-accent: 251, 146, 60; --welcome-ink: #fed7aa; --welcome-title-depth: #f5b16e; }
+.account-welcome--moderator { --welcome-accent: 203, 213, 225; --welcome-ink: #e2e8f0; --welcome-title-depth: #a6b9d1; }
+.account-welcome--guest { --welcome-accent: 52, 211, 153; --welcome-ink: #a7f3d0; --welcome-title-depth: #62d6ad; }
+.account-welcome--suspended { --welcome-accent: 251, 191, 36; --welcome-ink: #fde68a; --welcome-title-metal: #fde68a; --welcome-title-depth: #eac353; }
 
 .account-welcome__reflection {
   position: absolute;
@@ -734,7 +743,50 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .account-welcome__badge { padding: .6rem .85rem; font-size: .7rem; }
 .account-welcome__badge .role-badge__content { gap: .45rem; }
 .account-welcome__badge .role-badge__content > svg:first-child { width: 1.15rem; height: 1.15rem; }
-.account-welcome__title { margin-top: 1.6rem; color: #fff; font-size: clamp(1.65rem, 4.7vw, 2.5rem); font-weight: 650; line-height: 1.16; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.account-welcome__title {
+  margin-top: 1.6rem;
+  padding-block: .06em;
+  color: var(--welcome-ink);
+  font-size: clamp(1.65rem, 4.7vw, 2.5rem);
+  font-weight: 750;
+  line-height: 1.16;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+
+/* The lettering itself carries the metal finish, including the account name.
+   The fixed foil gradient remains visible between the moving highlights. */
+@supports (-webkit-background-clip: text) or (background-clip: text) {
+  .account-welcome__title {
+    background-image:
+      linear-gradient(110deg, transparent 38%, #ffffff8c 46%, #fff 50%, #ffffff8c 54%, transparent 62%),
+      linear-gradient(180deg, var(--welcome-title-light) 0%, var(--welcome-title-metal) 38%, var(--welcome-title-light) 47%, var(--welcome-title-depth) 54%, var(--welcome-title-metal) 76%, var(--welcome-title-light) 100%);
+    background-size: 260% 100%, 100% 100%;
+    background-position: 65% 0, 0 0;
+    background-repeat: no-repeat;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 22px rgba(var(--welcome-accent), .22);
+    animation: welcome-title-shimmer 5.5s ease-in-out infinite;
+  }
+}
+
+@keyframes welcome-title-shimmer {
+  0% { background-position: 115% 0, 0 0; }
+  60%, 100% { background-position: -15% 0, 0 0; }
+}
+
+@media (forced-colors: active) {
+  .account-welcome__title {
+    animation: none;
+    background: none;
+    color: CanvasText;
+    -webkit-text-fill-color: CanvasText;
+    text-shadow: none;
+  }
+}
 .account-welcome__greeting { margin-top: .8rem; color: var(--welcome-ink); font-size: .95rem; font-weight: 500; }
 .account-welcome__description { margin-top: .3rem; max-width: 44rem; color: #d1d5db; font-size: .875rem; line-height: 1.65; }
 .account-welcome__time { margin-top: .85rem; }
@@ -2289,6 +2341,7 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   .profile-identity-name--admin,
   .profile-identity-name--buyer,
   .profile-identity-name--owner,
+  .account-welcome__title,
   .page-shell,
   .role-badge,
   .role-badge__shine {
