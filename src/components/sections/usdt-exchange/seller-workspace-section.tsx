@@ -1020,7 +1020,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </Card>
           ) : null}
 
-          <Card id="create-listing" className="order-30 border-white/10 bg-[#0B0B0B]/90">
+          <Card id="create-listing" tabIndex={-1} className="order-30 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>

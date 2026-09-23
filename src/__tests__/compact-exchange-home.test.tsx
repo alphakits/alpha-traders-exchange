@@ -141,6 +141,12 @@ describe("compact Exchange home", () => {
     expect((filter as HTMLSelectElement).value).toBe("all");
     fireEvent.click(workspace.getByRole("button", { name: isAr ? /^عروضي:/ : /^My Listings:/ }));
     expect(document.activeElement?.id).toBe("my-listings-section");
+    fireEvent.click(within(welcome).getByRole("button", { name: isAr ? "إنشاء عرض" : "Create Listing" }));
+    expect(document.activeElement?.id).toBe("create-listing");
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^الإشعارات:/ : /^Notifications:/ }));
+    expect(document.activeElement?.id).toBe("notification-center-section");
+    fireEvent.click(workspace.getByRole("button", { name: isAr ? /^سوق اليوم:/ : /^Today's Market:/ }));
+    expect(document.activeElement?.id).toBe("market-overview");
     fireEvent.click(workspace.getByRole("button", { name: isAr ? /^ملفي وإنجازاتي:/ : /^My Profile & Achievements:/ }));
     expect(push).toHaveBeenLastCalledWith("/profile");
     fireEvent.click(workspace.getByRole("button", { name: isAr ? /^إعدادات الحساب:/ : /^Account Settings:/ }));
@@ -173,6 +179,17 @@ describe("compact Exchange home", () => {
     requestsUnavailable = false;
     fireEvent.click(within(document.getElementById("purchase-requests-section")!).getByRole("button", { name: "Retry" }));
     await screen.findByText("There are no active trades currently.");
+  });
+
+  it("honors an immediate Create Listing click while the seller workspace mounts", async () => {
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="seller" />);
+    const welcome = within(container.querySelector('[data-account-role="approved_seller"]') as HTMLElement);
+    fireEvent.click(welcome.getByRole("button", { name: "Create Listing" }));
+    await waitFor(() => expect(document.activeElement?.id).toBe("create-listing"));
+    const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+    fireEvent.click(workspace.getByRole("button", { name: /^Today's Market:/ }));
+    expect(push).toHaveBeenLastCalledWith("/usdt-exchange#market-overview");
   });
 
 });

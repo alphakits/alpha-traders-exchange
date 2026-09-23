@@ -2607,9 +2607,7 @@ export function UsdtExchangePage({
   const scrollToCreateListingSection = useCallback(() => {
     if (typeof document === "undefined") return false;
     const target = document.getElementById("create-listing") ?? document.getElementById("create-listing-form");
-    if (!target) return false;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    return true;
+    return focusWorkspaceSection(target?.id ?? "create-listing");
   }, []);
 
   const scrollToMyListingsSection = useCallback(() => {
@@ -3871,7 +3869,7 @@ export function UsdtExchangePage({
         onClick: () => {
           const target = document.getElementById("notification-center-section");
           if (target) {
-            target.scrollIntoView({ behavior: "smooth", block: "start" });
+            focusWorkspaceSection(target.id);
             return;
           }
           router.push("/notifications");
@@ -3887,7 +3885,7 @@ export function UsdtExchangePage({
           onClick: () => {
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
-              target.scrollIntoView({ behavior: "smooth", block: "start" });
+              focusWorkspaceSection(target.id);
               return;
             }
             router.push("/usdt-exchange#market-overview");
@@ -4859,7 +4857,7 @@ export function UsdtExchangePage({
     const visibleCount = notificationCenterExpanded ? sortedNotifications.length : defaultVisibleCount;
     const hasHiddenNotifications = sortedNotifications.length > defaultVisibleCount;
     return (
-      <Card id={sectionId} className={cn("border-white/10 bg-[#0B0B0B]/90", className)}>
+      <Card id={sectionId} tabIndex={-1} className={cn("scroll-mt-24 border-white/10 bg-[#0B0B0B]/90", className)}>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -5405,7 +5403,7 @@ export function UsdtExchangePage({
         </div>
 
         {/* Professional live market panel */}
-        <div id="market-overview" className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
+        <div id="market-overview" tabIndex={-1} className="mt-4 scroll-mt-24 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
           <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-5">
             <div>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{isAr ? "السوق المباشر" : "Live Market"}</p>
