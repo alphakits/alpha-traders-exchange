@@ -1,3 +1,4 @@
+import { PrivateContactError } from "@/lib/buyer-contact";
 import type {
   MobileApiErrorCode,
   MobileLocale,
@@ -177,6 +178,7 @@ export function toMobileTradeDetail(
 }
 
 export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null {
+  if (error instanceof PrivateContactError) return "PRIVATE_CONTACT_REQUIRED";
   const code = typeof error === "object" && error
     ? String((error as { code?: unknown }).code ?? "")
     : "";

@@ -1,3 +1,4 @@
+import { BuyerContactPreview } from "@/components/auth/buyer-contact-prompt";
 import { notFound } from "next/navigation";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
@@ -11,6 +12,7 @@ import { Link } from "@/i18n/navigation";
 import { RANK_VISUAL_KEYS } from "@/lib/rank-identity";
 import { deriveBuyerRankSummary } from "@/lib/buyer-rank";
 import { TradeRequestGroups } from "@/components/sections/trades-workspace";
+import { OwnerTradeHistory, type OwnerTradeHistoryData } from "@/components/sections/trade-room/owner-trade-history";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 export const metadata = { title: "Welcome design preview", robots: { index: false, follow: false } };
@@ -21,6 +23,35 @@ export default async function WelcomePreview({ params, searchParams }: { params:
   const locale = (await params).locale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   const view = (await searchParams).view;
+  if (view === "history") {
+    const sample: OwnerTradeHistoryData = {
+      request: {
+        id: "sample-trade", tradeId: "sample-trade", displayNumber: 4216, listingId: "sample-listing", buyerId: "sample-buyer", sellerId: "sample-seller", buyerName: "Amir Hassan",
+        status: "review_open", usdtAmount: "1250", fiatAmount: "4000", pricePerUsdt: "3.20", network: "TRC20", currency: "ILS", paymentMethod: "Face-to-Face (Meet in Person)",
+        createdAt: "2026-09-23T10:00:00Z", completedAt: "2026-09-23T10:20:00Z", updatedAt: "2026-09-23T10:24:00Z",
+        timeline: [
+          { id: "sample-event-1", type: "request_submitted", actorUserId: "sample-buyer", actorRole: "buyer", message: isAr ? "تم إرسال طلب شراء 1,250 USDT بسعر ₪3.20." : "Purchase request submitted for 1,250 USDT at ₪3.20.", createdAt: "2026-09-23T10:00:00Z" },
+          { id: "sample-event-2", type: "request_accepted", actorUserId: "sample-seller", actorRole: "approved_seller", message: "Seller accepted request", createdAt: "2026-09-23T10:02:00Z" },
+          { id: "sample-event-3", type: "seller_confirmed_funds", actorUserId: "sample-seller", actorRole: "approved_seller", message: isAr ? "أكد البائع استلام النقد." : "Seller confirmed cash received.", createdAt: "2026-09-23T10:15:00Z" },
+          { id: "sample-event-4", type: "trade_completed", actorUserId: "sample-seller", actorRole: "approved_seller", message: "Seller confirmed trade completed", createdAt: "2026-09-23T10:20:00Z" },
+        ],
+        buyerReview: { reviewerUserId: "sample-buyer", rating: 5, comment: isAr ? "تعامل سريع وواضح. وصلتني الكمية كاملة." : "Quick and clear communication. The full amount arrived.", createdAt: "2026-09-23T10:22:00Z" },
+        sellerBuyerReview: { reviewerUserId: "sample-seller", rating: 5, comment: isAr ? "وصل في الموعد وكانت الصفقة سلسة." : "On time and a smooth trade.", createdAt: "2026-09-23T10:24:00Z" },
+      },
+      counterpart: { buyerName: "Amir Hassan", sellerName: "Maya Chen" },
+      messages: [
+        { id: "sample-chat-1", purchaseRequestId: "sample-trade", kind: "system", senderUserId: "system", senderRole: "admin", message: "Seller accepted request", createdAt: "2026-09-23T10:02:00Z", readByUserIds: [] },
+        { id: "sample-chat-2", purchaseRequestId: "sample-trade", kind: "user", senderUserId: "sample-buyer", senderRole: "buyer", message: isAr ? "أنا في مكان اللقاء المتفق عليه." : "I’m at the agreed meeting point.", createdAt: "2026-09-23T10:10:00Z", readByUserIds: [] },
+        { id: "sample-chat-3", purchaseRequestId: "sample-trade", kind: "user", senderUserId: "sample-seller", senderRole: "approved_seller", message: isAr ? "وصلت أيضًا. سنتأكد من التفاصيل معًا قبل التحويل." : "I’m here too. We’ll check the details together before the transfer.", createdAt: "2026-09-23T10:11:00Z", readByUserIds: [] },
+        { id: "sample-chat-4", purchaseRequestId: "sample-trade", kind: "user", senderUserId: "sample-buyer", senderRole: "buyer", message: isAr ? "وصلني 1,250 USDT، شكرًا!" : "Received 1,250 USDT, thank you!", createdAt: "2026-09-23T10:19:00Z", readByUserIds: [] },
+        { id: "sample-chat-5", purchaseRequestId: "sample-trade", kind: "system", senderUserId: "system", senderRole: "admin", message: "Seller confirmed trade completed", createdAt: "2026-09-23T10:20:00Z", readByUserIds: [] },
+      ],
+    };
+    return <main dir={isAr ? "rtl" : "ltr"} lang={locale} className="min-h-screen bg-[#050505] px-3 py-5 text-white sm:px-5"><div className="mx-auto max-w-6xl space-y-4"><p className="text-sm text-[#9CA3AF]">{isAr ? "معاينة سجل المالك · أسماء وصفقة توضيحية · لا توجد بيانات حقيقية" : "Owner history preview · sample names and trade · no real account data"}</p><OwnerTradeHistory locale={locale} room={sample} /></div></main>;
+  }
+  if (view === "contact") {
+    return <main className="section-container py-10"><p className="mb-6 text-sm text-[#9CA3AF]">{isAr ? "معاينة رسالة التواصل الخاصة · بدون بيانات حقيقية" : "Private contact prompt preview · no real account data"}</p><div className="mx-auto w-full max-w-[390px]"><BuyerContactPreview locale={locale} /></div></main>;
+  }
   if (view === "profile") {
     const profiles = [
       { role: "owner" as const, name: "Alex Morgan", id: "#S-001247", tone: "owner", cover: "from-[#1B0E0E] via-[#220f0f] to-[#090909]", frame: "border-[#F87171]/45 shadow-[0_0_36px_rgba(248,113,113,0.18)]" },
@@ -36,6 +67,7 @@ export default async function WelcomePreview({ params, searchParams }: { params:
               <PrivateProfileHeader
                 locale={locale}
                 fullName={profile.name}
+                publicOwner={profile.role === "owner"}
                 publicId={profile.id}
                 coverClassName={profile.cover}
                 avatarClassName={profile.frame}

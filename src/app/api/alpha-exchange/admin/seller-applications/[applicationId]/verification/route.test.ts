@@ -5,12 +5,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
 
 const mocks = vi.hoisted(() => ({
-  requireApiAdmin: vi.fn(),
+  requireApiOwner: vi.fn(),
   recordApprovedSellerVerificationByAdmin: vi.fn(),
   logEvent: vi.fn(),
 }));
 
-vi.mock("@/lib/api-auth", () => ({ requireApiAdmin: mocks.requireApiAdmin }));
+vi.mock("@/lib/api-auth", () => ({ requireApiOwner: mocks.requireApiOwner }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   recordApprovedSellerVerificationByAdmin: mocks.recordApprovedSellerVerificationByAdmin,
 }));
@@ -31,7 +31,7 @@ const context = { params: Promise.resolve({ applicationId: "application-1" }) };
 describe("approved-seller verification reconciliation route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireApiAdmin.mockResolvedValue({
+    mocks.requireApiOwner.mockResolvedValue({
       user: { id: "owner-1", role: "owner" },
       unauthorized: null,
     });
@@ -73,8 +73,8 @@ describe("approved-seller verification reconciliation route", () => {
     expect(mocks.recordApprovedSellerVerificationByAdmin).not.toHaveBeenCalled();
   });
 
-  it("requires an authenticated administrator", async () => {
-    mocks.requireApiAdmin.mockResolvedValueOnce({
+  it("requires the authenticated owner", async () => {
+    mocks.requireApiOwner.mockResolvedValueOnce({
       user: null,
       unauthorized: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     });

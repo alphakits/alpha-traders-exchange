@@ -6,6 +6,6 @@ import { hasRole } from "@/lib/roles";
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  if (!hasRole(user, "admin") && !hasRole(user, "owner")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!hasRole(user, "owner")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json({ deliveries: await getSmsDeliveriesForAdmin() });
 }

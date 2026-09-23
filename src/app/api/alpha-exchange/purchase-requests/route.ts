@@ -1,3 +1,5 @@
+import { PrivateContactError } from "@/lib/buyer-contact";
+import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { after, NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests, sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
@@ -200,6 +202,12 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    if (error instanceof PrivateContactError) {
+      const message = resolveSupportedRequestLocale(request.headers, "en") === "ar"
+        ? "أضف رقم هاتف أو واتساب صالحًا في ملفك الشخصي حتى يتمكن المالك من التواصل معك عند الحاجة. الرقم خاص بك وبالمالك فقط."
+        : error.message;
+      return denied(message, 400, error.code);
+    }
     if (error instanceof Error && error.message.trim()) {
       const blocked = error as Error & { code?: string; purchaseRequestId?: string; details?: Record<string, unknown> };
       const code = blocked.code ?? "PURCHASE_REQUEST_VALIDATION_FAILED";

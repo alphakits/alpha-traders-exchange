@@ -1,3 +1,4 @@
+import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
@@ -65,7 +66,7 @@ import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryS
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
-import { publicAccountId, identityTextRedactor } from "@/lib/public-account-identity";
+import { publicAccountId, publicAccountName, accountNameForViewer, isPublicOwnerIdentity, ownerIdentityText, identityTextRedactor } from "@/lib/public-account-identity";
 import { publicAccountUsername } from "@/lib/public-account-username";
 import { validateUploadContent } from "@/lib/file-content-validation";
 import { toAdminSellerSummary, toAdminUserSummary } from "@/lib/client-session-user";
@@ -584,8 +585,8 @@ function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, 
     listingDisplayNumber: listing?.displayNumber,
     sellerId: request.sellerId,
     buyerId: request.buyerId,
-    counterpartyName: publicAccountId(counterparty ?? { id: counterpartyId, role: recipientIsSeller ? "buyer" : "approved_seller" }),
-    counterpartyAvatarUrl: undefined,
+    counterpartyName: accountNameForViewer(counterparty ?? { id: counterpartyId, role: recipientIsSeller ? "buyer" : "approved_seller" }, db.users.find(user => user.id === userId)),
+    counterpartyAvatarUrl: isPublicOwnerIdentity(counterparty) ? counterparty?.profilePhotoUrl : undefined,
     usdtAmount: request.usdtAmount,
     fiatAmount: request.fiatAmount,
     currency: request.currency,
@@ -626,8 +627,8 @@ type NotificationSellerContext = {
   user?: AlphaExchangeUser;
 };
 
-function buildNotificationSellerContext(user: AlphaExchangeUser): NotificationSellerContext {
-  const displayName = publicAccountId(user);
+function buildNotificationSellerContext(user: AlphaExchangeUser, viewer?: AlphaExchangeUser): NotificationSellerContext {
+  const displayName = accountNameForViewer(user, viewer);
   const username = derivePublicProfileUsername({
     id: user.id,
     fullName: user.fullName,
@@ -657,7 +658,7 @@ function resolveNotificationSellerContext(db: AlphaExchangeDb, notification: Alp
     : undefined;
   const notificationText = `${notification.title ?? ""} ${notification.message ?? ""}`;
   const legacySeller = byUsername ?? db.users.find((user) => isTrustEligibleSeller(user) && notificationText.includes(user.id));
-  if (legacySeller) return buildNotificationSellerContext(legacySeller);
+  if (legacySeller) return buildNotificationSellerContext(legacySeller, recipient);
 
   const displayName = redactPrivateContactDetails(notification.relatedSellerName?.trim() || "");
   if (!displayName || !notification.relatedSellerUsername) return null;
@@ -735,10 +736,11 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       : notification.category === "application"
         ? "Application update"
         : "Alpha Exchange update";
-  const visibleText = identityTextRedactor([
+  const ownerRecipient = db.users.find(user => user.id === notification.userId);
+  const visibleText = isPublicOwnerIdentity(ownerRecipient) ? ownerIdentityText(db.users) : identityTextRedactor([
     ...db.users,
     ...(request ? [{ ...db.users.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
-    ...(listing ? [{ ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, role: "approved_seller", fullName: listing.sellerDisplayName }] : []),
+    ...(listing ? [{ role: "approved_seller", ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }] : []),
   ]);
   let title = visibleText(notification.title?.trim() || fallbackTitle);
   let message = visibleText(notification.message?.trim() || "Open notifications for the latest account update.");
@@ -777,7 +779,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedTradeId,
     relatedTradeDisplayNumber: request?.displayNumber,
     relatedListingDisplayNumber: listing?.displayNumber ?? notification.relatedListingDisplayNumber,
-    relatedSellerName: sellerContext?.displayName ?? (listing ? publicAccountId(db.users.find(user => user.id === listing.sellerId) ?? { id: listing.sellerId, role: "approved_seller" }) : undefined),
+    relatedSellerName: sellerContext?.displayName ?? (listing ? accountNameForViewer(db.users.find(user => user.id === listing.sellerId) ?? { id: listing.sellerId, role: "approved_seller" }, ownerRecipient) : undefined),
     relatedSellerUsername: sellerContext?.username ?? (listing ? derivePublicProfileUsername({ id: listing.sellerId }) : undefined),
     relatedHref,
     actionHref,
@@ -1504,7 +1506,7 @@ function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser)
   const completedTradeMonths = Array.from(new Set(qualifyingTrades.filter((request) => request.completedAt).map((request) => new Date(request.completedAt!).toISOString().slice(0, 7))));
   const currentAchievements = evaluateSellerAchievements({
     sellerId: seller.id,
-    sellerName: publicAccountId(seller),
+    sellerName: publicAccountName(seller),
     rank: seller.sellerPrestigeRank ?? "bronze",
     lifetimeVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
     completedTrades: qualifyingTrades.length,
@@ -1536,7 +1538,7 @@ function buildHallOfFameEntry(db: AlphaExchangeDb, seller: AlphaExchangeUser) {
   const achievements = buildSellerAchievements(db, seller);
   return {
     sellerId: seller.id,
-    sellerName: publicAccountId(seller),
+    sellerName: publicAccountName(seller),
     rank: seller.sellerPrestigeRank ?? "bronze",
     achievements: publicSellerAchievements(achievements),
     promotedAt: seller.updatedAt,
@@ -1579,15 +1581,16 @@ function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: Selle
   };
 }
 
-function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile {
-  const visibleText = identityTextRedactor([user], true);
+function buildSellerPublicProfile(user: AlphaExchangeUser, viewer?: AlphaExchangeUser): SellerPublicProfile {
+  const ownerView = isPublicOwnerIdentity(viewer);
+  const visibleText = ownerView ? (value?: string) => value ?? "" : identityTextRedactor([user], true);
   return {
     sellerId: user.id,
-    sellerName: publicAccountId(user),
-    publicTradingName: publicAccountId(user),
+    sellerName: accountNameForViewer(user, viewer),
+    publicTradingName: accountNameForViewer(user, viewer),
     username: derivePublicProfileUsername(user),
-    fullName: publicAccountId(user),
-    profilePhotoUrl: "",
+    fullName: accountNameForViewer(user, viewer),
+    profilePhotoUrl: isPublicOwnerIdentity(user) || isPublicOwnerIdentity(viewer) ? user.profilePhotoUrl : "",
     memberSince: user.createdAt,
     languages: (user.languages ?? []).map((language) => visibleText(language)),
     preferredNetworks: user.preferredNetworks,
@@ -1596,8 +1599,8 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     workingHours: visibleText(user.workingHours),
     preferredPaymentMethods: (user.preferredPaymentMethods ?? []).map((method) => visibleText(method)),
     country: visibleText(user.country),
-    city: "",
-    coverBannerUrl: "",
+    city: ownerView || isPublicOwnerIdentity(user) ? user.city : "",
+    coverBannerUrl: isPublicOwnerIdentity(user) || isPublicOwnerIdentity(viewer) ? user.coverBannerUrl : "",
     isFoundingSeller: user.isFoundingSeller === true,
     isFoundingMember: user.isFoundingMember === true,
     isFeaturedSeller: user.isFeaturedSeller === true,
@@ -1622,10 +1625,12 @@ function buildPublicUserProfileDataForUser(input: {
   enforceSearchVisibility?: boolean;
   trustSnapshot?: SellerReputationSnapshot;
 }) {
-  const { db, enforceSearchVisibility = true, user, viewerRole, viewerUserId } = input;
-  const viewerIsPrivileged = viewerRole === "admin" || viewerRole === "owner";
+  const { db, enforceSearchVisibility = true, user, viewerUserId } = input;
+  const platformOwner = isPublicOwnerIdentity(db.users.find(row => row.id === viewerUserId));
+  const subjectIsOwner = isPublicOwnerIdentity(user);
+  const viewerIsPrivileged = platformOwner;
   const viewerIsOwner = viewerUserId === user.id;
-  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged;
+  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged || subjectIsOwner;
 
   if (user.isProfileHidden === true && !canBypassVisibility) return null;
   if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
@@ -1642,9 +1647,9 @@ function buildPublicUserProfileDataForUser(input: {
   const showStats = user.showTradeStats !== false || canBypassVisibility;
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const sellerApprovalVerified = isOwnerApprovedSeller(user);
-  const publicTradingName = publicAccountId(user);
-  const visibleText = identityTextRedactor(db.users);
-  const authoredText = identityTextRedactor(db.users, true);
+  const publicTradingName = accountNameForViewer(user, platformOwner ? db.users.find(row => row.id === viewerUserId) : undefined);
+  const visibleText = platformOwner ? (value?: string) => value ?? "" : identityTextRedactor(db.users);
+  const authoredText = platformOwner ? (value?: string) => value ?? "" : identityTextRedactor(db.users, true);
 
   return {
     profile: {
@@ -1663,28 +1668,27 @@ function buildPublicUserProfileDataForUser(input: {
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
       country: visibleText(user.country),
-      city: "",
+      city: platformOwner || subjectIsOwner ? user.city : "",
       languages: (user.languages ?? []).map((language) => visibleText(language)),
       bio: authoredText(user.bio),
-      profilePhotoUrl: "",
-      coverBannerUrl: "",
+      profilePhotoUrl: platformOwner || subjectIsOwner ? user.profilePhotoUrl : "",
+      coverBannerUrl: platformOwner || subjectIsOwner ? user.coverBannerUrl : "",
       isFeaturedSeller: user.isFeaturedSeller === true,
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
       allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
       isEmailVerified: user.emailVerified === true,
       contact: {
-        // Public profiles always preview the public identity, including self-views.
-        // Personal contact information belongs to the authenticated account APIs.
-        email: "",
-        phone: "",
+        // Only the canonical platform owner can receive private contact details.
+        email: platformOwner ? user.email : "",
+        phone: platformOwner ? user.whatsappNumber : "",
       },
     },
     reputation: trustSnapshot
       ? {
           level: trustSnapshot.level,
           trustScore: trustSnapshot.trustScore,
-          publicVolumeRange: viewerIsOwner ? trustSnapshot.publicVolumeRange : undefined,
+          publicVolumeRange: viewerIsOwner || platformOwner ? trustSnapshot.publicVolumeRange : undefined,
           rating: trustSnapshot.rating,
           badges: trustSnapshot.badges,
         }
@@ -2050,14 +2054,16 @@ function enrichListingsWithSellerData(
   db: AlphaExchangeDb,
   listings: MarketplaceListing[],
   snapshots = computeTrustSnapshotMap(db),
+  viewerUserId?: string,
 ) {
-  const visibleText = identityTextRedactor([...db.users, ...listings.map(listing => ({ id: listing.sellerId, role: "approved_seller", fullName: listing.sellerDisplayName }))], true);
+  const viewer = db.users.find(user => user.id === viewerUserId);
+  const visibleText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor([...db.users, ...listings.map(listing => ({ role: "approved_seller", ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }))], true);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
     const publicListing: MarketplaceListing = {
       ...listing,
-      sellerDisplayName: publicAccountId({ id: listing.sellerId, role: "approved_seller" }),
+      sellerDisplayName: publicAccountName({ id: listing.sellerId, role: "approved_seller" }),
       notes: visibleText(listing.notes),
       sellerDescription: visibleText(listing.sellerDescription),
       photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
@@ -2069,8 +2075,8 @@ function enrichListingsWithSellerData(
     if (!seller) return publicListing;
     return {
       ...publicListing,
-      sellerDisplayName: publicAccountId(seller),
-      sellerProfile: buildSellerPublicProfile(seller),
+      sellerDisplayName: accountNameForViewer(seller, viewer),
+      sellerProfile: buildSellerPublicProfile(seller, viewer),
       sellerReputation: publicSellerReputation(snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id)),
     };
   });
@@ -2169,11 +2175,11 @@ export async function getPremiumSellerProfile(input: {
     trustSnapshot,
   });
   if (!publicAccount) return null;
-  const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
+  const viewerIsOwner = isPublicOwnerIdentity(db.users.find(user => user.id === input.viewerUserId));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
-  const viewerCanViewPrivateContent = input.viewerRole === "admin" || input.viewerRole === "owner";
-  const reviewText = identityTextRedactor(db.users, true);
-  const canSeeExactSellerStats = viewerIsSellerOwner;
+  const viewerCanViewPrivateContent = viewerIsOwner;
+  const reviewText = viewerIsOwner ? (value?: string) => value ?? "" : identityTextRedactor(db.users, true);
+  const canSeeExactSellerStats = viewerIsSellerOwner || viewerIsOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
   const completedStatuses = new Set<PurchaseRequestStatus>(["completed", "locked", "review_open"]);
@@ -2187,7 +2193,7 @@ export async function getPremiumSellerProfile(input: {
       comment: reviewText(request.buyerReview!.comment),
       createdAt: request.buyerReview!.createdAt,
       buyerId: request.buyerId,
-      buyerName: publicAccountId(usersById.get(request.buyerId) ?? { id: request.buyerId }),
+      buyerName: accountNameForViewer(usersById.get(request.buyerId) ?? { id: request.buyerId }, db.users.find(user => user.id === input.viewerUserId)),
       verifiedPurchase: true,
       sellerResponse: request.sellerResponse && !viewerCanViewPrivateContent
         ? { ...request.sellerResponse, message: reviewText(request.sellerResponse.message) }
@@ -2251,7 +2257,8 @@ export async function getPremiumSellerProfile(input: {
     .slice(0, 12);
 
   const profile: SellerPublicProfile = {
-    ...buildSellerPublicProfile(seller),
+    ...buildSellerPublicProfile(seller, db.users.find(user => user.id === input.viewerUserId)),
+    ...(viewerIsOwner ? { contact: publicAccount.profile.contact } : {}),
     sellerName: publicAccount.profile.publicTradingName,
     publicTradingName: publicAccount.profile.publicTradingName,
     fullName: publicAccount.profile.fullName,
@@ -2291,7 +2298,7 @@ export async function getPremiumSellerProfile(input: {
         tradeHistory: sellerRequests
           .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
           .slice(0, 50)
-          .map((request) => enrichRequestWithEvidence(db, request)),
+          .map((request) => enrichRequestWithEvidence(db, request, input.viewerUserId)),
         marketplaceEnforcement: {
           restricted: Boolean(getSellerActiveEnforcementRecord(db, seller.id)),
           blockReason: getSellerEnforcementRestrictionMessage(db, seller.id),
@@ -5578,14 +5585,18 @@ function appendSystemTradeMessage(
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
 }
 
-function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest): PurchaseRequest {
+function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest, viewerUserId?: string): PurchaseRequest {
   const buyer = db.users.find(user => user.id === request.buyerId);
+  const viewer = db.users.find(user => user.id === viewerUserId);
+  const ownerView = isPublicOwnerIdentity(viewer);
   const identities = [...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }];
-  const visibleText = identityTextRedactor(identities);
-  const authoredText = identityTextRedactor(identities, true);
+  const visibleText = ownerView ? ownerIdentityText(db.users) : identityTextRedactor(identities);
+  const authoredText = ownerView ? ownerIdentityText(db.users) : identityTextRedactor(identities, true);
   return {
     ...request,
-    buyerName: publicAccountId(buyer ?? { id: request.buyerId }),
+    buyerName: accountNameForViewer(buyer ?? { id: request.buyerId, fullName: request.buyerName }, viewer),
+    buyerIsOwner: isPublicOwnerIdentity(buyer),
+    buyerWhatsapp: ownerView ? buyer?.whatsappNumber ?? request.buyerWhatsapp : undefined,
     buyerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "buyer"),
     sellerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "seller"),
     timeline: (request.timeline ?? []).map(entry => ({ ...entry, message: visibleText(entry.message) })),
@@ -6815,7 +6826,9 @@ export async function updateUserSellerSettings(input: {
       ...user,
       fullName: nextFullName,
       profileNameChangedAt: nameChanged ? timestamp : user.profileNameChangedAt,
-      whatsappNumber: input.whatsappNumber?.trim() || user.whatsappNumber,
+      whatsappNumber: input.whatsappNumber !== undefined
+        ? normalizePrivateContact(input.whatsappNumber, requiresBuyerContact(user))
+        : user.whatsappNumber,
       preferredNetworks: input.preferredNetworks ?? user.preferredNetworks,
       profilePhotoUrl: input.profilePhotoUrl?.trim() ?? user.profilePhotoUrl,
       coverBannerUrl: input.coverBannerUrl?.trim() ?? user.coverBannerUrl,
@@ -8290,11 +8303,11 @@ export async function getMarketplaceEnforcementDashboardData(dbInput?: AlphaExch
   };
 }
 
-export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
+export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb, viewerUserId?: string) {
   const db = dbInput ?? await readDb();
   return db.users
     .filter((user) => user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended")
-    .map(toAdminSellerSummary);
+    .map(user => toAdminSellerSummary(user, isPublicOwnerIdentity(db.users.find(viewer => viewer.id === viewerUserId))));
 }
 
 export async function getHallOfFameEntries() {
@@ -8463,7 +8476,7 @@ export async function getMarketplaceListings(
           && !interactionBlockedSellerIds.has(listing.sellerId));
   const snapshots = computeTrustSnapshotMap(db);
   const sortedListings = qualitySortListings(db, rawListings, snapshots);
-  return enrichListingsWithSellerData(db, sortedListings, snapshots);
+  return enrichListingsWithSellerData(db, sortedListings, snapshots, viewerUserId);
 }
 
 // ── Live marketplace pulse (real, privacy-safe public dashboard) ────────────
@@ -8750,15 +8763,15 @@ export async function updateSellerProfileStateByAdmin(input: {
   return db.users[index];
 }
 
-export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb) {
+export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb, viewerUserId?: string) {
   const db = dbInput ?? await readDb();
-  return enrichListingsWithSellerData(db, db.marketplaceListings);
+  return enrichListingsWithSellerData(db, db.marketplaceListings, undefined, viewerUserId);
 }
 
-export async function getPendingMarketplaceListingsForOwner(dbInput?: AlphaExchangeDb) {
+export async function getPendingMarketplaceListingsForOwner(dbInput?: AlphaExchangeDb, viewerUserId?: string) {
   const db = dbInput ?? await readDb();
   const pending = db.marketplaceListings.filter((listing) => isListingPendingApproval(listing));
-  return enrichListingsWithSellerData(db, pending);
+  return enrichListingsWithSellerData(db, pending, undefined, viewerUserId);
 }
 
 export async function getMarketplaceListingById(id: string) {
@@ -9923,7 +9936,7 @@ export async function getSellerDashboardAccessState(userId: string) {
   const enforcement = await getSellerMarketplaceEnforcementStatus(userId, db);
   return {
     sellerId: seller.id,
-    sellerName: publicAccountId(seller),
+    sellerName: publicAccountName(seller),
     sellerStatus: seller.sellerStatus,
     enforcement,
   };
@@ -10235,6 +10248,8 @@ export async function createPurchaseRequest(input: {
   const { db, fromFullCache } = await readDbForCriticalTradeMutation(PURCHASE_REQUEST_FAST_READ_TABLES);
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const dbReadMs = Date.now() - dbReadStartedAt;
+  const contactBuyer = db.users.find(user => user.id === input.buyerId);
+  if (contactBuyer && !isPublicOwnerIdentity(contactBuyer)) normalizePrivateContact(contactBuyer.whatsappNumber ?? "", true);
   const validationStartedAt = Date.now();
   const now = nowIso();
   const pendingConfirmationTrade = db.purchaseRequests.find(
@@ -10452,7 +10467,8 @@ export async function createPurchaseRequest(input: {
     listingId: input.listingId,
     sellerId,
     tradeId,
-    buyerName: publicAccountId(db.users.find(user => user.id === input.buyerId) ?? { id: input.buyerId }),
+    buyerName: publicAccountName(db.users.find(user => user.id === input.buyerId) ?? { id: input.buyerId }),
+    buyerIsOwner: isPublicOwnerIdentity(db.users.find(user => user.id === input.buyerId)),
     usdtAmount,
     fiatAmount,
     pricePerUsdt,
@@ -10822,11 +10838,11 @@ export async function getMyPurchaseRequests(userId: string, role: UserRole, dbIn
   }
   if (role === "admin" || role === "owner") {
     return db.purchaseRequests.map((request) =>
-      sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
+      sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, userId), userId, role));
   }
   return db.purchaseRequests
     .filter((request) => request.buyerId === userId || request.sellerId === userId)
-    .map((request) => sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
+    .map((request) => sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, userId), userId, role));
 }
 
 const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
@@ -10839,7 +10855,7 @@ const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
 ]);
 
 export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
-  const canViewPrivateContent = actorRole === "admin" || actorRole === "owner";
+  const canViewPrivateContent = actorRole === "owner";
   const canViewConfidentialCredential = request.status === "payment_sent"
     && (request.buyerId === actorUserId || request.sellerId === actorUserId);
   const canViewBuyerContact = canViewPrivateContent;
@@ -10849,7 +10865,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   const redacted: PurchaseRequest = {
     ...request,
     sellerBankAccountSnapshot: undefined,
-    buyerName: /^#[SB]-\d{6,}$/.test(request.buyerName) ? request.buyerName : publicAccountId({ id: request.buyerId }),
+    buyerName: canViewPrivateContent || request.buyerIsOwner || /^#[SB]-\d{6,}$/.test(request.buyerName) ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
     messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential)),
     buyerEvidence: canViewPrivateContent ? request.buyerEvidence : sanitizeTradeEvidenceForCounterparty(request.buyerEvidence),
@@ -10908,11 +10924,11 @@ function isActionableTradeStatus(status: PurchaseRequestStatus) {
   return ACTIONABLE_TRADE_STATUSES.includes(status);
 }
 
-function sanitizeTradeRoomListing(listing: MarketplaceListing | null) {
+function sanitizeTradeRoomListing(listing: MarketplaceListing | null, ownerView = false) {
   if (!listing) return null;
   const redacted = {
     ...listing,
-    sellerDisplayName: publicAccountId({ id: listing.sellerId, role: "approved_seller" }),
+    sellerDisplayName: listing.sellerDisplayName,
     notes: redactExchangeUserContent(listing.notes),
     sellerDescription: redactExchangeUserContent(listing.sellerDescription),
     photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
@@ -10920,7 +10936,7 @@ function sanitizeTradeRoomListing(listing: MarketplaceListing | null) {
   delete redacted.bankAccountId;
   if (redacted.sellerProfile) {
     const sellerProfile = { ...redacted.sellerProfile };
-    delete sellerProfile.contact;
+    if (!ownerView) delete sellerProfile.contact;
     redacted.sellerProfile = sellerProfile;
   }
   return redacted;
@@ -11017,7 +11033,7 @@ function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole
 }
 
 function projectPurchaseRequestForActor(db: AlphaExchangeDb, request: PurchaseRequest, userId: string, role: UserRole) {
-  return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role);
+  return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, userId), userId, role);
 }
 
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
@@ -11235,6 +11251,11 @@ export interface TradeRoomData {
   sellerCommissionDueCount: number;
   sellerPayableCommissionId?: string;
   sellerPayableCommissionAmount?: number;
+  ownerHistory?: {
+    evidenceFiles: TradeEvidenceFile[];
+    disputes: TradeDisputeCase[];
+    auditLogs: AuditLogEntry[];
+  };
 }
 
 export async function getTradeRoomData(input: {
@@ -11243,16 +11264,17 @@ export async function getTradeRoomData(input: {
   actorRole: UserRole;
   markMessagesRead?: boolean;
   strongConsistency?: boolean;
+  ownerHistory?: boolean;
 }): Promise<TradeRoomData> {
   const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
   // Room loads need only related records. Read receipts use a separate
   // atomic single-trade update, avoiding full snapshots on every refresh.
-  const useTargetedRead = input.strongConsistency === true;
+  const useTargetedRead = input.strongConsistency === true || input.ownerHistory === true;
   const repository = useTargetedRead ? await getAlphaExchangeRepository() : null;
   const db = useTargetedRead && repository && typeof repository.loadTradeRoomSnapshot === "function"
-    ? await repository.loadTradeRoomSnapshot(lookupCandidates)
-    : await readDb({ bypassCache: input.strongConsistency === true });
+    ? await repository.loadTradeRoomSnapshot(lookupCandidates, input.actorUserId, input.ownerHistory === true)
+    : await readDb({ bypassCache: useTargetedRead });
   const requestIndex = db?.purchaseRequests.findIndex((item) => (
     lookupCandidates.includes(item.id) || Boolean(item.tradeId && lookupCandidates.includes(item.tradeId))
   )) ?? -1;
@@ -11283,7 +11305,13 @@ export async function getTradeRoomData(input: {
     actorUserId: input.actorUserId,
     actorRole: input.actorRole,
   });
-  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+  const viewer = db.users.find(user => user.id === input.actorUserId);
+  const canViewPrivateContent = isPublicOwnerIdentity(viewer);
+  const viewerRole = canonicalTradeViewerRole(viewer);
+  if (input.ownerHistory && !canViewPrivateContent) {
+    throw new Error("You are not allowed to access trade history.");
+  }
+  assertTradeParticipantOrAdmin(request, input.actorUserId, viewerRole);
 
   // Messages are stored in request.messages (persisted in purchase_requests.payload JSON).
   // Fall back to db.tradeMessages for backward compatibility with older records.
@@ -11293,7 +11321,7 @@ export async function getTradeRoomData(input: {
   let messages = [...allMessages].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 
   const actorIsTradeParticipant = request.buyerId === input.actorUserId || request.sellerId === input.actorUserId;
-  if (input.markMessagesRead !== false && actorIsTradeParticipant) {
+  if (!input.ownerHistory && input.markMessagesRead !== false && actorIsTradeParticipant) {
     const seenAt = nowIso();
     let committedMessageIds: string[] = [];
     const applyReadReceiptsToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
@@ -11371,18 +11399,20 @@ export async function getTradeRoomData(input: {
   // record, but never a cross-seller or aggregate payment target.
   const payableSellerCommission = sellerPendingCommissions.find((record) => record.purchaseRequestId === request.id)
     ?? sellerPendingCommissions[0];
-  const canViewPrivateContent = input.actorRole === "admin" || input.actorRole === "owner";
   const canViewSellerCommission = canViewPrivateContent || request.sellerId === input.actorUserId;
+  const visibleMessageText = canViewPrivateContent
+    ? ownerIdentityText(db.users)
+    : identityTextRedactor([...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }], true);
 
   return {
-    request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole),
-    listing: sanitizeTradeRoomListing(listing ? enrichListingsWithSellerData(db, [listing])[0] : null),
+    request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, viewerRole),
+    listing: sanitizeTradeRoomListing(listing ? enrichListingsWithSellerData(db, [listing], undefined, input.actorUserId)[0] : null, canViewPrivateContent),
     counterpart: {
-      buyerName: publicAccountId(buyer ?? { id: request.buyerId }),
-      sellerName: publicAccountId(seller ?? { id: request.sellerId, role: "approved_seller" }),
+      buyerName: accountNameForViewer(buyer ?? { id: request.buyerId, fullName: request.buyerName }, viewer),
+      sellerName: accountNameForViewer(seller ?? { id: request.sellerId, role: "approved_seller", fullName: listing?.sellerDisplayName }, viewer),
     },
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
-      { ...message, message: message.credentialKind ? message.message : identityTextRedactor(db.users, true)(message.message) },
+      { ...message, message: message.credentialKind ? message.message : visibleMessageText(message.message) },
       canViewPrivateContent,
       request.status === "payment_sent" && (request.buyerId === input.actorUserId || request.sellerId === input.actorUserId),
     )),
@@ -11402,6 +11432,16 @@ export async function getTradeRoomData(input: {
     sellerPayableCommissionAmount: canViewSellerCommission && payableSellerCommission
       ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
       : undefined,
+    ...(input.ownerHistory ? {
+      ownerHistory: {
+        evidenceFiles: db.tradeEvidenceFiles.filter(item => item.purchaseRequestId === request.id)
+          .sort((left, right) => left.uploadedAt.localeCompare(right.uploadedAt)),
+        disputes: db.disputes.filter(item => item.purchaseRequestId === request.id)
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+        auditLogs: db.auditLogs.filter(item => item.purchaseRequestId === request.id)
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+      },
+    } : {}),
   };
 }
 
@@ -11585,7 +11625,7 @@ async function closePurchaseRequestManuallyAttempt(
     // A retry can read legacy payload fields. Apply the same participant DTO
     // projection as the normal path so a repeated close cannot expose old
     // Buyer contact metadata or user-authored direct-contact content.
-    return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole);
+    return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, input.actorRole);
   }
   if (!isAdmin && request.status !== "pending") {
     throw new Error("Trades cannot be closed manually after seller acceptance.");
@@ -12300,6 +12340,12 @@ export async function updateAccountProfileData(input: {
   });
 }
 
+function canonicalTradeViewerRole(viewer: AlphaExchangeUser | undefined): UserRole {
+  if (!viewer || viewer.disabled) return "buyer";
+  if (isPublicOwnerIdentity(viewer)) return "owner";
+  return viewer.role === "owner" ? "buyer" : viewer.role;
+}
+
 function assertTradeParticipantOrAdmin(request: PurchaseRequest, userId: string, role: UserRole) {
   if (role === "admin" || role === "owner") return;
   if (request.buyerId === userId || request.sellerId === userId) return;
@@ -12710,8 +12756,9 @@ export async function getTradeEvidenceForRequest(input: {
   const db = await readDb();
   const request = db.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
   if (!request) throw new Error("Trade not found.");
-  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
-  return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole);
+  const viewerRole = canonicalTradeViewerRole(db.users.find(user => user.id === input.actorUserId));
+  assertTradeParticipantOrAdmin(request, input.actorUserId, viewerRole);
+  return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, viewerRole);
 }
 
 export async function downloadTradeEvidenceContent(input: {
@@ -12724,7 +12771,9 @@ export async function downloadTradeEvidenceContent(input: {
   if (!evidence) throw new Error("Evidence not found.");
   const request = db.purchaseRequests.find((item) => item.id === evidence.purchaseRequestId);
   if (!request) throw new Error("Trade not found.");
-  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+  const actor = db.users.find((item) => item.id === input.actorUserId);
+  const viewerRole = canonicalTradeViewerRole(actor);
+  assertTradeParticipantOrAdmin(request, input.actorUserId, viewerRole);
 
   const repository = await getAlphaExchangeRepository();
   const buffer = await repository.readEvidenceContent(evidence.id);
@@ -12732,8 +12781,7 @@ export async function downloadTradeEvidenceContent(input: {
     throw new Error("Evidence content not found.");
   }
 
-  const actor = db.users.find((item) => item.id === input.actorUserId);
-  if (input.actorRole === "admin" || input.actorRole === "owner") {
+  if (viewerRole === "admin" || viewerRole === "owner") {
     await appendAuditLog(db, {
       action: isAlphaExchangeOwnerEmail(actor?.email ?? "") ? "trade_evidence_viewed_by_owner" : "trade_evidence_viewed_by_moderator",
       actorUserId: input.actorUserId,
@@ -13150,7 +13198,7 @@ export async function getSellerReviews(input: {
     .filter((review): review is SellerReviewRecord => Boolean(review))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
   const canViewHidden = input.actorRole === "admin" || input.actorRole === "owner" || input.actorUserId === input.sellerId;
-  const canViewPrivateContent = input.actorRole === "admin" || input.actorRole === "owner";
+  const canViewPrivateContent = isPublicOwnerIdentity(db.users.find(user => user.id === input.actorUserId));
   return (canViewHidden ? reviews : reviews.filter((review) => !review.hidden))
     .map((review) => sanitizeSellerReviewForCounterparty(review, canViewPrivateContent));
 }
@@ -14636,12 +14684,12 @@ async function updatePurchaseRequestStatusAttempt(
   };
 }
 
-export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
+export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb, viewerUserId?: string) {
   const db = dbInput ?? await readDb();
   return db.purchaseRequests.map((request) => sanitizePurchaseRequestForActor(
-    enrichRequestWithEvidence(db, request),
-    "admin-non-participant",
-    "admin",
+    enrichRequestWithEvidence(db, request, viewerUserId),
+    viewerUserId ?? "admin-non-participant",
+    isPublicOwnerIdentity(db.users.find(user => user.id === viewerUserId)) ? "owner" : "admin",
   ));
 }
 
@@ -17239,7 +17287,9 @@ export async function getNotificationsForUser(input: {
       if (!input.state && notification.state === "archived") return false;
       if (input.unreadOnly && notification.state !== "unread") return false;
       if (!query) return true;
-      const haystack = `${notification.title} ${notification.message} ${notification.relatedSellerName ?? ""} ${notification.relatedSellerUsername ?? ""} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
+      const relatedSeller = db.users.find(user => derivePublicProfileUsername(user) === notification.relatedSellerUsername);
+      const sellerAtId = relatedSeller ? publicAccountId(relatedSeller) : "";
+      const haystack = `${sellerAtId} ${notification.title} ${notification.message} ${notification.relatedSellerName ?? ""} ${notification.relatedSellerUsername ?? ""} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
   const sortedNotifications = [...notifications].sort((left, right) => {
@@ -17255,7 +17305,7 @@ export async function getNotificationsForUser(input: {
   const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
   const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
-  const redactActivity = identityTextRedactor(db.users);
+  const redactActivity = isPublicOwnerIdentity(db.users.find(user => user.id === input.userId)) ? (value?: string) => value ?? "" : identityTextRedactor(db.users);
   const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120).map(entry => ({ ...entry, title: redactActivity(entry.title), details: redactActivity(entry.details) }));
   const clientNotifications = sortedNotifications
     .slice(safeOffset, safeOffset + safeLimit)
@@ -18453,7 +18503,7 @@ export async function recalculateAllTrustByAdmin(input: { actorUserId: string; r
   };
 }
 
-export async function getAdminPrepDashboardData() {
+export async function getAdminPrepDashboardData(viewerUserId?: string) {
   // Financial records shown immediately after an admin mutation must come
   // from canonical persistence. A cached snapshot from another warm instance
   // can otherwise make a successfully issued commission disappear for the
@@ -18472,9 +18522,9 @@ export async function getAdminPrepDashboardData() {
   const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement] = await Promise.all([
     getAlphaExchangeSummaryForAdmin(db),
     getAllSellerApplicationsForAdmin(db),
-    getApprovedSellersForAdmin(db),
-    getMarketplaceListingsForAdmin(db),
-    getPurchaseRequestsForAdmin(db),
+    getApprovedSellersForAdmin(db, viewerUserId),
+    getMarketplaceListingsForAdmin(db, viewerUserId),
+    getPurchaseRequestsForAdmin(db, viewerUserId),
     getCommissionRecordsForAdmin(db),
     getAuditLogsForAdmin(db),
     getTrustEngineOverviewForAdmin(db),
@@ -18485,7 +18535,7 @@ export async function getAdminPrepDashboardData() {
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
-  const users = db.users.map((user) => toAdminUserSummary(user));
+  const users = db.users.map((user) => toAdminUserSummary(user, isPublicOwnerIdentity(db.users.find(viewer => viewer.id === viewerUserId))));
   const sellerReviews = db.sellerReviews ?? [];
   const complianceSettings = {
     recoveryWallet: getOwnerComplianceRecoveryWalletConfig(db),
@@ -18513,12 +18563,12 @@ export async function getAdminPrepDashboardData() {
   };
 }
 
-export async function getOwnerPendingListingsDashboardData() {
+export async function getOwnerPendingListingsDashboardData(viewerUserId?: string) {
   const db = await readDb();
   const [pendingListings, allListings, purchaseRequests] = await Promise.all([
-    getPendingMarketplaceListingsForOwner(db),
-    getMarketplaceListingsForAdmin(db),
-    getPurchaseRequestsForAdmin(db),
+    getPendingMarketplaceListingsForOwner(db, viewerUserId),
+    getMarketplaceListingsForAdmin(db, viewerUserId),
+    getPurchaseRequestsForAdmin(db, viewerUserId),
   ]);
 
   return {

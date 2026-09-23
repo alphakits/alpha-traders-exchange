@@ -4,10 +4,11 @@ import { LockKeyhole } from "lucide-react";
 import { currencyText } from "@/components/ui/currency-text";
 import { cn } from "@/lib/utils";
 
-/** The account holder's private header. Public profiles use AT identity only. */
+/** The account holder's private header. Member public profiles use AT identity; the owner is public. */
 export function PrivateProfileHeader({
   locale,
   fullName,
+  publicOwner = false,
   publicId,
   avatarUrl,
   coverUrl,
@@ -20,6 +21,7 @@ export function PrivateProfileHeader({
 }: {
   locale: "en" | "ar";
   fullName: string;
+  publicOwner?: boolean;
   publicId: string;
   avatarUrl?: string;
   coverUrl?: string;
@@ -57,6 +59,7 @@ export function PrivateProfileHeader({
           <p className={cn("text-2xl font-semibold leading-tight text-white [overflow-wrap:anywhere] md:text-3xl", nameClassName)}>
             <bdi dir="auto">{currencyText(name)}</bdi>
           </p>
+          {publicOwner ? <p className="mt-2 text-xs text-red-200">{isAr ? "ملف المالك العام" : "Public owner profile"}</p> : <>
           <p className="mt-2 flex items-center gap-1.5 text-xs leading-relaxed text-[#A6AFBE]">
             <LockKeyhole aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#8E9CAF]" />
             <span>{isAr ? "اسمك يبقى خاصًا بك." : "Your name stays private."}</span>
@@ -65,6 +68,7 @@ export function PrivateProfileHeader({
             <span className="text-xs text-[#A6AFBE]">{isAr ? "معرّف AT العام" : "Public AT ID"}</span>
             <bdi dir="ltr" className="whitespace-nowrap text-sm font-semibold tracking-wide text-[#DCE6F5]">{publicId}</bdi>
           </div>
+          </>}
           {children}
         </div>
       </div>

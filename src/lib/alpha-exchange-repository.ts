@@ -2541,7 +2541,7 @@ export class AlphaExchangeRepository {
         .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null;
       return attachVersion({
         ...emptySnapshotCollections(),
-        users: purchaseRequest ? cloneSnapshot(source.users.filter(user => user.id === purchaseRequest.buyerId || user.id === purchaseRequest.sellerId)) : [],
+        users: purchaseRequest ? cloneSnapshot(source.users.filter(user => user.id === input.userId || user.id === purchaseRequest.buyerId || user.id === purchaseRequest.sellerId)) : [],
         marketplaceListings: purchaseRequest
           ? cloneSnapshot(source.marketplaceListings.filter((listing) => listing.id === purchaseRequest.listingId))
           : [],
@@ -2566,7 +2566,7 @@ export class AlphaExchangeRepository {
          coalesce((
            select jsonb_agg(users.payload order by users.sort_index asc)
            from alpha_exchange.users users
-           where users.id in (select buyer_id from candidate_request union select seller_id from candidate_request)
+           where users.id = $1 or users.id in (select buyer_id from candidate_request union select seller_id from candidate_request)
          ), '[]'::jsonb) as users,
          coalesce((
            select jsonb_agg(listing.payload order by listing.sort_index asc)
@@ -2595,7 +2595,7 @@ export class AlphaExchangeRepository {
       ));
       const requestIds = new Set(purchaseRequests.map((request) => request.id));
       const listingIds = new Set(purchaseRequests.map((request) => request.listingId));
-      const participantIds = new Set(purchaseRequests.flatMap(request => [request.buyerId, request.sellerId]));
+      const participantIds = new Set([input.userId, ...purchaseRequests.flatMap(request => [request.buyerId, request.sellerId])]);
       return attachVersion({
         ...emptySnapshotCollections(),
         users: cloneSnapshot(source.users.filter(user => participantIds.has(user.id))),
@@ -2617,7 +2617,7 @@ export class AlphaExchangeRepository {
          coalesce((
            select jsonb_agg(users.payload order by users.sort_index asc)
            from alpha_exchange.users users
-           where users.id in (select buyer_id from visible_requests union select seller_id from visible_requests)
+           where users.id = $1 or users.id in (select buyer_id from visible_requests union select seller_id from visible_requests)
          ), '[]'::jsonb) as users,
          coalesce((
            select jsonb_agg(listing.payload order by listing.sort_index asc)
@@ -2835,7 +2835,7 @@ export class AlphaExchangeRepository {
    * revision changed; it must never fan out through the full exchange
    * snapshot on a per-connection timer.
    */
-  async loadTradeRoomSnapshot(lookupCandidates: string[]): Promise<SnapshotWithVersion | null> {
+  async loadTradeRoomSnapshot(lookupCandidates: string[], viewerUserId?: string, includeOwnerHistory = false): Promise<SnapshotWithVersion | null> {
     await this.ensureReady();
     const candidates = Array.from(new Set(lookupCandidates.map((value) => value.trim()).filter(Boolean)));
     if (candidates.length === 0) return null;
@@ -2852,11 +2852,13 @@ export class AlphaExchangeRepository {
     type TradeRoomSnapshotRow = {
       request_payload: PurchaseRequest;
       listing_payload: MarketplaceListing | null;
+      viewer_payload: AlphaExchangeUser | null;
       buyer_payload: AlphaExchangeUser | null;
       seller_payload: AlphaExchangeUser | null;
       dispute_payloads: TradeDisputeCase[] | null;
       commission_payloads: CommissionRecord[] | null;
       evidence_payloads: TradeEvidenceFile[] | null;
+      audit_payloads: AuditLogEntry[] | null;
       version: string;
     };
 
@@ -2864,6 +2866,7 @@ export class AlphaExchangeRepository {
       `select
          request.payload as request_payload,
          listing.payload as listing_payload,
+         viewer.payload as viewer_payload,
          buyer.payload as buyer_payload,
          seller.payload as seller_payload,
          coalesce((
@@ -2881,16 +2884,22 @@ export class AlphaExchangeRepository {
              from alpha_exchange.evidence evidence
             where evidence.purchase_request_id = request.id
          ), '[]'::jsonb) as evidence_payloads,
+         case when $4::boolean then coalesce((
+           select jsonb_agg(audit.payload order by audit.created_at asc)
+             from alpha_exchange.audit_logs audit
+            where audit.purchase_request_id = request.id
+         ), '[]'::jsonb) else '[]'::jsonb end as audit_payloads,
          meta.version::text as version
        from alpha_exchange.purchase_requests request
        left join alpha_exchange.listings listing on listing.id = request.listing_id
+       left join alpha_exchange.users viewer on viewer.id = $3
        left join alpha_exchange.users buyer on buyer.id = request.buyer_id
        left join alpha_exchange.users seller on seller.id = request.seller_id
        cross join alpha_exchange.runtime_meta meta
        where request.id = any($1::text[])
        order by case when request.id = $2 then 0 else 1 end, request.updated_at desc
        limit 1`,
-      [candidates, candidates[0]],
+      [candidates, candidates[0], viewerUserId ?? null, includeOwnerHistory],
     );
     const row = result.rows[0];
     if (!row?.request_payload) return null;
@@ -2898,12 +2907,13 @@ export class AlphaExchangeRepository {
     const snapshot = emptySnapshotCollections();
     snapshot.purchaseRequests = [row.request_payload];
     snapshot.marketplaceListings = row.listing_payload ? [row.listing_payload] : [];
-    snapshot.users = [row.buyer_payload, row.seller_payload]
+    snapshot.users = [row.buyer_payload, row.seller_payload, row.viewer_payload]
       .filter((user): user is AlphaExchangeUser => Boolean(user))
       .filter((user, index, users) => users.findIndex((candidate) => candidate.id === user.id) === index);
     snapshot.disputes = Array.isArray(row.dispute_payloads) ? row.dispute_payloads : [];
     snapshot.commissionRecords = Array.isArray(row.commission_payloads) ? row.commission_payloads : [];
     snapshot.tradeEvidenceFiles = Array.isArray(row.evidence_payloads) ? row.evidence_payloads : [];
+    snapshot.auditLogs = Array.isArray(row.audit_payloads) ? row.audit_payloads : [];
     return attachVersion(snapshot, Number(row.version ?? "0"));
   }
 

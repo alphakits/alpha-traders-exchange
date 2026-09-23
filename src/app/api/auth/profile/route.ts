@@ -1,3 +1,4 @@
+import { PrivateContactError } from "@/lib/buyer-contact";
 import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
@@ -8,9 +9,10 @@ import { accountRoleIdentity } from "@/lib/account-role-identity";
 
 const PROFILE_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
-type ProfileErrorCode = "PROFILE_NAME_COOLDOWN" | "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
+type ProfileErrorCode = "PRIVATE_CONTACT_REQUIRED" | "PROFILE_NAME_COOLDOWN" | "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
 
 const PROFILE_ERROR_COPY: Record<ProfileErrorCode, { ar: string; en: string }> = {
+  PRIVATE_CONTACT_REQUIRED: { ar: "أدخل رقم هاتف أو واتساب صالحًا مع رمز الدولة. الرقم خاص بك وبمالك المنصة فقط.", en: "Enter a valid phone or WhatsApp number with its country code. Only you and the owner can see it." },
   PROFILE_NAME_COOLDOWN: {
     ar: "يمكنك تغيير اسم ملفك الشخصي مرة واحدة كل 7 أيام.",
     en: "You can change your profile name once every 7 days.",
@@ -187,6 +189,7 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof PrivateContactError) return profileError(request, "PRIVATE_CONTACT_REQUIRED", 400);
     if (error instanceof ProfileNameCooldownError) {
       return NextResponse.json({ code: "PROFILE_NAME_COOLDOWN", error: PROFILE_ERROR_COPY.PROFILE_NAME_COOLDOWN[profileLocale(request)], nextNameChangeAt: error.nextAllowedAt }, { status: 409, headers: PROFILE_RESPONSE_HEADERS });
     }

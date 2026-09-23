@@ -32,9 +32,9 @@ const ACTIVE_TRADE_STATUSES = new Set([
   "review_open",
 ]);
 
-async function overviewPayload() {
+async function overviewPayload(viewerUserId: string) {
   const [dashboard, pendingSellerApplications] = await Promise.all([
-    getOwnerPendingListingsDashboardData(),
+    getOwnerPendingListingsDashboardData(viewerUserId),
     getPendingSellerApplicationsForAdmin(),
   ]);
   const pendingListings = dashboard.pendingListings.map((listing) => ({
@@ -85,7 +85,7 @@ async function requireAdmin(request: NextRequest, requestId: string) {
   if (!metadata) return { response: mobileError("DEVICE_HEADERS_REQUIRED", requestId, locale, 400) };
   const auth = await requireMobileApiUser(request, requestId, metadata);
   if (!auth.user) return { response: auth.unauthorized };
-  if (!hasRole(auth.user, "admin") && !hasRole(auth.user, "owner")) {
+  if (!hasRole(auth.user, "owner")) {
     return { response: mobileError("UNAUTHORIZED", requestId, locale, 403) };
   }
   return { user: auth.user, locale };
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
   try {
     const auth = await requireAdmin(request, requestId);
     if (auth.response) return auth.response;
-    return mobileJson(await overviewPayload(), requestId);
+    return mobileJson(await overviewPayload(auth.user!.id), requestId);
   } catch (error) {
     logEvent("error", {
       event: "mobile_admin_overview",
@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     } else {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
-    return mobileJson(await overviewPayload(), requestId);
+    return mobileJson(await overviewPayload(auth.user!.id), requestId);
   } catch (error) {
     logEvent("error", {
       event: "mobile_admin_review",

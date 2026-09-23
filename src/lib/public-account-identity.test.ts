@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { identityTextRedactor, publicAccountId } from "./public-account-identity";
+import { identityTextRedactor, publicAccountId, publicAccountName, ownerIdentityText, accountNameForViewer } from "./public-account-identity";
 import { formatBuyerId, formatSellerId } from "./format-id";
 
 describe("AT account identities", () => {
+  it("keeps the owner public and resolves members' AT IDs only in an owner view", () => {
+    const owner = { id: "owner", fullName: "Alex Morgan", role: "owner" };
+    const buyer = { id: "buyer", fullName: "Amir Hassan", role: "buyer" };
+    expect(publicAccountName(owner)).toBe("Alex Morgan");
+    expect(publicAccountName(buyer)).toBe(publicAccountId(buyer));
+    expect(accountNameForViewer(buyer, owner)).toBe("Amir Hassan");
+    expect(accountNameForViewer(buyer, { id: "admin", role: "admin" })).toBe(publicAccountId(buyer));
+    expect(identityTextRedactor([owner, buyer], true)("Alex Morgan met Amir Hassan")).toBe(`Alex Morgan met ${publicAccountId(buyer)}`);
+    expect(ownerIdentityText([owner, buyer])(`${publicAccountId(buyer)} sent a request`)).toBe("Amir Hassan sent a request");
+  });
   it("uses the dashboard identifier, including sellers purchasing as buyers", () => {
     expect(publicAccountId({ id: "one", role: "buyer" })).toBe(formatBuyerId(undefined, "one"));
     for (const sellerStatus of ["approved_seller", "suspended"]) expect(publicAccountId({ id: "one", role: "buyer", sellerStatus })).toBe(formatSellerId(undefined, "one"));

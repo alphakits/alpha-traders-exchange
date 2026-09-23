@@ -12,6 +12,7 @@ import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter
 import { OfflineBanner } from "@/components/pwa/offline-banner";
 import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { BuyerContactPrompt } from "@/components/auth/buyer-contact-prompt";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
 import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
@@ -92,6 +93,7 @@ export default async function LocaleLayout({
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
           <NativeAppBridge locale={appLocale} />
+          <BuyerContactPrompt locale={appLocale} />
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
           <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} />{children}</main>
           <SiteFooter locale={appLocale} />

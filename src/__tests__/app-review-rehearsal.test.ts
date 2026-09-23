@@ -61,7 +61,7 @@ function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): Al
     fullName: role === "approved_seller" ? "App Review Seller" : role === "buyer" ? "App Review Buyer" : "App Review Owner",
     email: `${id}@example.test`,
     passwordHash: "non-production-test-hash",
-    whatsappNumber: "",
+    whatsappNumber: "+12025550123",
     role,
     roles,
     sellerStatus,
@@ -578,6 +578,6 @@ describe("full Exchange App Review rehearsal", () => {
     expect(saved.notifications).toContainEqual(expect.objectContaining({ userId: OWNER_ID, title: "Dispute opened" }));
     expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)?.timeline)
       .toEqual(expect.arrayContaining([expect.objectContaining({ type: "dispute_opened" })]));
-    expect(saved.users.every((user) => user.email.endsWith("@example.test") && user.whatsappNumber === "")).toBe(true);
+    expect(saved.users.every((user) => user.email.endsWith("@example.test") && user.whatsappNumber === "+12025550123")).toBe(true);
   });
 });

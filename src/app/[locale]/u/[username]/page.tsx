@@ -1,3 +1,4 @@
+import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { notFound } from "next/navigation";
@@ -292,6 +293,7 @@ export default async function PublicUserProfilePage({
               </div>
             </div>
 
+            <OwnerPrivateContact contact={data.profile.contact} locale={profileLocale} />
             <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدور" : "Role"}</p>

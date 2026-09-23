@@ -1,3 +1,4 @@
+import { PrivateContactError } from "@/lib/buyer-contact";
 import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { NextRequest } from "next/server";
 import type { MobileAccountProfileUpdateRequest } from "@alpha-traders/contracts";
@@ -194,6 +195,7 @@ export async function PATCH(request: NextRequest) {
     });
     return mobileJson(payload, requestId);
   } catch (error) {
+    if (error instanceof PrivateContactError) return mobileError("PRIVATE_CONTACT_REQUIRED", requestId, locale, 400);
     if (error instanceof ProfileNameCooldownError) {
       return mobileError("PROFILE_NAME_COOLDOWN", requestId, locale, 409);
     }

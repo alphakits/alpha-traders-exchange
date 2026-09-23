@@ -161,6 +161,10 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     ar: "اختر تقييمًا من 1 إلى 5 وأدخل نصًا من 1 إلى 500 حرف.",
     en: "Choose a rating from 1 to 5 and enter text between 1 and 500 characters.",
   },
+  PRIVATE_CONTACT_REQUIRED: {
+    ar: "أضف رقم هاتف أو واتساب صالحًا في ملفك ليتمكن مالك المنصة من التواصل معك عند الحاجة. الرقم خاص بك وبالمالك فقط.",
+    en: "Add a valid private phone or WhatsApp number in your profile so the owner can reach you when needed.",
+  },
   PROFILE_INVALID: {
     ar: "تحقق من بيانات الملف الشخصي وإعدادات الخصوصية.",
     en: "Check the profile details and privacy settings.",

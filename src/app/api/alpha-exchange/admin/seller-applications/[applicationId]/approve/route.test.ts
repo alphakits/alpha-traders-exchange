@@ -5,12 +5,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
 
 const mocks = vi.hoisted(() => ({
-  requireApiAdmin: vi.fn(),
+  requireApiOwner: vi.fn(),
   approveSellerApplicationByAdmin: vi.fn(),
   logEvent: vi.fn(),
 }));
 
-vi.mock("@/lib/api-auth", () => ({ requireApiAdmin: mocks.requireApiAdmin }));
+vi.mock("@/lib/api-auth", () => ({ requireApiOwner: mocks.requireApiOwner }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   approveSellerApplicationByAdmin: mocks.approveSellerApplicationByAdmin,
 }));
@@ -31,7 +31,7 @@ const context = { params: Promise.resolve({ applicationId: "application-1" }) };
 describe("admin seller approval route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireApiAdmin.mockResolvedValue({
+    mocks.requireApiOwner.mockResolvedValue({
       user: { id: "owner-1", role: "owner" },
       unauthorized: null,
     });
@@ -82,7 +82,7 @@ describe("admin seller approval route", () => {
   });
 
   it("returns the admin auth response without approving an applicant", async () => {
-    mocks.requireApiAdmin.mockResolvedValueOnce({
+    mocks.requireApiOwner.mockResolvedValueOnce({
       user: null,
       unauthorized: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     });

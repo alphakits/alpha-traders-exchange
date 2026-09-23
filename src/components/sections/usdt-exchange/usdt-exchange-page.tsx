@@ -49,7 +49,7 @@ import {
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
-import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountName } from "@/lib/public-account-identity";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { containsArabicText, localizeActivityCopy, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
@@ -3652,7 +3652,7 @@ export function UsdtExchangePage({
     return () => window.clearInterval(interval);
   }, [isAr]);
   const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
-  const workspaceDisplayId = sessionUser ? publicAccountId(sessionUser) : "#AT-000000";
+  const workspaceDisplayId = sessionUser ? publicAccountName(sessionUser) : "#AT-000000";
   // This greeting belongs to the authenticated account. Public trade identity stays AT ID.
   const workspacePrimaryName = sessionUser?.fullName?.trim() || (isAr ? "المتداول" : "Trader");
   const workspacePositiveMessage = welcomeRole === "owner"
@@ -5167,14 +5167,14 @@ export function UsdtExchangePage({
               <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اسم التداول" : "Trading Name"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{currencyText(publicAccountId(sessionUser))}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText(publicAccountName(sessionUser))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "approved_seller" ? (isAr ? "مستوى البائع" : "Seller Level") : welcomeRole === "buyer" ? (isAr ? "رتبة المشتري" : "Buyer Rank") : (isAr ? "دور الحساب" : "Account Role")}</p>
                   <div className="mt-2">{welcomeRole === "approved_seller" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : welcomeRole === "buyer" ? <RankBadge rank={buyerProfileSummary?.key} locale={isAr ? "ar" : "en"} audience="buyer" /> : <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />}</div>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "معرّف AT" : "AT ID"}</p>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "owner" ? (isAr ? "هوية المالك العامة" : "Public owner identity") : (isAr ? "معرّف AT" : "AT ID")}</p>
                   <div className="mt-1 flex items-center gap-2">
                     <Link href="/profile" className="text-sm font-semibold text-[#93C5FD] underline-offset-2 hover:underline">{currencyText(workspaceDisplayId)}</Link>
                     <Button

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
-import { derivePublicProfileUsername, getAccountProfileData, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
+import { derivePublicProfileUsername, getAccountProfileData, updateAccountProfileData, createPurchaseRequest, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { publicAccountId } from "@/lib/public-account-identity";
 import { toMobileAccountProfile } from "@/lib/mobile-account-profile";
 import { toMobileTradeDetail } from "@/lib/mobile-trades";
@@ -21,6 +21,75 @@ beforeEach(() => { globalThis.__alphaExchangeMemorySnapshot = seed() as never; g
 afterEach(() => { invalidateAlphaExchangeStoreCache(); globalThis.__alphaExchangeMemorySnapshot = undefined as never; globalThis.__alphaExchangeRepositoryPromise = undefined as never; });
 
 describe("account rank consistency and privacy", () => {
+  it("shows the public owner identity while reserving members' identities and contact details for the canonical owner", async () => {
+    const db = seed();
+    const owner = { ...user("owner-one", true), fullName: "Alex Morgan", role: "owner", roles: ["owner", "admin"], profilePhotoUrl: "https://example.test/owner.jpg", whatsappNumber: "+972501111111" } as AlphaExchangeUser;
+    const seller = db.users[0];
+    const buyer = db.users[2];
+    Object.assign(seller, { fullName: "Maya Chen", whatsappNumber: "+972502222222", profilePhotoUrl: "https://example.test/seller.jpg", bio: "Maya Chen", city: "Haifa" });
+    Object.assign(buyer, { fullName: "Amir Hassan", whatsappNumber: "+972503333333" });
+    db.users.push(owner, { ...user("admin-one"), role: "admin", roles: ["admin"] });
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "owner-listing", sellerId: owner.id, sellerDisplayName: owner.fullName });
+    const request = db.purchaseRequests[0];
+    request.listingId = db.marketplaceListings[0].id;
+    request.buyerName = buyer.fullName;
+    request.buyerWhatsapp = buyer.whatsappNumber;
+    // A persisted or client-originated flag must never grant the owner exemption.
+    request.buyerIsOwner = true;
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    const publicOwner = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(owner) });
+    expect(publicOwner?.profile).toMatchObject({ fullName: owner.fullName, profilePhotoUrl: owner.profilePhotoUrl, roleBadge: "owner", contact: { email: "", phone: "" } });
+    const listings = await getMarketplaceListings("active");
+    expect(listings.find(row => row.sellerId === owner.id)?.sellerDisplayName).toBe(owner.fullName);
+    expect(listings.find(row => row.sellerId === seller.id)?.sellerDisplayName).toBe(publicAccountId(seller));
+    expect(JSON.stringify(listings)).not.toContain(buyer.whatsappNumber);
+    const ownerListings = await getMarketplaceListings("active", undefined, owner.id);
+    expect(ownerListings.find(row => row.sellerId === seller.id)?.sellerDisplayName).toBe(seller.fullName);
+    for (const viewerUserId of [buyer.id, "admin-one"]) {
+      const profile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(seller), viewerUserId, viewerRole: "owner" });
+      expect(profile?.profile).toMatchObject({ fullName: publicAccountId(seller), profilePhotoUrl: "", contact: { email: "", phone: "" } });
+      const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: viewerUserId, actorRole: viewerUserId === buyer.id ? "buyer" : "admin", markMessagesRead: false });
+      expect(room.request.buyerIsOwner).toBe(false);
+      expect(room.request.buyerName).toBe(publicAccountId(buyer));
+      expect(JSON.stringify(room)).not.toMatch(/Maya Chen|Amir Hassan|502222222|503333333/);
+    }
+    const ownerProfile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(seller), viewerUserId: owner.id, viewerRole: "buyer" });
+    expect(ownerProfile?.profile).toMatchObject({ fullName: seller.fullName, city: "Haifa", bio: seller.bio, contact: { phone: seller.whatsappNumber, email: seller.email } });
+    for (const strongConsistency of [false, true]) {
+      const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: owner.id, actorRole: "owner", markMessagesRead: false, strongConsistency });
+      expect(room.counterpart).toEqual({ buyerName: buyer.fullName, sellerName: seller.fullName });
+      expect(room.request.buyerWhatsapp).toBe(buyer.whatsappNumber);
+    }
+    const ownerHistory = await getMyPurchaseRequests(owner.id, "owner");
+    expect(ownerHistory.find(row => row.id === request.id)).toMatchObject({ buyerName: buyer.fullName, buyerWhatsapp: buyer.whatsappNumber });
+    const ownerTrade = { ...request, id: "owner-as-buyer", buyerId: owner.id, buyerName: owner.fullName };
+    db.purchaseRequests.push(ownerTrade);
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    const sellerRoom = await getTradeRoomData({ purchaseRequestId: ownerTrade.id, actorUserId: seller.id, actorRole: "approved_seller", markMessagesRead: false });
+    expect(sellerRoom.request.buyerName).toBe(owner.fullName);
+    expect(sellerRoom.request.buyerWhatsapp).toBeUndefined();
+  });
+
+  it("requires a durable private contact before new purchases and prevents clearing it", async () => {
+    const db = seed();
+    const buyer = db.users[2];
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    await expect(createPurchaseRequest({ buyerId: buyer.id, actorUserId: buyer.id, buyerName: "Spoofed Name", buyerWhatsapp: "+972501234567", listingId: db.marketplaceListings[0].id, usdtAmount: "100", buyerReceivingWalletAddress: "wallet" })).rejects.toMatchObject({ code: "PRIVATE_CONTACT_REQUIRED" });
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).purchaseRequests).toHaveLength(db.purchaseRequests.length);
+    await expect(updateAccountProfileData({ userId: buyer.id, whatsappNumber: "invalid" })).rejects.toMatchObject({ code: "PRIVATE_CONTACT_REQUIRED" });
+    await updateAccountProfileData({ userId: buyer.id, whatsappNumber: "٠٥٠١٢٣٤٥٦٧", showPhonePublic: true, showEmailPublic: true });
+    invalidateAlphaExchangeStoreCache();
+    const privateProfile = (await getAccountProfileData(buyer.id)).profile;
+    expect(privateProfile).toMatchObject({ whatsappNumber: "+972501234567", showPhonePublic: false, showEmailPublic: false });
+    await expect(updateAccountProfileData({ userId: buyer.id, whatsappNumber: "" })).rejects.toMatchObject({ code: "PRIVATE_CONTACT_REQUIRED" });
+    const publicProfile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(buyer), viewerUserId: "seller-one" });
+    expect(publicProfile?.profile.contact).toEqual({ phone: "", email: "" });
+    expect((await getAccountProfileData(buyer.id)).profile.whatsappNumber).toBe("+972501234567");
+  });
+
   it("uses dashboard AT IDs across historical listings, rooms, reviews, profiles and notifications", async () => {
     const db = seed();
     const seller = db.users[0];
