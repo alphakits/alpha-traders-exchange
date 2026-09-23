@@ -101,7 +101,14 @@ export async function scanBep20CommissionDeposits(minTimestamp: number): Promise
     if (payload.status === "0" && payload.message === "No transactions found" && Array.isArray(payload.result) && payload.result.length === 0) {
       scan.complete = true; scan.pages++; break;
     }
-    if (payload.status !== "1" || !Array.isArray(payload.result)) throw new Error("bep20_index_unavailable");
+    if (payload.status !== "1" || !Array.isArray(payload.result)) {
+      const reason = typeof payload.result === "string" ? payload.result : "";
+      // Classify failures without copying API response bodies or keys into logs.
+      if (/paid plan|free api access.*not supported|upgrade.*plan/i.test(reason)) throw new Error("bep20_index_plan_unsupported");
+      if (/invalid api key|missing.*api key/i.test(reason)) throw new Error("bep20_index_key_invalid");
+      if (/rate limit/i.test(reason)) throw new Error("bep20_index_rate_limited");
+      throw new Error("bep20_index_unavailable");
+    }
     scan.pages++;
     let reachedLowerBound = false;
     for (const row of payload.result) {
