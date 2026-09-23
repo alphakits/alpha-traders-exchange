@@ -7,6 +7,7 @@ import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { Button } from "@/components/ui/button";
@@ -681,6 +682,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       const payload = (await response.json()) as Omit<AdminPayload, "smsDeliveries"> & { error?: string };
       if (!response.ok) throw new Error(safeAdminError("load", locale));
       setData({ ...payload, smsDeliveries });
+      setSelectedRequest((current) => current ? payload.purchaseRequests.find((request) => request.id === current.id) ?? current : null);
     } catch (requestError) {
       setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
     } finally {
@@ -1319,54 +1321,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     );
   }
 
-  async function handleForceComplete(requestId: string) {
-    const reason = window.prompt(t("Reason for force-completing this trade:", "سبب إكمال هذه الصفقة يدويًا:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-complete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Trade force-completed.", "تم إكمال الصفقة يدويًا.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) { setSelectedRequest(null); await fetchData(); }
-  }
-
-  async function handleForceCancel(requestId: string) {
-    const reason = window.prompt(t("Reason for cancelling this trade:", "سبب إلغاء هذه الصفقة:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Trade cancelled.", "تم إلغاء الصفقة.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) { setSelectedRequest(null); await fetchData(); }
-  }
-
-  async function handleResolveDispute(disputeId: string) {
-    const resolutionNotes = window.prompt(t(
-      "Resolution notes (required):",
-      "ملاحظات حل النزاع (مطلوبة):",
-    ));
-    if (!resolutionNotes?.trim()) return;
-    const response = await fetch(`/api/alpha-exchange/admin/disputes/${encodeURIComponent(disputeId)}/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resolutionNotes: resolutionNotes.trim() }),
-    });
-    const payload = await response.json() as { error?: string };
-    pushToast(response.ok
-      ? t("Dispute resolved. Trade actions are available again.", "تم حل النزاع وأصبحت إجراءات الصفقة متاحة مجددًا.")
-      : (isArabic ? safeAdminError("action", locale) : payload.error ?? "Error"));
-    if (response.ok) await fetchData();
-  }
-
-  async function handleUnlockReview(requestId: string) {
-    const reason = window.prompt(t("Reason for unlocking review:", "سبب فتح التقييم:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/unlock-review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Review window unlocked.", "تم فتح نافذة التقييم.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
-  }
 
   function openCommissionPaidDialog(record: CommissionRecord, sellerName: string, sourceLabel: string) {
     setCommissionPaidPending({ record, sellerName, sourceLabel });
@@ -4331,7 +4285,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <a href={`/${locale}/trade-room/${encodeURIComponent(selectedRequest.id)}?view=history`} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-400/35 px-4 py-3 text-center text-sm font-semibold text-rose-200 hover:bg-rose-400/10">
                   <FileClock className="h-4 w-4 shrink-0" aria-hidden="true" />{t("Open trade room history", "فتح سجل غرفة الصفقة")}
                 </a>
-                <p className="mt-2 text-xs text-[#9CA3AF]">{t("Read the full chat, attachments, timeline and reviews in a read-only view.", "راجع كامل المحادثة والمرفقات والسجل الزمني والتقييمات للقراءة فقط.")}</p>
+                <p className="mt-2 text-xs text-[#9CA3AF]">{t("Read the full chat, attachments, timeline and reviews, with owner controls below.", "راجع كامل المحادثة والمرفقات والسجل الزمني والتقييمات مع إجراءات المالك بالأسفل.")}</p>
               </div> : null}
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
                 <p>{t("Request ID:", "رقم الطلب:")} <span className="font-mono font-medium text-white">{currencyText(displayRequestId(selectedRequest))}</span></p>
@@ -4408,38 +4362,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   <p className="mt-2">{currencyText(selectedRequest.sellerResponse.message)}</p>
                 </div>
               ) : null}
-              {selectedOpenDispute ? (
-                <div className="mt-4 rounded-xl border border-red-500/35 bg-red-500/10 p-4 text-sm text-red-100">
-                  <p className="font-semibold">{t("Open dispute — trade actions paused", "نزاع مفتوح — إجراءات الصفقة متوقفة")}</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{currencyText(selectedOpenDispute.reason)}</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="mt-3 border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
-                    onClick={() => void handleResolveDispute(selectedOpenDispute.id)}
-                  >
-                    {t("Resolve Dispute", "حل النزاع")}
-                  </Button>
-                </div>
-              ) : null}
-              {selectedRequest.status !== "completed" && selectedRequest.status !== "cancelled" && selectedRequest.status !== "declined" ? (
-                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                  <p className="mb-3 text-sm font-medium text-amber-300">{t("Admin Actions", "إجراءات الإدارة")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {!selectedRequest.completedAt && selectedRequest.status !== "review_open" && selectedRequest.status !== "locked" ? <>
-                    <Button type="button" size="sm" disabled={Boolean(selectedOpenDispute)} onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
-                      {t("Force Complete", "إكمال إجباري")}
-                    </Button>
-                    <Button type="button" size="sm" variant="secondary" disabled={Boolean(selectedOpenDispute)} onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
-                      {t("Force Cancel", "إلغاء إجباري")}
-                    </Button>
-                    </> : null}
-                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleUnlockReview(selectedRequest.id)}>
-                      {t("Unlock Review", "فتح التقييم")}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
+              <TradeOwnerActions
+                key={selectedRequest.id}
+                locale={locale}
+                request={selectedRequest}
+                isOwner={isOwner}
+                openDispute={selectedOpenDispute}
+                onUpdated={() => fetchData({ silent: true })}
+              />
             </div>
           </div>
         ) : null}

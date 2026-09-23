@@ -129,7 +129,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(within(dialog).getByRole("link", { name: "Open trade room history" }).getAttribute("href")).toBe("/en/trade-room/request-0?view=history");
   });
 
-  it.each(["completed", "review_open", "locked"])("returns from %s history to the selected purchase without active-trade actions", async (status) => {
+  it.each(["completed", "review_open", "locked"])("returns from %s history with owner controls and safe completion state", async (status) => {
     navigationState.search = "section=purchase-requests&requestId=history-request&details=1";
     const purchaseRequests = [{
       id: "history-request", buyerId: "buyer-1", buyerName: "Historical Buyer", sellerId: "seller-1", listingId: listing.id,
@@ -141,9 +141,9 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const dialog = await screen.findByRole("dialog", { name: "Purchase Request Details" });
     expect(within(dialog).getByText("Historical Buyer")).toBeTruthy();
     expect(within(dialog).getByRole("link", { name: "Open trade room history" }).getAttribute("href")).toBe("/en/trade-room/history-request?view=history");
-    expect(within(dialog).queryByRole("button", { name: "Force Complete" })).toBeNull();
-    expect(within(dialog).queryByRole("button", { name: "Force Cancel" })).toBeNull();
-    if (status !== "completed") expect(within(dialog).getByRole("button", { name: "Unlock Review" })).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Mark as completed" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dialog).getByRole("button", { name: "Force close trade" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(dialog).getByRole("button", { name: "Unlock Review" })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Close request details" }));
     rerender(<AlphaExchangeAdminDashboard isOwner />);
     expect(screen.queryByRole("dialog", { name: "Purchase Request Details" })).toBeNull();

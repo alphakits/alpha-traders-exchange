@@ -15,6 +15,8 @@ import {
   sanitizePurchaseRequestForActor,
   forceCancelTradeByAdmin,
   forceCompleteTradeByAdmin,
+  forceCloseTradeByOwner,
+  unlockTradeReviewByAdmin,
   getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   submitBuyerTradeReview,
@@ -1051,6 +1053,92 @@ describe("guided cash-trade completion", () => {
       reason: "Both participants confirmed the off-platform exchange was completed.",
       details: expect.stringContaining("seller commission recorded"),
     }));
+  });
+
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("preserves settlement and history when the owner closes completed %s trades", async paymentMethod => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, status: "funds_received" });
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Delivery verified" });
+    const before = currentSnapshot();
+    const commission = structuredClone(before.commissionRecords);
+    const listing = structuredClone(before.marketplaceListings.find(item => item.id === listingId));
+    const completed = structuredClone(before.purchaseRequests.find(item => item.id === requestId)!);
+    const closed = await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner has reviewed all records" });
+    expect(closed).toMatchObject({ status: completed.status, completedAt: completed.completedAt, closedByUserId: OWNER_ID, closeReason: "Owner has reviewed all records" });
+    expect(closed.messages).toEqual(completed.messages);
+    expect(currentSnapshot().commissionRecords).toEqual(commission);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toEqual(listing);
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({ action: "admin_override", reason: "Owner has reviewed all records" }));
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Retry" });
+    expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Owner closed the completed trade"))).toHaveLength(1);
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Completion retry" });
+    expect(currentSnapshot().commissionRecords).toEqual(commission);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toEqual(listing);
+  });
+
+  it.each(["pending", "accepted"] as const)("owner force-close cancels %s requests before payment and retains the reason", async status => {
+    const { requestId } = seedTrade({ status });
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Participants requested cancellation" });
+    const closed = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    expect(closed).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID, closeReason: "Participants requested cancellation" });
+    expect(closed.closedAt).toBeTruthy();
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Retry" });
+    expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Admin force-cancelled"))).toHaveLength(1);
+  });
+
+  it("blocks owner cancellation after payment and active-trade review unlock", async () => {
+    const { requestId } = seedTrade({ status: "payment_sent" });
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Review" })).rejects.toThrow("cannot be force-closed");
+    await expect(unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Review" })).rejects.toThrow("Only completed trades");
+  });
+
+  it("persists review unlock and its audit entry while retaining completed status", async () => {
+    const { requestId } = seedTrade({ status: "completed" });
+    await unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Reopen review window" });
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    expect(request.status).toBe("completed");
+    expect(request.reviewUnlockedAt).toBeTruthy();
+    expect(request.timeline).toContainEqual(expect.objectContaining({ type: "review_unlocked", actorUserId: OWNER_ID }));
+    expect(currentSnapshot().auditLogs).toContainEqual(expect.objectContaining({ action: "admin_override", reason: "Reopen review window" }));
+  });
+
+  it.each([BUYER_ID, SELLER_ID, OUTSIDER_ID, "missing-owner"])("rejects forged owner actions by %s", async actorUserId => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    for (const action of [forceCompleteTradeByAdmin, forceCancelTradeByAdmin, forceCloseTradeByOwner, unlockTradeReviewByAdmin]) {
+      await expect(action({ requestId, actorUserId, reason: "Attempted override" })).rejects.toThrow("access required");
+    }
+    expect(currentSnapshot().purchaseRequests.find(item => item.id === requestId)?.status).toBe("accepted");
+  });
+
+  it("rejects disabled owners, blank reasons and admin use of owner-only closure", async () => {
+    const { requestId } = seedTrade({ status: "completed" });
+    const owner = currentSnapshot().users.find(item => item.id === OWNER_ID)!;
+    owner.disabled = true;
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Owner access required");
+    owner.disabled = false;
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "  " })).rejects.toThrow("Reason is required");
+    owner.role = "admin"; owner.roles = ["admin"];
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Owner access required");
+  });
+
+  it("preserves both owner closure and review changes when they run concurrently", async () => {
+    const { requestId } = seedTrade({ status: "completed" });
+    await Promise.all([
+      forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner closed" }),
+      unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Owner unlocked" }),
+    ]);
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    expect(request.closedAt).toBeTruthy();
+    expect(request.reviewUnlockedAt).toBeTruthy();
+    expect(request.timeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "trade_closed_manually" }), expect.objectContaining({ type: "review_unlocked" }),
+    ]));
+    expect(currentSnapshot().auditLogs.filter(item => item.purchaseRequestId === requestId)).toHaveLength(2);
+  });
+
+  it("blocks force cancellation of a trade with an unresolved dispute", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    currentSnapshot().disputes.push({ id: "owner-action-dispute", purchaseRequestId: requestId, status: "open" } as never);
+    await expect(forceCancelTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Resolve the open dispute");
   });
 
   it("lets the buyer confirm cash-trade receipt after seller USDT confirmation", async () => {

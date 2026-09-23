@@ -126,7 +126,7 @@ export async function requireApiAdmin() {
   if (!user) {
     return { user: null, unauthorized };
   }
-  if (!hasRole(user, "admin")) {
+  if (!hasRole(user, "admin") && !hasRole(user, "owner")) {
     logEvent("warn", {
       event: "permission_denied",
       actorUserId: user.id,
