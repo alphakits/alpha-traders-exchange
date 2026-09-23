@@ -4,7 +4,6 @@ import { publicAccountId } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -21,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { deriveBuyerRankSummary } from "@/lib/buyer-rank";
+import { PrivateProfileHeader } from "@/components/profile/private-profile-header";
 import { AccountNotificationPreferences } from "@/components/profile/account-notification-preferences";
 import { NewsPreferences } from "@/components/news/news-preferences";
 
@@ -759,7 +759,6 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     );
   }
 
-  const initials = payload.profile.fullName?.charAt(0).toUpperCase() ?? "?";
   const onlineNow = payload.profile.onlineStatus === "online";
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
@@ -809,78 +808,45 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     <section className="section-container page-shell">
       <div className="mx-auto max-w-7xl space-y-5 xl:space-y-6">
         <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
-          <div className={cn("relative h-44 border-b border-white/10 bg-gradient-to-r md:h-52", theme.coverTone)}>
-            {coverUrl ? <Image src={coverUrl} alt={isAr ? "صورة الغلاف" : "Cover"} fill unoptimized className="object-cover opacity-90" /> : null}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/75" />
-            <div className="absolute end-3 top-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                loading={coverUploading}
-                loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."}
-                disabled={coverRemoving}
-                onClick={() => coverInputRef.current?.click()}
-              >
-                {isAr ? "تحديث الغلاف" : "Update cover"}
-              </Button>
-              {coverUrl ? (
+          <PrivateProfileHeader
+            locale={locale}
+            fullName={payload.profile.fullName}
+            publicId={publicAccountId(payload.profile)}
+            avatarUrl={avatarUrl}
+            coverUrl={coverUrl}
+            coverClassName={theme.coverTone}
+            avatarClassName={cn(theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}
+            nameClassName={cn(isOwner && "font-extrabold tracking-[0.015em]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}
+            coverActions={(
+              <>
                 <Button
                   type="button"
                   size="sm"
-                  variant="destructive"
-                  loading={coverRemoving}
-                  loadingLabel={isAr ? "جاري الحذف..." : "Removing..."}
-                  disabled={coverUploading}
-                  onClick={() => void handleRemoveCover()}
+                  variant="secondary"
+                  loading={coverUploading}
+                  loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."}
+                  disabled={coverRemoving}
+                  onClick={() => coverInputRef.current?.click()}
                 >
-                  {isAr ? "حذف الغلاف" : "Remove"}
+                  {isAr ? "تحديث الغلاف" : "Update cover"}
                 </Button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="relative px-6 pb-6 pt-0 md:px-8">
-            <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
-              <div className="flex min-w-0 flex-1 items-end gap-4">
-                <div className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}>
-                  {avatarUrl ? (
-                    <Image src={avatarUrl} alt={isAr ? "الصورة الشخصية" : "Profile"} width={112} height={112} unoptimized className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{currencyText(initials)}</div>
-                  )}
-                </div>
-                <div className="min-w-0 break-words pb-1">
-                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}><bdi dir="auto">{currencyText(payload.profile.fullName?.trim() || publicAccountId(payload.profile))}</bdi></p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "اسمك ظاهر لك فقط. معرّف AT العام" : "Your name is visible only to you. Public AT ID"}: <bdi dir="ltr">{publicAccountId(payload.profile)}</bdi></p>
-                  {isOwner ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
-                      <p className="text-xs text-[#9CA3AF]">{isAr ? "وصول كامل للمنصة • جميع الصلاحيات" : "Full platform access • All permissions"}</p>
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-sm text-[#A6AFBE]">@{currencyText(payload.profile.username)}</p>
-                  )}
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <RoleBadge variant={payload.roleBadge} locale={locale} />
-                    <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
-                      <span className={cn("h-1.5 w-1.5 rounded-full", onlineNow ? "bg-emerald-400" : "bg-zinc-500")} />
-                      {onlineNow ? (isAr ? "متصل الآن" : "Online now") : (isAr ? "غير متصل" : "Offline")}
-                    </span>
-                    {isSeller ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-[11px] font-semibold text-[#F4D87A]">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        {isAr ? "بائع موثق" : "Verified Seller"}
-                      </span>
-                    ) : null}
-                    {isSeller ? (
-                      <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
-                    ) : null}
-                    {!isSeller && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 pb-1">
+                {coverUrl ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    loading={coverRemoving}
+                    loadingLabel={isAr ? "جاري الحذف..." : "Removing..."}
+                    disabled={coverUploading}
+                    onClick={() => void handleRemoveCover()}
+                  >
+                    {isAr ? "حذف الغلاف" : "Remove"}
+                  </Button>
+                ) : null}
+              </>
+            )}
+            photoActions={(
+              <>
                 <Button type="button" variant="secondary" size="sm" loading={photoUploading} loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."} disabled={photoRemoving} onClick={() => photoInputRef.current?.click()}>
                   {isAr ? "تغيير الصورة" : "Update photo"}
                 </Button>
@@ -889,10 +855,36 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     {isAr ? "حذف الصورة" : "Remove"}
                   </Button>
                 ) : null}
+              </>
+            )}
+          >
+            {isOwner ? (
+              <div className="mt-3">
+                <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
+                <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "وصول كامل للمنصة • جميع الصلاحيات" : "Full platform access • All permissions"}</p>
               </div>
+            ) : null}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <RoleBadge variant={payload.roleBadge} locale={locale} />
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
+                <span className={cn("h-1.5 w-1.5 rounded-full", onlineNow ? "bg-emerald-400" : "bg-zinc-500")} />
+                {onlineNow ? (isAr ? "متصل الآن" : "Online now") : (isAr ? "غير متصل" : "Offline")}
+              </span>
+              {isSeller ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-[11px] font-semibold text-[#F4D87A]">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {isAr ? "بائع موثق" : "Verified Seller"}
+                </span>
+              ) : null}
+              {isSeller ? (
+                <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
+              ) : null}
+              {!isSeller && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
             </div>
+          </PrivateProfileHeader>
 
-            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="px-5 pb-6 md:px-8">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة الحساب" : "Account status"}</p>
                 <p className="mt-2 text-sm font-medium text-white">{currencyText(statusCopy)}</p>
