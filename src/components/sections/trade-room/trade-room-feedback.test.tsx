@@ -6,6 +6,7 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => navigation.search }))
 vi.mock("@/i18n/navigation", () => ({ Link: () => null, useRouter: () => ({ push: navigation.push }) }));
 vi.mock("@/components/account/user-safety-actions", () => ({ UserSafetyActions: () => null }));
 import { TradeRoomPage } from "./trade-room-page";
+import { writeTradeRoomCache } from "@/lib/trade-room-client";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 function room(paymentMethod: string, status: PurchaseRequest["status"]) {
@@ -38,6 +39,8 @@ class RoomStream extends EventTarget {
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  navigation.search = new URLSearchParams();
+  window.history.replaceState(null, "", "/");
   navigation.push.mockReset();
   RoomStream.instances = [];
   vi.stubGlobal("EventSource", RoomStream);
@@ -48,6 +51,20 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn();
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it.each(["completed", "review_open", "locked"] as const)("keeps a %s notification focused on its review target after replacing stale cached data", async (status) => {
+  navigation.search = new URLSearchParams("action=review-trade");
+  window.history.replaceState(null, "", "/?action=review-trade#status-banner");
+  writeTradeRoomCache("feedback-request", buyer.id, room("Face-to-Face (Meet in Person)", "payment_sent"));
+  const response = deferredResponse();
+  vi.stubGlobal("fetch", vi.fn(() => response.promise));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+  await waitFor(() => expect(document.activeElement?.id).toBe("status-banner"));
+
+  await act(async () => response.resolve(Response.json(room("Face-to-Face (Meet in Person)", status))));
+  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  await waitFor(() => expect(document.activeElement?.id).toBe("status-banner"));
+});
 
 it.each([
   ["Face-to-Face (Meet in Person)", "funds_received"],
