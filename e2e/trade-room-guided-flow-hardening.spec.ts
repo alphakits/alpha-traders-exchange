@@ -512,7 +512,9 @@ function localizedTradeActionMatcher(expectedAction: string) {
   return /Submit Rating|إرسال التقييم/i;
 }
 
-test.describe.configure({ mode: "serial" });
+// Each case provisions fresh state. Keep sequential execution without letting
+// one failure suppress the remaining independent payment and review flows.
+test.describe.configure({ mode: "default" });
 
 test.beforeEach(async () => {
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
