@@ -194,15 +194,18 @@
   .panel { padding-inline: 12px; }
   .benefit { font-size: 10.5px; }
 }
-@media (max-height: 700px) {
-  .panel { padding-block: 10px; }
+@media (max-height: 740px) {
+  .authShell:has(.page) > header { height: 56px; }
+  .page[data-login-surface="app"] { min-height: calc(100svh - 64px); }
+  .panel { padding-block: 8px; }
   .heading h1 { font-size: 24px; line-height: 28px; }
   .intro { line-height: 16px; }
   .benefits { margin-top: 6px; padding: 4px; }
   .benefit { gap: 2px; padding-block: 3px; }
+  .benefit svg { display: none; }
   .field input { height: 44px; }
   .field button[aria-controls="login-password"] { top: 0; right: 0; }
-  .scene { flex-basis: 48px; min-height: 48px; }
+  .scene { flex-basis: 40px; min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .card::after, .form button[type="submit"]::before, .scene * { animation: none; }
