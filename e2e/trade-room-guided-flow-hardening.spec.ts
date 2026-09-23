@@ -604,8 +604,20 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
     viewport,
   });
 
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
+  const acceptanceConfirmations: string[] = [];
+  const acceptTermsAndSafety = async (dialog: import("@playwright/test").Dialog) => {
+    acceptanceConfirmations.push(dialog.message());
+    await dialog.accept();
+  };
+  page.on("dialog", acceptTermsAndSafety);
+  try {
+    await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
+    expect(acceptanceConfirmations).toHaveLength(2);
+    expect(acceptanceConfirmations[0]).toMatch(/Accept these terms|هل توافق/i);
+    expect(acceptanceConfirmations[1]).toMatch(/safe-meeting guidance|إرشادات اللقاء الآمن/i);
+  } finally {
+    page.off("dialog", acceptTermsAndSafety);
+  }
   await expect(page.getByText(/Waiting for Buyer Confirmation|بانتظار تأكيد المشتري/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);

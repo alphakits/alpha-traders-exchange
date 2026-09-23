@@ -302,7 +302,29 @@ test.describe("Final hardening audit", () => {
     await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
     await expect(page.getByRole("main").locator("#my-trade-requests-section")).toBeVisible();
 
-    await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
+    // An account refresh must show a pending button instead of dropping a
+    // buyer's click with a reconnect message. Keep server validation intact.
+    const buyButton = page.getByRole("button", { name: /Buy USDT from/i }).first();
+    let releaseSession!: () => void;
+    const sessionGate = new Promise<void>((resolve) => { releaseSession = resolve; });
+    const holdSession = async (route: import("@playwright/test").Route) => {
+      await sessionGate;
+      await route.continue();
+    };
+    await page.route("**/api/auth/me", holdSession);
+    try {
+      await page.evaluate(() => window.dispatchEvent(new Event("alpha-auth-changed")));
+      await expect(buyButton).toBeDisabled();
+      await expect(buyButton).toHaveAttribute("aria-busy", "true");
+      await expect(page.getByRole("button", { name: /Make a price offer to/i }).first()).toBeDisabled();
+      releaseSession();
+      await expect(buyButton).toBeEnabled({ timeout: 30_000 });
+      await expect(buyButton).toHaveAttribute("aria-busy", "false");
+    } finally {
+      releaseSession();
+      await page.unroute("**/api/auth/me", holdSession);
+    }
+    await buyButton.click();
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
     await page.keyboard.press("Escape");

@@ -1123,11 +1123,12 @@ type ListingCardProps = {
   isOwnerListing: boolean;
   isOwnListing: boolean;
   isBuying: boolean;
+  isSessionPending: boolean;
   onOpen: (listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer") => void;
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
-const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, isSessionPending, onOpen, onManageListing }: ListingCardProps) {
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
@@ -1356,6 +1357,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                   : `seller-rank-cta seller-rank-cta--${sellerRankKey} text-black`,
               )}
               onClick={() => onManageListing(listing)}
+              disabled={isSessionPending}
               aria-label={isAr ? `إدارة العرض ${shortListingRef(listing)}` : `Manage listing ${shortListingRef(listing)}`}
             >
               <span className="inline-flex items-center gap-2">
@@ -1372,13 +1374,14 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                   ? "owner-cta-premium"
                   : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
               )}
-              disabled={isBuying}
+              disabled={isBuying || isSessionPending}
+              aria-busy={isSessionPending}
               onClick={() => onOpen(listing, "listing_price")}
               aria-label={isAr ? `شراء USDT من ${safeText(listing.sellerDisplayName, "البائع")}` : `Buy USDT from ${safeText(listing.sellerDisplayName, "seller")}`}
             >
               <span className="inline-flex items-center gap-2">
-                {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
-                {isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "اشترِ الآن" : "Buy Now")}
+                {isBuying || isSessionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
+                {isSessionPending ? (isAr ? "جارٍ الاتصال بحسابك..." : "Connecting to your account...") : isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "اشترِ الآن" : "Buy Now")}
               </span>
               <ArrowRight className="h-4 w-4" />
             </Button>
@@ -1388,7 +1391,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               type="button"
               variant="secondary"
               className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 sm:col-span-2"
-              disabled={isBuying}
+              disabled={isBuying || isSessionPending}
               onClick={() => onOpen(listing, "buyer_offer")}
               aria-label={isAr ? `تقديم عرض سعر إلى ${safeText(listing.sellerDisplayName, "البائع")}` : `Make a price offer to ${safeText(listing.sellerDisplayName, "seller")}`}
             >
@@ -1475,8 +1478,8 @@ export function UsdtExchangePage({
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   // The server-backed session is authoritative for seller-application eligibility.
   // The initial value is only a bootstrap snapshot and can have stale roles.
-  const [isSessionResolving, setIsSessionResolving] = useState(Boolean(canonicalSession));
-  const [sessionResolutionError, setSessionResolutionError] = useState(false);
+  const [isSessionResolving, setIsSessionResolving] = useState(canonicalSession?.isResolving ?? false);
+  const [sessionResolutionError, setSessionResolutionError] = useState(canonicalSession?.error ?? false);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
@@ -5672,6 +5675,7 @@ export function UsdtExchangePage({
                   isOwnerListing={listing.sellerProfile?.isOwner === true}
                   isOwnListing={Boolean((isApprovedSeller || isAdminSession) && sessionUser?.id === listing.sellerId)}
                   isBuying={false}
+                  isSessionPending={isSessionResolving || sessionResolutionError}
                   onOpen={openListingModal}
                   onManageListing={handleManageOwnedListing}
                 />

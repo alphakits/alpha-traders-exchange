@@ -961,8 +961,8 @@ test("owner listing notification destination survives login, refresh, and histor
   const loginUrl = new URL(ownerPage.url());
   expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
 
-  await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
-  await ownerPage.getByLabel("Password").fill(OWNER_PASSWORD);
+  await ownerPage.getByLabel("Email", { exact: true }).fill(OWNER_EMAIL);
+  await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await Promise.all([
     ownerPage.waitForURL(destination, { timeout: 30_000 }),
     ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
