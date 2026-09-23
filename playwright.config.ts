@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { randomBytes } from "node:crypto";
 import { E2E_BASE_URL, E2E_CRON_SECRET, E2E_PORT } from "./e2e/support/base-url";
 
 export default defineConfig({
@@ -28,6 +29,11 @@ export default defineConfig({
       ALPHA_E2E_TEST_SUPPORT: "1",
       ALPHA_E2E_LOOPBACK_ONLY: "1",
       ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
+      // Encrypt synthetic ATM credentials with a fresh local test key. Never
+      // depend on production keys or inherit a staged production activation.
+      ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: randomBytes(32).toString("hex"),
+      ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_PREVIOUS_SECRET: "",
+      ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_ACTIVATE_AT: "",
       CRON_SECRET: E2E_CRON_SECRET,
     },
   },

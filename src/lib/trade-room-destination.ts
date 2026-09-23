@@ -1,5 +1,5 @@
 import type { PurchaseRequest } from "@/types/alpha-exchange";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isCashTradePaymentMethod, isSellerTradeCompletionAvailable } from "@/lib/marketplace-payment-methods";
 
 export type TradeRoomActionTarget =
   | "accept-trade"
@@ -34,14 +34,14 @@ function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: str
   if (request.status === "payment_sent" && isSellerActor(request, actorUserId)) {
     return "confirm-money-received";
   }
+  if (isSellerActor(request, actorUserId) && isSellerTradeCompletionAvailable(request.paymentMethod, request.status)) {
+    return "complete-cash-trade";
+  }
   if (request.status === "funds_received" && isSellerActor(request, actorUserId)) {
     return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "release-usdt";
   }
   if (request.status === "usdt_release_pending" && isSellerActor(request, actorUserId)) {
     return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "upload-seller-evidence";
-  }
-  if (request.status === "usdt_sent" && isCashTradePaymentMethod(request.paymentMethod) && isSellerActor(request, actorUserId)) {
-    return "complete-cash-trade";
   }
   if (request.status === "usdt_sent" && isBuyerActor(request, actorUserId)) {
     return "confirm-usdt-received";

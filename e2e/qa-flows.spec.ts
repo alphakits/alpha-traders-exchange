@@ -4,6 +4,11 @@ import { provisionQaWorld, cleanupQaWorld, type QaWorld } from "./support/qa-acc
 import { E2E_BASE_URL } from "./support/base-url";
 
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
+const OWNER = {
+  id: "e2e-global-owner",
+  email: "e2e-global-owner@example.test",
+  password: "E2eOwner!Launch2026",
+};
 
 let world: QaWorld | undefined;
 let buyerFixture: BuyerFixture | undefined;
@@ -88,9 +93,9 @@ test.describe("Seller flow · listing accountability", () => {
 });
 
 // ── Admin flow: Listing Reliability panel renders real deterministic data ────
-test.describe("Admin flow · Listing Reliability", () => {
-  test("admin dashboard exposes the Listing Reliability panel", async ({ page }) => {
-    await login(page.request, world!.admin.email, world!.admin.password);
+test.describe("Owner flow · Listing Reliability", () => {
+  test("owner dashboard exposes the Listing Reliability panel", async ({ page }) => {
+    await login(page.request, OWNER.email, OWNER.password);
     await page.goto("/en/admin/alpha-exchange");
     await page.getByRole("button", { name: /Open Listing Reliability/i }).click();
     await expect(page.getByRole("heading", { name: "Listing Reliability" })).toBeVisible();
@@ -104,7 +109,7 @@ test.describe("Admin flow · Listing Reliability", () => {
   });
 });
 
-test.describe("Admin flow · mobile commission settlement", () => {
+test.describe("Owner flow · mobile commission settlement", () => {
   test("keeps each commission and its Mark Paid action together on an iPhone viewport", async ({ page }) => {
     const state = await readState(page.request);
     const now = new Date();
@@ -113,7 +118,7 @@ test.describe("Admin flow · mobile commission settlement", () => {
       id: commissionId,
       source: "admin_manual",
       sellerId: world!.seller.id,
-      issuedByUserId: world!.admin.id,
+      issuedByUserId: OWNER.id,
       issueReason: "Mobile commission settlement QA",
       rate: 0,
       grossAmount: 0,
@@ -131,7 +136,7 @@ test.describe("Admin flow · mobile commission settlement", () => {
       commission,
     ];
     await writeState(page.request, state);
-    await login(page.request, world!.admin.email, world!.admin.password);
+    await login(page.request, OWNER.email, OWNER.password);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/en/admin/alpha-exchange?section=commissions&commission=${encodeURIComponent(commissionId)}`);
 

@@ -232,7 +232,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard/seller",
-        readyLocator: page.getByText(/seller status/i).first(),
+        readyLocator: page.getByRole("main").getByRole("button", { name: /^Purchase Requests:/ }),
         viewport,
         disallowPathnames: ["/login"],
       });
@@ -302,7 +302,29 @@ test.describe("Final hardening audit", () => {
     await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
     await expect(page.getByRole("main").locator("#my-trade-requests-section")).toBeVisible();
 
-    await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
+    // An account refresh must show a pending button instead of dropping a
+    // buyer's click with a reconnect message. Keep server validation intact.
+    const buyButton = page.getByRole("button", { name: /Buy USDT from/i }).first();
+    let releaseSession!: () => void;
+    const sessionGate = new Promise<void>((resolve) => { releaseSession = resolve; });
+    const holdSession = async (route: import("@playwright/test").Route) => {
+      await sessionGate;
+      await route.continue();
+    };
+    await page.route("**/api/auth/me", holdSession);
+    try {
+      await page.evaluate(() => window.dispatchEvent(new Event("alpha-auth-changed")));
+      await expect(buyButton).toBeDisabled();
+      await expect(buyButton).toHaveAttribute("aria-busy", "true");
+      await expect(page.getByRole("button", { name: /Make a price offer to/i }).first()).toBeDisabled();
+      releaseSession();
+      await expect(buyButton).toBeEnabled({ timeout: 30_000 });
+      await expect(buyButton).toHaveAttribute("aria-busy", "false");
+    } finally {
+      releaseSession();
+      await page.unroute("**/api/auth/me", holdSession);
+    }
+    await buyButton.click();
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -340,7 +362,7 @@ test.describe("Final hardening audit", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
 
     await page.goto("/en/dashboard/seller");
-    await expect(page.getByText(/seller status/i).first()).toBeVisible();
+    await expect(page.getByRole("main").getByRole("button", { name: /^Purchase Requests:/ })).toBeVisible();
     await page.getByRole("button", { name: /^My Listings:/ }).first().click();
     await expect(page.locator("#my-listings-section")).toBeVisible();
 
@@ -435,7 +457,10 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Live Listings:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Active Trades:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(0);
+      await expect(main.locator("#my-trade-requests-section")).toBeVisible();
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
@@ -450,7 +475,14 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
+      if (viewport.width >= 1024) {
+        const welcome = main.locator('[data-account-role="approved_seller"]');
+        await expect(welcome.locator("#workspace-summary")).toHaveCount(1);
+        await expect(welcome.getByRole("button", { name: "Create Listing", exact: true })).toHaveCount(1);
+        await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
+      } else {
+        await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
+      }
       await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toHaveCount(1);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

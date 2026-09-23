@@ -433,7 +433,8 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   }
   await expect(page.getByRole("heading", { name: "My Listings" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
-  await expect(page).toHaveURL(/#listing-publish-result$/);
+  await expect(page.locator("#listing-publish-result")).toBeFocused();
+  await expect(page.locator("#listing-publish-result")).toBeInViewport();
   await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
   await expect(page.locator(`[id="listing-${payload.listing.id}"]`)).toHaveCount(0);
   expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });
@@ -892,7 +893,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await expect(commissionStatus).toContainText("Choose one unpaid commission to pay.");
   await expect(commissionStatus.getByRole("button", { name: /Trade #9201/ })).toHaveCount(1);
   await expect(commissionStatus.getByRole("button", { name: /Trade #9202/ })).toHaveCount(1);
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toContainText("2");
+  await expect(main.getByRole("button", { name: /^🚨 Commission Due:/ })).toContainText("2");
 
   // A record-specific Pay Now action from the already-mounted exchange page
   // must reveal the form in place. This regresses the mobile failure where a
@@ -938,7 +939,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
     }
   });
   await seller.page.reload({ waitUntil: "domcontentloaded" });
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: /^🚨 Commission Due:/ })).toHaveCount(0);
   await expect(main.locator("#commission-status")).toContainText("No commission due");
 
   await seller.context.close();
@@ -961,8 +962,8 @@ test("owner listing notification destination survives login, refresh, and histor
   const loginUrl = new URL(ownerPage.url());
   expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
 
-  await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
-  await ownerPage.getByLabel("Password").fill(OWNER_PASSWORD);
+  await ownerPage.getByLabel("Email", { exact: true }).fill(OWNER_EMAIL);
+  await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await Promise.all([
     ownerPage.waitForURL(destination, { timeout: 30_000 }),
     ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
@@ -1108,9 +1109,11 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.status).toBe("review_open");
   expect(Boolean(firstTrade.completedAt)).toBeTruthy();
 
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page.getByRole("button", { name: "Return home", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`));
   await seller.page.reload();
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page.getByRole("button", { name: "Return home", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`));
 
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
@@ -1195,7 +1198,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await seller.page.reload();
   await expect(seller.page.getByRole("button", { name: "Renew" }).first()).toBeVisible({ timeout: 10_000 });
   await seller.page.getByRole("button", { name: "Renew" }).first().click();
-  await expect(seller.page.getByText(/Listing renewed.*refreshed expiry/)).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page.locator("#my-listings-section").getByText(/Listing renewed.*refreshed expiry/)).toBeVisible({ timeout: 10_000 });
 
   const sellerListingsAfterRenew = await seller.page.request.get("/api/alpha-exchange/my-listings");
   expect(sellerListingsAfterRenew.ok()).toBeTruthy();
@@ -1303,7 +1306,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await Promise.all([seller.context.close(), buyer.context.close()]);
 });
 
-test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
+test("owner dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
   test.setTimeout(300_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -1325,8 +1328,8 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   const extendCandidate = await createListing(seller.page.request, { availableAmount: "222", price: "3.12" });
   await waitForPersistence();
 
-  const admin = await createSession(browser, ADMIN_EMAIL, ADMIN_PASSWORD);
-  const page = admin.page;
+  const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
+  const page = owner.page;
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(renewCandidate.listing.id)}`);
   await expect(page.getByRole("heading", { name: "Marketplace Listings" })).toBeVisible({ timeout: 60_000 });
 
@@ -1395,5 +1398,5 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   await expect(page.getByText("Notification History")).toBeVisible();
   await expect(page.locator("tbody tr").filter({ hasText: "Listing force closed" }).first()).toBeVisible();
 
-  await Promise.all([seller.context.close(), buyer.context.close(), admin.context.close()]);
+  await Promise.all([seller.context.close(), buyer.context.close(), owner.context.close()]);
 });
