@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-bank-account-create",
+      identifier: auth.user.id,
       maxRequests: 8,
       windowMs: 60_000,
     });
@@ -105,6 +106,7 @@ export async function DELETE(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-bank-account-delete",
+      identifier: auth.user.id,
       maxRequests: 8,
       windowMs: 60_000,
     });

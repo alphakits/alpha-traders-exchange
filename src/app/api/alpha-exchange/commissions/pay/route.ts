@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:commission-pay",
+    identifier: user.id,
     maxRequests: 20,
     windowMs: 60_000,
   });

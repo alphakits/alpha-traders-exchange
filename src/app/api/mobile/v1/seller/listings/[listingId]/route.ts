@@ -95,6 +95,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-listing-status",
+      identifier: auth.user.id,
       maxRequests: 20,
       windowMs: 60_000,
     });
@@ -219,6 +220,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-listing-delete",
+      identifier: auth.user.id,
       maxRequests: 10,
       windowMs: 60_000,
     });

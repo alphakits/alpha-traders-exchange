@@ -43,6 +43,7 @@ async function changeBlockStatus(request: NextRequest, context: RouteContext, bl
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:user-block",
+    identifier: resolved.user.id,
     maxRequests: 30,
     windowMs: 60_000,
   });

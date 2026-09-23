@@ -90,4 +90,39 @@ describe("listing create session boundary", () => {
     expect(payload.destination).toBe("/usdt-exchange#seller-listing-listing-1");
     expect(mocks.createMarketplaceListing).toHaveBeenCalledWith(expect.objectContaining({ sellerId: "seller-1", actorUserId: "seller-1" }));
   });
+
+  it("lets fifteen approved sellers sharing a network create listings independently", async () => {
+    const { checkRateLimit } = await vi.importActual<typeof import("@/lib/rate-limit")>("@/lib/rate-limit");
+    mocks.checkSharedRateLimit.mockImplementation((input) => checkRateLimit({ ...input, key: `shared-network:${input.key}` }));
+    const responses = await Promise.all(Array.from({ length: 15 }, (_, index) => {
+      mocks.requireApiUser.mockResolvedValueOnce({
+        user: { id: `network-seller-${index}`, fullName: "Seller", role: "approved_seller", emailVerified: true },
+        unauthorized: null,
+      });
+      const request = createRequest();
+      request.headers.set("x-vercel-forwarded-for", "203.0.113.15");
+      return POST(request);
+    }));
+    expect(responses.map((response) => response.status)).toEqual(Array(15).fill(201));
+    expect(mocks.createMarketplaceListing).toHaveBeenCalledTimes(15);
+  });
+
+  it("keeps one seller's limit when their network address changes", async () => {
+    const { checkRateLimit } = await vi.importActual<typeof import("@/lib/rate-limit")>("@/lib/rate-limit");
+    mocks.checkSharedRateLimit.mockImplementation((input) => checkRateLimit({ ...input, key: `rotating-network:${input.key}` }));
+    mocks.requireApiUser.mockResolvedValue({
+      user: { id: "limited-seller", fullName: "Seller", role: "approved_seller", emailVerified: true },
+      unauthorized: null,
+    });
+    const responses = await Promise.all(Array.from({ length: 11 }, (_, index) => {
+      const request = createRequest();
+      request.headers.set("x-vercel-forwarded-for", `203.0.113.${index + 1}`);
+      return POST(request);
+    }));
+    expect(responses.filter((response) => response.status === 201)).toHaveLength(10);
+    const blocked = responses.find((response) => response.status === 429);
+    expect(blocked).toBeDefined();
+    expect(Number(blocked?.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(mocks.createMarketplaceListing).toHaveBeenCalledTimes(10);
+  });
 });
