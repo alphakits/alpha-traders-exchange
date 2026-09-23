@@ -41,6 +41,7 @@ test.describe("Navigation hardening", () => {
     await page.goto("/en/dashboard");
 
     const main = page.getByRole("main");
+    await expect(main.locator(".account-welcome__workspace-layout #workspace-summary")).toBeVisible();
     await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
@@ -54,7 +55,8 @@ test.describe("Navigation hardening", () => {
     await liveListings.focus();
     await expect(liveListings).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/en\/usdt-exchange#marketplace$/);
+    await expect(page).toHaveURL(/\/en\/usdt-exchange#buyer-marketplace-listings$/);
+    await expect(page.locator("#buyer-marketplace-listings")).toBeFocused();
   });
 
   test("buyer direct /trade-room navigation resolves to a stable non-dashboard destination", async ({ page }) => {
@@ -87,6 +89,7 @@ test.describe("Navigation hardening", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
     await page.goto("/en/dashboard/seller");
     const main = page.getByRole("main");
+    await expect(main.locator(".account-welcome__workspace-layout #workspace-summary")).toBeVisible();
     await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toBeVisible();
     await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
@@ -101,6 +104,7 @@ test.describe("Navigation hardening", () => {
     await page.reload({ waitUntil: "commit" });
 
     await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
+    await expect(main.locator(".account-welcome__workspace-layout #workspace-summary")).toBeVisible();
     await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
