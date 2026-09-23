@@ -842,16 +842,17 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
 
           <div className="relative px-6 pb-6 pt-0 md:px-8">
             <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
-              <div className="flex items-end gap-4">
-                <div className={cn("relative h-24 w-24 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}>
+              <div className="flex min-w-0 flex-1 items-end gap-4">
+                <div className={cn("relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}>
                   {avatarUrl ? (
                     <Image src={avatarUrl} alt={isAr ? "الصورة الشخصية" : "Profile"} width={112} height={112} unoptimized className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{currencyText(initials)}</div>
                   )}
                 </div>
-                <div className="pb-1">
-                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{currencyText(publicAccountId(payload.profile))}</p>
+                <div className="min-w-0 break-words pb-1">
+                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}><bdi dir="auto">{currencyText(payload.profile.fullName?.trim() || publicAccountId(payload.profile))}</bdi></p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "اسمك ظاهر لك فقط. معرّف AT العام" : "Your name is visible only to you. Public AT ID"}: <bdi dir="ltr">{publicAccountId(payload.profile)}</bdi></p>
                   {isOwner ? (
                     <div className="mt-1">
                       <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>

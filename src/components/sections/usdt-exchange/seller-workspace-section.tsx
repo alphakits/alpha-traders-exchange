@@ -376,6 +376,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
   const isLegacyPendingCommissionPayment = selectedCommissionPayment?.paymentVerificationStatus === "pending_verification"
     && selectedCommissionPayment.paymentExpectedAmountMode === "legacy_base";
   const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
+  const privateAccountName = sessionUser?.fullName?.trim() || (isAr ? "المتداول" : "Trader");
   const isSuspendedSeller = sessionUser?.sellerStatus === "suspended";
   const [commissionAmountCopied, setCommissionAmountCopied] = useState(false);
 
@@ -396,7 +397,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
           <AccountWelcome
             role={welcomeRole}
             locale={isAr ? "ar" : "en"}
-            name={sessionUser ? publicAccountId(sessionUser) : (isAr ? "المتداول" : "Trader")}
+            name={privateAccountName}
             headingLevel={2}
             suspended={isSuspendedSeller}
             description={welcomeRole === "owner"
@@ -1686,15 +1687,16 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <img src={sessionUser.profilePhotoUrl} alt={isAr ? `صورة ${sessionUser.fullName}` : `${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
                     ) : (
                       <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                        {currencyText((sessionUser ? publicAccountId(sessionUser) : (isAr ? "بائع" : "Seller"))
+                        {currencyText(privateAccountName
                           .split(" ")
                           .map((part) => part[0])
                           .join("")
                           .slice(0, 2))}
                       </div>
                     )}
-                    <div>
-                      <p className="text-base font-semibold text-white"><bdi dir="auto">{currencyText(sessionUser ? publicAccountId(sessionUser) : (isAr ? "بائع" : "Seller"))}</bdi></p>
+                    <div className="min-w-0 break-words">
+                      <p className="text-base font-semibold text-white"><bdi dir="auto">{currencyText(privateAccountName)}</bdi></p>
+                      <p className="text-xs text-[#9CA3AF]">{isAr ? "معرّف AT العام" : "Public AT ID"}: <bdi dir="ltr">{sessionUser ? publicAccountId(sessionUser) : "—"}</bdi></p>
                       <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />
                     </div>
                   </div>
