@@ -149,10 +149,8 @@ async function readBinanceDeposits(start: number, end: number, offset: number, s
   return rows as Record<string, unknown>[];
 }
 
-function parseBinanceInternalDeposit(row: Record<string, unknown>, min: number): CommissionDeposit | null {
-  if (!row || row.coin !== "USDT" || row.status !== 1 || row.transferType !== 1 || (typeof row.id !== "string" || !/^\d{1,64}$/.test(row.id))) return null;
-  // Public blockchain deposits always retain their chain TxID and chain verification.
-  if (/^(?:0x)?[a-f0-9]{64}$/i.test(String(row.txId ?? ""))) return null;
+function parseBinanceDeposit(row: Record<string, unknown>, min: number): CommissionDeposit | null {
+  if (!row || row.coin !== "USDT" || row.status !== 1 || (row.transferType !== 0 && row.transferType !== 1)) return null;
   if (row.travelRuleStatus !== undefined && row.travelRuleStatus !== 0) return null;
   const network = row.network === "TRX" ? "TRC20" : row.network === "BSC" ? "BEP20" : null;
   if (!network) return null;
@@ -162,10 +160,18 @@ function parseBinanceInternalDeposit(row: Record<string, unknown>, min: number):
   const amountMicros = decimalMicros(row.amount);
   const timestamp = Number(row.insertTime);
   if (amountMicros === null || !validTimestamp(timestamp, min)) return null;
+  const txId = String(row.txId ?? "");
+  // Public deposits keep the SAME chain reference across all providers. They
+  // still pass the chain receipt verifier and cannot gain a second ID alias.
+  if (/^(?:0x)?[a-f0-9]{64}$/i.test(txId)) {
+    const hash = txId.replace(/^0x/i, "").toLowerCase();
+    return { network, signature: network === "BEP20" ? `0x${hash}` : hash, payer: "", amountMicros, timestamp };
+  }
+  if (row.transferType !== 1 || typeof row.id !== "string" || !/^\d{1,64}$/.test(row.id)) return null;
   return { network, signature: `binance-deposit:${row.id}`, payer: "", amountMicros, timestamp };
 }
 
-export async function scanBinanceInternalCommissionDeposits(minTimestamp: number): Promise<DepositScan> {
+export async function scanBinanceCommissionDeposits(minTimestamp: number): Promise<DepositScan> {
   const scan: DepositScan = { deposits: [], pages: 0, complete: false, configured: isBinanceDepositReadConfigured() };
   if (!scan.configured) return scan;
   const signal = AbortSignal.timeout(SCAN_TIMEOUT_MS);
@@ -176,7 +182,7 @@ export async function scanBinanceInternalCommissionDeposits(minTimestamp: number
       const rows = await readBinanceDeposits(start, end, offset, signal);
       scan.pages++;
       for (const row of rows) {
-        const deposit = parseBinanceInternalDeposit(row, minTimestamp);
+        const deposit = parseBinanceDeposit(row, minTimestamp);
         if (deposit) scan.deposits.push(deposit);
       }
       if (rows.length < PAGE_SIZE) { end = start - 1; break; }
@@ -196,7 +202,7 @@ export async function verifyBinanceInternalCommissionDeposit(input: {
   const recipient = input.network === "TRC20" ? CANONICAL_TRC20_COMMISSION_WALLET : input.network === "BEP20" ? CANONICAL_BEP20_COMMISSION_WALLET : null;
   if (!recipient || input.recipient !== recipient) return result(false, "Incorrect Binance commission destination.");
   try {
-    const scan = await scanBinanceInternalCommissionDeposits(input.earliestTimestamp);
+    const scan = await scanBinanceCommissionDeposits(input.earliestTimestamp);
     if (!scan.configured) return result(false, "Binance deposit verification is not connected.", true);
     const matches = scan.deposits.filter((deposit) => deposit.signature === input.signature);
     if (matches.length !== 1) return result(false, "The credited Binance deposit could not be verified. Retrying automatically.", true);

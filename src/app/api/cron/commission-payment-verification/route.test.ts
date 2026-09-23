@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ records: vi.fn(), retry: vi.fn(), submit: vi.f
 vi.mock("@/lib/alpha-exchange-store", () => ({ getCommissionRecordsForAutomaticReconciliation: mocks.records,
   reverifyPendingCommissionPayments: mocks.retry, submitSellerCommissionWalletPayment: mocks.submit }));
 vi.mock("@/lib/commission-deposit-discovery", () => ({ scanTronCommissionDeposits: mocks.tron,
-  scanBep20CommissionDeposits: mocks.bsc, scanBinanceInternalCommissionDeposits: mocks.binance }));
+  scanBep20CommissionDeposits: mocks.bsc, scanBinanceCommissionDeposits: mocks.binance }));
 import { GET } from "./route";
 const request = (secret = SECRET) => new NextRequest("https://www.alphatraders.co.il/api/cron/commission-payment-verification", { headers: { authorization: `Bearer ${secret}` } });
 const candidate = (extra = {}) => ({ id: "commission-1", sellerId: "seller-1", paymentStatus: "pending", commissionAmount: 6.25,
@@ -28,9 +28,9 @@ describe("commission scheduler", () => {
     vi.stubEnv("CRON_SECRET", "short"); expect((await GET(request("short"))).status).toBe(503);
     expect(mocks.records).not.toHaveBeenCalled();
   });
-  it.each(["TRC20", "BEP20", "BINANCE_INTERNAL"])("discovers and verifies %s without a seller or admin click", async (provider) => {
+  it.each(["TRC20", "BEP20", "BINANCE_DEPOSITS"])("discovers and verifies %s without a seller or admin click", async (provider) => {
     const network = provider === "BEP20" ? "BEP20" : "TRC20";
-    const signature = provider === "BINANCE_INTERNAL" ? "binance-deposit:123456789" : provider === "BEP20" ? `0x${TX}` : TX;
+    const signature = provider === "BINANCE_DEPOSITS" ? "binance-deposit:123456789" : provider === "BEP20" ? `0x${TX}` : TX;
     (provider === "TRC20" ? mocks.tron : provider === "BEP20" ? mocks.bsc : mocks.binance).mockResolvedValue(scan([deposit({ network, signature })]));
     const response = await GET(request()); expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -75,6 +75,26 @@ describe("commission scheduler", () => {
   });
   it("reports incomplete history instead of silently presenting it as a full scan", async () => {
     mocks.tron.mockResolvedValue(scan([], { complete: false, pages: 5 })); expect((await GET(request())).status).toBe(503);
+  });
+  it("uses complete Binance deposit history when the BEP20 explorer plan is unavailable", async () => {
+    mocks.bsc.mockRejectedValue(new Error("bep20_index_plan_unsupported"));
+    mocks.binance.mockResolvedValue(scan([deposit({ network: "BEP20", signature: `0x${TX}` })]));
+    const response = await GET(request()); const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.autoReconciliation).toMatchObject({ verified: 1, errors: 0, providers: { BEP20: { error: "bep20_index_plan_unsupported", fallback: "BINANCE_DEPOSITS" } } });
+    expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ network: "BEP20", paymentSignature: `0x${TX}` }));
+  });
+  it("does not hide an unavailable BEP20 index behind incomplete Binance history", async () => {
+    mocks.bsc.mockRejectedValue(new Error("bep20_index_plan_unsupported"));
+    mocks.binance.mockResolvedValue(scan([], { complete: false, pages: 5 }));
+    const response = await GET(request()); const body = await response.json();
+    expect(response.status).toBe(503); expect(body.autoReconciliation.errors).toBe(2);
+    expect(body.autoReconciliation.providers.BEP20.fallback).toBeUndefined();
+  });
+  it("deduplicates a public deposit found by both the chain index and Binance", async () => {
+    mocks.tron.mockResolvedValue(scan([deposit()]));
+    mocks.binance.mockResolvedValue(scan([deposit()]));
+    await GET(request()); expect(mocks.submit).toHaveBeenCalledTimes(1);
   });
   it("does not expose arbitrary provider exception messages", async () => {
     mocks.tron.mockRejectedValue(new Error("https://provider.invalid/?apikey=secret"));

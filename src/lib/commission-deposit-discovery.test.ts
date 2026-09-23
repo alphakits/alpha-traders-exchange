@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceInternalCommissionDeposits, verifyBinanceInternalCommissionDeposit } from "./commission-deposit-discovery";
+import { scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits, verifyBinanceInternalCommissionDeposit } from "./commission-deposit-discovery";
 import { CANONICAL_TRC20_COMMISSION_WALLET as TRON, CANONICAL_BEP20_COMMISSION_WALLET as BSC, OFFICIAL_TRON_USDT_CONTRACT, BSC_USDT_CONTRACT } from "./commission-config";
 const TX = "a".repeat(64);
 const json = (body: unknown) => new Response(JSON.stringify(body));
@@ -58,7 +58,7 @@ describe("BEP20 deposit discovery", () => {
 });
 describe("Binance read-only internal deposit verification", () => {
   it("does not call Binance until both read-only credentials exist", async () => {
-    vi.stubGlobal("fetch", vi.fn()); expect((await scanBinanceInternalCommissionDeposits(1)).configured).toBe(false); expect(fetch).not.toHaveBeenCalled();
+    vi.stubGlobal("fetch", vi.fn()); expect((await scanBinanceCommissionDeposits(1)).configured).toBe(false); expect(fetch).not.toHaveBeenCalled();
   });
   it("signs only read-only deposit requests and accepts the exact credited destination", async () => {
     enableBinance(); vi.stubGlobal("fetch", vi.fn(async (input, init) => {
@@ -72,10 +72,25 @@ describe("Binance read-only internal deposit verification", () => {
   });
   it.each([
     { status: 0 }, { status: 6 }, { address: "wrong" }, { coin: "USDC" }, { network: "ETH" }, { transferType: 0 },
-    { txId: TX }, { travelRuleStatus: 1 }, { amount: "5.00000100001" }, { insertTime: 1 },
-  ])("does not credit an invalid or public-chain deposit: %j", async (extra) => {
+    { travelRuleStatus: 1 }, { amount: "5.00000100001" }, { insertTime: 1 },
+  ])("does not credit an invalid deposit: %j", async (extra) => {
     enableBinance(); vi.stubGlobal("fetch", vi.fn(async () => json([internal(extra)])));
-    expect((await scanBinanceInternalCommissionDeposits(Date.now() - 60000)).deposits).toEqual([]);
+    expect((await scanBinanceCommissionDeposits(Date.now() - 60000)).deposits).toEqual([]);
+  });
+  it.each([
+    ["TRX", TRON, "TRC20", TX],
+    ["BSC", BSC, "BEP20", `0x${TX}`],
+  ])("discovers credited public %s deposits under their original chain reference", async (network, address, expectedNetwork, signature) => {
+    enableBinance();
+    vi.stubGlobal("fetch", vi.fn(async () => json([internal({ network, address, transferType: 0, txId: TX.toUpperCase() })])));
+    const scan = await scanBinanceCommissionDeposits(Date.now() - 60000);
+    expect(scan.deposits).toEqual([expect.objectContaining({ network: expectedNetwork, signature, amountMicros: 5000001 })]);
+  });
+  it("never verifies a public chain deposit through a second internal ID alias", async () => {
+    enableBinance(); vi.stubGlobal("fetch", vi.fn(async () => json([internal({ txId: TX })])));
+    const result = await verifyBinanceInternalCommissionDeposit({ signature: "binance-deposit:1234567890", network: "TRC20", recipient: TRON, amount: 5.000001, earliestTimestamp: Date.now() - 60000 });
+    expect(result.verified).toBe(false);
+    expect((await scanBinanceCommissionDeposits(Date.now() - 60000)).deposits[0].signature).toBe(TX);
   });
   it("fails closed on a forged ID, rounded amount or unavailable provider", async () => {
     enableBinance(); vi.stubGlobal("fetch", vi.fn(async () => json([internal()])));
