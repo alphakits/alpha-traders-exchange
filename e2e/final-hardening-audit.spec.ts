@@ -232,7 +232,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard/seller",
-        readyLocator: page.getByText(/seller status/i).first(),
+        readyLocator: page.getByRole("main").getByRole("button", { name: /^Purchase Requests:/ }),
         viewport,
         disallowPathnames: ["/login"],
       });
@@ -340,7 +340,7 @@ test.describe("Final hardening audit", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
 
     await page.goto("/en/dashboard/seller");
-    await expect(page.getByText(/seller status/i).first()).toBeVisible();
+    await expect(page.getByRole("main").getByRole("button", { name: /^Purchase Requests:/ })).toBeVisible();
     await page.getByRole("button", { name: /^My Listings:/ }).first().click();
     await expect(page.locator("#my-listings-section")).toBeVisible();
 

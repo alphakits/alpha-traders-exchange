@@ -89,7 +89,7 @@ test.describe("Navigation hardening", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
     await page.goto("/en/dashboard/seller");
     const main = page.getByRole("main");
-    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toBeVisible();
     await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /Seller Dashboard/i })).toHaveCount(0);
@@ -103,7 +103,7 @@ test.describe("Navigation hardening", () => {
     await page.reload({ waitUntil: "commit" });
 
     await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
-    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
     await manageListings.focus();
