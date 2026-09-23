@@ -6,7 +6,7 @@ import {
   submitSellerCommissionWalletPayment,
 } from "@/lib/alpha-exchange-store";
 import {
-  scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceInternalCommissionDeposits,
+  scanTronCommissionDeposits, scanBep20CommissionDeposits, scanBinanceCommissionDeposits,
   type CommissionDeposit,
 } from "@/lib/commission-deposit-discovery";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -42,7 +42,7 @@ function emptySummary() {
   return {
     candidates: 0, scannedTransfers: 0, matched: 0, verified: 0, pending: 0, rejected: 0, errors: 0, legacyMatched: 0,
     skippedUsed: 0, unmatchedAmount: 0, baseAmountOnly: 0, ambiguous: 0, beforeIntent: 0,
-    providers: {} as Record<string, { configured: boolean; complete: boolean; pages: number; deposits: number; error?: string }>,
+    providers: {} as Record<string, { configured: boolean; complete: boolean; pages: number; deposits: number; error?: string; fallback?: string }>,
   };
 }
 
@@ -59,25 +59,30 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
   if (!candidates.length) return summary;
   const minTimestamp = Math.min(...candidates.map(lowerBound)) - PAYMENT_ASSIGNMENT_CLOCK_SKEW_MS;
   const providers = [
-    ["TRC20", scanTronCommissionDeposits], ["BEP20", scanBep20CommissionDeposits], ["BINANCE_INTERNAL", scanBinanceInternalCommissionDeposits],
+    ["TRC20", scanTronCommissionDeposits], ["BEP20", scanBep20CommissionDeposits], ["BINANCE_DEPOSITS", scanBinanceCommissionDeposits],
   ] as const;
   const scans = await Promise.allSettled(providers.map(([, scan]) => scan(minTimestamp)));
+  const binance = scans[2];
+  const binanceHistoryComplete = binance.status === "fulfilled" && binance.value.configured && binance.value.complete;
   const deposits: CommissionDeposit[] = [];
   for (let i = 0; i < scans.length; i++) {
     const scan = scans[i];
     const provider = providers[i][0];
+    const fallback = provider === "BEP20" && binanceHistoryComplete ? "BINANCE_DEPOSITS" : undefined;
     if (scan.status === "rejected") {
-      summary.errors++;
+      if (!fallback) summary.errors++;
       // Only log our fixed error labels, never provider bodies, URLs or credentials.
       const label = scan.reason instanceof Error && /^(?:tron|bep20|binance)_[a-z0-9_]+$/.test(scan.reason.message)
         ? scan.reason.message : "provider_unavailable";
-      summary.providers[provider] = { configured: true, complete: false, pages: 0, deposits: 0, error: label };
-      logEvent("error", { event: "commission_deposit_discovery", outcome: "failed", reason: label, metadata: { provider } });
+      summary.providers[provider] = { configured: true, complete: false, pages: 0, deposits: 0, error: label, fallback };
+      logEvent(fallback ? "warn" : "error", { event: "commission_deposit_discovery", outcome: fallback ? "success" : "failed", reason: label, metadata: { provider, fallback } });
       continue;
     }
     const value = scan.value;
-    summary.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages, deposits: value.deposits.length };
-    if (value.configured && !value.complete) summary.errors++;
+    summary.providers[provider] = { configured: value.configured, complete: value.complete, pages: value.pages, deposits: value.deposits.length,
+      fallback: !value.configured || !value.complete ? fallback : undefined,
+    };
+    if (value.configured && !value.complete && !fallback) summary.errors++;
     deposits.push(...value.deposits);
   }
   summary.scannedTransfers = deposits.length;
