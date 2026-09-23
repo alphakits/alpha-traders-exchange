@@ -1,6 +1,7 @@
 import createMiddleware from "next-intl/middleware";
 import { NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
+import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
@@ -62,6 +63,17 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
       return rejectUntrustedApiMutation();
     }
     return NextResponse.next();
+  }
+
+  if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
+    const choice = request.cookies.get(LOCALE_CHOICE_COOKIE)?.value;
+    const locale = choice === "ar" || choice === "en" ? choice : routing.defaultLocale;
+    const localizedUrl = request.nextUrl.clone();
+    localizedUrl.pathname = `/${locale}${pathname === "/" ? "" : pathname}`;
+    const response = NextResponse.redirect(localizedUrl);
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Vary", "Cookie");
+    return response;
   }
 
   const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|trade-room|trades|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);

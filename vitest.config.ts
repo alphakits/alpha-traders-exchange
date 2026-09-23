@@ -5,6 +5,8 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   test: {
+    // Bundle next-intl so real middleware tests resolve Next's extensionless imports.
+    server: { deps: { inline: ["next-intl"] } },
     environment: "jsdom",
     globals: true,
     setupFiles: [],

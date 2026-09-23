@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { routing } from "@/i18n/routing";
 
 export default function RootRedirectPage() {
-  redirect("/ar");
+  redirect(`/${routing.defaultLocale}`);
 }
