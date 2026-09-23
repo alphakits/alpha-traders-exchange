@@ -761,9 +761,10 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
     background-image:
       linear-gradient(110deg, transparent 38%, #ffffff8c 46%, #fff 50%, #ffffff8c 54%, transparent 62%),
       linear-gradient(180deg, var(--welcome-title-light) 0%, var(--welcome-title-metal) 38%, var(--welcome-title-light) 47%, var(--welcome-title-depth) 54%, var(--welcome-title-metal) 76%, var(--welcome-title-light) 100%);
-    background-size: 260% 100%, 100% 100%;
+    background-size: 260% 100%, 100% 1.16em;
     background-position: 65% 0, 0 0;
-    background-repeat: no-repeat;
+    background-repeat: no-repeat, repeat-y;
+    background-origin: content-box;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
