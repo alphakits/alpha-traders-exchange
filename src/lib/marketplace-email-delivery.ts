@@ -274,6 +274,18 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
   };
 }
 
+// Keep inline retries bounded while respecting the provider's cooldown. A
+// longer Retry-After must be reported as a failure, never retried early.
+const MAX_INLINE_RETRY_DELAY_MS = 2_000;
+
+function retryAfterMs(value: string | null) {
+  const normalized = value?.trim();
+  if (!normalized) return 0;
+  if (/^\d+(?:\.\d+)?$/.test(normalized)) return Math.ceil(Number(normalized) * 1_000);
+  const date = Date.parse(normalized);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
 export async function sendMarketplaceEmail(
   input: MarketplaceEmailPayload & {
     to: string;
@@ -308,6 +320,7 @@ export async function sendMarketplaceEmail(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let retryable = true;
+    let providerRetryDelayMs = 0;
     try {
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -332,9 +345,11 @@ export async function sendMarketplaceEmail(
 
       const responseBody = await response.text();
       let providerMessage = responseBody;
+      let quotaExceeded = false;
       try {
-        const parsed = JSON.parse(responseBody) as { message?: unknown };
+        const parsed = JSON.parse(responseBody) as { message?: unknown; name?: unknown };
         providerMessage = typeof parsed.message === "string" ? parsed.message : responseBody;
+        quotaExceeded = parsed.name === "daily_quota_exceeded" || parsed.name === "monthly_quota_exceeded";
       } catch {
         // Keep the raw response when Resend does not return JSON.
       }
@@ -344,7 +359,11 @@ export async function sendMarketplaceEmail(
         providerStatus: response.status,
         providerMessage: providerMessage.slice(0, 500),
       };
-      retryable = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+      retryable = !quotaExceeded && (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500);
+      providerRetryDelayMs = retryAfterMs(response.headers?.get("Retry-After") ?? null);
+      // Avoid exhausting every attempt within the same rate-limit window when
+      // a throttled response omits its Retry-After header.
+      if (response.status === 429) providerRetryDelayMs = Math.max(1_000, providerRetryDelayMs);
     } catch (error) {
       const timedOut = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
       latestFailure = {
@@ -361,8 +380,10 @@ export async function sendMarketplaceEmail(
     }
 
     if (!retryable || attempt === maxAttempts) return latestFailure;
-    if (retryDelayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** (attempt - 1)));
+    const waitMs = Math.max(providerRetryDelayMs, retryDelayMs * 2 ** (attempt - 1));
+    if (waitMs > MAX_INLINE_RETRY_DELAY_MS) return latestFailure;
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
 

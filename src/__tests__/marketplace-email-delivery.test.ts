@@ -217,4 +217,63 @@ describe("marketplace email delivery", () => {
       providerMessage: "Resend request timed out.",
     });
   });
+
+  it.each([
+    ["seconds", 429, "2", 2_000],
+    ["HTTP date", 503, "Wed, 23 Sep 2026 00:00:02 GMT", 2_000],
+    ["missing cooldown", 429, null, 1_000],
+    ["invalid cooldown", 429, "unknown", 1_000],
+  ])("waits for the provider cooldown (%s) before retrying", async (_name, status, header, waitMs) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-23T00:00:00Z"));
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "Please retry later" }), {
+        status,
+        headers: header ? { "Retry-After": header } : {},
+      }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const delivery = sendMarketplaceEmail({
+      ...payload, to: "mark@example.com", recipientLocale: "en", maxAttempts: 2,
+      idempotencyKey: "cooldown-test", retryDelayMs: 10,
+    });
+    await vi.advanceTimersByTimeAsync(waitMs - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(delivery).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1].headers["Idempotency-Key"]).toBe("cooldown-test");
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reports a long provider cooldown without retrying early or holding the function open", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "Try later" }), {
+      status: 429, headers: { "Retry-After": "60" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" }))
+      .resolves.toMatchObject({ ok: false, reason: "resend_request_failed", providerStatus: 429 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["daily_quota_exceeded", "monthly_quota_exceeded"])("does not retry an exhausted %s quota", async (name) => {
+    vi.useFakeTimers();
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ name, message: "Quota exceeded" }), { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" }))
+      .resolves.toMatchObject({ ok: false, providerStatus: 429, providerMessage: "Quota exceeded" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
