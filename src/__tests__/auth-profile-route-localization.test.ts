@@ -16,7 +16,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 }));
 
 import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
-import { PATCH } from "@/app/api/auth/profile/route";
+import { GET, PATCH } from "@/app/api/auth/profile/route";
 
 function request(locale: "ar" | "en", body: unknown) {
   return new NextRequest("http://localhost/api/auth/profile", {
@@ -26,7 +26,7 @@ function request(locale: "ar" | "en", body: unknown) {
   });
 }
 
-describe("auth profile route localization", () => {
+describe("auth profile route privacy and localization", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.requireApiUser.mockResolvedValue({
@@ -36,6 +36,23 @@ describe("auth profile route localization", () => {
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.updateAccountProfileData.mockResolvedValue({});
     mocks.getAccountProfileData.mockResolvedValue({ profile: {}, stats: {} });
+  });
+
+  it("returns the real name only through the authenticated user's private, uncached profile", async () => {
+    mocks.getAccountProfileData.mockResolvedValue({ profile: { id: "user-1", fullName: "Maya Chen" }, stats: {} });
+    const response = await GET();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(mocks.getAccountProfileData).toHaveBeenCalledWith("user-1");
+    expect((await response.json()).profile.fullName).toBe("Maya Chen");
+  });
+
+  it("does not read or return a private name without authentication", async () => {
+    mocks.requireApiUser.mockResolvedValue({ user: null, unauthorized: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) });
+    const response = await GET();
+    expect(response.status).toBe(401);
+    expect(mocks.getAccountProfileData).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
   });
 
   it("never exposes provider errors in Arabic or English", async () => {

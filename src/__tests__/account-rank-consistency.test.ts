@@ -3,6 +3,8 @@ import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRe
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
 import { derivePublicProfileUsername, getAccountProfileData, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { publicAccountId } from "@/lib/public-account-identity";
+import { toMobileAccountProfile } from "@/lib/mobile-account-profile";
+import { toMobileTradeDetail } from "@/lib/mobile-trades";
 
 const now = new Date().toISOString();
 function user(id: string, seller = false): AlphaExchangeUser {
@@ -23,12 +25,14 @@ describe("account rank consistency and privacy", () => {
     const db = seed();
     const seller = db.users[0];
     const buyer = db.users[2];
-    Object.assign(seller, { fullName: "Maya Chen", buyerDisplayName: "Maya OTC", email: "maya.chen@example.test", whatsappNumber: "+972501234567", profilePhotoUrl: "https://example.test/maya-portrait.jpg", bio: "Maya Chen welcomes you" });
+    Object.assign(seller, { fullName: "Maya Chen", buyerDisplayName: "Maya OTC", email: "maya.chen@example.test", whatsappNumber: "+972501234567", profilePhotoUrl: "https://example.test/maya-portrait.jpg", bio: "Maya Chen welcomes you. Ask Maya or Chen." });
     Object.assign(buyer, { fullName: "Amir Hassan", buyerDisplayName: "Amir Trading", email: "amir@example.test", whatsappNumber: "+972509876543" });
     const listing = db.marketplaceListings[0];
     Object.assign(listing, { sellerDisplayName: seller.fullName, sellerDescription: "Maya Chen, +972501234567", notes: "Maya OTC" });
     const request = db.purchaseRequests[0];
     Object.assign(request, { listingId: listing.id, buyerName: buyer.fullName, buyerWhatsapp: buyer.whatsappNumber, buyerNotes: buyer.email, messages: [{ id: "legacy-message", purchaseRequestId: request.id, senderUserId: buyer.id, senderRole: "buyer", message: "Amir Hassan to Maya Chen: amir@example.test +972509876543", createdAt: now }], timeline: [{ id: "legacy-event", type: "request_created", actorUserId: buyer.id, actorRole: "buyer", message: "Amir Hassan requested from Maya Chen", createdAt: now }], buyerReview: { reviewerUserId: buyer.id, rating: 5, comment: "Maya Chen was helpful", createdAt: now } });
+    request.buyerReview!.comment = "Maya Chen was helpful. Thanks Maya!";
+    request.sellerResponse = { responderUserId: seller.id, message: "Thanks Amir and Hassan.", createdAt: now };
     db.notifications.push({ id: "legacy-notice", userId: seller.id, category: "trade", title: "Amir Hassan sent a request", message: "Amir Trading +972509876543 amir@example.test", titleAr: "Amir Hassan", actionHref: "/exchange/seller/maya-otc", relatedRequestId: request.id, isRead: false, createdAt: now });
     globalThis.__alphaExchangeMemorySnapshot = db as never;
     invalidateAlphaExchangeStoreCache();
@@ -36,16 +40,28 @@ describe("account rank consistency and privacy", () => {
     expect(listings[0].sellerDisplayName).toBe(publicAccountId(seller));
     const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: seller.id, actorRole: "approved_seller", markMessagesRead: false });
     expect(room.counterpart).toEqual({ buyerName: publicAccountId(buyer), sellerName: publicAccountId(seller) });
+    const buyerRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: buyer.id, actorRole: "buyer", markMessagesRead: false });
+    const mobileSellerRoom = toMobileTradeDetail(room, seller.id, "en");
+    const mobileBuyerRoom = toMobileTradeDetail(buyerRoom, buyer.id, "ar");
+    expect(mobileSellerRoom.counterpartyDisplayName).toBe(publicAccountId(buyer));
+    expect(mobileBuyerRoom.counterpartyDisplayName).toBe(publicAccountId(seller));
     const trades = await getMyPurchaseRequests(seller.id, "approved_seller", db);
     const profile = await getPremiumSellerProfile({ sellerId: seller.id, viewerUserId: buyer.id, viewerRole: "buyer" });
     expect(profile?.latestReviews[0].buyerName).toBe(publicAccountId(buyer));
     const notices = await getNotificationsForUser({ userId: seller.id, includeActivity: false });
     expect(notices.notifications[0].tradeSnapshot?.counterpartyName).toBe(publicAccountId(buyer));
-    for (const projection of [listings, room, trades, profile, notices]) {
+    for (const projection of [listings, room, buyerRoom, mobileSellerRoom, mobileBuyerRoom, trades, profile, notices]) {
       expect(JSON.stringify(projection)).not.toMatch(/Maya|Chen|Amir|Hassan|maya-portrait|1234567|9876543|example\.test/i);
     }
     expect(await getPublicUserProfileRouteData({ username: "maya-otc", viewerUserId: buyer.id })).toBeNull();
-    expect((await getAccountProfileData(seller.id)).profile.fullName).toBe("Maya Chen");
+    for (const account of [seller, buyer]) {
+      const privateProfile = (await getAccountProfileData(account.id)).profile;
+      expect(privateProfile.fullName).toBe(account.fullName);
+      expect(toMobileAccountProfile(privateProfile).fullName).toBe(account.fullName);
+      const publicProfile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername({ id: account.id }), viewerUserId: account.id });
+      expect(publicProfile?.profile.fullName).toBe(publicAccountId(account));
+      expect(JSON.stringify(publicProfile)).not.toMatch(/Maya|Chen|Amir|Hassan|1234567|9876543|example\.test/i);
+    }
   });
   it("counts completed sales without the original listing and keeps private, public and listing ranks consistent", async () => {
     const own = await getAccountProfileData("seller-one");

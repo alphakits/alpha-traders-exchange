@@ -3634,7 +3634,8 @@ export function UsdtExchangePage({
   }, [isAr]);
   const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
   const workspaceDisplayId = sessionUser ? publicAccountId(sessionUser) : "#AT-000000";
-  const workspacePrimaryName = sessionUser ? publicAccountId(sessionUser) : (isAr ? "المتداول" : "Trader");
+  // This greeting belongs to the authenticated account. Public trade identity stays AT ID.
+  const workspacePrimaryName = sessionUser?.fullName?.trim() || (isAr ? "المتداول" : "Trader");
   const workspacePositiveMessage = welcomeRole === "owner"
     ? (isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready.")
     : isSellerWorkspaceUser

@@ -28,17 +28,17 @@ export default async function WelcomePreview({ params, searchParams }: { params:
   const buyer = deriveBuyerRankSummary({ lifetimeCompletedVolumeUsdt: 11_126, completedTrades: 0, reviewsGiven: 0, activeTrades: 0 });
   return (
     <main className="section-container py-8">
-      <p className="mb-6 text-xs uppercase tracking-widest text-[#9CA3AF]">{isAr ? "معاينة التصميم · أرقام توضيحية" : "Design preview · sample figures"}</p>
+      <p className="mb-6 text-xs uppercase tracking-widest text-[#9CA3AF]">{isAr ? "معاينة الترحيب الخاص · أسماء وأرقام توضيحية · هوية التداول العامة هي معرّف AT" : "Private welcome preview · sample names and figures · public trading identity uses AT ID"}</p>
       <div className="grid items-start gap-5 lg:grid-cols-3">
-        <AccountWelcome role="owner" locale={locale} name="#S-080001" description={isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready."}>
+        <AccountWelcome role="owner" locale={locale} name="Alex Morgan" description={isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready."}>
           <div className="account-welcome__actions"><Link href="/admin/alpha-exchange" className={buttonVariants()}>{isAr ? "لوحة المالك" : "Owner Dashboard"}</Link><Link href="/trades" className={buttonVariants({ variant: "secondary" })}>{isAr ? "الصفقات النشطة" : "Active Trades"}</Link></div>
           <div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4"><p className="text-xs text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s market"}</p><p className="mt-2 text-lg font-semibold">{currencyText("USDT / ILS ₪3.01")}</p></div>
         </AccountWelcome>
-        <AccountWelcome role="approved_seller" locale={locale} name="#S-050794" description={isAr ? "عروضك وصفقاتك وتنبيهاتك جاهزة." : "Your listings, trades, and alerts are ready."}>
+        <AccountWelcome role="approved_seller" locale={locale} name="Maya Chen" description={isAr ? "عروضك وصفقاتك وتنبيهاتك جاهزة." : "Your listings, trades, and alerts are ready."}>
           <div className="account-welcome__actions"><Link href="/usdt-exchange#create-listing" className={buttonVariants()}>{isAr ? "إنشاء عرض" : "Create Listing"}</Link><Link href="/trades" className={buttonVariants({ variant: "secondary" })}>{isAr ? "الصفقات النشطة" : "Active Trades"}</Link></div>
           <SellerRankCard locale={locale} summary={{ sellerLevel: "silver", nextLevel: "gold", lifetimeCompletedVolumeUsdt: 38_000, amountToNextLevelUsdt: 12_000, progressToNextLevelPercent: 65.71 }} />
         </AccountWelcome>
-        <AccountWelcome role="buyer" locale={locale} name="#B-084321" description={isAr ? "مساحة عملك جاهزة. اكتشف فرصتك التالية في السوق." : "Your workspace is ready. Find your next trade."}>
+        <AccountWelcome role="buyer" locale={locale} name="Amir Hassan" description={isAr ? "مساحة عملك جاهزة. اكتشف فرصتك التالية في السوق." : "Your workspace is ready. Find your next trade."}>
           <div className="account-welcome__actions"><Link href="/usdt-exchange#marketplace" className={buttonVariants()}>{isAr ? "تصفح السوق" : "Browse Marketplace"}</Link><Link href="/trades" className={buttonVariants({ variant: "secondary" })}>{isAr ? "صفقاتي" : "My Trades"}</Link></div>
           <BuyerRankCard summary={buyer} locale={locale} />
         </AccountWelcome>

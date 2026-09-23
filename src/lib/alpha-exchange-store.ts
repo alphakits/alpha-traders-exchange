@@ -1640,10 +1640,10 @@ function buildPublicUserProfileDataForUser(input: {
 
   const showStats = user.showTradeStats !== false || canBypassVisibility;
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
-  const canViewSensitiveProfileDetails = canBypassVisibility;
   const sellerApprovalVerified = isOwnerApprovedSeller(user);
   const publicTradingName = publicAccountId(user);
   const visibleText = identityTextRedactor(db.users);
+  const authoredText = identityTextRedactor(db.users, true);
 
   return {
     profile: {
@@ -1662,9 +1662,9 @@ function buildPublicUserProfileDataForUser(input: {
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
       country: visibleText(user.country),
-      city: canViewSensitiveProfileDetails ? user.city ?? "" : "",
+      city: "",
       languages: (user.languages ?? []).map((language) => visibleText(language)),
-      bio: visibleText(user.bio),
+      bio: authoredText(user.bio),
       profilePhotoUrl: "",
       coverBannerUrl: "",
       isFeaturedSeller: user.isFeaturedSeller === true,
@@ -1673,8 +1673,10 @@ function buildPublicUserProfileDataForUser(input: {
       allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
       isEmailVerified: user.emailVerified === true,
       contact: {
-        email: canViewSensitiveProfileDetails ? user.email : "",
-        phone: canViewSensitiveProfileDetails ? user.whatsappNumber : "",
+        // Public profiles always preview the public identity, including self-views.
+        // Personal contact information belongs to the authenticated account APIs.
+        email: "",
+        phone: "",
       },
     },
     reputation: trustSnapshot
@@ -2169,7 +2171,7 @@ export async function getPremiumSellerProfile(input: {
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const viewerCanViewPrivateContent = input.viewerRole === "admin" || input.viewerRole === "owner";
-  const reviewText = identityTextRedactor(db.users);
+  const reviewText = identityTextRedactor(db.users, true);
   const canSeeExactSellerStats = viewerIsSellerOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -5490,19 +5492,21 @@ function appendSystemTradeMessage(
 
 function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest): PurchaseRequest {
   const buyer = db.users.find(user => user.id === request.buyerId);
-  const visibleText = identityTextRedactor([...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }]);
+  const identities = [...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }];
+  const visibleText = identityTextRedactor(identities);
+  const authoredText = identityTextRedactor(identities, true);
   return {
     ...request,
     buyerName: publicAccountId(buyer ?? { id: request.buyerId }),
     buyerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "buyer"),
     sellerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "seller"),
     timeline: (request.timeline ?? []).map(entry => ({ ...entry, message: visibleText(entry.message) })),
-    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind ? message.message : identityTextRedactor(db.users, true)(message.message) })),
+    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind ? message.message : authoredText(message.message) })),
     closeReason: visibleText(request.closeReason),
-    closeExplanation: visibleText(request.closeExplanation),
-    buyerReview: request.buyerReview ? { ...request.buyerReview, comment: visibleText(request.buyerReview.comment), hiddenReason: visibleText(request.buyerReview.hiddenReason) } : undefined,
-    sellerBuyerReview: request.sellerBuyerReview ? { ...request.sellerBuyerReview, comment: visibleText(request.sellerBuyerReview.comment), hiddenReason: visibleText(request.sellerBuyerReview.hiddenReason) } : undefined,
-    sellerResponse: request.sellerResponse ? { ...request.sellerResponse, message: visibleText(request.sellerResponse.message) } : undefined,
+    closeExplanation: authoredText(request.closeExplanation),
+    buyerReview: request.buyerReview ? { ...request.buyerReview, comment: authoredText(request.buyerReview.comment), hiddenReason: authoredText(request.buyerReview.hiddenReason) } : undefined,
+    sellerBuyerReview: request.sellerBuyerReview ? { ...request.sellerBuyerReview, comment: authoredText(request.sellerBuyerReview.comment), hiddenReason: authoredText(request.sellerBuyerReview.hiddenReason) } : undefined,
+    sellerResponse: request.sellerResponse ? { ...request.sellerResponse, message: authoredText(request.sellerResponse.message) } : undefined,
   };
 }
 

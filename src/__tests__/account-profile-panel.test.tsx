@@ -232,6 +232,8 @@ describe("AccountProfilePanel", () => {
     render(<AccountProfilePanel locale="en" />);
 
     await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
+    expect(screen.getByText("Test User")).toBeTruthy();
+    expect(screen.getByText(/Your name is visible only to you\. Public AT ID/)).toBeTruthy();
     expect(screen.queryByText("Administration")).toBeNull();
     expect(screen.queryByRole("link", { name: /admin dashboard/i })).toBeNull();
     expect(screen.getByRole("link", { name: /open buyer dashboard/i })).toBeTruthy();
@@ -249,6 +251,8 @@ describe("AccountProfilePanel", () => {
     render(<AccountProfilePanel locale="ar" />);
 
     await waitFor(() => expect(screen.getByText("هوية التداول العامة")).toBeTruthy());
+    expect(screen.getByText("Test User")).toBeTruthy();
+    expect(screen.getByText(/اسمك ظاهر لك فقط/)).toBeTruthy();
     expect(screen.queryByText("إدارة مسار حسابك:")).toBeNull();
     expect(screen.queryByRole("link", { name: "اختيار دور المشتري" })).toBeNull();
     expect(screen.queryByRole("button", { name: "المتابعة كضيف" })).toBeNull();
@@ -468,6 +472,7 @@ describe("AccountProfilePanel", () => {
     render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
 
     await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
+    expect(screen.getByRole("heading", { name: "Welcome back, Buyer User" })).toBeTruthy();
     expect(screen.getByRole("progressbar", { name: "Buyer rank progress" })).toBeTruthy();
     expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
   });
