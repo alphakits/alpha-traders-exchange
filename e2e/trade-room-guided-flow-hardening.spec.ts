@@ -860,7 +860,7 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 
     await login(sellerPage.request, sellerEmail, sellerPassword);
     await sellerPage.goto(`/en/trade-room/${requestId}`);
-    sellerPage.once("dialog", (dialog) => dialog.accept());
+    sellerPage.on("dialog", (dialog) => void dialog.accept());
     await sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click();
     await expect(sellerPage.getByText(/Waiting for Buyer Confirmation/i).first()).toBeVisible({ timeout: 20_000 });
 
@@ -1076,7 +1076,12 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         await buyerPage.locator("#cardless-withdrawal-code").fill("123456");
         await buyerPage.locator("#cardless-verification-kind").selectOption("date_of_birth");
         await buyerPage.locator("#cardless-verification-value").fill("1990-01-01");
-        await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
+        const [submission] = await Promise.all([
+          buyerPage.waitForResponse((response) => response.request().method() === "PATCH"
+            && new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`),
+          buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click(),
+        ]);
+        expect(submission.ok(), submission.ok() ? undefined : await submission.text()).toBeTruthy();
       } else {
         await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       }
