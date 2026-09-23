@@ -72,6 +72,7 @@ async function reconcileUnsubmittedCommissionPayments(deadline: number) {
       const label = scan.reason instanceof Error && /^(?:tron|bep20|binance)_[a-z0-9_]+$/.test(scan.reason.message)
         ? scan.reason.message : "provider_unavailable";
       summary.providers[provider] = { configured: true, complete: false, pages: 0, deposits: 0, error: label };
+      logEvent("error", { event: "commission_deposit_discovery", outcome: "failed", reason: label, metadata: { provider } });
       continue;
     }
     const value = scan.value;
@@ -152,7 +153,10 @@ export async function GET(request: NextRequest) {
     const ok = autoReconciliation.errors === 0 && result.errors === 0;
     logEvent(ok ? "info" : "error", {
       event: "commission_payment_verification_cron", outcome: ok ? "success" : "failed",
-      reason: ok ? undefined : "commission_verification_degraded", metadata: { ...result, autoReconciliation },
+      reason: ok ? undefined : "commission_verification_degraded", metadata: { ...result, autoReconciliation,
+        // Nested objects are truncated by the runtime console renderer.
+        providerHealth: JSON.stringify(autoReconciliation.providers),
+      },
     });
     return NextResponse.json({ ok, autoReconciliation, ...result }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
   } catch {

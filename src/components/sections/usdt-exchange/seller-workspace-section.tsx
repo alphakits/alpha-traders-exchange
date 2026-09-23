@@ -785,7 +785,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white text-sm">{isAr ? "منصة تداول أو وسيط" : "Crypto Exchange or Broker"}</p>
                           <p className="text-xs text-[#6B7280] mt-0.5">Binance · Bybit · OKX · Coinbase · Kraken · Bitget · MEXC</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "بعد الإرسال، الصق رمز معاملة السحب للتحقق من دفعتك." : "After sending, paste the withdrawal transaction hash to verify your payment."}</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "تُفحص دفعتك تلقائيًا بعد السحب. استخدم معرّف المعاملة فقط إذا تأخر اكتشافها." : "Your withdrawal is checked automatically. Use the TxID only if detection is delayed."}</p>
                         </div>
                         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
                       </button>
@@ -848,8 +848,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             isAr ? "الصق عنوان عمولة Alpha Traders كمستلم." : "Paste the Alpha Traders commission address as the recipient.",
                             isAr ? `أدخل المبلغ الدقيق: ${formatExactCommissionUsdt(commissionPayableAmountDue)} وتأكد أن مبلغ الاستلام بعد الرسوم مطابق.` : `Enter exactly ${formatExactCommissionUsdt(commissionPayableAmountDue)} and make sure the amount received after fees matches.`,
                             isAr ? "أكد السحب وانتظر تأكيد شبكة البلوك تشين." : "Confirm the withdrawal and wait for blockchain confirmation.",
-                            isAr ? "انسخ رمز معاملة السحب من سجل المنصة." : "Copy the withdrawal transaction hash from your exchange history.",
-                            isAr ? "الصقه أدناه واضغط على التحقق." : "Paste it below and click Verify.",
+                            isAr ? "تُفحص الدفعات كل دقيقة، وتُحدّث حالة العمولة تلقائيًا بعد التحقق." : "Payments are checked every minute. Your commission updates automatically after verification.",
+                            isAr ? "إذا تأخر اكتشاف الدفعة، انسخ معرّف المعاملة من سجل السحب والصقه أدناه للتحقق. لا تدفع مرة أخرى." : "If detection is delayed, copy the TxID from withdrawal history and verify it below. Do not pay again.",
                           ].map((step, i) => (
                             <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
                               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-blue-500/40 bg-blue-950/60 text-blue-400 text-[10px] font-bold">
@@ -875,7 +875,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           onClick={() => setCommissionAdvancedOpen((v) => !v)}
                           className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs text-[#9CA3AF] hover:text-white transition-colors"
                         >
-                          <span className="font-medium">{isAr ? "مطلوب — الصق معرّف المعاملة" : "Required — paste transaction ID"}</span>
+                          <span className="font-medium">{isAr ? "إذا تأخر الاكتشاف — تحقق باستخدام معرّف المعاملة" : "Detection delayed? Verify with transaction ID"}</span>
                           {commissionAdvancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </button>
                         {commissionAdvancedOpen ? (
@@ -899,7 +899,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       </div>
                     ) : (
                       <div className="space-y-1">
-                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "رمز المعاملة" : "Transaction Hash"}</p>
+                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "إذا تأخر الاكتشاف — معرّف المعاملة" : "If detection is delayed — Transaction ID"}</p>
                         <Input
                          dir="ltr"
                          placeholder={isAr ? "معرّف TRC20 أو BEP20 يبدأ بـ 0x" : "TRC20 TxID or BEP20 0x hash"}

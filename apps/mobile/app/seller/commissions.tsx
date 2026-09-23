@@ -284,7 +284,7 @@ export default function SellerCommissionsScreen() {
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "2. اختر الشبكة المحددة أعلاه والصق عنوان Binance الرسمي أدناه." : "2. Select the network chosen above and paste the official Binance address below."}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? `3. يجب أن يصل إلى العنوان ${formattedSelectedPaymentAmount} بالضبط بعد الرسوم. أدخل الخانات الست كلها ولا تقرّب المبلغ.` : `3. Exactly ${formattedSelectedPaymentAmount} must reach the address after fees. Enter all six decimals; do not round.`}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "4. إذا كان المبلغ أقل من الحد الأدنى للسحب في Binance أو منصتك، استخدم محفظة أو منصة أخرى تدعم الشبكة المختارة. لا ترفع أو تقرّب المبلغ." : "4. If the amount is below Binance's or your exchange's withdrawal minimum, use another wallet or exchange that supports the selected network. Do not increase or round the amount."}</Text>
-            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "5. بعد اكتمال السحب، انسخ TxID من سجل السحب والصقه هنا مرة واحدة." : "5. After the withdrawal completes, copy the TxID from withdrawal history and paste it here once."}</Text>
+            <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "5. انتظر التحقق التلقائي بعد تأكيد الشبكة. إذا تأخر اكتشاف الدفعة، انسخ TxID من سجل السحب والصقه هنا. لا تدفع مرة أخرى." : "5. Wait for automatic verification after network confirmation. If detection is delayed, copy the TxID from withdrawal history and paste it here. Do not pay again."}</Text>
           </View>
 
           <View style={styles.amountCard}>

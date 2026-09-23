@@ -44,7 +44,16 @@ describe("BEP20 deposit discovery", () => {
   });
   it("distinguishes an unavailable API plan from an empty payment history", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ status: "0", result: "Paid plan required" })));
-    await expect(scanBep20CommissionDeposits(1)).rejects.toThrow("bep20_index_unavailable");
+    await expect(scanBep20CommissionDeposits(1)).rejects.toThrow("bep20_index_plan_unsupported");
+  });
+  it.each([
+    ["Free API access is not supported for this chain. Please upgrade your api plan", "bep20_index_plan_unsupported"],
+    ["Invalid API Key", "bep20_index_key_invalid"],
+    ["Max rate limit reached", "bep20_index_rate_limited"],
+    ["Unexpected provider body with sensitive detail", "bep20_index_unavailable"],
+  ])("classifies provider failures without reflecting response bodies: %s", async (message, label) => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ status: "0", result: message })));
+    await expect(scanBep20CommissionDeposits(1)).rejects.toThrow(new RegExp(`^${label}$`));
   });
 });
 describe("Binance read-only internal deposit verification", () => {
