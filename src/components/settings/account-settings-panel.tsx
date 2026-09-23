@@ -444,8 +444,8 @@ export function AccountSettingsPanel({
             showLastActive: prefs.show_last_active,
             allowDirectMessages: prefs.allow_messages,
             allowProfileSearch: prefs.search_visibility,
-            showPhonePublic: prefs.show_phone,
-            showEmailPublic: prefs.show_email,
+            showPhonePublic: false,
+            showEmailPublic: false,
           }),
         });
         if (!response.ok) {
@@ -1120,11 +1120,11 @@ export function AccountSettingsPanel({
             <CardContent className="space-y-4">
               <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-[#9CA3AF]">
                 {isAr
-                  ? "يتم تطبيق تفضيلات الخصوصية هذه عبر المنصة. قد تتطلب بعض الإعدادات إعادة تحميل الصفحة."
-                  : "These privacy preferences are applied across the platform. Some settings may require a page reload to take effect."}
+                  ? "تظهر هويتك بمعرّف AT فقط. اسمك الشخصي ورقم هاتفك وبريدك الإلكتروني خاصة."
+                  : "Your public identity uses your AT ID. Your personal name, phone and email stay private."}
               </div>
               <div className="space-y-3">
-                {PRIVACY_KEYS.map((key) => (
+                {PRIVACY_KEYS.filter(key => key !== "show_phone" && key !== "show_email").map((key) => (
                   <div key={key} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <div>
                       <p className="text-sm font-medium text-[#D1D5DB]">

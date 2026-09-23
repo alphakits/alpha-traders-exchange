@@ -1,3 +1,5 @@
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
@@ -108,18 +110,18 @@ describe("owner seller notification identity", () => {
     const result = await getNotificationsForUser({ userId: OWNER_ID });
     const notification = result.notifications[0];
 
-    expect(notification.title).toBe("Flagged seller: Rod Molla");
-    expect(notification.message).toBe("Rod Molla triggered trust/risk signals. Trust score: 38.5/100.");
-    expect(notification.relatedSellerName).toBe("Rod Molla");
-    expect(notification.relatedSellerUsername).toBe("rod-molla");
+    expect(notification.title).toBe(`Flagged seller: ${publicAccountId({ id: SELLER_ID, role: "approved_seller" })}`);
+    expect(notification.message).toBe(`${publicAccountId({ id: SELLER_ID, role: "approved_seller" })} triggered trust/risk signals. Trust score: 38.5/100.`);
+    expect(notification.relatedSellerName).toBe(publicAccountId({ id: SELLER_ID, role: "approved_seller" }));
+    expect(notification.relatedSellerUsername).toBe(publicAccountUsername(SELLER_ID));
     expect(notification.actionLabel).toBe("Review Seller");
-    expect(notification.actionHref).toBe("/exchange/seller/rod-molla");
+    expect(notification.actionHref).toBe(`/exchange/seller/${publicAccountUsername(SELLER_ID)}`);
     expect(`${notification.title} ${notification.message} ${notification.actionHref}`).not.toContain(SELLER_ID);
   });
 
-  it("lets the owner find the notification by seller name or username", async () => {
-    await expect(getNotificationsForUser({ userId: OWNER_ID, query: "Rod Molla" })).resolves.toMatchObject({ total: 1 });
-    await expect(getNotificationsForUser({ userId: OWNER_ID, query: "rod-molla" })).resolves.toMatchObject({ total: 1 });
+  it("lets the owner find the notification by AT ID or anonymous profile key", async () => {
+    await expect(getNotificationsForUser({ userId: OWNER_ID, query: publicAccountId({ id: SELLER_ID, role: "approved_seller" }) })).resolves.toMatchObject({ total: 1 });
+    await expect(getNotificationsForUser({ userId: OWNER_ID, query: publicAccountUsername(SELLER_ID) })).resolves.toMatchObject({ total: 1 });
   });
 
   it.each([OWNER_ID, SELLER_ID])("keeps the listing badge consistent with the submitted listing before any trade for %s", async (userId) => {

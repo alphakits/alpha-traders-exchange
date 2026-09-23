@@ -1,3 +1,4 @@
+import { publicAccountId } from "@/lib/public-account-identity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
@@ -486,7 +487,7 @@ describe("marketplace listing publication broadcasts", () => {
     expect(transitionAlerts).toEqual([
       expect.objectContaining({
         category: "trust",
-        title: `Flagged seller: ${LISTING_CREATOR_ID}`,
+        title: `Flagged seller: ${publicAccountId({ id: LISTING_CREATOR_ID, role: "approved_seller" })}`,
         state: "unread",
       }),
     ]);

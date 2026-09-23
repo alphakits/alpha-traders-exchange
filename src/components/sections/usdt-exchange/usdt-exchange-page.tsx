@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
-import { RankBadge } from "@/components/ui/rank-badge";
+import { SellerRankCard } from "@/components/ui/seller-rank-card";
+import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
+import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { rankSurfaceTone } from "@/lib/rank-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
@@ -32,7 +34,7 @@ import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, seria
 import { getDefaultListingPaymentMethods, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
-import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
@@ -46,13 +48,12 @@ import {
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
-import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { publicAccountId } from "@/lib/public-account-identity";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { containsArabicText, localizeActivityCopy, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
 import { cn } from "@/lib/utils";
-import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
@@ -712,12 +713,6 @@ export function greetingByTime(isAr: boolean, value: string | number | Date = Da
   return isAr ? "مساء النور" : "Good evening";
 }
 
-function toWorkspaceDisplayId(user: SessionUser | null, isApprovedSeller: boolean) {
-  if (!user) return "#AT-000000";
-  if (isApprovedSeller) return formatSellerId(undefined, user.id);
-  if (user.role === "admin" || user.role === "owner") return formatSellerId(undefined, user.id);
-  return formatBuyerId(undefined, user.id);
-}
 
 function formatMarketCardPrice(pairKey: "usdtIls" | "btcUsdt" | "ethUsdt", value: number) {
   if (pairKey === "usdtIls") {
@@ -977,10 +972,6 @@ function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
   return 6;
 }
 
-function formatWholeNumber(value: number) {
-  return Math.round(Math.max(0, value)).toLocaleString("en-IL");
-}
-
 export function sellerBadgeLabel(badge: SellerBadge, isAr = false) {
   if (isAr) {
     if (badge === "elite_seller") return "بائع من النخبة";
@@ -1191,11 +1182,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 />
               ) : (
                 <div className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border border-transparent text-sm font-semibold", isOwnerListing ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#D1D5DB]")}>
-                  {currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2))}
+                  {isOwnerListing ? <Crown className="h-6 w-6" aria-hidden="true" /> : <RankEmblem rank={sellerLevel} className="!h-11 !w-11 [&>svg]:!h-6 [&>svg]:!w-6" />}
                 </div>
               )}
             </div>
@@ -1220,7 +1207,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                <RankBadge rank={isOwnerListing ? "legendary" : sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
+                <RankBadge rank={sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
                 {isOwnerListing ? (
                   <>
                     <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ {isAr ? "البريد موثّق" : "Email Verified"}</span>
@@ -1345,7 +1332,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Link
-            href={`/exchange/seller/${normalizePublicProfileUsername(listing.sellerProfile?.publicTradingName || listing.sellerDisplayName)}`}
+            href={listing.sellerProfile?.username ? `/exchange/seller/${listing.sellerProfile.username}` : `/usdt-exchange?seller=${encodeURIComponent(listing.sellerId)}`}
             className={cn(
               "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
               isOwnerListing
@@ -1829,6 +1816,12 @@ export function UsdtExchangePage({
     }
     throw lastError instanceof Error ? lastError : new Error("Read request failed.");
   }, [tracedFetch]);
+
+  const { summary: sellerRankSummary, error: sellerRankError } = useSellerRankSummary({
+    sellerId: sellerStatusForLanding === "approved_seller" && !isSessionResolving ? sessionUser?.id : undefined,
+    requests: myRequests,
+    fetchProfile: tracedReadFetch,
+  });
 
   const refreshBuyerProfileSummary = useCallback(async () => {
     if (!sessionUser || hasSellerWorkspaceAccess) {
@@ -3482,24 +3475,6 @@ export function UsdtExchangePage({
       reputation: selfReputation,
     };
   }, [isAr, myListings, pendingSellerRequests.length, sellerRequests]);
-  const sellerCurrentRank = sellerOverviewStats.reputation?.level ?? "bronze";
-  const sellerCurrentTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.rank === sellerCurrentRank) ?? SELLER_PRESTIGE_TIERS[0];
-  const sellerNextTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.minVolumeUsdt > sellerCurrentTier.minVolumeUsdt);
-  const sellerCompletedVolumeUsdt = Math.max(
-    0,
-    sellerOverviewStats.totalUsdtSold,
-  );
-  const sellerRequiredVolumeUsdt = sellerNextTier?.minVolumeUsdt ?? sellerCompletedVolumeUsdt;
-  const sellerRemainingVolumeUsdt = sellerNextTier ? Math.max(0, sellerRequiredVolumeUsdt - sellerCompletedVolumeUsdt) : 0;
-  const sellerLevelProgressPercent = sellerNextTier
-    ? Math.min(
-      100,
-      Math.max(
-        0,
-        ((sellerCompletedVolumeUsdt - sellerCurrentTier.minVolumeUsdt) / Math.max(1, sellerNextTier.minVolumeUsdt - sellerCurrentTier.minVolumeUsdt)) * 100,
-      ),
-    )
-    : 100;
 
   const recentCompletedTrades = useMemo(
     () =>
@@ -3658,8 +3633,8 @@ export function UsdtExchangePage({
     return () => window.clearInterval(interval);
   }, [isAr]);
   const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
-  const workspaceDisplayId = toWorkspaceDisplayId(sessionUser, isSellerWorkspaceUser);
-  const workspacePrimaryName = safeText(sessionUser?.fullName, isAr ? "المتداول" : "Trader").split(" ")[0] || (isAr ? "المتداول" : "Trader");
+  const workspaceDisplayId = sessionUser ? publicAccountId(sessionUser) : "#AT-000000";
+  const workspacePrimaryName = sessionUser ? publicAccountId(sessionUser) : (isAr ? "المتداول" : "Trader");
   const workspacePositiveMessage = welcomeRole === "owner"
     ? (isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready.")
     : isSellerWorkspaceUser
@@ -5016,38 +4991,7 @@ export function UsdtExchangePage({
           </div>
         </div>
         <div className="space-y-3">
-          <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "تقدم مستوى البائع" : "Seller Level Progress"}</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <p className="text-white">
-                {isAr ? "الرتبة الحالية" : "Current Rank"}: <span className="font-semibold text-[#F3D979]">{sellerLevelLabel(sellerCurrentRank, isAr)}</span>
-              </p>
-              <p className="text-white">
-                {isAr ? "الرتبة التالية" : "Next Rank"}: <span className="font-semibold text-[#F3D979]">{sellerNextTier ? (<span className="inline-flex items-center gap-1"><Trophy className="h-3.5 w-3.5 text-[#F4D87A]" />{sellerLevelLabel(sellerNextTier.rank, isAr)}</span>) : (isAr ? "وصلت إلى أعلى رتبة" : "Top Tier Reached")}</span>
-              </p>
-              <p>{isAr ? "الحجم المكتمل" : "Completed Volume"}: <span className="font-semibold text-white">{currencyText(formatWholeNumber(sellerCompletedVolumeUsdt))} <span className="currency-usdt">USDT</span></span></p>
-              <p>{isAr ? "المطلوب" : "Required"}: <span className="font-semibold text-white">{currencyText(formatWholeNumber(sellerRequiredVolumeUsdt))} <span className="currency-usdt">USDT</span></span></p>
-              <p>{isAr ? "المتبقي" : "Remaining"}: <span className="font-semibold text-white">{currencyText(formatWholeNumber(sellerRemainingVolumeUsdt))} <span className="currency-usdt">USDT</span></span></p>
-              <p>{isAr ? "التقدم" : "Progress"}: <span className="font-semibold text-white">{Math.round(sellerLevelProgressPercent)}%</span></p>
-            </div>
-            <div className="mt-3">
-              <div className="h-2.5 overflow-hidden rounded-full bg-black/35 ring-1 ring-white/10">
-                <div
-                  className="relative h-full rounded-full bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#F7E7A6] shadow-[0_0_22px_rgba(212,175,55,0.6)] transition-[width] duration-700 ease-out"
-                  style={{ width: `${sellerLevelProgressPercent}%` }}
-                >
-                  <span className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-white/30" />
-                </div>
-              </div>
-              <p className="mt-2 text-base font-semibold text-[#FDE68A]">
-                {currencyText(sellerNextTier
-                  ? (isAr ? `متبقي ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT فقط للوصول إلى رتبة ${sellerLevelLabel(sellerNextTier.rank, true)}` : `Only ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT remaining to reach ${sellerLevelLabel(sellerNextTier.rank)}`)
-                  : (isAr ? "لقد وصلت بالفعل إلى أعلى رتبة للبائعين." : "You are already at the highest seller tier."))}
-              </p>
-              {sellerNextTier ? <p className="mt-1 text-xs text-[#F4D87A]">{isAr ? `واصل التداول لفتح مزايا رتبة ${sellerLevelLabel(sellerNextTier.rank, true)}.` : <>Keep trading to unlock {sellerLevelLabel(sellerNextTier.rank)} benefits.</>}</p> : null}
-              <p className="mt-1 text-xs text-[#F3F4F6]">{currencyText(formatWholeNumber(sellerCompletedVolumeUsdt))} / {currencyText(formatWholeNumber(sellerRequiredVolumeUsdt))} <span className="currency-usdt">USDT</span> {isAr ? "مكتمل" : "completed"}</p>
-            </div>
-          </div>
+          {sellerStatusForLanding === "approved_seller" ? <SellerRankCard summary={sellerRankSummary} error={sellerRankError} locale={isAr ? "ar" : "en"} /> : null}
         </div>
       </CardContent>
     </Card>
@@ -5186,13 +5130,16 @@ export function UsdtExchangePage({
                   )}
                 </div>
               )}
-              {!isSellerWorkspaceUser && welcomeRole !== "owner" && welcomeRole !== "administrator" ? (
+              {welcomeRole === "buyer" ? (
                 <BuyerRankCard summary={buyerProfileSummary} locale={isAr ? "ar" : "en"} />
+              ) : null}
+              {welcomeRole === "approved_seller" ? (
+                <SellerRankCard summary={sellerRankSummary} error={sellerRankError} locale={isAr ? "ar" : "en"} />
               ) : null}
               {isDashboardWorkspace ? (
                 <div className="mt-4">
                   {isSellerWorkspaceUser ? (
-                    <div className="mb-3">{welcomeRole !== "owner" ? <RankBadge rank={sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}</div>
+                    <div className="mb-3">{welcomeRole !== "owner" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}</div>
                   ) : null}
 
                 </div>
@@ -5200,11 +5147,11 @@ export function UsdtExchangePage({
               <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اسم التداول" : "Trading Name"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{currencyText(safeText(sessionUser.fullName, isAr ? "المتداول" : "Trader"))}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText(publicAccountId(sessionUser))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "owner" ? (isAr ? "دور الحساب" : "Account Role") : isSellerWorkspaceUser ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
-                  <div className="mt-2">{welcomeRole === "owner" ? <RoleBadge variant="owner" locale={isAr ? "ar" : "en"} /> : <RankBadge rank={isSellerWorkspaceUser ? sellerOverviewStats.reputation?.level : buyerProfileSummary?.key} locale={isAr ? "ar" : "en"} audience={isSellerWorkspaceUser ? "seller" : "buyer"} />}</div>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{welcomeRole === "approved_seller" ? (isAr ? "مستوى البائع" : "Seller Level") : welcomeRole === "buyer" ? (isAr ? "رتبة المشتري" : "Buyer Rank") : (isAr ? "دور الحساب" : "Account Role")}</p>
+                  <div className="mt-2">{welcomeRole === "approved_seller" ? <RankBadge rank={sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : welcomeRole === "buyer" ? <RankBadge rank={buyerProfileSummary?.key} locale={isAr ? "ar" : "en"} audience="buyer" /> : <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />}</div>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "معرّف AT" : "AT ID"}</p>
@@ -5345,7 +5292,7 @@ export function UsdtExchangePage({
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved seller") : (isAr ? "مشتري نشط" : "Active buyer")}</span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{currencyText(workspaceDisplayId)}</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? "جاهز للتصفح" : "Ready to browse")}</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? sellerLevelLabel(sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level, isAr) : (isAr ? "جاهز للتصفح" : "Ready to browse")}</span>
           </div>
           <div className={`mt-7 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
             <a href="#marketplace">
@@ -5846,6 +5793,8 @@ export function UsdtExchangePage({
             sellerEvidenceFiles,
             sellerExpandedTradeId,
             sellerOverviewStats,
+            sellerRankSummary,
+            sellerRankError,
             sellerPrimaryRequestsExpanded,
             sellerRequestSections,
             sellerRequests,

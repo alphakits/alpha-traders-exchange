@@ -63,6 +63,9 @@ import { assertNoDirectContactContent, containsDirectContactContent, redactPriva
 import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
+import { accountRoleIdentity } from "@/lib/account-role-identity";
+import { publicAccountId, identityTextRedactor } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 import { validateUploadContent } from "@/lib/file-content-validation";
 import { toAdminSellerSummary, toAdminUserSummary } from "@/lib/client-session-user";
 import { allowsRuntimeDiagnostics, allowsTestOnlyRuntime, isProductionSecurityRuntime } from "@/lib/runtime-safety";
@@ -579,8 +582,8 @@ function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, 
     listingDisplayNumber: listing?.displayNumber,
     sellerId: request.sellerId,
     buyerId: request.buyerId,
-    counterpartyName: redactExchangeUserContent(counterparty?.fullName?.trim() || (recipientIsSeller ? "Buyer" : "Seller")),
-    counterpartyAvatarUrl: sanitizeCounterpartyMediaUrl(counterparty?.profilePhotoUrl),
+    counterpartyName: publicAccountId(counterparty ?? { id: counterpartyId, role: recipientIsSeller ? "buyer" : "approved_seller" }),
+    counterpartyAvatarUrl: undefined,
     usdtAmount: request.usdtAmount,
     fiatAmount: request.fiatAmount,
     currency: request.currency,
@@ -622,7 +625,7 @@ type NotificationSellerContext = {
 };
 
 function buildNotificationSellerContext(user: AlphaExchangeUser): NotificationSellerContext {
-  const displayName = redactPrivateContactDetails(user.fullName?.trim() || user.buyerDisplayName?.trim() || "Seller");
+  const displayName = publicAccountId(user);
   const username = derivePublicProfileUsername({
     id: user.id,
     fullName: user.fullName,
@@ -664,6 +667,16 @@ function resolveNotificationSellerContext(db: AlphaExchangeDb, notification: Alp
 }
 
 function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification, cachedLookup?: Record<string, string>): AlphaExchangeNotification {
+  const publicHref = (value?: string) => {
+    const href = sanitizeInternalNotificationHref(value);
+    const profileRoute = href?.match(/^(\/(?:en|ar))?\/(exchange\/seller|u)\/([^/?#]+)/);
+    if (!profileRoute) return href;
+    let username: string;
+    try { username = normalizePublicProfileUsername(decodeURIComponent(profileRoute[3])); } catch { return undefined; }
+    const user = db.users.find(candidate => derivePublicProfileUsername(candidate) === username
+      || [candidate.fullName, candidate.email, candidate.buyerDisplayName].some(name => name && normalizePublicProfileUsername(name) === username));
+    return user ? `${profileRoute[1] ?? ""}/${profileRoute[2]}/${derivePublicProfileUsername(user)}` : "/usdt-exchange";
+  };
   const request = resolveTradeContextForNotification(db, {
     userId: notification.userId,
     relatedRequestId: notification.relatedRequestId,
@@ -691,7 +704,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     || /\bcommission\s+(?:due|overdue)\b/.test(commissionDueText)
   );
   const explicitCommissionPaymentHref = notification.reason === COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON
-    ? sanitizeInternalNotificationHref(notification.actionHref) ?? sanitizeInternalNotificationHref(notification.relatedHref)
+    ? publicHref(notification.actionHref) ?? publicHref(notification.relatedHref)
     : undefined;
   const commissionPaymentHref = isCommissionPaymentDue && matchingSellerCommission
     ? commissionPaymentDestination(matchingSellerCommission.id)
@@ -701,8 +714,8 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
   const relatedHref = commissionPaymentHref
     ?? (isTradeNotification && request && recipientIsTradeParticipant
       ? requestDetailsHref(request.id)
-      : sanitizeInternalNotificationHref(notification.relatedHref) ?? sellerProfileHref);
-  const actionHref = commissionPaymentHref ?? (sanitizeInternalNotificationHref(notification.actionHref) || relatedHref);
+      : publicHref(notification.relatedHref) ?? sellerProfileHref);
+  const actionHref = commissionPaymentHref ?? (publicHref(notification.actionHref) || relatedHref);
   const listingId = notification.relatedListingId ?? request?.listingId;
   const listing = listingId ? db.marketplaceListings.find((item) => item.id === listingId) : undefined;
   // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
@@ -720,13 +733,18 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       : notification.category === "application"
         ? "Application update"
         : "Alpha Exchange update";
-  let title = redactPrivateContactDetails(notification.title?.trim() || fallbackTitle);
-  let message = redactPrivateContactDetails(notification.message?.trim() || "Open notifications for the latest account update.");
+  const visibleText = identityTextRedactor([
+    ...db.users,
+    ...(request ? [{ ...db.users.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
+    ...(listing ? [{ ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, role: "approved_seller", fullName: listing.sellerDisplayName }] : []),
+  ]);
+  let title = visibleText(notification.title?.trim() || fallbackTitle);
+  let message = visibleText(notification.message?.trim() || "Open notifications for the latest account update.");
   const localizedCopy = {
-    titleEn: notification.titleEn ? redactPrivateContactDetails(notification.titleEn.trim()) : undefined,
-    messageEn: notification.messageEn ? redactPrivateContactDetails(notification.messageEn.trim()) : undefined,
-    titleAr: notification.titleAr ? redactPrivateContactDetails(notification.titleAr.trim()) : undefined,
-    messageAr: notification.messageAr ? redactPrivateContactDetails(notification.messageAr.trim()) : undefined,
+    titleEn: notification.titleEn ? visibleText(notification.titleEn.trim()) : undefined,
+    messageEn: notification.messageEn ? visibleText(notification.messageEn.trim()) : undefined,
+    titleAr: notification.titleAr ? visibleText(notification.titleAr.trim()) : undefined,
+    messageAr: notification.messageAr ? visibleText(notification.messageAr.trim()) : undefined,
   };
   if (sellerContext?.user) {
     title = title.split(sellerContext.user.id).join(sellerContext.displayName);
@@ -757,16 +775,16 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedTradeId,
     relatedTradeDisplayNumber: request?.displayNumber,
     relatedListingDisplayNumber: listing?.displayNumber ?? notification.relatedListingDisplayNumber,
-    relatedSellerName: sellerContext?.displayName ?? notification.relatedSellerName,
-    relatedSellerUsername: sellerContext?.username ?? notification.relatedSellerUsername,
+    relatedSellerName: sellerContext?.displayName ?? (listing ? publicAccountId(db.users.find(user => user.id === listing.sellerId) ?? { id: listing.sellerId, role: "approved_seller" }) : undefined),
+    relatedSellerUsername: sellerContext?.username ?? (listing ? derivePublicProfileUsername({ id: listing.sellerId }) : undefined),
     relatedHref,
     actionHref,
     actionLabel: commissionPaymentHref
-      ? notification.actionLabel?.trim() || "Pay Commission"
-      : notification.actionLabel?.trim() || (sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)),
-    reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason,
+      ? visibleText(notification.actionLabel?.trim()) || "Pay Commission"
+      : visibleText(notification.actionLabel?.trim()) || (sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)),
+    reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason ? visibleText(notification.reason) : undefined,
     tradeSnapshot: isTradeNotification && recipientIsTradeParticipant
-      ? sanitizeNotificationTradeSnapshot(notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
+      ? sanitizeNotificationTradeSnapshot(buildTradeSnapshotForNotification(db, notification.userId, request))
       : undefined,
     updatedAt: notification.updatedAt ?? notification.createdAt,
   };
@@ -1485,7 +1503,7 @@ function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser)
   const completedTradeMonths = Array.from(new Set(qualifyingTrades.filter((request) => request.completedAt).map((request) => new Date(request.completedAt!).toISOString().slice(0, 7))));
   const currentAchievements = evaluateSellerAchievements({
     sellerId: seller.id,
-    sellerName: seller.fullName,
+    sellerName: publicAccountId(seller),
     rank: seller.sellerPrestigeRank ?? "bronze",
     lifetimeVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
     completedTrades: qualifyingTrades.length,
@@ -1517,7 +1535,7 @@ function buildHallOfFameEntry(db: AlphaExchangeDb, seller: AlphaExchangeUser) {
   const achievements = buildSellerAchievements(db, seller);
   return {
     sellerId: seller.id,
-    sellerName: seller.fullName,
+    sellerName: publicAccountId(seller),
     rank: seller.sellerPrestigeRank ?? "bronze",
     achievements: publicSellerAchievements(achievements),
     promotedAt: seller.updatedAt,
@@ -1561,26 +1579,29 @@ function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: Selle
 }
 
 function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile {
+  const visibleText = identityTextRedactor([user], true);
   return {
     sellerId: user.id,
-    sellerName: redactExchangeUserContent(user.fullName),
-    fullName: redactExchangeUserContent(user.fullName),
-    profilePhotoUrl: sanitizeCounterpartyMediaUrl(user.profilePhotoUrl),
+    sellerName: publicAccountId(user),
+    publicTradingName: publicAccountId(user),
+    username: derivePublicProfileUsername(user),
+    fullName: publicAccountId(user),
+    profilePhotoUrl: "",
     memberSince: user.createdAt,
-    languages: (user.languages ?? []).map((language) => redactExchangeUserContent(language)),
+    languages: (user.languages ?? []).map((language) => visibleText(language)),
     preferredNetworks: user.preferredNetworks,
-    bio: redactExchangeUserContent(user.bio),
-    tradingExperience: redactExchangeUserContent(user.tradingExperience),
-    workingHours: redactExchangeUserContent(user.workingHours),
-    preferredPaymentMethods: (user.preferredPaymentMethods ?? []).map((method) => redactExchangeUserContent(method)),
-    country: redactExchangeUserContent(user.country),
-    city: redactExchangeUserContent(user.city),
-    coverBannerUrl: sanitizeCounterpartyMediaUrl(user.coverBannerUrl),
+    bio: visibleText(user.bio),
+    tradingExperience: visibleText(user.tradingExperience),
+    workingHours: visibleText(user.workingHours),
+    preferredPaymentMethods: (user.preferredPaymentMethods ?? []).map((method) => visibleText(method)),
+    country: visibleText(user.country),
+    city: "",
+    coverBannerUrl: "",
     isFoundingSeller: user.isFoundingSeller === true,
     isFoundingMember: user.isFoundingMember === true,
     isFeaturedSeller: user.isFeaturedSeller === true,
     isProfileHidden: user.isProfileHidden === true,
-    isOwner: isAlphaExchangeOwnerEmail(user.email),
+    isOwner: accountRoleIdentity(user) === "owner",
     role: user.role,
     roles: user.roles ?? [user.role],
     sellerStatus: user.sellerStatus,
@@ -1620,36 +1641,32 @@ function buildPublicUserProfileDataForUser(input: {
   const showStats = user.showTradeStats !== false || canBypassVisibility;
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const canViewSensitiveProfileDetails = canBypassVisibility;
-  const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
   const sellerApprovalVerified = isOwnerApprovedSeller(user);
-  const fallbackPublicTradingName = sellerApprovalVerified
-    ? "Verified Seller"
-    : user.emailVerified === true
-      ? "Verified Member"
-      : "Alpha Traders Member";
-  const publicTradingName = canBypassVisibility || !containsDirectContactContent(explicitPublicTradingName)
-    ? (explicitPublicTradingName || fallbackPublicTradingName)
-    : fallbackPublicTradingName;
-  const visibleText = (value: string | undefined) => canBypassVisibility ? String(value ?? "") : redactExchangeUserContent(value);
+  const publicTradingName = publicAccountId(user);
+  const visibleText = identityTextRedactor(db.users);
 
   return {
     profile: {
       id: user.id,
-      username: canViewSensitiveProfileDetails ? username : derivePublicProfileUsername({ id: user.id, publicTradingName }),
-      fullName: canViewSensitiveProfileDetails ? user.fullName : "",
+      username,
+      fullName: publicTradingName,
       publicTradingName,
       role: user.role,
       roles: user.roles ?? [user.role],
       sellerStatus: user.sellerStatus,
       sellerApprovalVerified,
+      roleBadge: accountRoleIdentity(user),
+      buyerRank: getBuyerPrestigeProgress(buyerRequests
+        .filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))
+        .reduce((total, request) => total + toNumber(request.usdtAmount), 0)).rank,
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
       country: visibleText(user.country),
       city: canViewSensitiveProfileDetails ? user.city ?? "" : "",
       languages: (user.languages ?? []).map((language) => visibleText(language)),
       bio: visibleText(user.bio),
-      profilePhotoUrl: canBypassVisibility ? user.profilePhotoUrl ?? "" : sanitizeCounterpartyMediaUrl(user.profilePhotoUrl),
-      coverBannerUrl: canBypassVisibility ? user.coverBannerUrl ?? "" : sanitizeCounterpartyMediaUrl(user.coverBannerUrl),
+      profilePhotoUrl: "",
+      coverBannerUrl: "",
       isFeaturedSeller: user.isFeaturedSeller === true,
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
@@ -1662,7 +1679,7 @@ function buildPublicUserProfileDataForUser(input: {
     },
     reputation: trustSnapshot
       ? {
-          level: user.sellerPrestigeRank ?? trustSnapshot.level,
+          level: trustSnapshot.level,
           trustScore: trustSnapshot.trustScore,
           publicVolumeRange: viewerIsOwner ? trustSnapshot.publicVolumeRange : undefined,
           rating: trustSnapshot.rating,
@@ -1699,32 +1716,15 @@ export async function getPublicUserProfileById(input: {
   });
 }
 
-function deriveStablePublicAliasFromId(id: string | undefined) {
-  const normalized = String(id ?? "").trim();
-  if (!normalized) return "seller";
-  return `seller-${createHash("sha256").update(normalized).digest("hex").slice(0, 8)}`;
-}
-
-function deriveLegacyPublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
-  return normalizePublicProfileUsername(input.email || input.fullName || input.id);
-}
-
 export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string; publicTradingName?: string }) {
-  const safeSource = input.publicTradingName || deriveStablePublicAliasFromId(input.id);
-  return normalizePublicProfileUsername(safeSource);
+  return publicAccountUsername(input.id);
 }
 
 export function matchesPublicProfileUsername(
   input: { fullName?: string; email?: string; id?: string; publicTradingName?: string },
   username: string,
 ) {
-  const normalizedUsername = normalizePublicProfileUsername(username);
-  const aliases = new Set([
-    derivePublicProfileUsername(input),
-    deriveLegacyPublicProfileUsername(input),
-    normalizePublicProfileUsername(input.fullName || input.email || input.id),
-  ]);
-  return aliases.has(normalizedUsername);
+  return derivePublicProfileUsername(input) === normalizePublicProfileUsername(username);
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
@@ -1733,7 +1733,14 @@ function isTrustEligibleSeller(user: AlphaExchangeUser) {
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
   if (db.trustSnapshots.length) {
-    return new Map(db.trustSnapshots.map((entry) => [entry.sellerId, entry.snapshot]));
+    const sellers = new Map(db.users.map(user => [user.id, user]));
+    return new Map(db.trustSnapshots.map(entry => {
+      const seller = sellers.get(entry.sellerId);
+      if (!seller) return [entry.sellerId, entry.snapshot];
+      const volume = Math.max(0, entry.snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
+      const rank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(volume, seller.sellerPrestigeRank);
+      return [entry.sellerId, { ...entry.snapshot, totalUsdtVolume: volume, level: rank, ...buildPrestigeFieldsForSnapshot({ volumeUsdt: volume, rank, isOverridden: Boolean(seller.sellerRankOverride) }) }];
+    }));
   }
   const listingsBySeller = new Map<string, MarketplaceListing[]>();
   for (const listing of db.marketplaceListings) {
@@ -1762,8 +1769,8 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
         requests: requestsBySeller.get(seller.id) ?? [],
         commissions: commissionsBySeller.get(seller.id) ?? [],
       });
-      const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
-      const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
+      snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
+      const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
       snapshot.level = effectiveRank;
       snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
       Object.assign(
@@ -1836,8 +1843,8 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
     commissions: db.commissionRecords.filter((record) => record.sellerId === seller.id),
     marketplacePosition: 0,
   });
-  const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
-  const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
+  snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
+  const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
   snapshot.level = effectiveRank;
   snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
   Object.assign(
@@ -2041,28 +2048,25 @@ function enrichListingsWithSellerData(
   listings: MarketplaceListing[],
   snapshots = computeTrustSnapshotMap(db),
 ) {
+  const visibleText = identityTextRedactor([...db.users, ...listings.map(listing => ({ id: listing.sellerId, role: "approved_seller", fullName: listing.sellerDisplayName }))], true);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
     const publicListing: MarketplaceListing = {
       ...listing,
-      sellerDisplayName: redactExchangeUserContent(listing.sellerDisplayName),
-      notes: redactExchangeUserContent(listing.notes),
-      sellerDescription: redactExchangeUserContent(listing.sellerDescription),
+      sellerDisplayName: publicAccountId({ id: listing.sellerId, role: "approved_seller" }),
+      notes: visibleText(listing.notes),
+      sellerDescription: visibleText(listing.sellerDescription),
       photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
     };
     delete publicListing.bankAccountId;
-    if (publicListing.sellerProfile) {
-      const sellerProfile = { ...publicListing.sellerProfile };
-      delete sellerProfile.contact;
-      publicListing.sellerProfile = sellerProfile;
-    }
+    delete publicListing.sellerProfile;
     // Discard any historical embedded reputation before building the public projection.
     delete publicListing.sellerReputation;
     if (!seller) return publicListing;
     return {
       ...publicListing,
-      sellerDisplayName: redactExchangeUserContent(seller.fullName),
+      sellerDisplayName: publicAccountId(seller),
       sellerProfile: buildSellerPublicProfile(seller),
       sellerReputation: publicSellerReputation(snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id)),
     };
@@ -2165,6 +2169,7 @@ export async function getPremiumSellerProfile(input: {
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const viewerCanViewPrivateContent = input.viewerRole === "admin" || input.viewerRole === "owner";
+  const reviewText = identityTextRedactor(db.users);
   const canSeeExactSellerStats = viewerIsSellerOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -2176,15 +2181,13 @@ export async function getPremiumSellerProfile(input: {
       id: `review-${request.id}`,
       tradeId: request.tradeId ?? request.id,
       rating: request.buyerReview!.rating,
-      comment: viewerCanViewPrivateContent ? request.buyerReview!.comment : redactExchangeUserContent(request.buyerReview!.comment),
+      comment: reviewText(request.buyerReview!.comment),
       createdAt: request.buyerReview!.createdAt,
       buyerId: request.buyerId,
-      buyerName: viewerCanViewPrivateContent
-        ? usersById.get(request.buyerId)?.fullName ?? request.buyerName ?? "Buyer"
-        : redactExchangeUserContent(usersById.get(request.buyerId)?.fullName ?? request.buyerName ?? "Buyer"),
+      buyerName: publicAccountId(usersById.get(request.buyerId) ?? { id: request.buyerId }),
       verifiedPurchase: true,
       sellerResponse: request.sellerResponse && !viewerCanViewPrivateContent
-        ? { ...request.sellerResponse, message: redactExchangeUserContent(request.sellerResponse.message) }
+        ? { ...request.sellerResponse, message: reviewText(request.sellerResponse.message) }
         : request.sellerResponse,
     }))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
@@ -2267,10 +2270,10 @@ export async function getPremiumSellerProfile(input: {
     isEmailVerified: publicAccount.profile.isEmailVerified,
     lastActiveAt: publicAccount.profile.lastActiveAt ?? undefined,
   };
-  const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
+  const lifetimeCompletedVolumeUsdt = Math.max(0, trustSnapshot.totalUsdtVolume);
   const sellerAchievements = seller.sellerAchievements ?? [];
-  const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "elite";
-  const currentRank = seller.sellerPrestigeRank ?? trustSnapshot.level;
+  const hallOfFameEligible = trustSnapshot.level === "elite";
+  const currentRank = trustSnapshot.level;
   const prestigeProgress = getSellerPrestigeProgress(lifetimeCompletedVolumeUsdt, currentRank);
   const ownerTools = viewerIsOwner
     ? {
@@ -5486,12 +5489,20 @@ function appendSystemTradeMessage(
 }
 
 function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest): PurchaseRequest {
-  const buyerEvidence = db.tradeEvidenceFiles.find((item) => item.purchaseRequestId === request.id && item.side === "buyer");
-  const sellerEvidence = db.tradeEvidenceFiles.find((item) => item.purchaseRequestId === request.id && item.side === "seller");
+  const buyer = db.users.find(user => user.id === request.buyerId);
+  const visibleText = identityTextRedactor([...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }]);
   return {
     ...request,
-    buyerEvidence,
-    sellerEvidence,
+    buyerName: publicAccountId(buyer ?? { id: request.buyerId }),
+    buyerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "buyer"),
+    sellerEvidence: db.tradeEvidenceFiles.find(item => item.purchaseRequestId === request.id && item.side === "seller"),
+    timeline: (request.timeline ?? []).map(entry => ({ ...entry, message: visibleText(entry.message) })),
+    messages: (request.messages ?? []).map(message => ({ ...message, message: message.credentialKind ? message.message : identityTextRedactor(db.users, true)(message.message) })),
+    closeReason: visibleText(request.closeReason),
+    closeExplanation: visibleText(request.closeExplanation),
+    buyerReview: request.buyerReview ? { ...request.buyerReview, comment: visibleText(request.buyerReview.comment), hiddenReason: visibleText(request.buyerReview.hiddenReason) } : undefined,
+    sellerBuyerReview: request.sellerBuyerReview ? { ...request.sellerBuyerReview, comment: visibleText(request.sellerBuyerReview.comment), hiddenReason: visibleText(request.sellerBuyerReview.hiddenReason) } : undefined,
+    sellerResponse: request.sellerResponse ? { ...request.sellerResponse, message: visibleText(request.sellerResponse.message) } : undefined,
   };
 }
 
@@ -5570,7 +5581,8 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
           requests: requestsBySeller.get(seller.id) ?? [],
           commissions: commissionsBySeller.get(seller.id) ?? [],
         });
-        const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
+        snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
+      const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
         snapshot.level = effectiveRank;
         snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
         Object.assign(
@@ -6728,8 +6740,8 @@ export async function updateUserSellerSettings(input: {
       showLastActive: typeof input.showLastActive === "boolean" ? input.showLastActive : user.showLastActive,
       allowDirectMessages: typeof input.allowDirectMessages === "boolean" ? input.allowDirectMessages : user.allowDirectMessages,
       allowProfileSearch: typeof input.allowProfileSearch === "boolean" ? input.allowProfileSearch : user.allowProfileSearch,
-      showPhonePublic: typeof input.showPhonePublic === "boolean" ? input.showPhonePublic : user.showPhonePublic,
-      showEmailPublic: typeof input.showEmailPublic === "boolean" ? input.showEmailPublic : user.showEmailPublic,
+      showPhonePublic: false,
+      showEmailPublic: false,
       lastActiveAt: timestamp,
       updatedAt: timestamp,
     };
@@ -9819,7 +9831,7 @@ export async function getSellerDashboardAccessState(userId: string) {
   const enforcement = await getSellerMarketplaceEnforcementStatus(userId, db);
   return {
     sellerId: seller.id,
-    sellerName: seller.fullName,
+    sellerName: publicAccountId(seller),
     sellerStatus: seller.sellerStatus,
     enforcement,
   };
@@ -10348,7 +10360,7 @@ export async function createPurchaseRequest(input: {
     listingId: input.listingId,
     sellerId,
     tradeId,
-    buyerName: input.buyerName.trim(),
+    buyerName: publicAccountId(db.users.find(user => user.id === input.buyerId) ?? { id: input.buyerId }),
     usdtAmount,
     fiatAmount,
     pricePerUsdt,
@@ -10745,7 +10757,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   const redacted: PurchaseRequest = {
     ...request,
     sellerBankAccountSnapshot: undefined,
-    buyerName: canViewPrivateContent ? request.buyerName : redactExchangeUserContent(request.buyerName),
+    buyerName: /^#[SB]-\d{6,}$/.test(request.buyerName) ? request.buyerName : publicAccountId({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
     messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential)),
     buyerEvidence: canViewPrivateContent ? request.buyerEvidence : sanitizeTradeEvidenceForCounterparty(request.buyerEvidence),
@@ -10808,7 +10820,7 @@ function sanitizeTradeRoomListing(listing: MarketplaceListing | null) {
   if (!listing) return null;
   const redacted = {
     ...listing,
-    sellerDisplayName: redactExchangeUserContent(listing.sellerDisplayName),
+    sellerDisplayName: publicAccountId({ id: listing.sellerId, role: "approved_seller" }),
     notes: redactExchangeUserContent(listing.notes),
     sellerDescription: redactExchangeUserContent(listing.sellerDescription),
     photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
@@ -11272,13 +11284,13 @@ export async function getTradeRoomData(input: {
 
   return {
     request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole),
-    listing: sanitizeTradeRoomListing(listing),
+    listing: sanitizeTradeRoomListing(listing ? enrichListingsWithSellerData(db, [listing])[0] : null),
     counterpart: {
-      buyerName: canViewPrivateContent ? buyer?.fullName ?? request.buyerName : redactExchangeUserContent(buyer?.fullName ?? request.buyerName),
-      sellerName: canViewPrivateContent ? seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId : redactExchangeUserContent(seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId),
+      buyerName: publicAccountId(buyer ?? { id: request.buyerId }),
+      sellerName: publicAccountId(seller ?? { id: request.sellerId, role: "approved_seller" }),
     },
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
-      message,
+      { ...message, message: message.credentialKind ? message.message : identityTextRedactor(db.users, true)(message.message) },
       canViewPrivateContent,
       request.status === "payment_sent" && (request.buyerId === input.actorUserId || request.sellerId === input.actorUserId),
     )),
@@ -11387,7 +11399,7 @@ export async function getTradeRoomBankDetails(input: {
       requestId: request.id,
       tradeId: request.tradeId ?? request.id,
       bankAccountId: bankAccount.id,
-      accountHolderName: bankAccount.accountHolderName,
+      accountHolderName: input.actorUserId === request.sellerId || input.actorRole === "admin" || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
       bankName: bankAccount.bankName,
       branchNumber: bankAccount.branchNumber,
       accountNumber: bankAccount.accountNumber,
@@ -12126,14 +12138,14 @@ export async function getAccountProfileData(userId: string): Promise<{
     showLastActive: user.showLastActive !== false,
     allowDirectMessages: user.allowDirectMessages !== false,
     allowProfileSearch: user.allowProfileSearch !== false,
-    showPhonePublic: user.showPhonePublic === true,
-    showEmailPublic: user.showEmailPublic === true,
+    showPhonePublic: false,
+    showEmailPublic: false,
   };
 
   if (isTrustEligibleSeller(user)) {
     const reputation = computeSellerReputationSnapshot(db, user.id);
     const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
-    const sellerLevel = user.sellerPrestigeRank ?? reputation.level;
+    const sellerLevel = reputation.level;
     const prestigeProgress = getSellerPrestigeProgress(reputation.totalUsdtVolume, sellerLevel);
     const stats: SellerAccountStats = {
       kind: "seller",
@@ -17107,7 +17119,8 @@ export async function getNotificationsForUser(input: {
   const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
   const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
-  const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120);
+  const redactActivity = identityTextRedactor(db.users);
+  const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120).map(entry => ({ ...entry, title: redactActivity(entry.title), details: redactActivity(entry.details) }));
   const clientNotifications = sortedNotifications
     .slice(safeOffset, safeOffset + safeLimit)
     .map(sanitizeNotificationForClient);

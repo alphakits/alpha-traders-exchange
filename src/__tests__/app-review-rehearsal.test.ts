@@ -232,7 +232,7 @@ describe("full Exchange App Review rehearsal", () => {
     });
     expect(bankDetails).toMatchObject({
       bankAccountId: bankAccount.id,
-      accountHolderName: "App Review Seller",
+      accountHolderName: "",
       bankName: "Bank Hapoalim",
       branchNumber: "123",
       accountNumber: "0000000001",

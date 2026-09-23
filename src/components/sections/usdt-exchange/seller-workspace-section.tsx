@@ -1,5 +1,7 @@
 "use client";
 
+import { publicAccountId } from "@/lib/public-account-identity";
+
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
@@ -12,6 +14,7 @@ import { FieldLabel, requiredFieldClasses } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { RankBadge } from "@/components/ui/rank-badge";
+import { SellerRankCard, type SellerRankSummary } from "@/components/ui/seller-rank-card";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -141,6 +144,8 @@ export type SellerWorkspaceSectionProps = {
   sellerEvidenceFiles: Record<string, File | null>;
   sellerExpandedTradeId: string | null;
   sellerOverviewStats: SellerOverviewStats;
+  sellerRankSummary?: SellerRankSummary | null;
+  sellerRankError?: boolean;
   sellerPrimaryRequestsExpanded: boolean;
   sellerRequestSections: Record<TradeQueueSectionKey, PurchaseRequest[]>;
   sellerRequests: PurchaseRequest[];
@@ -391,15 +396,16 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
           <AccountWelcome
             role={welcomeRole}
             locale={isAr ? "ar" : "en"}
-            name={sessionUser?.fullName?.trim().split(" ")[0] || (isAr ? "المتداول" : "Trader")}
+            name={sessionUser ? publicAccountId(sessionUser) : (isAr ? "المتداول" : "Trader")}
             headingLevel={2}
             suspended={isSuspendedSeller}
             description={welcomeRole === "owner"
               ? (isAr ? "نظرة شاملة على Alpha Traders جاهزة لك." : "Your Alpha Traders overview is ready.")
               : (isAr ? "عروضك وصفقاتك وتنبيهاتك جاهزة." : "Your listings, trades, and alerts are ready.")}
           >
+            {welcomeRole === "approved_seller" ? <SellerRankCard summary={props.sellerRankSummary} error={props.sellerRankError} locale={locale} /> : null}
             <div className="mt-5 flex flex-wrap items-center gap-3">
-              {welcomeRole !== "owner" ? <RankBadge rank={sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}
+              {welcomeRole !== "owner" ? <RankBadge rank={props.sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /> : null}
               <span className="inline-flex items-center gap-1.5 text-xs text-sky-200"><ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />{isAr ? "الثقة" : "Trust"} {(sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1)}</span>
               <span className="inline-flex items-center gap-1.5 text-xs text-emerald-200"><Star className="h-3.5 w-3.5" aria-hidden="true" />{(sellerOverviewStats.reputation?.rating ?? 0).toFixed(2)} {isAr ? "تقييم" : "Rating"}</span>
             </div>
@@ -429,7 +435,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               ? [
               { label: isAr ? "العروض النشطة" : "Active Listings", value: sellerOverviewStats.activeListings.toLocaleString("en-IL"), icon: TrendingUp },
               { label: isAr ? "الصفقات المعلقة" : "Pending Trades", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
-              { label: isAr ? "مستوى البائع" : "Seller Level", value: sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr), icon: Trophy },
+              { label: isAr ? "مستوى البائع" : "Seller Level", value: sellerLevelLabel(props.sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level, isAr), icon: Trophy },
               { label: isAr ? "درجة الثقة" : "Trust Score", value: (sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1), icon: ShieldCheck },
               { label: isAr ? "التقييم" : "Rating", value: (sellerOverviewStats.reputation?.rating ?? 0).toFixed(2), icon: Star },
               { label: isAr ? "حجم التداول الكلي" : "Lifetime Volume", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
@@ -1680,7 +1686,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <img src={sessionUser.profilePhotoUrl} alt={isAr ? `صورة ${sessionUser.fullName}` : `${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
                     ) : (
                       <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                        {currencyText(safeText(sessionUser?.fullName, isAr ? "بائع" : "Seller")
+                        {currencyText((sessionUser ? publicAccountId(sessionUser) : (isAr ? "بائع" : "Seller"))
                           .split(" ")
                           .map((part) => part[0])
                           .join("")
@@ -1688,7 +1694,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       </div>
                     )}
                     <div>
-                      <p className="text-base font-semibold text-white"><bdi dir="auto">{currencyText(safeText(sessionUser?.fullName, isAr ? "بائع" : "Seller"))}</bdi></p>
+                      <p className="text-base font-semibold text-white"><bdi dir="auto">{currencyText(sessionUser ? publicAccountId(sessionUser) : (isAr ? "بائع" : "Seller"))}</bdi></p>
                       <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />
                     </div>
                   </div>
@@ -1744,7 +1750,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "مستوى البائع" : "Seller Level"}</p>
-                      <div className="mt-2"><RankBadge rank={sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /></div>
+                      <div className="mt-2"><RankBadge rank={props.sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level} locale={isAr ? "ar" : "en"} audience="seller" /></div>
                     </div>
                   </div>
                 </CardContent>

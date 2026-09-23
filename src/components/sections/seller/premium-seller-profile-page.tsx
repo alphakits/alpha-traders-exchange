@@ -1,11 +1,11 @@
 import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { ArrowRight, BadgeCheck, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { RankBadge } from "@/components/ui/rank-badge";
+import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
@@ -319,7 +319,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                         <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={128} height={128} unoptimized className="h-24 w-24 rounded-full border border-transparent object-cover md:h-28 md:w-28" />
                       ) : (
                         <div className={cn("flex h-24 w-24 items-center justify-center rounded-full border border-transparent text-2xl font-semibold md:h-28 md:w-28", isOwnerSeller ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#F5E7C1]")}>
-                          {currencyText(seller.sellerName.slice(0, 2).toUpperCase())}
+                          {isOwnerSeller ? <Crown className="h-12 w-12" aria-hidden="true" /> : <RankEmblem rank={profile.sellerLevel} className="!h-20 !w-20 [&>svg]:!h-10 [&>svg]:!w-10" />}
                         </div>
                       )}
                       <span className={cn("absolute bottom-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-[0_10px_20px_rgba(0,0,0,0.25)]", isAr ? "left-1" : "right-1", presence.tone === "online" ? "bg-emerald-500/90 text-white" : presence.tone === "recent" ? "bg-amber-500/90 text-black" : "bg-white/20 text-white")}>
@@ -342,7 +342,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                       <div className={cn("mt-3 flex flex-wrap gap-2", isAr ? "justify-end" : "")}>
                         {isOwnerSeller ? <RoleBadge variant="owner" locale={locale} /> : null}
                         <RoleBadge variant="approved_seller" locale={locale} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                        <RankBadge rank={isOwnerSeller ? "legendary" : profile.sellerLevel} locale={locale} audience="seller" />
+                        <RankBadge rank={profile.sellerLevel} locale={locale} audience="seller" />
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
                         {seller.isEmailVerified ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{isAr ? "بريد إلكتروني موثّق" : "Verified Email"}</span> : null}
                         {heroBadgeItems.map((badge) => (
@@ -570,7 +570,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div key={review.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{currencyText(seller.sellerName.slice(0, 2).toUpperCase())}</div>
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{isOwnerSeller ? <Crown className="h-12 w-12" aria-hidden="true" /> : <RankEmblem rank={profile.sellerLevel} className="!h-20 !w-20 [&>svg]:!h-10 [&>svg]:!w-10" />}</div>
                       <div>
                         <p className="font-medium text-white"><bdi dir="auto">{currencyText(seller.sellerName)}</bdi></p>
                         <p className="text-xs text-[#9CA3AF]">{new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</p>

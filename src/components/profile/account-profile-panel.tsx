@@ -1,5 +1,7 @@
 "use client";
 
+import { publicAccountId } from "@/lib/public-account-identity";
+
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import Image from "next/image";
@@ -9,6 +11,8 @@ import { Link } from "@/i18n/navigation";
 import { rankSurfaceTone } from "@/lib/rank-identity";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
 import { RankBadge } from "@/components/ui/rank-badge";
+import { SellerRankCard } from "@/components/ui/seller-rank-card";
+import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -847,7 +851,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   )}
                 </div>
                 <div className="pb-1">
-                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{currencyText(payload.profile.fullName)}</p>
+                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{currencyText(publicAccountId(payload.profile))}</p>
                   {isOwner ? (
                     <div className="mt-1">
                       <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
@@ -869,8 +873,9 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                       </span>
                     ) : null}
                     {isSeller ? (
-                      <RankBadge rank={isOwner ? "legendary" : sellerLevelForUi} locale={locale} audience="seller" />
+                      <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
                     ) : null}
+                    {!isSeller && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
                   </div>
                 </div>
               </div>
@@ -971,6 +976,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   </div>
                 </div>
               ) : null}
+              <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-200">{isAr ? "هويتك العامة هي معرّف AT. اسمك الشخصي ورقم هاتفك وبريدك الإلكتروني تبقى خاصة." : "Your public identity is your AT ID. Your personal name, phone and email stay private."}</p>
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
                 <div>
                 <Input maxLength={100} value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
@@ -988,8 +994,6 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     { key: "showLastActive", labelAr: "عرض آخر نشاط", label: "Show last active" },
                     { key: "allowDirectMessages", labelAr: "السماح بالرسائل المباشرة", label: "Allow direct messages" },
                     { key: "allowProfileSearch", labelAr: "السماح بالبحث عن الملف", label: "Allow profile search" },
-                    { key: "showPhonePublic", labelAr: "عرض رقم التواصل", label: "Show phone publicly" },
-                    { key: "showEmailPublic", labelAr: "عرض البريد الإلكتروني", label: "Show email publicly" },
                   ].map((item) => {
                     const value = form[item.key as keyof ProfileFormState];
                     if (typeof value !== "boolean") return null;
@@ -1038,25 +1042,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <CardContent className="space-y-3">
                 {payload.stats.kind === "seller" ? (
                   <>
-                    <div className={cn("seller-rank-tier-card rounded-2xl border p-4", `seller-rank-tier-card--${sellerRankKey}`)}>
-                      <p className={cn("text-xs uppercase tracking-[0.14em]", `seller-rank-tier-label seller-rank-tier-label--${sellerRankKey}`)}>{isAr ? "مستوى البائع" : "Seller tier"}</p>
-                      <p className={cn("mt-2 text-xl font-semibold", `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{currencyText(tierLabel(sellerLevelForUi, isAr))}</p>
-                      <p className="mt-1 text-xs text-[#E5E7EB]">
-                        {currencyText(payload.stats.nextLevel
-                          ? `${isAr ? "المستوى التالي" : "Next tier"}: ${tierLabel(payload.stats.nextLevel, isAr)}`
-                          : isAr
-                            ? "وصلت إلى أعلى مستوى."
-                            : "Top tier reached.")}
-                      </p>
-                      <div className="mt-3 h-2.5 rounded-full bg-black/35">
-                        <div className={cn("h-full rounded-full", `seller-rank-progress seller-rank-progress--${sellerRankKey}`)} style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
-                      </div>
-                      <p className="mt-2 text-xs text-[#E5E7EB]">
-                        {currencyText(isAr
-                          ? `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT للوصول للمستوى التالي`
-                          : `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT to unlock the next level`)}
-                      </p>
-                    </div>
+                    <SellerRankCard locale={locale} summary={{
+                      ...payload.stats,
+                      sellerLevel: normalizeSellerLevel(payload.stats.sellerLevel) ?? "bronze",
+                      nextLevel: normalizeSellerLevel(payload.stats.nextLevel) ?? undefined,
+                    }} />
 
                     <div className="grid gap-2 text-sm sm:grid-cols-2">
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>

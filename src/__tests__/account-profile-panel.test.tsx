@@ -1,3 +1,4 @@
+import { publicAccountId } from "@/lib/public-account-identity";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
@@ -275,7 +276,7 @@ describe("AccountProfilePanel", () => {
     stubProfileFetch(fetchMock);
 
     render(<AccountProfilePanel locale="ar" />);
-    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeTruthy());
 
     const input = screen.getByLabelText("اختيار صورة شخصية");
     fireEvent.change(input, {
@@ -301,7 +302,7 @@ describe("AccountProfilePanel", () => {
       }));
 
     render(<AccountProfilePanel locale="ar" />);
-    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeTruthy());
     fireEvent.change(screen.getByLabelText("اختيار صورة غلاف"), {
       target: { files: [new File(["photo"], "cover.svg", { type: "image/svg+xml" })] },
     });
@@ -354,11 +355,11 @@ describe("AccountProfilePanel", () => {
         </CanonicalSessionProvider>,
       );
 
-      await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeTruthy());
       window.dispatchEvent(new Event("alpha-auth-changed"));
 
       await waitFor(() => expect(screen.getByText("Your session has expired. Please sign in again.")).toBeTruthy());
-      expect(screen.queryByText("Test User")).toBeNull();
+      expect(screen.queryByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeNull();
       expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fprofile");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
@@ -383,13 +384,13 @@ describe("AccountProfilePanel", () => {
 
     render(<AccountProfilePanel locale="en" />);
 
-    await waitFor(() => expect(screen.getByText("Bronze")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Bronze Seller" })).toBeTruthy());
     await waitFor(() => expect(eventSourceInstances).toHaveLength(1));
     expect(screen.queryByText("Manage your account path:")).toBeNull();
 
     eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [], unreadCount: 1 }));
 
-    await waitFor(() => expect(screen.getByText("Silver")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Silver Seller" })).toBeTruthy());
     expect(screen.getByText("2")).toBeTruthy();
   });
 

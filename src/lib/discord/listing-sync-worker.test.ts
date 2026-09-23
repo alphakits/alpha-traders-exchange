@@ -1,3 +1,5 @@
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
@@ -18,7 +20,7 @@ const verifiedSeller = {
 };
 
 describe("Discord listing authoritative snapshot", () => {
-  it("uses measured trust data, real presence, and a safe seller image", () => {
+  it("uses the AT identity, measured trust data and a neutral brand image", () => {
     const snapshot = buildAuthoritativeDiscordListingSnapshot({
       listing: {
         sellerDisplayName: "Seller Alpha",
@@ -30,6 +32,7 @@ describe("Discord listing authoritative snapshot", () => {
       },
       seller: {
         ...verifiedSeller,
+        id: "seller-alpha",
         fullName: "Private Legal Name",
         buyerDisplayName: "Seller Alpha",
         profilePhotoUrl: "https://cdn.example.com/avatar.png",
@@ -51,7 +54,7 @@ describe("Discord listing authoritative snapshot", () => {
     });
 
     expect(snapshot).toMatchObject({
-      sellerDisplayName: "Seller Alpha",
+      sellerDisplayName: publicAccountId({ id: "seller-alpha", role: "approved_seller" }),
       sellerLevel: "diamond",
       reliabilityTier: "Exceptional reliability",
       approvedSeller: true,
@@ -59,9 +62,9 @@ describe("Discord listing authoritative snapshot", () => {
       responseTimeMinutes: 3,
       rating: 4.94,
       completedTrades: 72,
-      imageUrl: "https://cdn.example.com/avatar.png",
+      imageUrl: "https://www.alphatraders.co.il/images/brand/alpha-traders-logo.png",
       listingUrl: "https://www.alphatraders.co.il/en/usdt-exchange",
-      sellerProfileUrl: "https://www.alphatraders.co.il/en/exchange/seller/seller-alpha",
+      sellerProfileUrl: `https://www.alphatraders.co.il/en/exchange/seller/${publicAccountUsername("seller-alpha")}`,
       websiteUrl: "https://www.alphatraders.co.il",
     });
     expect(JSON.stringify(snapshot)).not.toContain("Private Legal Name");

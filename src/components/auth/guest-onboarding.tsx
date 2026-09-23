@@ -363,12 +363,7 @@ export function GuestOnboarding({
                 value={buyer.lastName}
                 onChange={(event) => setBuyer((prev) => ({ ...prev, lastName: event.target.value }))}
               />
-              <Input
-                aria-label={isAr ? "اسم العرض (اختياري)" : "Display Name (Optional)"}
-                placeholder={isAr ? "اسم العرض (اختياري)" : "Display Name (Optional)"}
-                value={buyer.displayName}
-                onChange={(event) => setBuyer((prev) => ({ ...prev, displayName: event.target.value }))}
-              />
+              <p className="text-xs text-[#9CA3AF]">{isAr ? "سيظهر معرّف AT كاسمك العام. تبقى معلوماتك الشخصية خاصة." : "Your AT ID will be your public name. Your personal details stay private."}</p>
               <div className="space-y-3">
                 <p className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
                   {isAr

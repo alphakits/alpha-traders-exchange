@@ -1,3 +1,4 @@
+import { publicAccountId } from "@/lib/public-account-identity";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequest } from "@/types/alpha-exchange";
 
@@ -133,8 +134,8 @@ describe("Trade Room email events", () => {
       recipientLocale: "en",
       title: { ar: "طلب شراء جديد", en: "New Buy Request" },
       message: {
-        ar: "طلب Buyer One شراء 125 USDT. راجع الطلب في غرفة الصفقة.",
-        en: "Buyer One requested 125 USDT. Review the request in your Trade Room.",
+        ar: `طلب ${publicAccountId({ id: "buyer-1", role: "buyer" })} شراء 125 USDT. راجع الطلب في غرفة الصفقة.`,
+        en: `${publicAccountId({ id: "buyer-1", role: "buyer" })} requested 125 USDT. Review the request in your Trade Room.`,
       },
       actionPath: "/trade-room/purchase-1",
     }));

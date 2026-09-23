@@ -797,6 +797,17 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .buyer-rank-hero-card .buyer-rank-hero-emblem { width: 3rem; height: 3rem; }
 .buyer-rank-hero-card .buyer-rank-hero-emblem .rank-emblem__icon { width: 1.6rem; height: 1.6rem; }
 
+.seller-rank-hero-card {
+  min-width: 0;
+  border: 1px solid #e6bd5538;
+  border-radius: 1.5rem;
+  padding: 1.1rem;
+  background: radial-gradient(ellipse at 8% 0%, #d4af371c, transparent 65%), linear-gradient(135deg, #211c11c9, #0e0c08d9);
+  box-shadow: inset 0 1px 0 #f8dfa01a;
+}
+.seller-rank-hero-card .seller-rank-hero-emblem { width: 3rem; height: 3rem; }
+.seller-rank-hero-card .seller-rank-hero-emblem .rank-emblem__icon { width: 1.6rem; height: 1.6rem; }
+
 .rank-badge, .rank-emblem { --rank-light: #f4bd93; --rank-mid: #c58151; --rank-dark: #472716; }
 .rank-badge--silver, .rank-emblem--silver { --rank-light: #edf4ff; --rank-mid: #a7b9d1; --rank-dark: #303d51; }
 .rank-badge--gold, .rank-emblem--gold { --rank-light: #fff2b7; --rank-mid: #dfb849; --rank-dark: #4d3b10; }

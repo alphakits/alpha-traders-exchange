@@ -57,7 +57,7 @@ describe("MobileBottomNavigation", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/",
       "/usdt-exchange",
-      "/usdt-exchange?section=trade-history#my-trade-requests-section",
+      "/trades",
       "/news",
       "/profile",
     ]);
@@ -108,28 +108,28 @@ describe("MobileBottomNavigation", () => {
     expect(screen.getByRole("link", { name: "الرئيسية" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("opens buyer trade history directly and keeps only Trades selected", () => {
-    navigationState.pathname = "/en/usdt-exchange";
-    navigationState.search = "section=trade-history";
+  it("opens the buyer requests and history workspace and keeps only Trades selected", () => {
+    navigationState.pathname = "/en/trades";
+    navigationState.search = "";
     render(<MobileBottomNavigation locale="en" />);
 
     const trades = screen.getByRole("link", { name: "Trades" });
-    expect(trades.getAttribute("href")).toBe("/usdt-exchange?section=trade-history#my-trade-requests-section");
+    expect(trades.getAttribute("href")).toBe("/trades");
     expect(trades.getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Market" }).getAttribute("aria-current")).toBeNull();
   });
 
-  it("keeps approved and suspended sellers on the seller trade-room flow", () => {
+  it("opens approved and suspended sellers on their trade requests and completed history", () => {
     navigationState.role = "approved_seller";
     navigationState.sellerStatus = "approved_seller";
     navigationState.sellerApprovalVerified = true;
     const { rerender } = render(<MobileBottomNavigation locale="en" />);
-    expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trade-room");
+    expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trades");
 
     navigationState.role = "buyer";
     navigationState.sellerStatus = "suspended";
     rerender(<MobileBottomNavigation locale="en" />);
-    expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trade-room");
+    expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trades");
   });
 
   it("stays hidden for signed-out visitors and focused active trade rooms", () => {

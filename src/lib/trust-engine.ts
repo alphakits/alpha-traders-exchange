@@ -56,8 +56,8 @@ export function calculateSellerTrustSnapshot(input: {
   marketplacePosition?: number;
 }): SellerReputationSnapshot {
   const now = Date.now();
-  const completedRequests = input.requests.filter((request) => request.status === "review_open" || Boolean(request.completedAt));
-  const acceptedOrCompleted = input.requests.filter((request) => request.status === "accepted" || request.status === "review_open" || Boolean(request.completedAt));
+  const completedRequests = input.requests.filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt));
+  const acceptedOrCompleted = input.requests.filter((request) => request.status === "accepted" || ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt));
   const cancelled = input.requests.filter((request) => request.status === "cancelled");
   const pending = input.requests.filter((request) => request.status === "pending");
   const requestsCount = input.requests.length;
@@ -66,9 +66,9 @@ export function calculateSellerTrustSnapshot(input: {
   const volumeByCompleted = completedRequests.reduce(
     (acc, request) => {
       const listing = input.listings.find((item) => item.id === request.listingId);
-      if (!listing) return acc;
       const amount = toNumber(request.usdtAmount);
-      const price = toNumber(listing.price);
+      // A removed listing must not erase a completed sale or change its agreed price.
+      const price = toNumber(request.pricePerUsdt ?? listing?.price ?? 0);
       acc.totalUsdtVolume += amount;
       acc.revenueGenerated += amount * price;
       return acc;

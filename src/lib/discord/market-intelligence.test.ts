@@ -1,3 +1,5 @@
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -522,6 +524,7 @@ describe("Discord public seller profile boundary", () => {
           rows: [{
             created_at: new Date("2024-01-01T00:00:00.000Z"),
             payload: {
+              id: "seller-alpha",
               fullName: "Private Legal Name",
               email: "private@example.com",
               buyerDisplayName: "Alpha Seller",
@@ -544,7 +547,7 @@ describe("Discord public seller profile boundary", () => {
       }),
     };
     const profile = await getPublicDiscordSellerProfileByUsername({
-      username: "alpha-seller",
+      username: publicAccountUsername("seller-alpha"),
       pool: pool as never,
       siteUrl: "https://www.alphatraders.co.il",
       now: new Date("2026-08-08T05:00:00.000Z").getTime(),
@@ -557,7 +560,7 @@ describe("Discord public seller profile boundary", () => {
     expect(capturedSql).toContain("discord_identities");
     expect(capturedSql).toContain("isProfileHidden");
     expect(profile).toMatchObject({
-      displayName: "Alpha Seller",
+      displayName: publicAccountId({ id: "seller-alpha", role: "approved_seller" }),
       level: "gold",
       completedTrades: 40,
       publicVolumeRange: null,
@@ -615,6 +618,7 @@ describe("Discord public seller profile boundary", () => {
         rows: [{
           created_at: new Date("2024-01-01T00:00:00.000Z"),
           payload: {
+            id: "private-stats",
             buyerDisplayName: "Private Stats",
             showTradeStats: false,
             showLastActive: false,
@@ -633,7 +637,7 @@ describe("Discord public seller profile boundary", () => {
       })),
     };
     const profile = await getPublicDiscordSellerProfileByUsername({
-      username: "private-stats",
+      username: publicAccountUsername("private-stats"),
       pool: pool as never,
       siteUrl: "https://www.alphatraders.co.il",
     });
