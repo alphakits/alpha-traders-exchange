@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updatePrivateBetaInviteStatus } from "@/lib/alpha-exchange-store";
-import { requireApiAdmin } from "@/lib/api-auth";
+import { requireApiOwner } from "@/lib/api-auth";
 
 type RouteContext = {
   params: Promise<{ inviteId: string }>;
 };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const { user, unauthorized } = await requireApiAdmin();
+  const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
   try {
     const { inviteId } = await context.params;

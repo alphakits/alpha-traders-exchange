@@ -1,4 +1,4 @@
-import { publicAccountId } from "@/lib/public-account-identity";
+import { accountNameForViewer } from "@/lib/public-account-identity";
 import {
   findUserById,
   getListingBroadcastEmailRecipients,
@@ -301,9 +301,8 @@ export async function prepareTradeEventEmails(input: {
   const recipients = [buyer, seller].filter(
     (user): user is NonNullable<typeof user> => Boolean(user && recipientIds.includes(user.id)),
   );
-  const content = tradeEmailContent(input.event, { ...input.request, buyerName: publicAccountId(buyer ?? { id: input.request.buyerId }) });
   return () => Promise.all(recipients.map((recipient) => deliver({
-    ...content,
+    ...tradeEmailContent(input.event, { ...input.request, buyerName: accountNameForViewer(buyer ?? { id: input.request.buyerId }, recipient) }),
     recipient,
     idempotencyKey: `trade-lifecycle:${input.request.id}:${input.event}:${recipient.id}`,
   })));
@@ -407,8 +406,8 @@ export async function prepareListingReviewEmails(input: {
         recipient,
         title: { ar: "نُشر إعلان USDT جديد", en: "New USDT Listing Published" },
         message: {
-          ar: `نشر ${publicAccountId(seller)} كمية ${input.listing.availableAmount} USDT على شبكة ${input.listing.network} بسعر ${input.listing.price} ${input.listing.currency}/USDT.`,
-          en: `${publicAccountId(seller)} published ${input.listing.availableAmount} USDT on ${input.listing.network} at ${input.listing.price} ${input.listing.currency}/USDT.`,
+          ar: `نشر ${accountNameForViewer(seller, recipient)} كمية ${input.listing.availableAmount} USDT على شبكة ${input.listing.network} بسعر ${input.listing.price} ${input.listing.currency}/USDT.`,
+          en: `${accountNameForViewer(seller, recipient)} published ${input.listing.availableAmount} USDT on ${input.listing.network} at ${input.listing.price} ${input.listing.currency}/USDT.`,
         },
         actionLabel: { ar: "تصفّح السوق", en: "Browse Marketplace" },
         actionPath: marketplacePath(),

@@ -1,3 +1,4 @@
+import { publicAccountName } from "@/lib/public-account-identity";
 import type {
   AlphaExchangeUser,
   OnboardingSelection,
@@ -83,12 +84,12 @@ type ClientSessionUserOptions = {
 };
 
 /** Runtime allowlist for the private, admin-only user/contact summary. */
-export function toAdminUserSummary(user: AlphaExchangeUser) {
+export function toAdminUserSummary(user: AlphaExchangeUser, privateIdentity = false) {
   return {
-    whatsappNumber: user.whatsappNumber,
+    whatsappNumber: privateIdentity ? user.whatsappNumber : "",
     id: user.id,
-    fullName: user.fullName,
-    email: user.email,
+    fullName: privateIdentity ? user.fullName : publicAccountName(user),
+    email: privateIdentity ? user.email : "",
     role: user.role,
     roles: user.roles ?? [user.role],
     disabled: user.disabled === true,
@@ -97,7 +98,7 @@ export function toAdminUserSummary(user: AlphaExchangeUser) {
 }
 
 /** Runtime allowlist for admin seller-management responses. */
-export function toAdminSellerSummary(user: AlphaExchangeUser): AdminSellerSummary {
+export function toAdminSellerSummary(user: AlphaExchangeUser, privateIdentity = false): AdminSellerSummary {
   const roles = normalizeRolesForUser({
     email: user.email,
     role: user.role,
@@ -107,9 +108,9 @@ export function toAdminSellerSummary(user: AlphaExchangeUser): AdminSellerSummar
   });
   return {
     id: user.id,
-    fullName: user.fullName,
-    email: user.email,
-    whatsappNumber: user.whatsappNumber,
+    fullName: privateIdentity ? user.fullName : publicAccountName(user),
+    email: privateIdentity ? user.email : "",
+    whatsappNumber: privateIdentity ? user.whatsappNumber : "",
     role: resolvePrimaryRole(roles),
     roles,
     sellerStatus: user.sellerStatus,

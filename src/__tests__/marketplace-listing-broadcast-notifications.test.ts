@@ -1,4 +1,3 @@
-import { publicAccountId } from "@/lib/public-account-identity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
@@ -97,6 +96,7 @@ function createUser(input: {
   return {
     id: input.id,
     fullName: input.id,
+    whatsappNumber: TEST_PHONE,
     email: input.email,
     role: input.role,
     roles,
@@ -487,7 +487,7 @@ describe("marketplace listing publication broadcasts", () => {
     expect(transitionAlerts).toEqual([
       expect.objectContaining({
         category: "trust",
-        title: `Flagged seller: ${publicAccountId({ id: LISTING_CREATOR_ID, role: "approved_seller" })}`,
+        title: `Flagged seller: ${LISTING_CREATOR_ID}`,
         state: "unread",
       }),
     ]);

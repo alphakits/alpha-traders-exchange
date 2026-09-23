@@ -843,6 +843,8 @@ export interface PurchaseRequest {
   listingId: string;
   sellerId: string;
   buyerName: string;
+  /** Canonical public owner identity, derived server-side. */
+  buyerIsOwner?: boolean;
   // Legacy admin-audit fields. They are intentionally never included in
   // Buyer/Seller trade DTOs and new requests do not persist them.
   buyerWhatsapp?: string;

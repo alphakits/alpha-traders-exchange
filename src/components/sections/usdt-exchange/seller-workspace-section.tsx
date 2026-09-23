@@ -1,7 +1,7 @@
 "use client";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
-import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
@@ -1700,7 +1700,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     )}
                     <div className="min-w-0 break-words">
                       <p className="text-base font-semibold text-white"><bdi dir="auto">{currencyText(privateAccountName)}</bdi></p>
-                      <p className="text-xs text-[#9CA3AF]">{isAr ? "معرّف AT العام" : "Public AT ID"}: <bdi dir="ltr">{sessionUser ? publicAccountId(sessionUser) : "—"}</bdi></p>
+                      {!isPublicOwnerIdentity(sessionUser) ? <p className="text-xs text-[#9CA3AF]">{isAr ? "معرّف AT العام" : "Public AT ID"}: <bdi dir="ltr">{sessionUser ? publicAccountId(sessionUser) : "—"}</bdi></p> : null}
                       <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />
                     </div>
                   </div>

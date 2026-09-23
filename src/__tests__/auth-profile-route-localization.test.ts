@@ -15,6 +15,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   getAccountProfileData: mocks.getAccountProfileData,
 }));
 
+import { PrivateContactError } from "@/lib/buyer-contact";
 import { ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { GET, PATCH } from "@/app/api/auth/profile/route";
 
@@ -53,6 +54,17 @@ describe("auth profile route privacy and localization", () => {
     expect(response.status).toBe(401);
     expect(mocks.getAccountProfileData).not.toHaveBeenCalled();
     expect(await response.json()).toEqual({ error: "Unauthorized" });
+  });
+
+  it("localizes the private contact requirement without disclosing submitted data", async () => {
+    mocks.updateAccountProfileData.mockRejectedValue(new PrivateContactError());
+    for (const locale of ["ar", "en"] as const) {
+      const response = await PATCH(request(locale, { whatsappNumber: "invalid" }));
+      expect(response.status).toBe(400);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(await response.json()).toMatchObject({ code: "PRIVATE_CONTACT_REQUIRED", error: expect.stringMatching(locale === "ar" ? /خاص/ : /Only you and the owner/) });
+      expect(mocks.updateAccountProfileData).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", whatsappNumber: "invalid" }));
+    }
   });
 
   it("never exposes provider errors in Arabic or English", async () => {

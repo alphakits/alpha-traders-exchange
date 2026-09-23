@@ -1,3 +1,4 @@
+import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
 import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
@@ -509,7 +510,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? <bdi dir="ltr">{availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} <span className="currency-usdt">USDT</span></bdi> : (isAr ? "غير متاح" : "Not available")}</p>
                   </div>
                 </div>
-                <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only."}</p>
+                <OwnerPrivateContact contact={seller.contact} locale={locale} />
+                {!seller.contact ? <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only."}</p> : null}
               </div>
             </div>
           </CardContent>

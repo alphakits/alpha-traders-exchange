@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiAdmin } from "@/lib/api-auth";
+import { requireApiOwner } from "@/lib/api-auth";
 import { downloadMarketplaceComplianceEvidenceById } from "@/lib/alpha-exchange-store";
 
 type RouteContext = {
@@ -7,7 +7,7 @@ type RouteContext = {
 };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
-  const { user, unauthorized } = await requireApiAdmin();
+  const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
 
   try {

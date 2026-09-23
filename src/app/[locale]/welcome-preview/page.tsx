@@ -1,3 +1,4 @@
+import { BuyerContactPreview } from "@/components/auth/buyer-contact-prompt";
 import { notFound } from "next/navigation";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
@@ -21,6 +22,9 @@ export default async function WelcomePreview({ params, searchParams }: { params:
   const locale = (await params).locale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   const view = (await searchParams).view;
+  if (view === "contact") {
+    return <main className="section-container py-10"><p className="mb-6 text-sm text-[#9CA3AF]">{isAr ? "معاينة رسالة التواصل الخاصة · بدون بيانات حقيقية" : "Private contact prompt preview · no real account data"}</p><div className="mx-auto w-full max-w-[390px]"><BuyerContactPreview locale={locale} /></div></main>;
+  }
   if (view === "profile") {
     const profiles = [
       { role: "owner" as const, name: "Alex Morgan", id: "#S-001247", tone: "owner", cover: "from-[#1B0E0E] via-[#220f0f] to-[#090909]", frame: "border-[#F87171]/45 shadow-[0_0_36px_rgba(248,113,113,0.18)]" },
@@ -36,6 +40,7 @@ export default async function WelcomePreview({ params, searchParams }: { params:
               <PrivateProfileHeader
                 locale={locale}
                 fullName={profile.name}
+                publicOwner={profile.role === "owner"}
                 publicId={profile.id}
                 coverClassName={profile.cover}
                 avatarClassName={profile.frame}

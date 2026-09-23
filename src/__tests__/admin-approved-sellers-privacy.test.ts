@@ -43,7 +43,9 @@ function sensitiveSeller(): AlphaExchangeUser {
 
 describe("getApprovedSellersForAdmin privacy boundary", () => {
   it("returns allowlisted seller summaries rather than raw persisted users", async () => {
-    const sellers = await getApprovedSellersForAdmin({ users: [sensitiveSeller()] } as unknown as AlphaExchangeDb);
+    const db = { users: [sensitiveSeller(), { id: "owner", role: "owner", fullName: "Owner" }] } as unknown as AlphaExchangeDb;
+    const sellers = await getApprovedSellersForAdmin(db, "owner");
+    expect((await getApprovedSellersForAdmin(db))[0]).toMatchObject({ email: "", whatsappNumber: "" });
     const seller = sellers[0] as Record<string, unknown>;
     const serialized = JSON.stringify(seller);
 

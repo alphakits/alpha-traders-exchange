@@ -1,7 +1,7 @@
 "use client";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
-import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountName } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -2965,7 +2965,7 @@ function TradeRoomPageSession({
               <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold">{isAr ? "تفاصيل الصفقة والأمان" : "Trade details and safety"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
               <div className="mt-3 space-y-3 text-sm text-[#D1D5DB]">
                 <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{currencyText(counterpartName)}</span></p>
-                <p>{isAr ? "حسابك" : "Your account"}: {currencyText(publicAccountId(actor))}</p>
+                <p>{isAr ? "حسابك" : "Your account"}: {currencyText(publicAccountName(actor))}</p>
                 <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
                 <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / <span className="currency-usdt">USDT</span></bdi></p>
                 {request.bankName ? <p>{isAr ? "البنوك المعتمدة" : "Supported Banks"}: {currencyText(requestBankNamesLabel)}</p> : null}
@@ -3716,8 +3716,8 @@ function TradeRoomPageSession({
                   <summary className="flex min-h-11 cursor-pointer items-center">{isAr ? "تفاصيل الصفقة" : "Trade details"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
                   <div className="grid gap-1 pb-3 md:grid-cols-2 xl:grid-cols-3">
                     <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {currencyText(tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{currencyText(request.sellerId === actor.id ? room?.counterpart.sellerName || publicAccountId(actor) : counterpartName)}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{currencyText(request.buyerId === actor.id ? room?.counterpart.buyerName || publicAccountId(actor) : counterpartName)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{currencyText(request.sellerId === actor.id ? room?.counterpart.sellerName || publicAccountName(actor) : counterpartName)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{currencyText(request.buyerId === actor.id ? room?.counterpart.buyerName || publicAccountName(actor) : counterpartName)}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>

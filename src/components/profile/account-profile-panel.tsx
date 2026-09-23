@@ -1,5 +1,7 @@
 "use client";
 
+import { requiresBuyerContact } from "@/lib/buyer-contact";
+
 import { publicAccountId } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
@@ -502,6 +504,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     };
 
     window.addEventListener("focus", onFocus);
+    window.addEventListener("alpha-profile-updated", scheduleRefresh);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
@@ -512,6 +515,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         profileRefreshTimeoutRef.current = null;
       }
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("alpha-profile-updated", scheduleRefresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [payload, refreshProfile]);
@@ -811,6 +815,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
           <PrivateProfileHeader
             locale={locale}
             fullName={payload.profile.fullName}
+            publicOwner={isOwner}
             publicId={publicAccountId(payload.profile)}
             avatarUrl={avatarUrl}
             coverUrl={coverUrl}
@@ -969,7 +974,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   </div>
                 </div>
               ) : null}
-              <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-200">{isAr ? "هويتك العامة هي معرّف AT. اسمك الشخصي ورقم هاتفك وبريدك الإلكتروني تبقى خاصة." : "Your public identity is your AT ID. Your personal name, phone and email stay private."}</p>
+              <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-200">{isOwner ? (isAr ? "اسمك وصورتك وشارة المالك ظاهرة في ملفك العام." : "Your name, photo, and Owner badge appear on your public profile.") : (isAr ? "هويتك العامة هي معرّف AT. لا يطّلع على اسمك الحقيقي وبيانات تواصلك إلا أنت ومالك المنصة." : "Your public identity is your AT ID. Only you and the owner can see your real name and contact details.")}</p>
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
                 <div>
                 <Input maxLength={100} value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
@@ -977,7 +982,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                 </div>
                 <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
                 <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} />
-                <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
+                <div id="contact-details">
+                  <label htmlFor="profile-private-phone" className="mb-2 block text-sm text-[#D1D5DB]">{isAr ? "رقم الهاتف أو واتساب" : "Phone or WhatsApp number"}{requiresBuyerContact(payload.profile) ? " *" : ""}</label>
+                  <Input id="profile-private-phone" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" maxLength={30} required={requiresBuyerContact(payload.profile)} value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} aria-describedby="profile-phone-privacy" placeholder="+972 50 123 4567" />
+                  <p id="profile-phone-privacy" className="mt-2 text-xs leading-5 text-[#A6AFBE]">{isAr ? "خاص بك وبمالك المنصة فقط للتواصل عند الحاجة. لا يظهر للمشترين أو البائعين." : "Private to you and the owner for urgent support. Hidden from buyers and sellers."}</p>
+                </div>
                 <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} aria-label={isAr ? "نبذة احترافية" : "Professional bio"} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
 
                 <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB] xl:grid-cols-2">

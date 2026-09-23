@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rejectSellerApplicationByAdmin } from "@/lib/alpha-exchange-store";
-import { requireApiAdmin } from "@/lib/api-auth";
+import { requireApiOwner } from "@/lib/api-auth";
 import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
@@ -8,7 +8,7 @@ type RouteContext = {
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
-  const { user, unauthorized } = await requireApiAdmin();
+  const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
 
   try {

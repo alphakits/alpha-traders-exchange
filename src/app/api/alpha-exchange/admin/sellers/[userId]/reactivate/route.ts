@@ -1,3 +1,4 @@
+import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 import { NextRequest, NextResponse } from "next/server";
 import { reactivateSellerByAdmin } from "@/lib/alpha-exchange-store";
 import { requireApiAdmin } from "@/lib/api-auth";
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
     const seller = await reactivateSellerByAdmin(userId, user.id, reason);
     logEvent("info", { event: "seller_reactivate", actorUserId: user.id, actorRole: user.role, targetUserId: userId, outcome: "success" });
-    return NextResponse.json({ seller: toAdminSellerSummary(seller) });
+    return NextResponse.json({ seller: toAdminSellerSummary(seller, isPublicOwnerIdentity(user)) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to reactivate seller.";
     logEvent("error", { event: "seller_reactivate", actorUserId: user.id, actorRole: user.role, outcome: "failed", reason: message });

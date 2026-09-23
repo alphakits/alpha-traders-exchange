@@ -1,7 +1,27 @@
 import { formatBuyerId, formatSellerId } from "@/lib/format-id";
 import { redactPrivateContactDetails } from "@/lib/privacy-redaction";
 
-type IdentityUser = { id: string; role?: string; roles?: readonly string[]; sellerStatus?: string; fullName?: string; buyerDisplayName?: string; email?: string; whatsappNumber?: string };
+type IdentityUser = { id: string; role?: string; roles?: readonly string[]; sellerStatus?: string; fullName?: string; buyerDisplayName?: string; email?: string; whatsappNumber?: string; disabled?: boolean };
+
+export function isPublicOwnerIdentity(user?: IdentityUser | null) {
+  return Boolean(user && !user.disabled && (user.role === "owner" || user.roles?.includes("owner")));
+}
+
+/** Owner identity is public; member identities remain their dashboard AT IDs. */
+export function publicAccountName(user: IdentityUser) {
+  return isPublicOwnerIdentity(user) ? user.fullName?.trim() || "Alpha Traders Owner" : publicAccountId(user);
+}
+
+/** Call with a canonical server-resolved viewer, never a client-supplied role. */
+export function accountNameForViewer(user: IdentityUser, viewer?: IdentityUser | null) {
+  return isPublicOwnerIdentity(viewer) ? user.fullName?.trim() || publicAccountName(user) : publicAccountName(user);
+}
+
+/** Restores canonical names in stored AT-ID messages for an authorized owner view. */
+export function ownerIdentityText(users: readonly IdentityUser[]) {
+  const names = new Map(users.map(user => [publicAccountId(user), user.fullName?.trim() || publicAccountName(user)]));
+  return (value?: string) => (value ?? "").replace(/#[SB]-\d+\b/g, id => names.get(id) ?? id);
+}
 
 /** The same account identifier used by the dashboard, never a user-entered alias. */
 export function publicAccountId(user: IdentityUser) {
@@ -16,6 +36,7 @@ export function identityTextRedactor(users: readonly IdentityUser[], includeName
   const aliases = new Map<string, string>();
   const reserved = /^(buyer|seller|owner|admin|member|trader|alpha|test|user|system)$/i;
   for (const user of users) {
+    if (isPublicOwnerIdentity(user)) continue;
     const identity = publicAccountId(user);
     for (const name of [user.fullName, user.buyerDisplayName]) {
       if (!name?.trim() || /^#[SB]-\d+$/.test(name) || reserved.test(name.trim())) continue;

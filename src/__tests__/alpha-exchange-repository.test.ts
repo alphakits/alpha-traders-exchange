@@ -317,6 +317,7 @@ describe("AlphaExchangeRepository", () => {
         return Promise.resolve({ rows: [{
           request_payload: requestPayload,
           listing_payload: { id: "listing-1", sellerId: "seller-1" },
+          viewer_payload: { id: "owner-1", fullName: "Owner", role: "owner" },
           buyer_payload: { id: "buyer-1", fullName: "Buyer" },
           seller_payload: { id: "seller-1", fullName: "Seller" },
           dispute_payloads: [],
@@ -339,10 +340,10 @@ describe("AlphaExchangeRepository", () => {
     const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
     const repository = new AlphaExchangeRepository(pool);
 
-    await expect(repository.loadTradeRoomSnapshot(["purchase-1"])).resolves.toMatchObject({
+    await expect(repository.loadTradeRoomSnapshot(["purchase-1"], "owner-1")).resolves.toMatchObject({
       purchaseRequests: [{ id: "purchase-1", status: "accepted" }],
       marketplaceListings: [{ id: "listing-1" }],
-      users: [{ id: "buyer-1" }, { id: "seller-1" }],
+      users: [{ id: "buyer-1" }, { id: "seller-1" }, { id: "owner-1", role: "owner" }],
       __runtimeVersion: 42,
     });
     await expect(repository.loadTradeRoomRevision(["purchase-1"])).resolves.toEqual({
