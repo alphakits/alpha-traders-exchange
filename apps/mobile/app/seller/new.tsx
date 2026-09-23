@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileSellerListingCreateRequest, MobileSellerListingUpdateRequest, MobileSupportedNetwork } from "@alpha-traders/contracts";

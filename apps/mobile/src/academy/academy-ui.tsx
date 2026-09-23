@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../components/branded-text";
 import type { PropsWithChildren } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 
 export function AcademyProgressBar({ value, label }: { value: number; label: string }) {

@@ -1,10 +1,10 @@
+import { BrandedText as Text } from "./branded-text";
 import { useState } from "react";
 import {
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";

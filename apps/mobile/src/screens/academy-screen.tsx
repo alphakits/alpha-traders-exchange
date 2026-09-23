@@ -1,10 +1,10 @@
+import { BrandedText as Text } from "../components/branded-text";
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { Redirect, useRouter } from "expo-router";

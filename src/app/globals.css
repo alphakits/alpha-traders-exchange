@@ -655,7 +655,14 @@ html[lang="ar"] :where(body, body *) {
   -webkit-text-fill-color: var(--usdt-ink, #34d399);
 }
 
-.gold-gradient { --usdt-ink: #065f46; }
+.brand-alpha-traders {
+  color: var(--brand-ink, #fda4af) !important;
+  -webkit-text-fill-color: var(--brand-ink, #fda4af);
+  font-weight: 700;
+}
+
+.gold-gradient { --usdt-ink: #065f46; --brand-ink: #9f1239; }
+.gold-gradient.bg-clip-text { --brand-ink: #fda4af; }
 option[value="USDT"], option[value="usdt"] { color: #34d399; }
 select:has(option[value="USDT"]:checked), select:has(option[value="usdt"]:checked) { color: #34d399; }
 input[placeholder*="usdt" i]::placeholder { color: #34d399; }
@@ -1569,7 +1576,7 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 
 .seller-escrow-brand {
   font-weight: 700;
-  color: #fda4af;
+  color: var(--brand-ink, #fda4af);
 }
 
 .seller-card-info-panel {

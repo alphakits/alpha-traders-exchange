@@ -1,4 +1,4 @@
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
 import { getTranslations } from "next-intl/server";
@@ -235,9 +235,9 @@ export async function HomePage({
             </div>
             <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#C9A227]">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {isRtl
+              {brandText(isRtl
                 ? "تعلم أو استخدم مسار السوق المنظم: توضح Alpha Traders التجربتين باحترافية."
-                : "Learn or use the structured marketplace workflow: Alpha Traders explains both experiences clearly."}
+                : "Learn or use the structured marketplace workflow: Alpha Traders explains both experiences clearly.")}
             </div>
           </CardContent>
         </Card>
@@ -246,10 +246,10 @@ export async function HomePage({
       <section className="section-container">
         <div className={`mb-6 max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
           <h2 className="section-heading">
-            {locale === "ar" ? courseSource.homepage.learnTitleAr : courseSource.homepage.learnTitle}
+            {brandText(locale === "ar" ? courseSource.homepage.learnTitleAr : courseSource.homepage.learnTitle)}
           </h2>
           <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
-            {locale === "ar" ? courseSource.homepage.learnSubtitleAr : courseSource.homepage.learnSubtitle}
+            {brandText(locale === "ar" ? courseSource.homepage.learnSubtitleAr : courseSource.homepage.learnSubtitle)}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -281,7 +281,7 @@ export async function HomePage({
                       </div>
                     ) : (
                       <div className={`flex items-center justify-between border-b border-white/10 px-6 py-5 ${isRtl ? "flex-row-reverse" : ""}`}>
-                        <span className="text-xs uppercase tracking-[0.24em] text-[#C9A227]">Alpha Traders</span>
+                        <span className="text-xs uppercase tracking-[0.24em] text-[#C9A227]">{brandText("Alpha Traders")}</span>
                         <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 p-2 text-[#C9A227]">{icon}</span>
                       </div>
                     )}
@@ -315,9 +315,9 @@ export async function HomePage({
         </div>
         <div className={`mt-8 flex flex-col items-start gap-4 rounded-3xl border border-white/10 bg-[#090909]/80 p-6 ${isRtl ? "md:items-end md:text-right" : "md:text-left"}`}>
           <p className="text-sm leading-7 text-[#D1D5DB]">
-            {locale === "ar"
+            {brandText(locale === "ar"
               ? "ابدأ رحلتك التعليمية خطوة بخطوة داخل Alpha Traders Academy"
-              : "Start your learning journey step by step inside Alpha Traders Academy."}
+              : "Start your learning journey step by step inside Alpha Traders Academy.")}
           </p>
           <Link href="/academy" className={buttonVariants()}>
             {locale === "ar" ? "ابدأ التعلم" : "Start Learning"}
@@ -328,10 +328,10 @@ export async function HomePage({
       <section className="section-container">
         <div className={`mb-6 max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
           <h2 className="section-heading">
-            {locale === "ar" ? courseSource.homepage.visualCurriculumTitleAr : courseSource.homepage.visualCurriculumTitle}
+            {brandText(locale === "ar" ? courseSource.homepage.visualCurriculumTitleAr : courseSource.homepage.visualCurriculumTitle)}
           </h2>
           <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
-            {locale === "ar" ? courseSource.homepage.visualCurriculumBodyAr : courseSource.homepage.visualCurriculumBody}
+            {brandText(locale === "ar" ? courseSource.homepage.visualCurriculumBodyAr : courseSource.homepage.visualCurriculumBody)}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
@@ -406,7 +406,7 @@ export async function HomePage({
             <div className="pointer-events-none absolute inset-0 opacity-25 [background:radial-gradient(circle_at_15%_25%,#C9A227_0,transparent_45%)]" />
             <div className="relative">
               <p className="section-label">{locale === "ar" ? "الخطوة التالية" : "Next Step"}</p>
-              <h3 className="section-heading mt-2">{locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders"}</h3>
+              <h3 className="section-heading mt-2">{brandText(locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders")}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">
                 {primaryCourseValue
                   ? locale === "ar"

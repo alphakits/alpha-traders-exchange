@@ -1,5 +1,5 @@
 import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { ArrowRight, BadgeCheck, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
@@ -511,7 +511,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   </div>
                 </div>
                 <OwnerPrivateContact contact={seller.contact} locale={locale} />
-                {!seller.contact ? <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only."}</p> : null}
+                {!seller.contact ? <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{brandText(isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only.")}</p> : null}
               </div>
             </div>
           </CardContent>
@@ -614,7 +614,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                       </span>
                     ))}
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" /><bdi dir="ltr">{currencyText(listing.network)}</bdi></span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "مسار صفقة مسجّل عبر Alpha Traders" : "Trade flow recorded by Alpha Traders"}</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{brandText(isAr ? "مسار صفقة مسجّل عبر Alpha Traders" : "Trade flow recorded by Alpha Traders")}</span>
                   </div>
                   <SellerListingPurchaseAction
                     locale={locale}

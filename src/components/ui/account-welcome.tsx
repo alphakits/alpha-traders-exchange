@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import type { ReactNode } from "react";
 import { BadgeCheck, Clock3, Crown, GraduationCap, ShieldCheck, ShieldHalf, ShoppingBag, UserRound } from "lucide-react";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
@@ -42,12 +43,12 @@ export function AccountWelcome({ role, locale, name, description, greeting, susp
           <div className="account-welcome__emblem" aria-hidden="true"><Emblem strokeWidth={1.5} /></div>
         </div>
         <Heading className="account-welcome__title">
-          {isAr ? "مرحباً بعودتك، " : "Welcome back, "}<bdi dir="auto">{name}</bdi>
+          {isAr ? "مرحباً بعودتك، " : "Welcome back, "}<bdi dir="auto">{brandText(name)}</bdi>
         </Heading>
         {!suspended ? <p className="account-welcome__greeting">{isAr ? "يسعدنا وجودك من جديد." : "Good to see you again."}</p> : null}
-        <p className="account-welcome__description">{description}</p>
+        <p className="account-welcome__description">{brandText(description)}</p>
         {suspended ? <p className="mt-3 text-sm font-semibold text-amber-200">{isAr ? "حساب البائع معلّق" : "Seller account suspended"}</p> : null}
-        {greeting ? <p className="account-welcome__time">{greeting}</p> : null}
+        {greeting ? <p className="account-welcome__time">{brandText(greeting)}</p> : null}
         {children}
       </div>
     </div>

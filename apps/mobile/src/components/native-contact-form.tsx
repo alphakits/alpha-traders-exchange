@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "./branded-text";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, TextInput, View } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { submitContactMobile } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";

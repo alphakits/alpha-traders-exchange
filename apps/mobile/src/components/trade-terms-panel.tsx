@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "./branded-text";
 import { useRef, useState } from "react";
-import { Text, TextInput, View, Switch } from "react-native";
+import { TextInput, View, Switch } from "react-native";
 import type { MobileTradeDetail } from "@alpha-traders/contracts";
 import { GoldButton } from "./gold-button";
 

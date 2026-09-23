@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { PUBLIC_TRUST_LAST_UPDATED } from "@/lib/public-trust";
@@ -110,16 +111,16 @@ export default async function PrivacyPolicyPage({ params }: { params: Promise<{ 
       <div className="surface-panel mx-auto max-w-4xl p-5 sm:p-6 md:p-8">
         <h1 className="page-title">{isAr ? "سياسة الخصوصية" : "Privacy Policy"}</h1>
         <p className="mt-4 text-sm leading-7 text-[#D1D5DB] sm:text-base">
-          {isAr
+          {brandText(isAr
             ? "تشرح هذه السياسة المعلومات التي قد تعالجها Alpha Traders عند استخدام الموقع أو الأكاديمية أو Alpha Exchange، ولماذا نحتاج إليها وكيف نتعامل معها."
-            : "This policy explains information Alpha Traders may process when you use the website, academy, or Alpha Exchange, why it is needed, and how it is handled."}
+            : "This policy explains information Alpha Traders may process when you use the website, academy, or Alpha Exchange, why it is needed, and how it is handled.")}
         </p>
 
         <div className="mt-8 space-y-4">
           {privacySections[locale].map((section, index) => (
             <article key={section.title} className="rounded-2xl border border-white/10 bg-black/30 p-5">
-              <h2 className="text-base font-semibold text-white sm:text-lg">{index + 1}. {section.title}</h2>
-              <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{section.body}</p>
+              <h2 className="text-base font-semibold text-white sm:text-lg">{index + 1}. {brandText(section.title)}</h2>
+              <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{brandText(section.body)}</p>
             </article>
           ))}
         </div>

@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "./branded-text";
 import type { ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 

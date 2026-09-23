@@ -1,4 +1,4 @@
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { getLocale } from "next-intl/server";
 import Image from "next/image";
 import { ArrowUpRight, MessageCircle, Music2, Users } from "lucide-react";
@@ -55,7 +55,7 @@ export default async function CommunityPage() {
               WhatsApp
             </p>
             <h2 className="text-2xl font-semibold leading-tight md:text-3xl">
-              {isAr ? "انضم إلى مجتمع Alpha Traders" : "Join the Alpha Traders Community"}
+              {brandText(isAr ? "انضم إلى مجتمع Alpha Traders" : "Join the Alpha Traders Community")}
             </h2>
             <p className="mt-4 text-sm leading-7 text-[#9CA3AF] md:text-base">
               {currencyText(isAr
@@ -141,9 +141,9 @@ export default async function CommunityPage() {
               {isAr ? "تابع رحلتنا على تيك توك" : "Follow Our Journey on TikTok"}
             </h2>
             <p className="mt-4 text-sm leading-7 text-[#9CA3AF] md:text-base">
-              {isAr
+              {brandText(isAr
                 ? "تابع @Mark_Jozen للحصول على محتوى تداول، رؤى السوق، فيديوهات تعليمية، تحديثات المجتمع، ولمحات من كواليس Alpha Traders."
-                : "Follow @Mark_Jozen for trading content, market insights, educational videos, community updates, and behind-the-scenes content from Alpha Traders."}
+                : "Follow @Mark_Jozen for trading content, market insights, educational videos, community updates, and behind-the-scenes content from Alpha Traders.")}
             </p>
 
             <div className={`surface-panel-subtle mt-6 p-5 ${isAr ? "md:text-right" : ""}`}>

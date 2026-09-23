@@ -1,6 +1,7 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
@@ -174,9 +175,7 @@ export function LoginForm({
             <div className="absolute bottom-16 left-20 h-48 w-48 rounded-full bg-[#C9A227]/8 blur-3xl" />
           </div>
           <div className="relative z-10">
-            <p className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#D4AF37]">
-              Alpha Traders
-            </p>
+            <p className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#D4AF37]">{brandText("Alpha Traders")}</p>
             <h2 className="mt-6 max-w-md text-4xl font-semibold leading-tight text-white">
               {isAr ? "دخول احترافي إلى Alpha Academy و Alpha Exchange." : "Premium access to Alpha Academy and Alpha Exchange."}
             </h2>
@@ -221,7 +220,7 @@ export function LoginForm({
             </p>
             <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
             <p className="mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]">
-              {isAr ? "أنشئ حساب Alpha Traders للوصول إلى Alpha Academy و Alpha Exchange." : "Create your Alpha Traders account to access Alpha Academy and Alpha Exchange."}
+              {brandText(isAr ? "أنشئ حساب Alpha Traders للوصول إلى Alpha Academy و Alpha Exchange." : "Create your Alpha Traders account to access Alpha Academy and Alpha Exchange.")}
             </p>
 
             <div className="mt-6 grid gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid-cols-2">

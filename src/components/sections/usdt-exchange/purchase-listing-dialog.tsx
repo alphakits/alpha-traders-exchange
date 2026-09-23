@@ -1,6 +1,7 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getCardlessCashAmountOptions, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
@@ -418,7 +419,7 @@ export function PurchaseListingDialog({
             </div>
           </>
         ) : (
-          <div className="px-5 pb-5 pt-4 sm:px-6"><div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm"><p className="text-base font-semibold text-white">{priceMode === "buyer_offer" ? (isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted") : (isAr ? "تم إرسال الطلب" : "Request Submitted")}</p><p className="mt-2 text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "تم إرسال سعرك إلى البائع. ستبدأ الصفقة بالسعر المتفق عليه إذا وافق البائع." : "Your price was sent to the seller. If accepted, the trade will continue at the agreed price.") : (isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly.")}</p><div className="mt-4"><Button onClick={onClose}>{isAr ? "إغلاق" : "Close"}</Button></div></div></div>
+          <div className="px-5 pb-5 pt-4 sm:px-6"><div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm"><p className="text-base font-semibold text-white">{priceMode === "buyer_offer" ? (isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted") : (isAr ? "تم إرسال الطلب" : "Request Submitted")}</p><p className="mt-2 text-[#D1D5DB]">{brandText(priceMode === "buyer_offer" ? (isAr ? "تم إرسال سعرك إلى البائع. ستبدأ الصفقة بالسعر المتفق عليه إذا وافق البائع." : "Your price was sent to the seller. If accepted, the trade will continue at the agreed price.") : (isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly."))}</p><div className="mt-4"><Button onClick={onClose}>{isAr ? "إغلاق" : "Close"}</Button></div></div></div>
         )}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { useState } from "react";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import {
@@ -6,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";

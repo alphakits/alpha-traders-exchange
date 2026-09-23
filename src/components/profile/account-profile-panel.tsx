@@ -4,7 +4,7 @@ import { requiresBuyerContact } from "@/lib/buyer-contact";
 
 import { publicAccountId } from "@/lib/public-account-identity";
 
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
@@ -258,9 +258,9 @@ function AdministrationCard({ isAr, isOwner }: { isAr: boolean; isOwner: boolean
       <CardHeader>
         <CardTitle>{isAr ? "الإدارة" : "Administration"}</CardTitle>
         <CardDescription>
-          {isAr
+          {brandText(isAr
             ? "إدارة منصة Alpha Traders والسوق والمستخدمين والصفقات والعمولات والمراجعات والثقة وعمليات النظام."
-            : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations."}
+            : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -898,7 +898,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عضو منذ" : "Member since"}</p>
                 <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.memberSince).toLocaleDateString(dateLocale)}</p>
-                <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "الهوية موثقة عبر Alpha Traders" : "Identity anchored to Alpha Traders account history"}</p>
+                <p className="mt-1 text-xs text-[#AAB3C2]">{brandText(isAr ? "الهوية موثقة عبر Alpha Traders" : "Identity anchored to Alpha Traders account history")}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "آخر دخول" : "Last login"}</p>

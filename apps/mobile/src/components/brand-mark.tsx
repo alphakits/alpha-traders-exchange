@@ -1,4 +1,5 @@
-import { Image, StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "./branded-text";
+import { Image, StyleSheet, View } from "react-native";
 import { colors, spacing } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 import logo from "../../../../public/images/brand/alpha-traders-logo-512.png";

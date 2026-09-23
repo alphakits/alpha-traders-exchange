@@ -1,4 +1,6 @@
-﻿"use client";
+"use client";
+
+import { brandText } from "@/components/ui/currency-text";
 
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, Compass, Crown, Gem, Loader2, PlayCircle, Target, TrendingUp } from "lucide-react";
@@ -75,13 +77,13 @@ export function FounderPage() {
             <BookOpen className="h-3.5 w-3.5" />
             {isAr ? "مقدمة المؤسس" : "Founder Introduction"}
           </p>
-          <h1 className="text-4xl font-semibold leading-tight md:text-6xl">{isAr ? "تعرف على مؤسس Alpha Traders" : "Meet the Founder of Alpha Traders"}</h1>
+          <h1 className="text-4xl font-semibold leading-tight md:text-6xl">{brandText(isAr ? "تعرف على مؤسس Alpha Traders" : "Meet the Founder of Alpha Traders")}</h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#9CA3AF] md:text-lg">
-            {isAr
+            {brandText(isAr
               ? "قبل أن تبدأ رحلتك التعليمية، أود أن أشاركك قصتي، ولماذا أنشأت Alpha Traders، ولماذا قررت أن أجعل هذا المحتوى مجاناً للجميع."
-              : "Before your learning journey starts, I want to share my story, why Alpha Traders was built, and why this content is free for everyone."}
+              : "Before your learning journey starts, I want to share my story, why Alpha Traders was built, and why this content is free for everyone.")}
           </p>
-          <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D1D5DB]">{isAr ? courseSource.founder.philosophyAr : courseSource.founder.philosophy}</p>
+          <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D1D5DB]">{brandText(isAr ? courseSource.founder.philosophyAr : courseSource.founder.philosophy)}</p>
         </div>
       </section>
 
@@ -179,7 +181,7 @@ export function FounderPage() {
                       <Icon className="h-4 w-4" />
                       {isAr ? "محور" : "Topic"}
                     </CardDescription>
-                    <CardTitle>{isAr ? item.titleAr : item.title}</CardTitle>
+                    <CardTitle>{brandText(isAr ? item.titleAr : item.title)}</CardTitle>
                   </CardHeader>
                 </Card>
               </div>
@@ -194,7 +196,7 @@ export function FounderPage() {
             ? "رسالتي ليست بيع الأحلام...\nرسالتي هي تعليم التداول بطريقة صحيحة ومنظمة لكل شخص يريد أن يتعلم."
             : "My mission is not selling dreams...\nMy mission is teaching trading correctly and systematically to anyone serious about learning."}
         </p>
-        <p className="mx-auto mt-5 max-w-3xl text-sm leading-7 text-[#9CA3AF]">{isAr ? courseSource.founder.freeAr : courseSource.founder.free}</p>
+        <p className="mx-auto mt-5 max-w-3xl text-sm leading-7 text-[#9CA3AF]">{brandText(isAr ? courseSource.founder.freeAr : courseSource.founder.free)}</p>
       </section>
 
       <section>
@@ -210,7 +212,7 @@ export function FounderPage() {
                 <span className="absolute -start-[1.05rem] top-5 h-3 w-3 rounded-full border border-[#C9A227] bg-[#050505]" />
                 <Card>
                   <CardContent className="pt-6">
-                    <p className="font-medium">{isAr ? step.titleAr : step.title}</p>
+                    <p className="font-medium">{brandText(isAr ? step.titleAr : step.title)}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -229,7 +231,7 @@ export function FounderPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {(isAr ? courseSource.founder.expectationsAr : courseSource.founder.expectations).map((item) => (
             <Card key={item}>
-              <CardContent className="pt-6 text-sm text-[#D1D5DB]">{item}</CardContent>
+              <CardContent className="pt-6 text-sm text-[#D1D5DB]">{brandText(item)}</CardContent>
             </Card>
           ))}
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -1324,7 +1325,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
                 {isAr ? "منظّم ومسجّل عبر " : "Structured and recorded by "}
-                <span className="seller-escrow-brand">Alpha Traders</span>
+                <span className="seller-escrow-brand">{brandText("Alpha Traders")}</span>
               </span>
             </p>
             <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{currencyText(safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel"))}</span></p>
@@ -5288,7 +5289,7 @@ export function UsdtExchangePage({
           <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">{isApprovedSeller ? (isAr ? "إعادة الدخول إلى مساحة البيع" : "Returning to your seller workspace") : (isAr ? "إعادة الدخول إلى مساحة الشراء" : "Returning to your buyer workspace")}</p>
           <h1 className="mt-2 text-4xl font-semibold leading-tight text-white md:text-6xl md:leading-[1.1]">{currencyText(workspaceIdentityName)}</h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-white/85 md:text-lg">
-            {workspacePositiveMessage}
+            {brandText(workspacePositiveMessage)}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved seller") : (isAr ? "مشتري نشط" : "Active buyer")}</span>
@@ -5310,9 +5311,9 @@ export function UsdtExchangePage({
         <CardHeader>
           <CardTitle>{isAr ? "للبائعين المعتمدين فقط" : "Approved Sellers Only"}</CardTitle>
           <CardDescription>
-            {isAr
+            {brandText(isAr
               ? "يسمح فقط للبائعين المعتمدين من Alpha Traders بنشر العروض. يتم مراجعة كل طلب بائع يدويًا قبل الموافقة."
-              : "Only sellers approved by Alpha Traders are allowed to publish listings. Every seller application is reviewed manually before approval."}
+              : "Only sellers approved by Alpha Traders are allowed to publish listings. Every seller application is reviewed manually before approval.")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -5961,9 +5962,9 @@ export function UsdtExchangePage({
           <div className={`relative z-10 ${isAr ? "md:text-right" : ""}`}>
             <h3 className="text-2xl font-semibold md:text-3xl">{currencyText(isAr ? "جاهز لتبادل USDT؟" : "Ready to Exchange USDT?")}</h3>
             <p className="mt-2 max-w-3xl text-[#D1D5DB]">
-              {isAr
+              {brandText(isAr
                 ? "انضم إلى مجتمع Alpha Traders واستمتع بسوق احترافي يربط بين البائعين والمشترين عبر Alpha Exchange."
-                : "Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange."}
+                : "Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange.")}
             </p>
             <div className={`mt-5 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
               <a href="#marketplace">

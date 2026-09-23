@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import { ContactForm } from "@/components/sections/contact/contact-form";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { buildPageMetadata } from "@/lib/seo";
@@ -22,9 +23,9 @@ export default async function SupportPage({ params }: { params: Promise<{ locale
         <h1 className="page-title">{isAr ? "الدعم" : "Support"}</h1>
         <div className="mt-4 space-y-4 text-sm leading-7 text-[#D1D5DB]">
           <p>
-            {isAr
+            {brandText(isAr
               ? "للمساعدة في الحساب، التسجيل، أو مشاكل التداول، تواصل مع دعم Alpha Traders."
-              : "For account, onboarding, or trade support, contact Alpha Traders support."}
+              : "For account, onboarding, or trade support, contact Alpha Traders support.")}
           </p>
           <p>
             {isAr ? "البريد:" : "Email:"}{" "}
