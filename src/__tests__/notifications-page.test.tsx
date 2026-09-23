@@ -135,6 +135,49 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.getByRole("button", { name: "All" }).className).toContain("min-h-11");
   });
 
+  it("keeps the inbox usable when a stale conversation has a malformed link", async () => {
+    const items = [notification({
+      id: "malformed-chat", createdAt: "2026-08-27T11:50:00.000Z", category: "trade",
+      reason: "trade_room_message", title: "New trade message", actionLabel: "Open Trade Room",
+      actionHref: "/trade-room/%E0%A4%A#chat", relatedHref: "/trade-room/Purchase-AbC#chat",
+    })];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse(items)));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open trade message" }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/trade-room/Purchase-AbC?action=open-trade#chat"));
+  });
+
+  it("opens a known trade immediately without waiting on a second network lookup", async () => {
+    const items = [notification({
+      id: "legacy-completed", createdAt: "2026-08-27T11:50:00.000Z", category: "trade",
+      reason: "trade_completed", title: "Trade completed", actionLabel: "Open Trade Room",
+      relatedRequestId: "Purchase-AbC",
+    })];
+    const fetchMock = vi.fn((url: string) => url.startsWith("/api/alpha-exchange/notifications")
+      ? Promise.resolve(notificationsResponse(items))
+      : new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Trade Room" }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/trade-room/Purchase-AbC"));
+  });
+
+  it.each([
+    ["Mark as read", "Failed to update notification."],
+    ["Mark all as read", "Failed to update notifications."],
+  ])("keeps unread state and reports an offline failure for %s", async (label, error) => {
+    const items = [notification({ id: "offline-1", createdAt: "2026-08-27T11:50:00.000Z" })];
+    vi.stubGlobal("fetch", vi.fn((_url: string, options?: RequestInit) => options?.method === "PATCH"
+      ? Promise.reject(new TypeError("Failed to fetch"))
+      : Promise.resolve(notificationsResponse(items))));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Your account has a new update.");
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await screen.findByText(error);
+    expect(screen.getByRole("button", { name: label }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
   it("does not reuse another account's cached notification inbox", async () => {
     const privateItem = notification({
       id: "private-user-one",

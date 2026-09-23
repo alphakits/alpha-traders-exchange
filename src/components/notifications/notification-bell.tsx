@@ -13,7 +13,7 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
-import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { extractRequestIdFromTradeRoomHref, extractTradeRoomHrefFromRelatedHref, getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import {
   getExplicitNonTradeRoomNotificationDestination,
@@ -65,33 +65,6 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   return BellDot;
 }
 
-function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
-  const href = relatedHref?.trim();
-  if (!href) return null;
-  const normalized = href.startsWith("/") ? href : `/${href}`;
-  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
-  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
-  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
-  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
-  return null;
-}
-
-function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
-  if (!href) return null;
-  try {
-    const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const normalizedPath = parsed.pathname.replace(/\/+$/, "").toLowerCase();
-    const match = normalizedPath.match(/\/trade-room\/([^/?#]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-    return null;
-  } catch {
-    const normalized = href.split("?")[0]?.split("#")[0]?.replace(/\/+$/, "") ?? "";
-    const match = normalized.match(/\/trade-room\/([^/?#]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-    return null;
-  }
-}
-
 function formatNotificationTitle(notification: AlphaExchangeNotification, locale: AppLocale) {
   return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).title, notification);
 }
@@ -125,13 +98,13 @@ function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorU
   return "open-trade";
 }
 
-function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUserId: string) {
-  const requestId = String(snapshot.requestId ?? "").trim();
-  const status = String(snapshot.currentStage ?? "").trim();
-  const sellerId = String(snapshot.sellerId ?? "").trim();
-  const buyerId = String(snapshot.buyerId ?? "").trim();
+function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null | undefined, actorUserId: string) {
+  const requestId = String(snapshot?.requestId ?? "").trim();
+  const status = String(snapshot?.currentStage ?? "").trim();
+  const sellerId = String(snapshot?.sellerId ?? "").trim();
+  const buyerId = String(snapshot?.buyerId ?? "").trim();
   if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot.paymentMethod }, actorUserId);
+  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot?.paymentMethod }, actorUserId);
 }
 
 function inferTradeActionFromNotificationText(notification: AlphaExchangeNotification) {
@@ -154,16 +127,16 @@ function buildTradeDestinationFromNotification(notification: AlphaExchangeNotifi
   if (conversationDestination) return conversationDestination;
   const requestId = notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
-    || extractRequestIdFromTradeRoomHref(notification.relatedHref ?? notification.actionHref)
+    || (extractRequestIdFromTradeRoomHref(notification.relatedHref) ?? extractRequestIdFromTradeRoomHref(notification.actionHref))
     || null;
   if (!requestId) return null;
 
   const snapshotAction = notification.userId
-    ? buildTradeRoomActionForSnapshot(notification.tradeSnapshot as TradeSnapshotPayload, notification.userId)
+    ? buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId)
     : null;
   const action = snapshotAction ?? inferTradeActionFromNotificationText(notification);
   const hash = buildTradeRoomHashForAction(action);
-  return `/trade-room/${requestId}?action=${encodeURIComponent(action)}#${hash}`;
+  return `/trade-room/${encodeURIComponent(requestId)}?action=${encodeURIComponent(action)}#${hash}`;
 }
 
 type NotificationBellProps = { locale: AppLocale };
@@ -476,8 +449,8 @@ function NotificationBellSession({
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
-    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
-    return extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${encodeURIComponent(notification.relatedRequestId.trim())}`;
+    return (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref));
   }
 
   const hasUnread = unreadCount > 0;

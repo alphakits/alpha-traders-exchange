@@ -14,7 +14,7 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
-import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { extractRequestIdFromTradeRoomHref, extractTradeRoomHrefFromRelatedHref, getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import {
   getExplicitNonTradeRoomNotificationDestination,
@@ -213,29 +213,6 @@ function buildNotificationGroups(
   return groups;
 }
 
-function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
-  const href = relatedHref?.trim();
-  if (!href) return null;
-  const normalized = href.startsWith("/") ? href : `/${href}`;
-  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
-  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
-  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
-  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
-  return null;
-}
-
-function extractRequestIdFromTradeRoomHref(href: string | null) {
-  if (!href) return null;
-  try {
-    const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const match = parsed.pathname.match(/\/trade-room\/([^/]+)\/?$/i);
-    return match?.[1] ? decodeURIComponent(match[1]).trim() || null : null;
-  } catch {
-    const match = href.split("?")[0]?.split("#")[0]?.match(/\/trade-room\/([^/]+)\/?$/i);
-    return match?.[1] ? decodeURIComponent(match[1]).trim() || null : null;
-  }
-}
-
 function canResolveNotificationDestination(notification: AlphaExchangeNotification) {
   if (getCommissionPaymentNotificationDestination(notification)) return true;
   if (getTradeRoomConversationDestination(notification)) return true;
@@ -244,7 +221,7 @@ function canResolveNotificationDestination(notification: AlphaExchangeNotificati
   return Boolean(
     notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
-    || extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref),
+    || (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref)),
   );
 }
 
@@ -461,8 +438,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
-    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
-    const fromHref = extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${encodeURIComponent(notification.relatedRequestId.trim())}`;
+    const fromHref = (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref));
     if (fromHref) return fromHref;
     return null;
   }
@@ -491,9 +468,10 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
       if (!response.ok) return input?.fallbackHref ?? null;
       const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
-      if (payload.destination?.trim()) return payload.destination.trim();
+      const destination = getSafeInternalNotificationDestination({ actionHref: payload.destination ?? undefined });
+      if (destination) return destination;
       if (!payload.activeRequestId) return null;
-      return `/trade-room/${payload.activeRequestId}`;
+      return `/trade-room/${encodeURIComponent(payload.activeRequestId)}`;
     } catch {
       return input?.fallbackHref ?? null;
     }
@@ -512,25 +490,12 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       if (snapshotAction && (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId) {
         const requestId = String((notification.tradeSnapshot as TradeSnapshotPayload).requestId ?? "").trim();
         const hash = buildTradeRoomHashForAction(snapshotAction);
-        return `/trade-room/${requestId}?action=${encodeURIComponent(snapshotAction)}#${hash}`;
+        return `/trade-room/${encodeURIComponent(requestId)}?action=${encodeURIComponent(snapshotAction)}#${hash}`;
       }
-      if (relatedRequestId && notification.userId) {
-        try {
-          const response = await fetch(`/api/alpha-exchange/trade-room/${relatedRequestId}`, { cache: "no-store" });
-          if (response.ok) {
-            const payload = (await response.json()) as { request?: TradeRoomRequestPayload };
-            const request = payload.request;
-            if (request?.id) {
-              const action = buildTradeRoomActionForRequest(request, notification.userId);
-              const hash = buildTradeRoomHashForAction(action);
-              return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
-            }
-          }
-        } catch {
-          // Fall back to active trade resolution below.
-        }
-      }
+      // The room reconciles its current action from the authoritative response.
+      // A known destination must not wait for duplicate status/active-room reads.
       const fallbackHref = resolveTradeRoomHref(notification);
+      if (fallbackHref) return fallbackHref;
       return await resolveActiveTradeHref({
         notificationId: notification.id,
         requestId: relatedRequestId,
@@ -571,6 +536,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     if (itemLoading[key]) return;
     const target = notifications.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
+    setError(null);
     setItemLoading((prev) => ({ ...prev, [key]: true }));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
@@ -589,6 +555,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       const nextUnreadCount = Math.max(0, unreadCount - 1);
       setNotifications(sortedNextNotifications);
       setUnreadCount(nextUnreadCount);
+    } catch {
+      setError(isAr ? "تعذر تحديث الإشعار." : "Failed to update notification.");
     } finally {
       setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
@@ -596,6 +564,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
 
   async function handleMarkAllRead() {
     if (isMarkingAllRead) return;
+    setError(null);
     setIsMarkingAllRead(true);
     try {
       const response = await fetch("/api/alpha-exchange/notifications", {
@@ -610,6 +579,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true, state: "read" as const })));
       setNotifications(nextNotifications);
       setUnreadCount(0);
+    } catch {
+      setError(isAr ? "تعذر تحديث الإشعارات." : "Failed to update notifications.");
     } finally {
       setIsMarkingAllRead(false);
     }
@@ -785,7 +756,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
             </div>
           ) : null}
 
-          {!loading && !error ? <div className="space-y-6">
+          {!loading && pageItems.length > 0 ? <div className="space-y-6">
             {groupedPageItems.map((group) => (
               <section key={group.key} className="space-y-3">
                 <div className={`flex items-end justify-between gap-3 border-b pb-2 ${group.isActionGroup ? "border-amber-400/25" : "border-white/10"}`}>

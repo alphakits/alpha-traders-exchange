@@ -18,6 +18,20 @@ afterEach(() => {
 });
 
 describe("Notification bell conversation navigation", () => {
+  it("opens a legacy lifecycle notice without a trade snapshot and preserves its request ID", async () => {
+    const notification = {
+      id: "legacy-1", userId: "buyer-1", category: "trade", reason: "trade_completed",
+      title: "Trade completed", message: "Your review is available.",
+      relatedHref: "/en/trade-room/Purchase-AbC", actionLabel: "Open Trade Room",
+      isRead: false, state: "unread", createdAt: new Date().toISOString(),
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ notifications: [notification], unreadCount: 1 }), { status: 200 })));
+    render(<NotificationBell locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Trade Room" }));
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/trade-room/Purchase-AbC?action=review-trade#status-banner"));
+  });
+
   it("opens and closes immediately while a notification request is stuck, without duplicate reads", () => {
     const fetchMock = vi.fn(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);

@@ -115,4 +115,23 @@ describe("Trade Room client prefetch reliability", () => {
     expect(router.prefetch).toHaveBeenCalledWith("/trade-room/trade-anonymous");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("releases a stalled prefetch so the next navigation can retry", async () => {
+    let resolveBody: ((value: unknown) => void) | undefined;
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => new Promise((resolve) => { resolveBody = resolve; }),
+    }).mockResolvedValueOnce(new Response(JSON.stringify({ request: { id: "trade-stalled", status: "completed" } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const router = { prefetch: vi.fn() };
+    const stalled = prefetchTradeRoom(router, "trade-stalled", "buyer-1");
+    await vi.advanceTimersByTimeAsync(8_001);
+    await expect(stalled).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    await prefetchTradeRoom(router, "trade-stalled", "buyer-1");
+    resolveBody?.({ request: { id: "trade-stalled", status: "accepted" } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(readTradeRoomCache("trade-stalled", "buyer-1")).toEqual({ request: { id: "trade-stalled", status: "completed" } });
+  });
 });

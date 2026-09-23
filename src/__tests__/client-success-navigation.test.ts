@@ -95,6 +95,25 @@ describe("client success navigation", () => {
     expect(consumeActionResult("/trade-room/purchase-123")).toBeNull();
   });
 
+  it.each(["/en", "/ar", "/en/", "/ar/"])("delivers home-page feedback at %s", (pathname) => {
+    navigateAfterSuccess({ push: vi.fn() } as unknown as AppRouterInstance, "/", "Saved successfully.");
+    expect(consumeActionResult(pathname)).toBe("Saved successfully.");
+  });
+
+  it.each([
+    "javascript:alert(1)", "https://example.test/trade-room/123",
+    "//example.test/trade-room/123", "/\\example.test/trade-room/123",
+    "https://[invalid", "/trade-room/%E0%A4%A",
+  ])("rejects an unsafe or malformed action destination: %s", (destination) => {
+    const router = { push: vi.fn() } as unknown as AppRouterInstance;
+    const location = window.location.href;
+    expect(navigateAfterSuccess(router, destination, "Saved successfully.")).toBe(false);
+    expect(navigateOrRevealResult(router, destination, "trade-action-result")).toBe(false);
+    expect(router.push).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(location);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("navigates when the canonical result belongs to another context", () => {
     const router = { push: vi.fn() } as unknown as { push: ReturnType<typeof vi.fn> };
 

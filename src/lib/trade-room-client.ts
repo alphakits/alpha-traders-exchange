@@ -98,6 +98,15 @@ export function prefetchTradeRoom(
   const existingPrefetch = inFlightTradeRoomPrefetches.get(prefetchKey);
   if (existingPrefetch) return existingPrefetch;
 
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<void>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      resolve();
+    }, 8_000);
+  });
+
   const href = buildTradeRoomHref(requestId);
   const routePrefetch = Promise.resolve()
     .then(() => router.prefetch?.(href))
@@ -107,17 +116,18 @@ export function prefetchTradeRoom(
   const dataPrefetch = Promise.resolve()
     .then(async () => {
       if (!actorUserId || readTradeRoomCache(requestId, actorUserId)) return;
-      const response = await fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) return;
       const payload = await response.json();
-      writeTradeRoomCache(requestId, actorUserId, payload);
+      if (!controller.signal.aborted) writeTradeRoomCache(requestId, actorUserId, payload);
     })
     .catch(() => {
       // Ignore prefetch failures; navigation will still fetch live data.
     });
-  const prefetch = Promise.all([routePrefetch, dataPrefetch])
+  const prefetch = Promise.race([Promise.all([routePrefetch, dataPrefetch]), deadline])
     .then(() => undefined)
     .finally(() => {
+      clearTimeout(timeout);
       if (inFlightTradeRoomPrefetches.get(prefetchKey) === prefetch) {
         inFlightTradeRoomPrefetches.delete(prefetchKey);
       }

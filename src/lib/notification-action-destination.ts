@@ -1,18 +1,14 @@
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
+import { APP_DESTINATION_ORIGIN, parseInternalAppUrl } from "@/lib/internal-app-url";
 
-const NOTIFICATION_DESTINATION_ORIGIN = "https://www.alphatraders.co.il";
+const NOTIFICATION_DESTINATION_ORIGIN = APP_DESTINATION_ORIGIN;
 
 function safeInternalNotificationHref(href: string | null | undefined) {
   const normalizedHref = href?.trim();
   if (!normalizedHref?.startsWith("/") || normalizedHref.startsWith("//")) return null;
 
-  try {
-    const parsed = new URL(normalizedHref, NOTIFICATION_DESTINATION_ORIGIN);
-    if (parsed.origin !== NOTIFICATION_DESTINATION_ORIGIN) return null;
-    return normalizedHref;
-  } catch {
-    return null;
-  }
+  const parsed = parseInternalAppUrl(normalizedHref);
+  return parsed ? `${parsed.pathname}${parsed.search}${parsed.hash}` : null;
 }
 
 /**
