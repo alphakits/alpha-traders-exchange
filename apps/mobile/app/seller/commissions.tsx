@@ -104,10 +104,10 @@ export default function SellerCommissionsScreen() {
           ? (isAr ? "تمت تسوية جميع العمولات وإزالة القيود المتعلقة بالعمولة. وتظل أي قيود أخرى على الحساب سارية." : "All commission dues are settled and commission-related restrictions are cleared. Any other account restrictions still apply.")
           : (isAr ? "تم التحقق من هذه الدفعة. ما زالت هناك عمولات أخرى مستحقة." : "This payment was verified. Other commissions are still due.")
         : response.verification?.pending
-          ? (isAr ? "تم إرسال الدفعة. سيتم التحقق منها تلقائيًا بعد التأكيد النهائي على الشبكة المختارة." : "Payment submitted. It will be verified automatically after blockchain final confirmation.")
+          ? (isAr ? "تم حفظ مرجع الدفعة. سيعيد النظام فحص الاستلام تلقائيًا؛ لا ترسل دفعة أخرى." : "Payment reference saved. The system will retry receipt verification automatically; do not send another payment.")
           : isAr
-            ? `لم تُحتسب الدفعة.${verificationNotes ? ` ${verificationNotes}` : ""} ألصق TxID مختلفًا وصالحًا أدناه وأرسله مرة أخرى.`
-            : `Payment was not credited.${verificationNotes ? ` ${verificationNotes}` : ""} Paste a valid transaction ID for the selected network below and submit it again.`;
+            ? `لم تُحتسب الدفعة.${verificationNotes ? ` ${verificationNotes}` : ""} راجع الدفعة الأصلية واستخدم TxID الصحيح عند الحاجة. لا تدفع مرة أخرى.`
+            : `Payment was not credited.${verificationNotes ? ` ${verificationNotes}` : ""} Review the original payment and use its correct TxID if needed. Do not pay again.`;
       Alert.alert(isAr ? "حالة الدفع" : "Payment status", message);
     },
     onError: (mutationError) => setError(mutationError instanceof Error ? mutationError.message : (isAr ? "تعذر التحقق من الدفع." : "The payment could not be verified.")),
@@ -138,6 +138,34 @@ export default function SellerCommissionsScreen() {
     ? (selectedRecord.paymentAmountDue ?? selectedRecord.amountDue)
     : 0;
   const formattedSelectedPaymentAmount = formatExactTrc20CommissionAmount(selectedPaymentAmount);
+  const scanState = !paymentRailReady ? "unavailable" : selectedVerification.state;
+  const scanStatus = {
+    ready: {
+      label: isAr ? "بانتظار الدفعة المطابقة" : "Awaiting a matching payment",
+      detail: isAr ? "أرسل المبلغ الدقيق إلى العنوان الظاهر على الشبكة المختارة. لا يلزم إدخال TxID لبدء الفحص." : "Send the exact amount to the displayed address on the selected network. No TxID is needed to start the checks.",
+      color: colors.goldBright,
+    },
+    pending: {
+      label: isAr ? "جارٍ التحقق من الدفعة" : "Verifying payment",
+      detail: isAr ? "تم حفظ مرجع الدفعة. يستمر التحقق تلقائيًا؛ يمكنك مراجعة تفاصيله أدناه." : "Your payment reference is saved. Verification continues automatically; its details are shown below.",
+      color: "#93C5FD",
+    },
+    failed: {
+      label: isAr ? "الدفعة بحاجة إلى مراجعة" : "Payment needs review",
+      detail: isAr ? "لم يتم التحقق من المرجع المحفوظ. راجع السبب أدناه، ويمكنك استخدام TxID الصحيح لطلب فحص مباشر." : "The saved reference could not be verified. Review the reason below and use the correct TxID for a direct check if needed.",
+      color: colors.warning,
+    },
+    verified: {
+      label: isAr ? "تم التحقق من الدفعة" : "Payment verified",
+      detail: isAr ? "تمت مطابقة الدفعة. لا يلزم إدخال معرّف معاملة آخر." : "The payment was matched. No further transaction ID is needed.",
+      color: colors.success,
+    },
+    unavailable: {
+      label: isAr ? "الدفع غير متاح حاليًا" : "Payment currently unavailable",
+      detail: isAr ? "عنوان الاستلام للشبكة المختارة غير جاهز. لا ترسل أي مبلغ؛ راجع تنبيه العنوان أدناه." : "The recipient check for the selected network is unavailable. Do not send funds; review the address warning below.",
+      color: colors.danger,
+    },
+  }[scanState];
 
   async function copyRecipientAddress() {
     if (!paymentRailReady) {
@@ -242,7 +270,7 @@ export default function SellerCommissionsScreen() {
                 )}
                 {record.dueAt ? <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الاستحقاق" : "Due"}: {new Date(record.dueAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</Text> : null}
                 {recordVerification.state === "pending" ? <Text style={[styles.optionVerificationPending, isRTL && styles.rtlText]}>{isAr ? "التحقق التلقائي قيد التشغيل" : "Automatic verification pending"}</Text> : null}
-                {recordVerification.state === "failed" ? <Text style={[styles.optionVerificationFailed, isRTL && styles.rtlText]}>{isAr ? "لم تُحتسب الدفعة — يلزم TxID جديد" : "Not credited — new TxID required"}</Text> : null}
+                {recordVerification.state === "failed" ? <Text style={[styles.optionVerificationFailed, isRTL && styles.rtlText]}>{isAr ? "الدفعة بحاجة إلى مراجعة" : "Payment needs review"}</Text> : null}
                 {recordVerification.state === "verified" ? <Text style={[styles.optionVerificationVerified, isRTL && styles.rtlText]}>{isAr ? "تم التحقق من الدفع" : "Payment verified"}</Text> : null}
                 {relatedRequestId ? (
                   <GoldButton onPress={() => router.push({ pathname: "/trade/[requestId]", params: { requestId: relatedRequestId } })} variant="ghost">{isAr ? "فتح الصفقة" : "Open trade"}</GoldButton>
@@ -267,6 +295,38 @@ export default function SellerCommissionsScreen() {
               {selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.issueReason}</Text> : null}
             </View>
           ) : null}
+
+          <View style={styles.automationCard}>
+            <View style={[styles.automationHeader, isRTL && styles.rowReverse]}>
+              <Text accessibilityRole="header" style={[styles.automationTitle, isRTL && styles.rtlText]}>{isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}</Text>
+              <View style={styles.automationBadge}>
+                <Text style={styles.automationBadgeText}>{isAr ? "تأكيد تلقائي" : "Automatic confirmation"}</Text>
+              </View>
+            </View>
+            <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "فحص تلقائي كل دقيقة. الدفعات المطابقة لا تحتاج إلى صورة أو موافقة يدوية." : "Automatic checks every minute. Matching payments need no screenshot or manual approval."}</Text>
+            <View accessibilityLiveRegion="polite" style={[styles.scanStatus, isRTL && styles.rowReverse]}>
+              <View importantForAccessibility="no" style={[styles.scanStatusDot, { backgroundColor: scanStatus.color }]} />
+              <Text style={[styles.scanStatusLabel, { color: scanStatus.color }, isRTL && styles.rtlText]}>{scanStatus.label}</Text>
+            </View>
+            <Text style={[styles.body, isRTL && styles.rtlText]}>{scanStatus.detail}</Text>
+            <View style={[styles.scanSteps, isRTL && styles.rowReverse]}>
+              {[
+                isAr ? "المبلغ الدقيق" : "Exact amount",
+                isAr ? "تحقق تلقائي" : "Auto verification",
+                isAr ? "تسجيلها مدفوعة" : "Marked paid",
+              ].map((label, index) => (
+                <View key={index} style={styles.scanStep}>
+                  <Text style={styles.scanStepNumber}>{index + 1}</Text>
+                  <Text style={[styles.scanStepLabel, isRTL && styles.rtlText]}>{label}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.scanChecks}>
+              <Text style={[styles.scanChecksLabel, isRTL && styles.rtlText]}>{isAr ? "مطابقة المبلغ · عنوان الاستلام · الشبكة" : "Amount match · Recipient · Network"}</Text>
+              <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "يشمل الفحص معاملات البلوك تشين وإيداعات Binance المدعومة." : "Checks include blockchain receipts and supported Binance deposits."}</Text>
+            </View>
+            <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "تُسجَّل الدفعة كمدفوعة بعد التحقق، وتُزال قيود العمولة بعد تسوية جميع المستحقات. وتبقى أي قيود أخرى على الحساب سارية." : "Verified receipts mark the record paid. Commission restrictions clear once all dues are settled; other account restrictions still apply."}</Text>
+          </View>
 
           {!legacyPendingForSelectedRecord ? <>
           <View style={styles.networkLockCard}>
@@ -332,8 +392,9 @@ export default function SellerCommissionsScreen() {
             <Text style={[styles.label, isRTL && styles.rtlText]}>
               {failedForSelectedRecord || pendingForSelectedRecord
                 ? (isAr ? "معرّف المعاملة البديل للشبكة المختارة" : "Replacement Transaction ID for the selected network")
-                : (isAr ? "معرّف المعاملة للشبكة المختارة" : "Transaction ID for the selected network")}
+                : (isAr ? "معرّف المعاملة — اختياري" : "Transaction ID — optional")}
             </Text>
+            {!failedForSelectedRecord && !pendingForSelectedRecord ? <Text style={[styles.scanCaption, isRTL && styles.rtlText]}>{isAr ? "الفحص تلقائي. استخدم هذا الحقل فقط إذا تأخر اكتشاف الدفعة واحتجت إلى فحص مباشر." : "Checks are automatic. Use this only if detection is delayed and you need a direct check."}</Text> : null}
             <TextInput
               autoCapitalize="none"
               autoCorrect={false}
@@ -362,18 +423,12 @@ export default function SellerCommissionsScreen() {
             </View>
           </View>
 
-          <View style={styles.automationCard}>
-            <Text style={[styles.automationTitle, isRTL && styles.rtlText]}>{isAr ? "✓ فحص الدفعات تلقائياً" : "✓ Automatic payment checks"}</Text>
-            <Text style={[styles.body, isRTL && styles.rtlText]}>
-              {isAr ? "يفحص النظام الدفعات كل دقيقة ويفتح صلاحيات البائع بعد التحقق من الاستلام. أرسل المبلغ الدقيق كما يظهر. إذا تأخر الاكتشاف، أرسل TxID أدناه للتحقق المباشر؛ لا تدفع مرة أخرى." : "Payments are checked every minute and seller access unlocks after receipt is verified. Send the exact amount shown. If detection is delayed, submit the TxID below for a direct check; do not pay again."}
-            </Text>
-          </View>
           </> : null}
 
           {pendingForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.pendingCard}>
-              <Text style={[styles.pendingTitle, isRTL && styles.rtlText]}>{isAr ? "التحقق التلقائي قيد التشغيل" : "Automatic verification is active"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تم حفظ TxID. المعاملة تنتظر التأكيد النهائي على الشبكة المختارة وسيعيد النظام فحصها تلقائيًا. لا ترسل دفعة أخرى." : "Your TxID is saved. The transaction is awaiting final confirmation on the selected network and will be checked again automatically. Do not send another payment."}</Text>
+              <Text style={[styles.pendingTitle, isRTL && styles.rtlText]}>{isAr ? "جارٍ التحقق من الدفعة" : "Verifying payment"}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تم حفظ TxID. سيعيد النظام فحص الاستلام تلقائيًا؛ قد يستغرق ظهور الدفعة أو تأكيد الشبكة بعض الوقت. لا ترسل دفعة أخرى." : "Your TxID is saved. Receipt verification will retry automatically; deposit visibility or network confirmation can take time. Do not send another payment."}</Text>
               <Text style={[styles.body, isRTL && styles.rtlText]}>
                 {legacyPendingForSelectedRecord
                   ? (isAr
@@ -391,7 +446,7 @@ export default function SellerCommissionsScreen() {
           {failedForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.failedCard}>
               <Text style={[styles.failedTitle, isRTL && styles.rtlText]}>{isAr ? "لم تُحتسب الدفعة" : "Payment was not credited"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "انتهى التحقق من TxID السابق بالفشل. ألصق TxID مختلفًا وصالحًا في الحقل أعلاه وأرسله مرة أخرى." : "Verification of the previous TxID failed. Paste a different valid TxID in the field above and submit it again."}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "لم يتم التحقق من المرجع المحفوظ. راجع تفاصيل الدفعة الأصلية أدناه، وإذا كان TxID غير صحيح فأرسل المعرّف الصحيح. لا تدفع مرة أخرى." : "The saved reference could not be verified. Review the original payment details below. If its TxID is incorrect, submit the correct one. Do not pay again."}</Text>
               {selectedVerification.notes ? <Text style={[styles.verificationFailureReason, isRTL && styles.rtlText]}>{isAr ? "السبب" : "Reason"}: {selectedVerification.notes}</Text> : null}
               {savedTransactionId ? <Text selectable style={[styles.verificationDetail, isRTL && styles.rtlText]}>{isAr ? "TxID السابق" : "Previous TxID"}: {savedTransactionId}</Text> : null}
             </View>
@@ -410,7 +465,7 @@ export default function SellerCommissionsScreen() {
               ? (isAr ? "استبدال TxID المحفوظ والتحقق" : "Replace saved TxID & verify")
               : failedForSelectedRecord
                 ? (isAr ? "إرسال TxID البديل والتحقق مجددًا" : "Submit replacement TxID & verify again")
-                : (isAr ? "إرسال TxID والتحقق تلقائيًا" : "Submit TxID & verify automatically")}
+                : (isAr ? "فحص TxID — اختياري" : "Check TxID — optional")}
           </GoldButton> : null}
         </View>
       ) : null}
@@ -459,8 +514,21 @@ const styles = StyleSheet.create({
   hint: { color: colors.textMuted, flex: 1, fontSize: typography.caption, lineHeight: 18 },
   fieldError: { color: colors.danger, flex: 1, fontSize: typography.caption, fontWeight: "700", lineHeight: 18 },
   counter: { color: colors.textMuted, fontFamily: "monospace", fontSize: typography.caption },
-  automationCard: { backgroundColor: "rgba(50,196,141,0.08)", borderColor: colors.success, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
-  automationTitle: { color: colors.success, fontSize: typography.small, fontWeight: "900" },
+  automationCard: { backgroundColor: "rgba(50,196,141,0.08)", borderColor: "rgba(50,196,141,0.3)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
+  automationHeader: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, justifyContent: "space-between" },
+  automationTitle: { color: colors.text, flexShrink: 1, fontSize: typography.body, fontWeight: "900" },
+  automationBadge: { backgroundColor: "rgba(50,196,141,0.12)", borderColor: "rgba(50,196,141,0.3)", borderRadius: radius.pill, borderWidth: 1, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  automationBadgeText: { color: colors.success, fontSize: typography.caption, fontWeight: "800" },
+  scanStatus: { alignItems: "center", flexDirection: "row", gap: spacing.sm },
+  scanStatusDot: { borderRadius: radius.pill, height: 6, width: 6 },
+  scanStatusLabel: { flex: 1, fontSize: typography.small, fontWeight: "800" },
+  scanSteps: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginVertical: spacing.xs },
+  scanStep: { alignItems: "center", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, flex: 1, gap: spacing.xs, minWidth: 65, paddingHorizontal: spacing.xs, paddingVertical: spacing.sm },
+  scanStepNumber: { color: colors.success, fontSize: typography.caption, fontWeight: "900" },
+  scanStepLabel: { color: colors.textMuted, fontSize: typography.caption, fontWeight: "700", lineHeight: 17, textAlign: "center" },
+  scanChecks: { borderTopColor: colors.border, borderTopWidth: 1, gap: spacing.xs, paddingTop: spacing.sm },
+  scanChecksLabel: { color: colors.text, fontSize: typography.caption, fontWeight: "800", lineHeight: 18 },
+  scanCaption: { color: colors.textMuted, fontSize: typography.caption, lineHeight: 18 },
   pendingCard: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF", borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   pendingTitle: { color: "#93C5FD", fontSize: typography.small, fontWeight: "900" },
   failedCard: { backgroundColor: "rgba(240,106,106,0.08)", borderColor: colors.danger, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },

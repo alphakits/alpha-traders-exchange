@@ -2,6 +2,7 @@
 
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
+import { CommissionAutomationPanel } from "./commission-automation-panel";
 import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-identity";
 
 import { brandText, currencyText } from "@/components/ui/currency-text";
@@ -466,6 +467,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               <CardDescription>
                 {brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid.")}
               </CardDescription>
+              <p className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5 text-xs leading-5 text-emerald-100">
+                <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                <span><strong className="font-semibold">{isAr ? "تأكيد تلقائي · فحص ذكي للبلوك تشين" : "Automatic confirmation · Smart Blockchain Scan"}</strong><br />{isAr ? "أرسل المبلغ الدقيق. تُسجّل الدفعة المطابقة كمدفوعة تلقائيًا دون انتظار موافقة يدوية." : "Send the exact amount. Matching payments are marked paid automatically, without waiting for manual approval."}</span>
+              </p>
             </CardHeader>
             <CardContent className="space-y-3">
               {sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? (
@@ -620,9 +625,18 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
-                <p role="status" className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-3 text-xs leading-5 text-emerald-100">
-                  {isAr ? "نفحص الدفعات كل دقيقة ونحدّث حالة العمولة وصلاحياتك تلقائياً بعد التحقق من الاستلام. أرسل المبلغ الدقيق كما يظهر. إذا تأخر الاكتشاف، أرسل TxID أدناه؛ لا تدفع مرة أخرى." : "Payments are checked every minute. Your commission status and access update automatically after receipt is verified. Send the exact amount shown. If detection is delayed, submit the TxID below; do not pay again."}
-                </p>
+                <CommissionAutomationPanel
+                  isAr={isAr}
+                  state={selectedCommissionPayment?.paymentVerificationStatus === "verified"
+                    ? "verified"
+                    : selectedCommissionPayment?.paymentVerificationStatus === "failed"
+                      ? "review"
+                      : selectedCommissionPayment?.paymentVerificationStatus === "pending_verification"
+                        ? "confirming"
+                        : !selectedCommissionWalletAvailable
+                          ? "unavailable"
+                          : "awaiting"}
+                />
 
                 {selectedCommissionPayment?.paymentVerificationStatus === "pending_verification" ? (
                   <div data-testid="commission-payment-pending" role="status" className="flex items-start gap-3 rounded-2xl border border-blue-500/35 bg-blue-950/35 p-4 text-sm text-blue-100">
@@ -631,8 +645,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <p className="font-semibold text-blue-200">{isAr ? "التحقق من الدفع قيد الانتظار" : "Payment verification pending"}</p>
                       <p className="text-xs leading-5">
                         {brandText(isAr
-                          ? "تم حفظ معرّف المعاملة، وستواصل Alpha Traders التحقق منه تلقائياً بعد التأكيد النهائي على الشبكة المختارة. لا ترسل دفعة أخرى أثناء الانتظار."
-                          : "Your TxID is saved. Alpha Traders will keep checking it automatically after blockchain final confirmation. Do not send another payment while it is pending.")}
+                          ? "تم حفظ معرّف المعاملة، وستواصل Alpha Traders التحقق من الاستلام تلقائيًا. قد يستغرق ظهور الدفعة وتأكيدها وقتًا. لا ترسل دفعة أخرى أثناء الانتظار."
+                          : "Your TxID is saved. Alpha Traders will keep checking receipt automatically. Payment visibility and confirmation can take time. Do not send another payment while it is pending.")}
                       </p>
                       {selectedCommissionPayment.paymentVerificationNotes ? (
                         <p className="rounded-lg border border-blue-400/20 bg-blue-950/40 px-2.5 py-2 text-xs text-blue-100">
@@ -770,7 +784,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
                           <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{brandText(isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically.")}</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل المبلغ الدقيق من محفظتك. نتحقق من الاستلام ونحدّث العمولة تلقائيًا." : "Send the exact amount from your wallet. We verify receipt and update your commission automatically."}</p>
                         </div>
                         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
                       </button>
@@ -876,7 +890,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           onClick={() => setCommissionAdvancedOpen((v) => !v)}
                           className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs text-[#9CA3AF] hover:text-white transition-colors"
                         >
-                          <span className="font-medium">{isAr ? "إذا تأخر الاكتشاف — تحقق باستخدام معرّف المعاملة" : "Detection delayed? Verify with transaction ID"}</span>
+                          <span className="font-medium">{isAr ? "اختياري: إذا تأخر الاكتشاف، تحقق بمعرّف المعاملة" : "Optional: detection delayed? Verify with transaction ID"}</span>
                           {commissionAdvancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </button>
                         {commissionAdvancedOpen ? (
@@ -900,7 +914,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       </div>
                     ) : (
                       <div className="space-y-1">
-                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "إذا تأخر الاكتشاف — معرّف المعاملة" : "If detection is delayed — Transaction ID"}</p>
+                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "اختياري: معرّف المعاملة إذا تأخر الاكتشاف" : "Optional: Transaction ID if detection is delayed"}</p>
                         <Input
                          dir="ltr"
                          placeholder={isAr ? "معرّف TRC20 أو BEP20 يبدأ بـ 0x" : "TRC20 TxID or BEP20 0x hash"}
@@ -912,7 +926,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                          }}
                          className="text-left font-mono text-xs"
                         />
-                        <p className="text-xs text-[#6B7280]">{isAr ? "انسخ هذا الرمز من سجل السحب في المنصة بعد تأكيد المعاملة." : "Copy this from your exchange withdrawal history after the transaction is confirmed."}</p>
+                        <p className="text-xs leading-5 text-[#9CA3AF]">{isAr ? "التحقق التلقائي يعمل دون إرسال معرّف. إذا تأخر اكتشاف الدفعة، انسخ معرّفها الأصلي من سجل السحب؛ لا تدفع مرة أخرى." : "Automatic checks work without submitting an ID. If detection is delayed, copy the original payment ID from withdrawal history; do not pay again."}</p>
                       </div>
                     )}
 
