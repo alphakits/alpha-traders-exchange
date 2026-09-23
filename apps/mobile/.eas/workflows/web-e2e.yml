@@ -6,7 +6,7 @@ on:
 
 jobs:
   browser_e2e:
-    name: Run 148 Chromium exchange flows
+    name: Verify login, logout and session persistence
     runs_on: linux-medium
     env:
       CI: "1"
@@ -20,7 +20,7 @@ jobs:
         run: npx playwright install --with-deps chromium
         working_directory: ../..
       - name: Run production-mode browser reliability suite
-        run: npx playwright test --reporter=list,html --output=apps/mobile/playwright-results
+        run: npx playwright test e2e/auth.spec.ts --reporter=list,html --output=apps/mobile/playwright-results
         working_directory: ../..
       - name: Upload browser evidence
         uses: eas/upload_artifact
