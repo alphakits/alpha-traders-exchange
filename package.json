@@ -40,7 +40,8 @@
     "mobile:scale-rehearsal": "node ./node_modules/vitest/vitest.mjs run src/__tests__/marketplace-concurrency-scale.test.ts",
     "mobile:review-surface": "node scripts/verify-mobile-review-surface.mjs",
     "mobile:export": "npm run mobile:clean && npm --workspace @alpha-traders/mobile run export",
-    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:store-readiness && npm run mobile:export"
+    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:store-readiness && npm run mobile:export",
+    "postinstall": "node scripts/patch-expo-uri-decoder.mjs"
   },
   "dependencies": {
     "@alpha-traders/contracts": "*",
@@ -66,7 +67,8 @@
     "sharp": "^0.35.4",
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.23.10",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "decode-uri-component": "0.5.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
