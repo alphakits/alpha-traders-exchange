@@ -10,6 +10,11 @@ import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { clearClientLocaleChoice, englishLocalePath } from "@/i18n/locale-preference";
+import { Eye, EyeOff } from "lucide-react";
+import { LoginAtmosphere } from "./login-atmosphere";
+import styles from "./login-atmosphere.module.css";
+
+const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 
 type RedirectUser = { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined;
 
@@ -46,6 +51,7 @@ export function LoginForm({
   const recoveredUser = canonicalSession && !canonicalSession.isResolving && !canonicalSession.error ? canonicalSession.user : null;
   const redirectStartedRef = useRef(false);
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
+  const [showPassword, setShowPassword] = useState(false);
   const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(
     sessionExpired
       ? (isAr ? "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى." : "Your session expired. Please sign in again.")
@@ -60,7 +66,20 @@ export function LoginForm({
   const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  useEffect(() => { setHydrated(true); }, []);
+  useEffect(() => {
+    // Store only the checkbox preference. Credentials stay in the form and
+    // authentication remains in the existing server-issued HttpOnly cookie.
+    try {
+      const saved = localStorage.getItem(REMEMBER_ME_PREFERENCE);
+      if (saved === "true" || saved === "false") {
+        setForm((previous) => ({ ...previous, rememberMe: saved === "true" }));
+      }
+    } catch { /* Private/restricted storage must not prevent sign-in. */ }
+    setHydrated(true);
+    const hidePassword = () => { if (document.hidden) setShowPassword(false); };
+    document.addEventListener("visibilitychange", hidePassword);
+    return () => document.removeEventListener("visibilitychange", hidePassword);
+  }, []);
   useEffect(() => {
     // A restored phone document can still show Login even though its HttpOnly
     // cookie is valid. Return only after a fresh server session check succeeds.
@@ -76,6 +95,7 @@ export function LoginForm({
     setErrorMessage(null);
     setRequiresEmailVerification(false);
     if (isLoginSubmitting) return;
+    setShowPassword(false);
     setIsLoginSubmitting(true);
     beginLoginJourney();
     appendLoginJourneyStep("User clicks Login", clickStartedAt, Date.now());
@@ -170,8 +190,9 @@ export function LoginForm({
   }
 
   return (
-    <section className="section-container py-8 md:py-12">
-      <div className="mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#070707]/95 shadow-[0_32px_90px_rgba(0,0,0,0.55)] lg:grid-cols-[1.05fr_0.95fr]">
+    <section className={styles.page}>
+      <LoginAtmosphere />
+      <div className={`${styles.card} mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border lg:grid-cols-[1.05fr_0.95fr]`}>
         <div className="relative hidden overflow-hidden border-r border-white/10 bg-[radial-gradient(circle_at_22%_20%,rgba(201,162,39,0.2),transparent_34%),radial-gradient(circle_at_80%_22%,rgba(147,197,253,0.16),transparent_28%),linear-gradient(160deg,#050505,#0b0b0b_52%,#111827)] p-10 lg:flex lg:flex-col">
           <div className="absolute inset-0 opacity-40">
             <div className="absolute left-14 top-16 h-40 w-40 rounded-full bg-[#C9A227]/10 blur-3xl" />
@@ -216,7 +237,7 @@ export function LoginForm({
           </div>
         </div>
 
-        <div className="relative p-6 sm:p-8 lg:p-10">
+        <div className="relative p-5 sm:p-8 lg:p-10">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(201,162,39,0.08),transparent_36%)]" />
           <div className="relative z-10 mx-auto w-full max-w-xl">
             <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
@@ -224,10 +245,10 @@ export function LoginForm({
             </p>
             <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
             <p className="mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]">
-              {brandText(isAr ? "أنشئ حساب Alpha Traders للوصول إلى Alpha Academy و Alpha Exchange." : "Create your Alpha Traders account to access Alpha Academy and Alpha Exchange.")}
+              {brandText(isAr ? "أهلًا بعودتك إلى Alpha Traders. سجّل الدخول لمتابعة صفقاتك ودوراتك." : "Welcome back to Alpha Traders. Sign in to your trades and courses.")}
             </p>
 
-            <div className="mt-6 grid gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid-cols-2">
+            <div className="mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2">
               {(isAr
                 ? ["حفظ تقدّمك في الأكاديمية", "الوصول إلى دوراتك", "شراء وبيع USDT بأمان", "استلام الإشعارات", "بناء ملفك كمتداول", "تتبّع رحلتك في التداول"]
                 : ["Save Academy progress", "Access your courses", "Buy & sell USDT securely", "Receive notifications", "Build your trader profile", "Track your trading journey"]
@@ -238,16 +259,33 @@ export function LoginForm({
 
             <form className="mt-6 grid gap-4" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
               <div className="grid gap-2">
-                <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
-                <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "you@example.com" : "you@example.com"} type="email" autoComplete="email" required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                <label htmlFor="login-email" className="text-sm text-[#B7B7B7]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
+                <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
               </div>
               <div className="grid gap-2">
-                <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "كلمة المرور" : "Password"}</label>
-                <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "••••••••" : "••••••••"} type="password" autoComplete="current-password" required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                <label htmlFor="login-password" className="text-sm text-[#B7B7B7]">{isAr ? "كلمة المرور" : "Password"}</label>
+                <div className="relative">
+                  <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? (isAr ? "إخفاء كلمة المرور" : "Hide password") : (isAr ? "إظهار كلمة المرور" : "Show password")}
+                    aria-pressed={showPassword}
+                    aria-controls="login-password"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    className="absolute right-0.5 top-0.5 flex h-11 w-11 items-center justify-center rounded-xl text-[#D4AF37] transition hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D4AF37]"
+                  >
+                    {showPassword ? <EyeOff aria-hidden="true" size={20} /> : <Eye aria-hidden="true" size={20} />}
+                  </button>
+                </div>
               </div>
-              <div className={`flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>
-                <label className={`inline-flex items-center gap-2 text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
-                  <input type="checkbox" checked={form.rememberMe} onChange={(event) => setForm((prev) => ({ ...prev, rememberMe: event.target.checked }))} className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
+              <div className="flex flex-wrap items-center justify-between gap-x-3 text-sm">
+                <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[#D1D5DB]">
+                  <input name="rememberMe" type="checkbox" checked={form.rememberMe} onChange={(event) => {
+                    const checked = event.target.checked;
+                    setForm((prev) => ({ ...prev, rememberMe: checked }));
+                    try { localStorage.setItem(REMEMBER_ME_PREFERENCE, String(checked)); } catch { /* Storage is optional. */ }
+                  }} className="h-5 w-5 rounded border-white/30 bg-transparent accent-[#C9A227]" />
                   {isAr ? "تذكرني" : "Remember Me"}
                 </label>
                 <Link href="/forgot-password" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">

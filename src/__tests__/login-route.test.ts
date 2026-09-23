@@ -119,6 +119,33 @@ beforeEach(() => {
 });
 
 describe("POST /api/auth/login", () => {
+  it.each([
+    ["local", true], ["local", false], ["supabase", true], ["supabase", false],
+  ] as const)("honors remember-me cookies for %s with rememberMe=%s", async (provider, rememberMe) => {
+    if (provider === "local") {
+      mockAuthenticateLocalUser.mockResolvedValue(verifiedLocalUser as never);
+    } else {
+      supabaseAuthMocks.signInWithPassword.mockResolvedValue({
+        data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } },
+        error: null,
+      });
+    }
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password", rememberMe }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(200);
+    expect(mockCreateUserSession).toHaveBeenCalledWith("local-user", rememberMe ? 14 : 1);
+    expect(setCookie).toHaveBeenCalledWith("alpha-auth", "test-session-token", expect.objectContaining({
+      httpOnly: true, sameSite: "lax", path: "/",
+      expires: rememberMe ? new Date("2030-01-01T00:00:00.000Z") : undefined,
+    }));
+    expect(setCookie).toHaveBeenCalledWith("alpha-verified", "1", expect.objectContaining({
+      httpOnly: true,
+      expires: rememberMe ? new Date("2030-01-01T00:00:00.000Z") : undefined,
+    }));
+  });
+
   it("resets session language after a successful Supabase login", async () => {
     supabaseAuthMocks.signInWithPassword.mockResolvedValue({
       data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } },

@@ -52,7 +52,10 @@
           "backgroundColor": "#050505",
           "image": "../../public/images/brand/alpha-traders-app-icon-1024.png",
           "imageWidth": 220,
-          "resizeMode": "contain"
+          "resizeMode": "contain",
+          "ios": {
+            "imageWidth": 340
+          }
         }
       ],
       [

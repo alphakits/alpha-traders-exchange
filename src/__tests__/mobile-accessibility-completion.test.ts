@@ -19,7 +19,8 @@ describe("mobile accessibility completion", () => {
     expect(reducedMotion).toContain("AccessibilityInfo.isReduceMotionEnabled()");
     expect(reducedMotion).toContain('"reduceMotionChanged"');
     expect(rootLayout).toContain('animation: "none"');
-    expect(websiteShell).toContain('accessibilityRole="progressbar"');
+    expect(websiteShell).toContain("<LaunchScreen");
+    expect(source("apps/mobile/src/components/launch-screen.tsx")).toContain('accessibilityRole="progressbar"');
     expect(websiteShell).toContain('accessibilityRole="alert"');
     expect(publicLayout).toContain('isReducedMotionEnabled ? "none"');
     expect(publicLayout).toContain('isRTL ? "slide_from_left" : "slide_from_right"');

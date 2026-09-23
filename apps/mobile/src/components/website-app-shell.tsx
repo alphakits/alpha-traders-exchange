@@ -5,7 +5,6 @@ import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   AppState,
   BackHandler,
   Image,
@@ -71,6 +70,7 @@ import {
 } from "../notifications/push-registration-recovery";
 import { useNetworkStatus } from "../network/network-context";
 import { useMobileAppReadiness } from "../readiness/use-mobile-app-readiness";
+import { LaunchScreen } from "./launch-screen";
 
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
 const SESSION_MIGRATED_KEY = "alpha.mobile.website.session-migrated.v1";
@@ -713,10 +713,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       ) : null}
 
       {readiness.status === "checking" || (isLoading && !loadFailed) ? (
-        <View accessibilityLabel={locale === "ar" ? "جارٍ تحميل Alpha Traders" : "Loading Alpha Traders"} accessibilityRole="progressbar" style={styles.loadingOverlay}>
-          <Image accessible={false} alt="" source={brandLogo} style={styles.loadingLogo} />
-          <ActivityIndicator color="#D4AF37" size="large" />
-        </View>
+        <LaunchScreen locale={locale} onReady={reportNativeReady} paused={isPrivacyMasked} />
       ) : null}
 
       {loadFailed && readiness.status !== "checking" ? (
@@ -842,25 +839,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
-  },
-  loadingOverlay: {
-    alignItems: "center",
-    backgroundColor: "#050505",
-    bottom: 0,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    zIndex: 50,
-  },
-  loadingLogo: {
-    borderColor: "rgba(212, 175, 55, 0.62)",
-    borderRadius: 30,
-    borderWidth: 1,
-    height: 132,
-    marginBottom: 22,
-    width: 132,
   },
   privacyMask: {
     alignItems: "center",

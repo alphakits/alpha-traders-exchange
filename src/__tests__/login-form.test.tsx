@@ -13,6 +13,63 @@ vi.mock("@/i18n/navigation", () => ({
 describe("LoginForm", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it.each([
+    ["en", "Password", "Show password", "Hide password"],
+    ["ar", "كلمة المرور", "إظهار كلمة المرور", "إخفاء كلمة المرور"],
+  ] as const)("reveals and hides the same password without submitting in %s", (locale, label, show, hide) => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    render(<LoginForm locale={locale} />);
+    const password = screen.getByLabelText(label) as HTMLInputElement;
+    fireEvent.change(password, { target: { value: "test-password" } });
+    expect(password.type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: show }));
+    expect(password.type).toBe("text");
+    expect(password.value).toBe("test-password");
+    expect(screen.getByRole("button", { name: hide }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: hide }));
+    expect(password.type).toBe("password");
+    expect(password.value).toBe("test-password");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(localStorage.length).toBe(0);
+  });
+
+  it("restores only the remember preference when the login page is reopened", () => {
+    const first = render(<LoginForm locale="en" />);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "test@example.test" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Remember Me" }));
+    expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("false");
+    expect(localStorage.length).toBe(1);
+    first.unmount();
+    render(<LoginForm locale="en" />);
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(localStorage.getItem("alpha.auth.remember-me.v1")).toBe("true");
+  });
+
+  it("keeps sign-in usable when preference storage is blocked", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("Unavailable"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Unavailable"); });
+    render(<LoginForm locale="en" />);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("conceals a revealed password when the app or tab goes into the background", () => {
+    render(<LoginForm locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    expect((screen.getByLabelText("Password") as HTMLInputElement).type).toBe("password");
+    hidden.mockRestore();
   });
 
   it.each([
