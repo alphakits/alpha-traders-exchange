@@ -475,7 +475,14 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
+      if (viewport.width >= 1024) {
+        const welcome = main.locator('[data-account-role="approved_seller"]');
+        await expect(welcome.locator("#workspace-summary")).toHaveCount(1);
+        await expect(welcome.getByRole("button", { name: "Create Listing", exact: true })).toHaveCount(1);
+        await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
+      } else {
+        await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
+      }
       await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toHaveCount(1);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
