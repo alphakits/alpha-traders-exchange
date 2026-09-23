@@ -17,7 +17,7 @@ const accountLabels: Record<RoleBadgeVariant, { en: string; ar: string }> = {
 
 const accountEmblems = { owner: Crown, administrator: BadgeCheck, moderator: ShieldHalf, approved_seller: ShieldCheck, pending_seller: Clock3, buyer: ShoppingBag, student: GraduationCap, guest: UserRound };
 
-export function AccountWelcome({ role, locale, name, description, greeting, suspended = false, headingLevel = 1, children, className }: {
+export function AccountWelcome({ role, locale, name, description, greeting, suspended = false, headingLevel = 1, actions, workspace, children, className }: {
   role: RoleBadgeVariant;
   locale: "en" | "ar";
   name: string;
@@ -25,6 +25,8 @@ export function AccountWelcome({ role, locale, name, description, greeting, susp
   greeting?: string;
   suspended?: boolean;
   headingLevel?: 1 | 2;
+  actions?: ReactNode;
+  workspace?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
@@ -35,20 +37,26 @@ export function AccountWelcome({ role, locale, name, description, greeting, susp
     <div className={cn("account-welcome", `account-welcome--${role}`, suspended && "account-welcome--suspended", className)} data-account-role={role}>
       <div className="account-welcome__reflection" aria-hidden="true" />
       <div className="account-welcome__content">
-        <div className="account-welcome__identity">
-          <div>
-            <p className="account-welcome__eyebrow">{accountLabels[role][locale]}</p>
-            <RoleBadge variant={role} locale={locale} className="account-welcome__badge mt-2" />
+        <div className={cn(workspace && "account-welcome__workspace-layout")}>
+          <div className="min-w-0">
+            <div className="account-welcome__identity">
+              <div>
+                <p className="account-welcome__eyebrow">{accountLabels[role][locale]}</p>
+                <RoleBadge variant={role} locale={locale} className="account-welcome__badge mt-2" />
+              </div>
+              <div className="account-welcome__emblem" aria-hidden="true"><Emblem strokeWidth={1.5} /></div>
+            </div>
+            <Heading className="account-welcome__title">
+              {isAr ? "مرحباً بعودتك، " : "Welcome back, "}<bdi dir="auto">{brandText(name)}</bdi>
+            </Heading>
+            {!suspended ? <p className="account-welcome__greeting">{isAr ? "يسعدنا وجودك من جديد." : "Good to see you again."}</p> : null}
+            <p className="account-welcome__description">{brandText(description)}</p>
+            {suspended ? <p className="mt-3 text-sm font-semibold text-amber-200">{isAr ? "حساب البائع معلّق" : "Seller account suspended"}</p> : null}
+            {greeting ? <p className="account-welcome__time">{brandText(greeting)}</p> : null}
+            {actions}
           </div>
-          <div className="account-welcome__emblem" aria-hidden="true"><Emblem strokeWidth={1.5} /></div>
+          {workspace}
         </div>
-        <Heading className="account-welcome__title">
-          {isAr ? "مرحباً بعودتك، " : "Welcome back, "}<bdi dir="auto">{brandText(name)}</bdi>
-        </Heading>
-        {!suspended ? <p className="account-welcome__greeting">{isAr ? "يسعدنا وجودك من جديد." : "Good to see you again."}</p> : null}
-        <p className="account-welcome__description">{brandText(description)}</p>
-        {suspended ? <p className="mt-3 text-sm font-semibold text-amber-200">{isAr ? "حساب البائع معلّق" : "Seller account suspended"}</p> : null}
-        {greeting ? <p className="account-welcome__time">{brandText(greeting)}</p> : null}
         {children}
       </div>
     </div>
