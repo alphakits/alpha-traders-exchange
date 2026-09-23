@@ -391,9 +391,11 @@ export async function prepareListingReviewEmails(input: {
     ? await getListingBroadcastEmailRecipients(input.listing.sellerId)
     : [];
   return async () => {
-    await Promise.all([
-      deliver(sellerDelivery),
-      ...recipients.map((recipient) => deliver({
+    // Deliver the seller's decision first, then avoid a burst of concurrent
+    // broadcast requests competing for the same provider rate-limit window.
+    await deliver(sellerDelivery);
+    for (const recipient of recipients) {
+      await deliver({
         event: "new_listing_published" as const,
         recipient,
         title: { ar: "نُشر إعلان USDT جديد", en: "New USDT Listing Published" },
@@ -405,7 +407,7 @@ export async function prepareListingReviewEmails(input: {
         actionPath: marketplacePath(),
         referenceLabel: input.listing.id,
         idempotencyKey: `listing-published:${input.listing.id}:${recipient.id}`,
-      })),
-    ]);
+      });
+    }
   };
 }
