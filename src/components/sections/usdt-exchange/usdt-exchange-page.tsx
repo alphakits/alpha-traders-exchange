@@ -3980,7 +3980,7 @@ export function UsdtExchangePage({
   if (standardCommissionDueActive) {
     workspaceCards.push({
       key: "commission",
-      title: isAr ? "عمولة مستحقة" : "Commission Due",
+      title: isAr ? "🚨 عمولة مستحقة" : "🚨 Commission Due",
       subtitle: commissionWorkspaceAction.kind === "pay-one"
         ? (isAr ? "ادفع مبلغ العمولة المحدد" : "Pay the exact commission")
         : (isAr

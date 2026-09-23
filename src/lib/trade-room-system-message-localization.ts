@@ -15,6 +15,14 @@ export type LocalizedTradeRoomSystemMessage = {
 type LocalizedExactTemplate = Record<TradeRoomSystemMessageLocale, string>;
 
 const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
+  "Seller accepted the Face-to-Face trade. Buyer confirms handing over the cash. Seller confirms receiving it, sends the full USDT amount to the revealed wallet, then marks the trade completed. No buyer wait or photo is required.": { en: "Seller accepted the Face-to-Face trade. Buyer confirms handing over the cash. Seller confirms receiving it, sends the full USDT amount to the revealed wallet, then marks the trade completed. No buyer wait or photo is required.", ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ويؤكد البائع استلامه، ثم يرسل كامل USDT إلى المحفظة الظاهرة ويكمل الصفقة. لا يلزم انتظار المشتري أو رفع صورة." },
+  "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation.": { ar: "أكد البائع إرسال USDT. يمكنه الآن إكمال الصفقة دون انتظار تأكيد المشتري.", en: "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation." },
+  "Seller confirmed trade completed": { ar: "أكد البائع اكتمال الصفقة", en: "Seller confirmed trade completed" },
+  "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due.": { ar: "أكد البائع تسليم USDT وأكمل الصفقة. انتقلت الصفقة إلى السجل والتقييم وأصبحت عمولة البائع مستحقة.", en: "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due." },
+  "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.": { ar: "أكد البائع إرسال USDT ويمكنه إكمال الصفقة. تحقق من محفظتك؛ يمكنك أيضًا تأكيد الاستلام.", en: "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt." },
+  "You confirmed USDT was sent. Complete the trade now; no buyer confirmation is required.": { ar: "لقد أكدت إرسال USDT. أكمل الصفقة الآن دون انتظار تأكيد المشتري.", en: "You confirmed USDT was sent. Complete the trade now; no buyer confirmation is required." },
+  "You completed the trade. Check your commission due.": { ar: "أكملت الصفقة. راجع العمولة المستحقة عليك.", en: "You completed the trade. Check your commission due." },
+
   "Seller accepted the trade request. Buyer can now upload the payment receipt.": {
     ar: "وافق البائع على طلب الصفقة. يمكن للمشتري الآن رفع إيصال الدفع.",
     en: "Seller accepted the trade request. Buyer can now upload the payment receipt.",

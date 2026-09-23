@@ -82,12 +82,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       const updated = await recalculateCardlessTradeAmount({ requestId, actorUserId: user.id, ilsAmount: rawBody.ilsAmount == null ? undefined : String(rawBody.ilsAmount) });
       return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role), destination: tradeDestination(updated, user.id) }, { headers: PRIVATE_NO_STORE_HEADERS });
     }
-    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
+    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return NextResponse.json({ error: "Invalid trade action.", stage: "action-invalid", code: "invalid-action", diagId }, { status: 400 });
     }
+    const isSellerCompletion = action === "complete_trade";
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
     const isCardlessCodeSubmission = action === "submit_cardless_code";
-    const status = action === "accept_counter_offer" ? "accepted" : isCashTradeCompletion ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
+    const status = action === "accept_counter_offer" ? "accepted" : (isCashTradeCompletion || isSellerCompletion) ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
     const safetyAcknowledged = rawBody.safetyAcknowledged === true;
     if (routeDebug) {
       console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, action, parsedStatus: status, safetyAcknowledged });
@@ -136,7 +137,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorRole: user.role,
       nextStatus: status,
       acceptCounterOfferId: action === "accept_counter_offer" ? String(rawBody.proposalId ?? "") : undefined,
-      completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
+      completionMode: isSellerCompletion ? "seller" : isCashTradeCompletion ? "cash_trade" : undefined,
+      usdtSentConfirmed: rawBody?.usdtSentConfirmed === true,
       safetyAcknowledged,
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,
       cardlessVerificationKind: isCardlessCodeSubmission ? String(rawBody.verificationKind ?? "") : undefined,

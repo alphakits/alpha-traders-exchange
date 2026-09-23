@@ -77,6 +77,7 @@ import {
   isBuyerEvidenceRequiredForPaymentMethod,
   isCardlessAtmPaymentMethod,
   isCashTradeCompletionAvailable,
+  isSellerTradeCompletionAvailable,
   isCashTradePaymentMethod,
   isCashTradeUsdtSentConfirmationAvailable,
   isFaceToFacePaymentMethod,
@@ -528,7 +529,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
   }
   if (request.status === "usdt_sent") {
     if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Confirm USDT received";
-    return recipientIsSeller ? "Wait for buyer completion confirmation" : "Confirm trade completed";
+    return recipientIsSeller ? "Complete the trade" : "Confirm trade completed";
   }
   if (request.status === "review_open" || request.status === "completed") {
     return "Leave your trade review";
@@ -3621,19 +3622,12 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
     return {
       stage: request.status,
       actionStartedAt,
-      recipients: isCashTradePaymentMethod(request.paymentMethod)
-        ? [{ side: "seller", userId: request.sellerId }]
-        : [{ side: "buyer", userId: request.buyerId }],
+      recipients: [{ side: "seller", userId: request.sellerId }],
       title,
-      message: isCashTradePaymentMethod(request.paymentMethod)
-        ? {
-            ar: `تم تسجيل إرسال USDT في الصفقة ${referenceLabel}. أكمل الصفقة الآن لفتح التقييم وتسجيل العمولة.`,
-            en: `USDT was marked sent for trade ${referenceLabel}. Complete the trade now to open review and record the commission.`,
-          }
-        : {
-            ar: `الصفقة ${referenceLabel} بانتظار تأكيد استلام USDT منك. افتح غرفة الصفقة الآن وتحقق قبل التأكيد.`,
-            en: `Trade ${referenceLabel} is waiting for you to confirm receipt of USDT. Open the Trade Room and verify before confirming.`,
-          },
+      message: {
+        ar: `تم تسجيل إرسال USDT في الصفقة ${referenceLabel}. أكمل الصفقة الآن لفتح التقييم وتسجيل العمولة.`,
+        en: `USDT was marked sent for trade ${referenceLabel}. Complete the trade now to open review and record the commission.`,
+      },
       priority: "critical",
     };
   }
@@ -12477,14 +12471,14 @@ async function uploadTradeEvidenceAttempt(
     appendSystemTradeMessage(db, nextRequest, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Seller marked USDT as sent. Buyer should now confirm receipt.",
+      message: "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation.",
       createdAt: updatedAt,
     });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
       title: "Seller marked USDT sent",
-      message: "Seller marked USDT as sent. Please confirm receipt to complete the trade.",
+      message: "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.",
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -13108,7 +13102,8 @@ type UpdatePurchaseRequestStatusInput = {
   actorUserId: string;
   actorRole: UserRole;
   nextStatus: PurchaseRequestStatus;
-  completionMode?: "cash_trade" | "face_to_face" | "admin_override";
+  completionMode?: "cash_trade" | "face_to_face" | "seller" | "admin_override";
+  usdtSentConfirmed?: boolean;
   completionReason?: string;
   safetyAcknowledged?: boolean;
   cardlessWithdrawalCode?: string;
@@ -13217,8 +13212,9 @@ async function updatePurchaseRequestStatusAttempt(
   // `face_to_face` remains accepted for already-installed clients. The server
   // validates the actual payment method before applying the shared cash flow.
   const isCashTradeCompletion = input.completionMode === "cash_trade" || input.completionMode === "face_to_face";
+  const isSellerCompletion = input.completionMode === "seller";
   const isAdminCompletion = input.completionMode === "admin_override";
-  const isCompletionOverride = isCashTradeCompletion || isAdminCompletion;
+  const isCompletionOverride = isCashTradeCompletion || isSellerCompletion || isAdminCompletion;
   const isCashUsdtSentConfirmation = isSeller
     && input.nextStatus === "usdt_sent"
     && isCashTradeUsdtSentConfirmationAvailable(requestPaymentMethod, request.status);
@@ -13251,6 +13247,10 @@ async function updatePurchaseRequestStatusAttempt(
       request.id,
       { guard: "open-dispute-pauses-lifecycle", disputeId: openDisputeAtRead.id },
     );
+  }
+
+  if (isSellerCompletion && (!isSeller || input.nextStatus !== "completed")) {
+    throw new TradeBlockedError("seller-completion-required", "Only this trade's seller can confirm completion.", request.id);
   }
 
   if (isCashTradeCompletion && input.nextStatus !== "completed") {
@@ -13289,7 +13289,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (input.nextStatus === "completed" && isCashTrade && !isBuyer && !isCashTradeCompletion && !isAdminCompletion) {
+  if (input.nextStatus === "completed" && isCashTrade && !isBuyer && !isCashTradeCompletion && !isSellerCompletion && !isAdminCompletion) {
     throw new TradeBlockedError("cash-trade-seller-completion-required", "Only the seller can complete a cash trade after sending USDT.", request.id, {
       guard: "cash-trade-seller-completion-command",
       currentStatus: request.status,
@@ -13437,6 +13437,12 @@ async function updatePurchaseRequestStatusAttempt(
     declined: [],
     cancelled: [],
   };
+  if (isSellerCompletion && !isSellerTradeCompletionAvailable(requestPaymentMethod, currentStatus)) {
+    throw new TradeBlockedError("seller-completion-status-not-eligible", "Confirm payment and USDT delivery before completing the trade.", request.id);
+  }
+  if (isSellerCompletion && currentStatus !== "usdt_sent" && input.usdtSentConfirmed !== true) {
+    throw new TradeBlockedError("seller-usdt-confirmation-required", "Confirm that the full USDT amount was sent to the buyer before completing the in-person exchange.", request.id);
+  }
   if (isCashTradeCompletion && !isCashTradeCompletionAvailable(requestPaymentMethod, currentStatus)) {
     throw new TradeBlockedError("cash-trade-completion-status-not-eligible", "The seller must confirm USDT was sent before completing this cash trade.", request.id, {
       guard: "cash-trade-active-status",
@@ -13697,7 +13703,7 @@ async function updatePurchaseRequestStatusAttempt(
       senderUserId: input.actorUserId,
       senderRole: actorRole,
       message: isFaceToFaceTrade
-        ? "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
+        ? "Seller accepted the Face-to-Face trade. Buyer confirms handing over the cash. Seller confirms receiving it, sends the full USDT amount to the revealed wallet, then marks the trade completed. No buyer wait or photo is required."
         : isAtmTrade
           ? preparedCredential ? "Seller accepted the Cardless ATM trade. The prepared withdrawal details are now available. Collect the ATM cash and confirm receipt to reveal the buyer wallet." : "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isPriceOffer
@@ -13988,7 +13994,7 @@ async function updatePurchaseRequestStatusAttempt(
       senderRole: actorRole,
       message: isCashTrade
         ? "Seller marked USDT as sent. The seller should now complete the cash trade; no photo is required. Completion opens review and creates the seller commission."
-        : "Seller marked USDT as sent. Buyer should now confirm receipt.",
+        : "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation.",
       createdAt: now,
     });
     pushNotification(db, {
@@ -13997,25 +14003,23 @@ async function updatePurchaseRequestStatusAttempt(
       title: "Seller marked USDT sent",
       message: isCashTrade
         ? "The seller marked USDT as sent and will complete the cash trade. Check your receiving wallet."
-        : "Seller marked USDT as sent. Please confirm receipt to complete the trade.",
+        : "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    if (isCashTrade) {
-      pushNotification(db, {
-        userId: request.sellerId,
-        category: "trade",
-        title: "Cash trade ready to complete",
-        message: "Confirm completion after sending USDT. Only you can close this trade, and no photo is required.",
-        relatedTradeId: next.tradeId,
-        relatedRequestId: request.id,
-        relatedListingId: request.listingId,
-        relatedHref: requestDetailsHref(request.id),
-        whatsappEvent: "trade_update",
-      });
-    }
+    pushNotification(db, {
+      userId: request.sellerId,
+      category: "trade",
+      title: isCashTrade ? "Cash trade ready to complete" : "Trade ready to complete",
+      message: "You confirmed USDT was sent. Complete the trade now; no buyer confirmation is required.",
+      relatedTradeId: next.tradeId,
+      relatedRequestId: request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
+    });
     queueSmsDelivery(db, {
       eventType: "usdt_sent",
       eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`,
@@ -14029,6 +14033,12 @@ async function updatePurchaseRequestStatusAttempt(
         : undefined,
     });
   } else if (input.nextStatus === "completed") {
+    // In-person completion records the seller's explicit USDT confirmation in
+    // the same transaction as settlement, so retries cannot double-deduct stock.
+    if (isSellerCompletion && currentStatus !== "usdt_sent") {
+      next.usdtSentAt = now;
+      appendTradeTimelineEntry(next, { type: "usdt_sent", actorUserId: input.actorUserId, actorRole, message: "Seller marked USDT sent", createdAt: now });
+    }
     const completionActorLabel = isAdminCompletion ? "Admin" : isSeller ? "Seller" : "Buyer";
     const cashTradeLabel = isAtmTrade ? "Cardless ATM" : "Face-to-Face";
     const cashExchangeLabel = isAtmTrade ? "cash and USDT exchange" : "in-person exchange";
@@ -14037,7 +14047,7 @@ async function updatePurchaseRequestStatusAttempt(
       ? "Admin force-completed this trade."
       : isCashTradeCompletion
       ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete.`
-      : "Buyer confirmed trade completed";
+      : isSellerCompletion ? "Seller confirmed trade completed" : "Buyer confirmed trade completed";
     next.completedAt = now;
     appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: completionMessage, createdAt: now });
     next.lockedAt = now;
@@ -14052,7 +14062,9 @@ async function updatePurchaseRequestStatusAttempt(
         ? "Admin confirmed this trade as completed. The trade has moved to history and review, and the seller commission is due."
         : isCashTradeCompletion
         ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete. The trade has moved to history and review, and the seller commission is due.`
-        : "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
+        : isSellerCompletion
+          ? "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due."
+          : "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
       createdAt: now,
     });
 
@@ -14198,7 +14210,9 @@ async function updatePurchaseRequestStatusAttempt(
         ? "An admin confirmed this trade as complete. Check your commission due."
         : isCashTradeCompletion
         ? `${completionActorLabel} marked the ${cashExchangeLabel} complete. The trade is in review; check your commission due.`
-        : `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
+        : isSellerCompletion
+          ? "You completed the trade. Check your commission due."
+          : `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
       relatedTradeId: next.tradeId,
       relatedRequestId: request.id,
       relatedListingId: request.listingId,

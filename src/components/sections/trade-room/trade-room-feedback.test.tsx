@@ -49,6 +49,33 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it.each([
+  ["Face-to-Face (Meet in Person)", "funds_received"],
+  ["Bank Transfer", "usdt_sent"],
+] as const)("completes %s through the visible seller action and opens feedback", async (method, status) => {
+  let current = room(method, status);
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+    if (init?.method === "PATCH") {
+      current = { ...current, request: { ...current.request, status: "review_open", updatedAt: "2026-09-22T00:00:02.000Z" } };
+      return Promise.resolve(Response.json({ request: current.request }));
+    }
+    return Promise.resolve(Response.json(current));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Mark Trade as Completed" }));
+  expect(window.confirm).toHaveBeenCalled();
+  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(calls).toHaveLength(1);
+  expect(JSON.parse(String(calls[0]?.[1]?.body))).toEqual({ action: "complete_trade", usdtSentConfirmed: true });
+  expect(screen.queryByRole("button", { name: "Mark Trade as Completed" })).toBeNull();
+  if (method === "Bank Transfer") {
+    expect(screen.getByRole("main").textContent).toContain("Seller confirmed payment and USDT delivery. Trade completed.");
+    expect(screen.getByRole("main").textContent).not.toMatch(/buyer confirmed receipt|Buyer confirmation:/i);
+  }
+});
+
 describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s action feedback", (method) => {
   it("keeps the confirmed stage while saving, rejects double taps, then shows the next action beside success", async () => {
     let current = room(method, "payment_sent");
@@ -66,7 +93,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect((screen.getByRole("button", { name: "Processing..." }) as HTMLButtonElement).disabled).toBe(true);
     current = { ...current, request: { ...current.request, status: "funds_received", updatedAt: "2026-09-22T00:00:01.000Z" } };
     await act(async () => response.resolve(Response.json({ request: current.request })));
-    const action = await screen.findByRole("button", { name: method === "Bank Transfer" ? "Release USDT" : "Confirm USDT Sent" });
+    const action = await screen.findByRole("button", { name: method === "Bank Transfer" ? "Release USDT" : method === "Face-to-Face (Meet in Person)" ? "Mark Trade as Completed" : "Confirm USDT Sent" });
     const card = document.getElementById("action-required")!;
     expect(card.contains(action)).toBe(true);
     expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

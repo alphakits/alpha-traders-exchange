@@ -118,12 +118,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       const updated = await recalculateCardlessTradeAmount({ requestId: params.requestId, actorUserId: auth.user.id, ilsAmount: typeof body?.ilsAmount === "string" ? body.ilsAmount : undefined });
       return mobileJson({ trade: toMobileTradeSummary(updated, auth.user.id), actions: toMobileTradeActions(updated, auth.user.id) }, requestId);
     }
-    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
+    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
+    const isSellerCompletion = action === "complete_trade";
     const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
     const isCardlessCodeSubmission = action === "submit_cardless_code";
-    const nextStatus = (action === "accept_counter_offer" ? "accepted" : isCashTradeCompletion ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(body?.status ?? "")) as PurchaseRequestStatus;
+    const nextStatus = (action === "accept_counter_offer" ? "accepted" : (isCashTradeCompletion || isSellerCompletion) ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(body?.status ?? "")) as PurchaseRequestStatus;
     if (!MOBILE_MUTABLE_STATUSES.has(nextStatus)) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -147,7 +148,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorRole: auth.user.role,
       acceptCounterOfferId: action === "accept_counter_offer" ? String(body?.proposalId ?? "") : undefined,
       nextStatus,
-      completionMode: isCashTradeCompletion ? "cash_trade" : undefined,
+      completionMode: isSellerCompletion ? "seller" : isCashTradeCompletion ? "cash_trade" : undefined,
+      usdtSentConfirmed: body?.usdtSentConfirmed === true,
       safetyAcknowledged: body?.safetyAcknowledged === true,
       cardlessWithdrawalCode: isCardlessCodeSubmission ? String(body?.withdrawalCode ?? "") : undefined,
       cardlessVerificationKind: isCardlessCodeSubmission ? String(body?.verificationKind ?? "") : undefined,

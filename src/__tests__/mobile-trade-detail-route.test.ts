@@ -133,6 +133,15 @@ beforeEach(() => {
 });
 
 describe("mobile trade detail route", () => {
+  it("accepts the explicit seller completion command on the native API", async () => {
+    mocks.requireMobileApiUser.mockResolvedValue({ user: { id: "private-seller-id", role: "approved_seller" }, accessToken: "access", unauthorized: null });
+    mocks.updatePurchaseRequestStatus.mockResolvedValue({ request: room({ status: "review_open" }).request, statusChanged: true });
+    const response = await PATCH(request("PATCH", { action: "complete_trade", usdtSentConfirmed: true }), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: "private-seller-id", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true,
+    }));
+  });
   it("returns a whitelist projection without internal party, listing, timeline, evidence, or message identifiers", async () => {
     const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
     const payload = await response.json();

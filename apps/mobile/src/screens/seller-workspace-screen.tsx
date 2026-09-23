@@ -1,3 +1,4 @@
+import { AttentionSiren } from "../components/attention-siren";
 import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -334,7 +335,7 @@ export function SellerWorkspaceScreen() {
                 {isRTL ? "إدارة الحسابات البنكية" : "Manage bank accounts"}
               </GoldButton>
               <GoldButton onPress={() => router.push("/seller/commissions")} variant="outline">
-                {isRTL ? "إدارة العمولات" : "Manage commissions"}
+                {(workspace?.summary.pendingCommissionCount ?? 0) > 0 ? <AttentionSiren /> : null}{isRTL ? "إدارة العمولات" : "Manage commissions"}
               </GoldButton>
             </View>
           </View>

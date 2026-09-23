@@ -959,6 +959,7 @@ export interface MobileTradeSummary {
 }
 
 export interface MobileTradeMessage {
+  credentialKind?: "cardless_code";
   sender: "you" | "counterparty" | "system";
   message: string;
   createdAt: string;
@@ -975,6 +976,7 @@ export interface MobileTradeReview {
 }
 
 export interface MobileTradeDetail extends MobileTradeSummary {
+  sellerCommissionDue?: { count: number; amount: number };
   counterpartyDisplayName: string;
   receivingWalletAddress?: string;
   timeline: Array<{
@@ -1002,6 +1004,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canUploadReleaseEvidence: boolean;
     canConfirmReceived: boolean;
     canCompleteFaceToFace: boolean;
+    canCompleteTrade?: boolean;
     canOpenDispute: boolean;
     canSubmitReview: boolean;
     canReviewBuyer?: boolean;
