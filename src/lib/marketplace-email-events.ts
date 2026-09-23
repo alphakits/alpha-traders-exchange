@@ -215,10 +215,16 @@ function tradeEmailContent(
   }
   if (event === "seller_funds_received") {
     const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
     return {
       ...common,
       title: { ar: "أكد البائع استلام الأموال", en: "Seller Confirmed Funds Received" },
-      message: cashTrade
+      message: faceToFace
+        ? {
+            ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT، ثم يُكمل الصفقة دون انتظار تأكيدك.",
+            en: "The seller confirmed receiving the cash. Your wallet is now revealed so the seller can send USDT, then complete the trade without waiting for your confirmation.",
+          }
+        : cashTrade
         ? {
             ar: "أكد البائع استلام النقد. ظهرت محفظتك للبائع الآن ليرسل USDT ويؤكد الإرسال، ثم يُكمل الصفقة بزر منفصل.",
             en: "The seller confirmed receiving the cash. Your wallet is now revealed so the seller can send USDT and confirm it, then complete the trade separately.",

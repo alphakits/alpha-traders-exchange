@@ -3149,10 +3149,10 @@ function TradeRoomPageSession({
                 </>
               ) : (
                 <>
-                  <p>{currencyText(isAr ? `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT تم استلامها.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT received.`)}</p>
-                  <p>{currencyText(isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt.")}</p>
+                  <p>{currencyText(isAr ? `اكتمل تحويل ${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT transfer completed.`)}</p>
+                  <p>{currencyText(isAr ? "أكد البائع استلام الدفع وإرسال USDT. اكتملت الصفقة." : "Seller confirmed payment and USDT delivery. Trade completed.")}</p>
                   <p>{currencyText(isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
-                  <p>{currencyText(isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
+                  <p>{currencyText(isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
                 </>
               )}
               {room.sellerCommissionDueCount > 0 && isSeller ? (

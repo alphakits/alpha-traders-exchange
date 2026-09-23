@@ -70,6 +70,10 @@ it.each([
   expect(calls).toHaveLength(1);
   expect(JSON.parse(String(calls[0]?.[1]?.body))).toEqual({ action: "complete_trade", usdtSentConfirmed: true });
   expect(screen.queryByRole("button", { name: "Mark Trade as Completed" })).toBeNull();
+  if (method === "Bank Transfer") {
+    expect(screen.getByRole("main").textContent).toContain("Seller confirmed payment and USDT delivery. Trade completed.");
+    expect(screen.getByRole("main").textContent).not.toMatch(/buyer confirmed receipt|Buyer confirmation:/i);
+  }
 });
 
 describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s action feedback", (method) => {
