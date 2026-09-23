@@ -1,3 +1,4 @@
+import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
@@ -14537,6 +14538,12 @@ export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
   ));
 }
 
+/** Canonical persisted intents, without unrelated admin dashboard work. */
+export async function getCommissionRecordsForAutomaticReconciliation() {
+  const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  return db.commissionRecords;
+}
+
 export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   return db.commissionRecords;
@@ -15155,12 +15162,13 @@ async function verifyTronUsdtPayment(input: {
   };
   if (apiKey) headers["TRON-PRO-API-KEY"] = apiKey;
 
+  const signal = AbortSignal.timeout(TRON_RPC_TIMEOUT_MS);
   const tronPost = async <T>(pathName: string): Promise<T> => {
     const response = await fetch(`${baseUrl}${pathName}`, {
       method: "POST",
       headers,
       body: JSON.stringify({ value: input.txHash }),
-      signal: AbortSignal.timeout(TRON_RPC_TIMEOUT_MS),
+      signal,
     });
     if (!response.ok) throw new Error(`TRON RPC HTTP ${response.status}`);
     const payload = await response.json() as T & { Error?: string; error?: string };
@@ -15435,6 +15443,17 @@ async function verifyCommissionWalletPayment(input: {
   const transactionSignatureKey = getCommissionPaymentSignatureKey(txHash);
   const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
   logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-started", logCtx);
+
+  // Internal Binance references are verified from the receiving account, never from a seller assertion.
+  if (txHash.startsWith("binance-deposit:")) {
+    if (input.existingSignatures?.includes(transactionSignatureKey)) {
+      return { verified: false, reference: txHash, notes: "This deposit has already been used for a commission payment." };
+    }
+    return verifyBinanceInternalCommissionDeposit({
+      signature: txHash, network: input.network, recipient: input.recipientWalletAddress,
+      amount: input.amountDue, earliestTimestamp: input.earliestPaymentTimestampMs ?? Number.NaN,
+    });
+  }
 
   // 1. Format check
   if (txHash.length < 24) {
@@ -15741,7 +15760,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         type: "commission_paid",
         actorUserId: input.sellerUserId,
         actorRole: resolveActorRole(snapshot, input.sellerUserId),
-        message: `Commission paid on-chain (${canonicalAmountDueUsdt.toFixed(6)} USDT).`,
+        message: `Commission payment verified (${canonicalAmountDueUsdt.toFixed(6)} USDT).`,
         createdAt: now,
       });
     }
@@ -15852,7 +15871,7 @@ export async function submitSellerCommissionWalletPayment(input: {
  * Rechecks seller-submitted payments that reached TRON but had not yet
  * solidified, or whose public RPC lookup was temporarily unavailable.
  */
-export async function reverifyPendingCommissionPayments(input?: { limit?: number }) {
+export async function reverifyPendingCommissionPayments(input?: { limit?: number; deadline?: number }) {
   const requestedLimit = Math.trunc(input?.limit ?? 2);
   const limit = Math.min(4, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 2));
   const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
@@ -15878,7 +15897,10 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
   let stillPending = 0;
   let failed = 0;
   let errors = 0;
+  let checked = 0;
   for (const record of candidates) {
+    if (input?.deadline !== undefined && Date.now() >= input.deadline) break;
+    checked++;
     try {
       const result = await submitSellerCommissionWalletPayment({
         sellerUserId: record.sellerId,
@@ -15901,7 +15923,7 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
   }
 
   return {
-    checked: candidates.length,
+    checked,
     verified,
     stillPending,
     failed,

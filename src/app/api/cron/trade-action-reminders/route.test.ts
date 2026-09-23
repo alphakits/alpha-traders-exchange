@@ -88,7 +88,7 @@ describe("hourly trade action reminder cron", () => {
       },
       {
         path: "/api/cron/commission-payment-verification",
-        schedule: "2-59/5 * * * *",
+        schedule: "* * * * *",
       },
       {
         path: "/api/cron/whatsapp-delivery",

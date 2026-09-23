@@ -359,9 +359,9 @@ export default function SellerCommissionsScreen() {
           </View>
 
           <View style={styles.automationCard}>
-            <Text style={[styles.automationTitle, isRTL && styles.rtlText]}>{isAr ? "✓ التحقق تلقائي بالكامل" : "✓ Fully automatic verification"}</Text>
+            <Text style={[styles.automationTitle, isRTL && styles.rtlText]}>{isAr ? "✓ فحص الدفعات تلقائياً" : "✓ Automatic payment checks"}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>
-              {isAr ? "ألصق TxID مرة واحدة. يفحص النظام شبكة TRON تلقائيًا، وإذا كانت المعاملة تنتظر التأكيد النهائي يعيد الفحص كل 5 دقائق ويفتح صلاحيات البائع فور التحقق. لا تدفع مرة أخرى." : "Paste the TxID once. The system checks TRON automatically; if final confirmation is pending, it retries every 5 minutes and unlocks seller access as soon as verification succeeds. Do not pay again."}
+              {isAr ? "يفحص النظام الدفعات كل دقيقة ويفتح صلاحيات البائع بعد التحقق من الاستلام. أرسل المبلغ الدقيق كما يظهر. إذا تأخر الاكتشاف، أرسل TxID أدناه للتحقق المباشر؛ لا تدفع مرة أخرى." : "Payments are checked every minute and seller access unlocks after receipt is verified. Send the exact amount shown. If detection is delayed, submit the TxID below for a direct check; do not pay again."}
             </Text>
           </View>
           </> : null}
@@ -369,7 +369,7 @@ export default function SellerCommissionsScreen() {
           {pendingForSelectedRecord ? (
             <View accessibilityRole="alert" style={styles.pendingCard}>
               <Text style={[styles.pendingTitle, isRTL && styles.rtlText]}>{isAr ? "التحقق التلقائي قيد التشغيل" : "Automatic verification is active"}</Text>
-              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تم حفظ TxID. المعاملة تنتظر التأكيد النهائي على TRON وسيعيد النظام فحصها تلقائيًا. لا ترسل دفعة أخرى." : "Your TxID is saved. The transaction is awaiting final TRON confirmation and will be checked again automatically. Do not send another payment."}</Text>
+              <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "تم حفظ TxID. المعاملة تنتظر التأكيد النهائي على الشبكة المختارة وسيعيد النظام فحصها تلقائيًا. لا ترسل دفعة أخرى." : "Your TxID is saved. The transaction is awaiting final confirmation on the selected network and will be checked again automatically. Do not send another payment."}</Text>
               <Text style={[styles.body, isRTL && styles.rtlText]}>
                 {legacyPendingForSelectedRecord
                   ? (isAr
