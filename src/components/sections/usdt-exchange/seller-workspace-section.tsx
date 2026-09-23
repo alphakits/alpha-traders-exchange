@@ -101,6 +101,9 @@ export type SellerWorkspaceSectionProps = {
   isListingCreateSubmitDisabled: boolean;
   isMobileViewport: boolean;
   isWorkspaceWidgetsLoading: boolean;
+  desktopNavigation?: boolean;
+  purchaseRequestsState?: "loading" | "ready" | "error";
+  onRetryPurchaseRequests?: () => void;
   listingActionKey: string | null;
   listingBlockedByActiveLimit: boolean;
   listingBlockedByCommission: boolean;
@@ -155,7 +158,7 @@ export type SellerWorkspaceSectionProps = {
   sellerResponseDrafts: Record<string, string>;
   sellerSafetyAcknowledgements: Record<string, boolean>;
   sellerTradeQuery: string;
-  sellerTradeStatus: PurchaseRequestStatus | "all";
+  sellerTradeStatus: PurchaseRequestStatus | "all" | "active";
   sellerWorkspaceMessage: string | null;
   sellerWorkspaceMessageFeedbackKey?: number;
   sellerWorkspaceSummary: {
@@ -185,7 +188,7 @@ export type SellerWorkspaceSectionProps = {
   setSellerResponseDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setSellerSafetyAcknowledgements: Dispatch<SetStateAction<Record<string, boolean>>>;
   setSellerTradeQuery: Dispatch<SetStateAction<string>>;
-  setSellerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all">>;
+  setSellerTradeStatus: Dispatch<SetStateAction<PurchaseRequestStatus | "all" | "active">>;
   setSellerWorkspaceMessage: Dispatch<SetStateAction<string | null>>;
   sortedSellerRequests: PurchaseRequest[];
   uploadTradeEvidenceFile: (requestId: string, side: "buyer" | "seller", file: File) => Promise<boolean>;
@@ -259,6 +262,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     isListingCreateSubmitDisabled,
     isMobileViewport,
     isWorkspaceWidgetsLoading,
+    desktopNavigation = false,
+    purchaseRequestsState = "ready",
+    onRetryPurchaseRequests,
     listingActionKey,
     listingBlockedByActiveLimit,
     listingBlockedByCommission,
@@ -1016,7 +1022,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </Card>
           ) : null}
 
-          <Card id="create-listing" className="order-30 border-white/10 bg-[#0B0B0B]/90">
+          <Card id="create-listing" tabIndex={desktopNavigation ? -1 : undefined} className={cn("order-30 border-white/10 bg-[#0B0B0B]/90", desktopNavigation && "scroll-mt-24")}>
             <CardHeader>
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
@@ -1390,8 +1396,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             <CardContent className="space-y-3">
               <div className="grid gap-3 md:grid-cols-2">
                 <Input placeholder={isAr ? "ابحث بمعرّف الصفقة أو المشتري أو العرض..." : "Search by trade ID, buyer, listing..."} value={sellerTradeQuery} onChange={(event) => setSellerTradeQuery(event.target.value)} />
-                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerTradeStatus} onChange={(event) => setSellerTradeStatus(event.target.value as typeof sellerTradeStatus)}>
+                <select aria-label={desktopNavigation ? (isAr ? "تصفية طلبات الشراء" : "Filter purchase requests") : undefined} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerTradeStatus} onChange={(event) => setSellerTradeStatus(event.target.value as typeof sellerTradeStatus)}>
                   <option value="all">{isAr ? "الحالة: الكل" : "Status: All"}</option>
+                  {desktopNavigation ? <option value="active">{isAr ? "الصفقات النشطة" : "Active trades"}</option> : null}
                   <option value="pending">{tradeStatusLabel("pending", isAr)}</option>
                   <option value="accepted">{tradeStatusLabel("accepted", isAr)}</option>
                   <option value="payment_sent">{tradeStatusLabel("payment_sent", isAr)}</option>
@@ -1403,7 +1410,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <option value="cancelled">{tradeStatusLabel("cancelled", isAr)}</option>
                 </select>
               </div>
-              {isWorkspaceWidgetsLoading ? (
+              {isWorkspaceWidgetsLoading || (desktopNavigation && purchaseRequestsState === "loading") ? (
                 Array.from({ length: 2 }).map((_, index) => (
                   <div key={`seller-requests-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
@@ -1412,7 +1419,36 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 ))
               ) : null}
-              {!isWorkspaceWidgetsLoading && sellerRequests.length === 0 ? (
+              {desktopNavigation && purchaseRequestsState === "error" ? (
+                <div role="alert" className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+                  <p>{isAr ? "تعذر تحميل أحدث صفقاتك. حاول مرة أخرى." : "We couldn't load your latest trades. Please try again."}</p>
+                  <Button type="button" size="sm" variant="secondary" className="mt-3" onClick={onRetryPurchaseRequests}>
+                    {isAr ? "إعادة المحاولة" : "Retry"}
+                  </Button>
+                </div>
+              ) : null}
+              {desktopNavigation && !isWorkspaceWidgetsLoading && purchaseRequestsState === "ready" && sortedSellerRequests.length === 0 ? (
+                <div role="status" className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
+                  <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
+                  <p className="mt-2 text-sm font-medium text-white">{sellerTradeStatus === "active" && !sellerTradeQuery.trim()
+                    ? (isAr ? "لا توجد صفقات نشطة حالياً." : "There are no active trades currently.")
+                    : sellerRequests.length === 0
+                      ? (isAr ? "لا توجد طلبات شراء حتى الآن." : "No purchase requests yet.")
+                      : (isAr ? "لا توجد طلبات تطابق البحث." : "No requests match your filters.")}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "عند استلام أول طلب شراء، ستتمكن من الرد عليه فورًا من هنا." : "Your next buyer request will appear here with quick actions to accept, decline, or continue the trade."}</p>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => scrollToMyListingsSection()}>
+                      {isAr ? "عرض عروضي" : "View My Listings"}
+                    </Button>
+                    {sellerRequests.length > 0 ? (
+                      <Button type="button" size="sm" variant="secondary" onClick={() => { setSellerTradeQuery(""); setSellerTradeStatus("all"); }}>
+                        {isAr ? "عرض جميع الطلبات" : "View All Requests"}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {!desktopNavigation && !isWorkspaceWidgetsLoading && sellerRequests.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء قيد الانتظار" : "No purchase requests yet."}</p>

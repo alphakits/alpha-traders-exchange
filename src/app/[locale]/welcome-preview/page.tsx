@@ -1,3 +1,4 @@
+import { SellerWorkspaceDesignPreview } from "@/components/sections/usdt-exchange/seller-workspace-design-preview";
 import { SellerDesignPreview } from "@/components/profile/seller-design-preview";
 import { BuyerContactPreview } from "@/components/auth/buyer-contact-prompt";
 import { notFound } from "next/navigation";
@@ -24,6 +25,7 @@ export default async function WelcomePreview({ params, searchParams }: { params:
   const locale = (await params).locale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   const view = (await searchParams).view;
+  if (view === "seller-workspace") return <SellerWorkspaceDesignPreview locale={locale} />;
   if (view === "seller-design" || view === "seller-public") return <SellerDesignPreview locale={locale} rank={(await searchParams).rank} publicView={view === "seller-public"} />;
   if (view === "history") {
     const sample: OwnerTradeHistoryData = {
