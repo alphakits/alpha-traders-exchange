@@ -1,14 +1,14 @@
 import { currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { Award, CheckCircle2, ShieldCheck, Sparkles, Star, UserRound } from "lucide-react";
+import { Award, CheckCircle2, Crown, ShieldCheck, Sparkles, Star, UserRound } from "lucide-react";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getPremiumSellerProfile, getPublicUserProfileRouteData } from "@/lib/alpha-exchange-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { RankBadge } from "@/components/ui/rank-badge";
+import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; username: string }> }) {
@@ -203,7 +203,6 @@ export default async function PublicUserProfilePage({
   );
   const publicTradingName = data.profile.publicTradingName
     || (isVerifiedSeller ? (isAr ? "بائع موثق" : "Verified Seller") : (isAr ? "عضو Alpha Traders" : "Alpha Traders Member"));
-  const initials = publicTradingName.trim().charAt(0).toUpperCase() || "?";
   const sellerIdentity = isVerifiedSeller
     ? await getPremiumSellerProfile({
         sellerId: data.profile.id,
@@ -243,7 +242,7 @@ export default async function PublicUserProfilePage({
                   {data.profile.profilePhotoUrl ? (
                     <Image src={data.profile.profilePhotoUrl} alt={publicTradingName} width={112} height={112} unoptimized className="h-full w-full rounded-2xl object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center rounded-2xl bg-black/70 text-2xl font-semibold text-[#F4D87A]">{currencyText(initials)}</div>
+                    <div className="flex h-full w-full items-center justify-center rounded-2xl bg-black/70 text-2xl font-semibold text-[#F4D87A]">{roleBadge === "owner" ? <Crown className="h-12 w-12 text-red-200" aria-hidden="true" /> : <RankEmblem rank={data.reputation?.level ?? data.profile.buyerRank} className="!h-20 !w-20 [&>svg]:!h-10 [&>svg]:!w-10" />}</div>
                   )}
                 </div>
                 <div className="pb-1">

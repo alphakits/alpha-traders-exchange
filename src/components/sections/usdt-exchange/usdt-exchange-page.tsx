@@ -7,7 +7,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Crown, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { AccountWelcome } from "@/components/ui/account-welcome";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
-import { RankBadge } from "@/components/ui/rank-badge";
+import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { rankSurfaceTone } from "@/lib/rank-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
@@ -1182,11 +1182,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 />
               ) : (
                 <div className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border border-transparent text-sm font-semibold", isOwnerListing ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#D1D5DB]")}>
-                  {currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2))}
+                  {isOwnerListing ? <Crown className="h-6 w-6" aria-hidden="true" /> : <RankEmblem rank={sellerLevel} className="!h-11 !w-11 [&>svg]:!h-6 [&>svg]:!w-6" />}
                 </div>
               )}
             </div>
