@@ -1,5 +1,5 @@
 name: Alpha Exchange Isolated Draft Browser Reliability
-run_name: Browser reliability • draft fc183c4
+run_name: Browser reliability • draft d26ab01
 
 on:
   workflow_dispatch: {}
@@ -18,11 +18,11 @@ jobs:
     steps:
       - uses: eas/checkout
         with:
-          ref: fc183c4f3363c4a7d7aa4c77975a19c936446687
+          ref: d26ab01e67b78e73e19db53c798cd2c5136bf2e1
       - name: Verify the exact draft source
         run: |
-          test "$(git rev-parse HEAD)" = "fc183c4f3363c4a7d7aa4c77975a19c936446687"
-          test "$(git rev-parse HEAD^{tree})" = "ab2f6968dd9cf391f34da3d6b76509155d4be368"
+          test "$(git rev-parse HEAD)" = "d26ab01e67b78e73e19db53c798cd2c5136bf2e1"
+          test "$(git rev-parse HEAD^{tree})" = "5ef3d792b3733f2795ddea71a5bbc77a22b4367c"
           git diff --exit-code
           git diff --cached --exit-code
           git log -1 --format='Verified draft source: %H'
@@ -32,7 +32,7 @@ jobs:
         run: npx playwright install --with-deps chromium
         working_directory: ../..
       - name: Run production-mode browser reliability suite
-        run: npx playwright test --reporter=line,html,json --output=apps/mobile/playwright-results 2>&1 | tee apps/mobile/playwright-run.log
+        run: npx playwright test --retries=0 --trace=retain-on-failure --reporter=line,html,json --output=apps/mobile/playwright-results 2>&1 | tee apps/mobile/playwright-run.log
         working_directory: ../..
       - name: Upload browser evidence
         uses: eas/upload_artifact
