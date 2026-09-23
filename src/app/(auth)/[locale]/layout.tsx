@@ -8,6 +8,7 @@ import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME } from "@/lib/brand";
 import { LocaleSwitcher } from "@/components/layout/locale-switcher";
+import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -44,6 +45,7 @@ export default async function AuthLocaleLayout({
 
   return (
     <NextIntlClientProvider messages={messages}>
+      <HtmlAttributesSetter lang={appLocale} dir={localeDirection[appLocale]} />
       <div
         dir={localeDirection[appLocale]}
         className={`${inter.variable} ${plexArabic.variable} flex min-h-screen flex-col bg-[#050505] text-white ${
