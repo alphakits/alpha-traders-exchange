@@ -12,6 +12,7 @@ const sellerId = `seller-e2e-${randomUUID()}`;
 const listingId = `listing-e2e-${randomUUID()}`;
 const sellerBankAccountId = `bank-${sellerId}`;
 const sellerPrivateEmail = "e2e-modal-seller-private@example.test";
+const buyerPrivatePhone = "+972500000099";
 
 async function readRuntimeDb(request: APIRequestContext) {
   const response = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
@@ -119,8 +120,8 @@ async function makeBuyerEmailVerifiedWithoutPhone(request: APIRequestContext) {
   } = buyer;
   users[buyerIndex] = {
     ...emailOnlyBuyer,
-    // Match the persisted registration shape for a user who chooses not to
-    // provide a phone number: the field is an empty string, not absent.
+    // Exercise an older account with missing private contact information.
+    // The normal contact prompt must be completed before marketplace actions.
     whatsappNumber: "",
     emailVerified: true,
     emailVerifiedAt: String(buyer.emailVerifiedAt ?? new Date().toISOString()),
@@ -169,6 +170,31 @@ async function login(page: Page, email: string, password: string) {
   expect(response.ok()).toBeTruthy();
 }
 
+async function openMarketplaceWithPrivateContact(page: Page, locale: "en" | "ar" = "en") {
+  await page.goto(`/${locale}/usdt-exchange`);
+  const contactDialog = page.getByRole("dialog", {
+    name: locale === "ar" ? "أضف رقمًا للتواصل عند الحاجة" : "A number to reach you when needed",
+  });
+  await expect(contactDialog).toBeVisible();
+  await contactDialog.getByLabel(locale === "ar" ? "رقم الهاتف أو واتساب (مطلوب)" : "Phone or WhatsApp number (required)").fill(buyerPrivatePhone);
+  await contactDialog.getByRole("button", {
+    name: locale === "ar" ? "حفظ الرقم والمتابعة" : "Save number and continue",
+  }).click();
+  await expect(contactDialog).not.toBeVisible();
+
+  const db = await readRuntimeDb(page.request);
+  const users = Array.isArray(db.users) ? db.users as Array<Record<string, unknown>> : [];
+  const savedBuyer = users.find((user) => String(user.email ?? "").toLowerCase() === buyerFixture!.email.toLowerCase());
+  expect(savedBuyer).toMatchObject({ whatsappNumber: buyerPrivatePhone, emailVerified: true });
+  // Saving private contact information does not add SMS verification.
+  expect(savedBuyer?.verifiedPhone).toBeFalsy();
+  expect(savedBuyer?.phoneVerifiedAt).toBeFalsy();
+}
+
+function modalListing(page: Page) {
+  return page.locator(`[id="listing-${listingId}"]`);
+}
+
 test.beforeAll(async () => {
   buyerFixture = await resolveBuyerFixture(
     (process.env.E2E_BUYER_EMAIL ?? "").toLowerCase(),
@@ -193,9 +219,9 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("opens a purchase-first modal with the form immediately visible (desktop)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto("/en/usdt-exchange");
+    await openMarketplaceWithPrivateContact(page);
 
-    const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
+    const buyButton = modalListing(page).getByRole("button", { name: /Buy USDT/i });
     await buyButton.scrollIntoViewIfNeeded();
     await buyButton.click();
 
@@ -203,22 +229,23 @@ test.describe("Direct Buy USDT modal", () => {
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     // The amount field is available immediately — no profile-first scrolling.
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
-    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
-    await expect(page.getByLabel(/Buyer notes/i)).toHaveCount(0);
+    const purchaseDialog = page.getByRole("dialog", { name: "Buy USDT", exact: true });
+    await expect(purchaseDialog.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(purchaseDialog.getByLabel(/Buyer notes/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
   });
 
   test("renders without horizontal overflow at 320px and keeps the form reachable", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
-    await page.goto("/en/usdt-exchange");
+    await openMarketplaceWithPrivateContact(page);
 
-    const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
+    const buyButton = modalListing(page).getByRole("button", { name: /Buy USDT/i });
     await buyButton.scrollIntoViewIfNeeded();
     await buyButton.click();
 
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
-    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Buy USDT", exact: true }).getByLabel(/WhatsApp/i)).toHaveCount(0);
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
@@ -226,9 +253,10 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("submits the minimum valid price offer on desktop and freezes the negotiated totals", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto("/en/usdt-exchange");
+    await openMarketplaceWithPrivateContact(page);
 
-    const offerButton = page.getByRole("button", { name: /Make a price offer to E2E Modal Seller/i }).first();
+    // Ordinary sellers are shown by their public AT ID, never their private name.
+    const offerButton = modalListing(page).getByRole("button", { name: /Make a price offer to /i });
     await offerButton.scrollIntoViewIfNeeded();
     await offerButton.click();
 
@@ -261,9 +289,9 @@ test.describe("Direct Buy USDT modal", () => {
 
   test("keeps the Arabic price-offer dialog valid and overflow-free at 320px", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
-    await page.goto("/ar/usdt-exchange");
+    await openMarketplaceWithPrivateContact(page, "ar");
 
-    const offerButton = page.getByRole("button", { name: /تقديم عرض سعر/ }).first();
+    const offerButton = modalListing(page).getByRole("button", { name: /تقديم عرض سعر/ });
     await offerButton.scrollIntoViewIfNeeded();
     await offerButton.click();
 
@@ -279,16 +307,17 @@ test.describe("Direct Buy USDT modal", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("lets a verified-email Buyer without a verified phone create a trade without contact fields", async ({ page }) => {
+  test("lets a verified-email buyer save private contact and trade without SMS verification or shared contact fields", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/en/usdt-exchange");
+    await openMarketplaceWithPrivateContact(page);
     const listingsResponse = await page.request.get("/api/alpha-exchange/listings");
     expect(listingsResponse.ok()).toBeTruthy();
     const listingsPayload = JSON.stringify(await listingsResponse.json());
     expect(listingsPayload).not.toContain("+972500000055");
     expect(listingsPayload).not.toContain(sellerPrivateEmail);
+    expect(listingsPayload).not.toContain("E2E Modal Seller");
 
-    const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
+    const buyButton = modalListing(page).getByRole("button", { name: /Buy USDT/i });
     await buyButton.scrollIntoViewIfNeeded();
     await buyButton.click();
     await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
