@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { getLocale } from "next-intl/server";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
+import { PublicSpeedInsights } from "@/components/layout/public-speed-insights";
 import { localeDirection, type AppLocale } from "@/i18n/routing";
 import { buildLocalizedSiteMetadata } from "@/lib/site-metadata";
 import { buildSiteIdentitySchemas, serializeJsonLd } from "@/lib/seo";
@@ -44,6 +45,7 @@ export default async function RootLayout({
         />
         <GlobalBlockchainBackground />
         <div className="relative z-10">{children}</div>
+        {process.env.VERCEL === "1" ? <PublicSpeedInsights /> : null}
       </body>
     </html>
   );
