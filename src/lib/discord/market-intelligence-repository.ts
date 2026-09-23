@@ -11,8 +11,9 @@ import {
   normalizeMarketSiteUrl,
 } from "@/lib/discord/market-intelligence-publisher";
 import type { DiscordPublicSellerProfile } from "@/lib/discord/seller-profile-card";
-import { isSafeDiscordImageUrl } from "@/lib/discord/listing-publisher";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { ownerApprovedSellerSql } from "@/lib/discord/seller-authorization-sql";
 
@@ -287,7 +288,7 @@ async function readLeaderboard(
     row.seller_id && row.display_name && row.completed_trades
       ? [{
           sellerId: row.seller_id,
-          displayName: row.display_name,
+          displayName: publicAccountId({ id: row.seller_id, role: "approved_seller" }),
           completedTrades: row.completed_trades,
           trustScore: numberOrNull(row.trust_score),
           rating: numberOrNull(row.rating),
@@ -619,10 +620,7 @@ export async function getPublicDiscordSellerProfileByUsername(input: {
   `);
   const normalizedUsername = normalizePublicProfileUsername(input.username);
   const row = result.rows.find((candidate) => {
-    const displayName = publicText(candidate.payload.buyerDisplayName);
-    return displayName
-      ? normalizePublicProfileUsername(displayName) === normalizedUsername
-      : false;
+    return typeof candidate.payload.id === "string" && publicAccountUsername(candidate.payload.id) === normalizedUsername;
   });
   if (!row) return null;
   return buildPublicDiscordSellerProfile({
@@ -638,10 +636,10 @@ function buildPublicDiscordSellerProfile(input: {
   now?: number;
 }): DiscordPublicSellerProfile | null {
   const { row } = input;
-  const displayName = publicText(row.payload.buyerDisplayName);
-  if (!displayName) return null;
+  if (typeof row.payload.id !== "string") return null;
+  const displayName = publicAccountId({ id: row.payload.id, role: "approved_seller" });
   const siteUrl = normalizeMarketSiteUrl(input.siteUrl);
-  const normalizedUsername = normalizePublicProfileUsername(displayName);
+  const normalizedUsername = publicAccountUsername(row.payload.id);
   const trust = row.trust_payload?.snapshot
     && typeof row.trust_payload.snapshot === "object"
     ? row.trust_payload.snapshot as Record<string, unknown>
@@ -660,9 +658,7 @@ function buildPublicDiscordSellerProfile(input: {
           : null,
       }, input.now)
     : null;
-  const imageUrl = isSafeDiscordImageUrl(row.payload.profilePhotoUrl)
-    ? row.payload.profilePhotoUrl
-    : null;
+  const imageUrl = null;
   return {
     displayName,
     level: publicText(trust?.level),

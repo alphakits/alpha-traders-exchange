@@ -225,7 +225,7 @@ export function PurchaseListingDialog({
                     <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
                       <p className={cn("truncate text-base font-semibold", listing.sellerProfile?.isOwner ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${modalToneKey}`)}>{currencyText(safeText(modalName, isAr ? "بائع" : "Seller"))}</p>
                       <RoleBadge variant={listing.sellerProfile?.isOwner ? "owner" : "approved_seller"} locale={locale} className={cn("seller-rank-badge", `seller-rank-badge--${modalToneKey}`)} />
-                      <RankBadge rank={listing.sellerProfile?.isOwner ? "legendary" : modalLevel} locale={locale} audience="seller" />
+                      <RankBadge rank={modalLevel} locale={locale} audience="seller" />
                     </div>
                     <div className={`mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
                       <span className={cn("inline-flex items-center gap-1", `seller-presence--${modalPresence.tone}`)}>

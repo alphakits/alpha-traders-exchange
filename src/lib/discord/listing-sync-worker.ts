@@ -7,7 +7,6 @@ import type { DiscordListingDiagnostics } from "@/lib/discord/diagnostics";
 import {
   DiscordRestListingPublisher,
   hashDiscordListingSnapshot,
-  isSafeDiscordImageUrl,
   resolveDiscordPublicSiteUrl,
   type DiscordListingPublisher,
   type DiscordListingSnapshot,
@@ -16,7 +15,8 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { getSiteUrl } from "@/lib/site-url";
 import { logEvent } from "@/lib/structured-logging";
-import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { publicAccountUsername } from "@/lib/public-account-username";
 
 const POLL_INTERVAL_MS = 5_000;
 const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
@@ -169,9 +169,6 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
   const trustSnapshot = input.trust?.snapshot && typeof input.trust.snapshot === "object"
     ? input.trust.snapshot as Record<string, unknown>
     : null;
-  const profilePhoto = input.seller.isProfileHidden === true
-    ? null
-    : input.seller.profilePhotoUrl;
   const websiteUrl = resolveDiscordPublicSiteUrl(input.siteUrl);
   const fallbackImage = `${websiteUrl}/images/brand/alpha-traders-logo.png`;
   const paymentMethods = stringArray(input.listing.paymentMethods);
@@ -184,8 +181,9 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
         lastActiveAt: stringValue(input.seller.lastActiveAt) || null,
       }, input.now)
     : null;
-  const publicTradingName = publicTextValue(input.seller.buyerDisplayName);
-  const profileIsPublic = Boolean(publicTradingName)
+  const sellerId = stringValue(input.seller.id) || stringValue(input.listing.sellerId);
+  const publicTradingName = sellerId ? publicAccountId({ id: sellerId, role: "approved_seller" }) : "Alpha Traders Seller";
+  const profileIsPublic = Boolean(sellerId)
     && input.seller.isProfileHidden !== true
     && input.seller.allowProfileSearch !== false;
   const showTradeStats = input.seller.showTradeStats !== false;
@@ -213,11 +211,11 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
       : null,
     rating: completedTrades ? ratingValue(trustSnapshot?.rating) : null,
     completedTrades,
-    imageUrl: isSafeDiscordImageUrl(profilePhoto) ? profilePhoto : fallbackImage,
+    imageUrl: fallbackImage,
     brandImageUrl: fallbackImage,
     listingUrl: `${websiteUrl}/en/usdt-exchange`,
     sellerProfileUrl: profileIsPublic
-      ? `${websiteUrl}/en/exchange/seller/${encodeURIComponent(normalizePublicProfileUsername(publicTradingName))}`
+      ? `${websiteUrl}/en/exchange/seller/${encodeURIComponent(publicAccountUsername(sellerId))}`
       : null,
     websiteUrl,
   };
@@ -556,8 +554,7 @@ async function reconcileJob(
     }
     const soldSnapshot = {
       ...row.snapshot,
-      sellerDisplayName: publicTextValue(row.user_payload?.buyerDisplayName)
-        || "Alpha Traders Seller",
+      sellerDisplayName: publicAccountId({ id: row.seller_id, role: "approved_seller" }),
     };
     await publisher.updateMessage({
       channelId: row.channel_id,

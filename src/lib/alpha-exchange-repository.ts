@@ -2541,6 +2541,7 @@ export class AlphaExchangeRepository {
         .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null;
       return attachVersion({
         ...emptySnapshotCollections(),
+        users: purchaseRequest ? cloneSnapshot(source.users.filter(user => user.id === purchaseRequest.buyerId || user.id === purchaseRequest.sellerId)) : [],
         marketplaceListings: purchaseRequest
           ? cloneSnapshot(source.marketplaceListings.filter((listing) => listing.id === purchaseRequest.listingId))
           : [],
@@ -2550,7 +2551,7 @@ export class AlphaExchangeRepository {
 
     const result = await pool.query<AggregatedSnapshotRow>(
       `with candidate_request as materialized (
-         select id, listing_id, sort_index, payload
+         select id, listing_id, buyer_id, seller_id, sort_index, payload
          from alpha_exchange.purchase_requests
          where ($2::boolean or buyer_id = $1 or seller_id = $1)
            and (
@@ -2563,6 +2564,11 @@ export class AlphaExchangeRepository {
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
          coalesce((
+           select jsonb_agg(users.payload order by users.sort_index asc)
+           from alpha_exchange.users users
+           where users.id in (select buyer_id from candidate_request union select seller_id from candidate_request)
+         ), '[]'::jsonb) as users,
+         coalesce((
            select jsonb_agg(listing.payload order by listing.sort_index asc)
            from alpha_exchange.listings listing
            where listing.id in (select listing_id from candidate_request)
@@ -2572,7 +2578,7 @@ export class AlphaExchangeRepository {
     );
     const row = result.rows[0];
     return attachVersion(
-      snapshotFromAggregatedRow(row, ["listings", "purchase_requests"]),
+      snapshotFromAggregatedRow(row, ["users", "listings", "purchase_requests"]),
       Number(row?.version ?? "0"),
     );
   }
@@ -2589,8 +2595,10 @@ export class AlphaExchangeRepository {
       ));
       const requestIds = new Set(purchaseRequests.map((request) => request.id));
       const listingIds = new Set(purchaseRequests.map((request) => request.listingId));
+      const participantIds = new Set(purchaseRequests.flatMap(request => [request.buyerId, request.sellerId]));
       return attachVersion({
         ...emptySnapshotCollections(),
+        users: cloneSnapshot(source.users.filter(user => participantIds.has(user.id))),
         marketplaceListings: cloneSnapshot(source.marketplaceListings.filter((listing) => listingIds.has(listing.id))),
         purchaseRequests: cloneSnapshot(purchaseRequests),
         tradeEvidenceFiles: cloneSnapshot(source.tradeEvidenceFiles.filter((file) => requestIds.has(file.purchaseRequestId))),
@@ -2599,13 +2607,18 @@ export class AlphaExchangeRepository {
 
     const result = await pool.query<AggregatedSnapshotRow>(
       `with visible_requests as materialized (
-         select id, listing_id, sort_index, payload
+         select id, listing_id, buyer_id, seller_id, sort_index, payload
          from alpha_exchange.purchase_requests
          where ($2::boolean or buyer_id = $1 or seller_id = $1)
            and ($3::text is null or id = $3)
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
+         coalesce((
+           select jsonb_agg(users.payload order by users.sort_index asc)
+           from alpha_exchange.users users
+           where users.id in (select buyer_id from visible_requests union select seller_id from visible_requests)
+         ), '[]'::jsonb) as users,
          coalesce((
            select jsonb_agg(listing.payload order by listing.sort_index asc)
            from alpha_exchange.listings listing
@@ -2621,7 +2634,7 @@ export class AlphaExchangeRepository {
     );
     const row = result.rows[0];
     return attachVersion(
-      snapshotFromAggregatedRow(row, ["listings", "purchase_requests", "evidence"]),
+      snapshotFromAggregatedRow(row, ["users", "listings", "purchase_requests", "evidence"]),
       Number(row?.version ?? "0"),
     );
   }

@@ -10,6 +10,7 @@ const PRIVATE_ROUTE_NAMES = [
   "settings",
   "notifications",
   "trade-room",
+  "trades",
   "usdt-exchange",
   "seller",
   "onboarding",

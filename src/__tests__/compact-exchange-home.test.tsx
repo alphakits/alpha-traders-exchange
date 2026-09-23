@@ -30,7 +30,9 @@ beforeEach(() => {
     const url = String(input);
     let data: unknown = {};
     if (url.includes("/auth/me")) data = { user };
-    else if (url.includes("/auth/profile")) data = { stats: { kind: "buyer", lifetimeCompletedVolumeUsdt: 52_500 } };
+    else if (url.includes("/auth/profile")) data = user.sellerStatus === "approved_seller"
+      ? { profile: { id: user.id }, stats: { kind: "seller", sellerLevel: "silver", nextLevel: "gold", lifetimeCompletedVolumeUsdt: 38_000, amountToNextLevelUsdt: 12_000, progressToNextLevelPercent: 65.71 } }
+      : { stats: { kind: "buyer", lifetimeCompletedVolumeUsdt: 52_500 } };
     else if (url.includes("/seller-application")) data = { application: pending ? { id: "application-home", status: "pending", createdAt: trade.createdAt } : null };
     else if (url.includes("/purchase-requests")) data = { requests: [trade] };
     else if (url.includes("/my-listings")) data = { listings: [], summary: { canCreateListing: true }, commissionStatus: { status: "clear", pendingCount: 0 } };
@@ -76,6 +78,11 @@ describe("compact Exchange home", () => {
     render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="seller" />);
     expect(screen.getByRole("heading", { name: "Approved Seller" })).toBeTruthy();
     expect(screen.queryByText("Become an Approved Seller")).toBeNull();
+    await screen.findAllByRole("heading", { name: "Silver Seller" });
+    const welcome = document.querySelector('[data-account-role="approved_seller"]')!;
+    expect(welcome.textContent).toContain("38,000 USDT");
+    expect(welcome.textContent).toContain("12,000 USDT");
+    expect(within(welcome as HTMLElement).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("66");
     await waitFor(() => expect(document.getElementById("my-listings-section")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "View and Manage Listings" }));
     expect(document.activeElement?.id).toBe("my-listings-section");

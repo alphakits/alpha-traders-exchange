@@ -7,6 +7,9 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { getPremiumSellerProfile, getPublicUserProfileRouteData } from "@/lib/alpha-exchange-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
+import { RoleBadge } from "@/components/ui/role-badge";
+import { RankBadge } from "@/components/ui/rank-badge";
+import { accountRoleIdentity } from "@/lib/account-role-identity";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; username: string }> }) {
   const { locale, username } = await params;
@@ -190,6 +193,8 @@ export default async function PublicUserProfilePage({
     viewerRole: viewer?.role,
   });
   if (!data) notFound();
+  const roleBadge = data.profile.roleBadge ?? accountRoleIdentity({ ...data.profile, email: "" });
+  const profileLocale = isAr ? "ar" : "en";
 
   const isVerifiedSeller = isSellerRole(
     data.profile.role,
@@ -242,10 +247,12 @@ export default async function PublicUserProfilePage({
                   )}
                 </div>
                 <div className="pb-1">
-                  <h1 className={isVerifiedSeller ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
+                  <h1 className={roleBadge === "owner" ? "profile-identity-name profile-identity-name--owner" : isVerifiedSeller ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
                     <bdi dir="auto">{currencyText(publicTradingName)}</bdi>
                   </h1>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <RoleBadge variant={roleBadge} locale={profileLocale} />
+                    {sellerIdentity ? <RankBadge rank={sellerIdentity.sellerLevel} audience="seller" locale={profileLocale} /> : roleBadge === "buyer" ? <RankBadge rank={data.profile.buyerRank} audience="buyer" locale={profileLocale} /> : null}
                     {isVerifiedSeller ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 font-semibold text-[#F4D87A]">
                         <ShieldCheck className="h-3.5 w-3.5" />
@@ -289,7 +296,7 @@ export default async function PublicUserProfilePage({
             <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدور" : "Role"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{isVerifiedSeller ? (isAr ? "بائع معتمد" : "Approved Seller") : (isAr ? "عضو" : "Member")}</p>
+                <div className="mt-2"><RoleBadge variant={roleBadge} locale={profileLocale} /></div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدولة" : "Country"}</p>
@@ -347,7 +354,7 @@ export default async function PublicUserProfilePage({
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <div>
                       <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "المستوى الحالي" : "Current tier"}</p>
-                      <p className="mt-2 text-xl font-semibold text-white">{sellerTierLabel(sellerIdentity.sellerLevel, isAr)}</p>
+                      <div className="mt-2"><RankBadge rank={sellerIdentity.sellerLevel} audience="seller" locale={profileLocale} /></div>
                     </div>
                     <p className="text-xs text-[#E5E7EB]">
                       {currencyText(sellerIdentity.nextRank

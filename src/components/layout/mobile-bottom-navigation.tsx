@@ -54,9 +54,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   const isTradesDestination = isOwnerPurchaseRequests || isBuyerTradeHistory;
   const tradesHref = isAdminOwner
     ? "/admin/alpha-exchange?section=purchase-requests"
-    : isSellerWorkspaceUser
-      ? "/trade-room"
-      : "/usdt-exchange?section=trade-history#my-trade-requests-section";
+    : "/trades";
 
   const destinations: MobileDestination[] = [
     {
@@ -79,7 +77,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       href: tradesHref,
       label: isAr ? "الصفقات" : "Trades",
       icon: Handshake,
-      isActive: (current) => isTradesDestination || current === "/trade-room" || current.startsWith("/trade-room/"),
+      isActive: (current) => isTradesDestination || current === "/trades" || current === "/trade-room" || current.startsWith("/trade-room/"),
     },
     {
       href: "/news",

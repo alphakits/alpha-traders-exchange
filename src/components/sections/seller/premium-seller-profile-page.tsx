@@ -342,7 +342,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                       <div className={cn("mt-3 flex flex-wrap gap-2", isAr ? "justify-end" : "")}>
                         {isOwnerSeller ? <RoleBadge variant="owner" locale={locale} /> : null}
                         <RoleBadge variant="approved_seller" locale={locale} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                        <RankBadge rank={isOwnerSeller ? "legendary" : profile.sellerLevel} locale={locale} audience="seller" />
+                        <RankBadge rank={profile.sellerLevel} locale={locale} audience="seller" />
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
                         {seller.isEmailVerified ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{isAr ? "بريد إلكتروني موثّق" : "Verified Email"}</span> : null}
                         {heroBadgeItems.map((badge) => (

@@ -1,3 +1,4 @@
+import { derivePublicProfileUsername } from "@/lib/alpha-exchange-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 import type { AlphaExchangeDb, AuditLogEntry } from "@/types/alpha-exchange";
@@ -283,7 +284,7 @@ describe("listing accountability: reason + audit + reliability", () => {
     });
 
     const routeData = await getSellerProfileRouteData({
-      username: SELLER_ID,
+      username: derivePublicProfileUsername({ id: SELLER_ID }),
       viewerUserId: BUYER_ID,
       viewerRole: "buyer",
     });

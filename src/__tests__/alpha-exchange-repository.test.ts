@@ -547,13 +547,14 @@ describe("AlphaExchangeRepository", () => {
       if (queryText.includes("with visible_requests as materialized")) {
         expect(values).toEqual(["buyer-1", false, null]);
         expect(queryText).toContain("from alpha_exchange.listings listing");
-        return Promise.resolve({ rows: [{ version: "22", listings: [listing], purchase_requests: [request], evidence: [] }] });
+        expect(queryText).toContain("select buyer_id from visible_requests union select seller_id from visible_requests");
+        return Promise.resolve({ rows: [{ version: "22", users: [account], listings: [listing], purchase_requests: [request], evidence: [] }] });
       }
       if (queryText.includes("with candidate_request as materialized")) {
         expect(values).toEqual(["buyer-1", false, ["accepted", "payment_sent"], true]);
         expect(queryText).toContain("order by updated_at desc");
         expect(queryText).toContain("limit 1");
-        return Promise.resolve({ rows: [{ version: "22", listings: [listing], purchase_requests: [request] }] });
+        return Promise.resolve({ rows: [{ version: "22", users: [account], listings: [listing], purchase_requests: [request] }] });
       }
       if (queryText.includes("with recipient_notifications as materialized")) {
         expect(values).toEqual(["buyer-1", false]);
@@ -593,7 +594,8 @@ describe("AlphaExchangeRepository", () => {
     expect(requestSnapshot.marketplaceListings).toEqual([listing]);
     expect(activeRequestSnapshot.purchaseRequests).toEqual([request]);
     expect(activeRequestSnapshot.marketplaceListings).toEqual([listing]);
-    expect(requestSnapshot.users).toEqual([]);
+    expect(requestSnapshot.users).toEqual([account]);
+    expect(activeRequestSnapshot.users).toEqual([account]);
     expect(notificationSnapshot.notifications).toEqual([notification]);
     expect(notificationSnapshot.purchaseRequests).toEqual([request]);
     expect(query.mock.calls.filter(([sql]) => String(sql).includes("with selected_users as materialized"))).toHaveLength(1);
