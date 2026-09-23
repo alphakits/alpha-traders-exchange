@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "./branded-text";
 import type { PropsWithChildren } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";

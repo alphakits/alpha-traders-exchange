@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import type { ReactNode } from "react";
 import Image from "next/image";
 import { notFound } from "next/navigation";
@@ -60,7 +61,7 @@ export default async function AuthLocaleLayout({
               className="h-14 w-14 rounded-xl border border-[#C9A227]/45 object-cover sm:h-16 sm:w-16"
             />
             <span className="text-start">
-              <span className="block text-base font-semibold tracking-wide text-[#E5C85C]">Alpha Traders</span>
+              <span className="block text-base font-semibold tracking-wide text-[#E5C85C]">{brandText("Alpha Traders")}</span>
               <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-[#D4AF37]">{appLocale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
             </span>
           </Link>

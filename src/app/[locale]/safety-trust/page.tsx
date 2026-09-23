@@ -1,4 +1,4 @@
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { AlertTriangle, CheckCircle2, LockKeyhole, ShieldCheck } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
@@ -99,21 +99,21 @@ export default async function SafetyTrustCenterPage({ params }: { params: Promis
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqSchema) }}
       />
       <div className="surface-panel mx-auto max-w-5xl p-5 sm:p-6 md:p-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">{copy.eyebrow}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">{brandText(copy.eyebrow)}</p>
         <h1 className="page-title mt-3">{locale === "ar" ? "مركز الأمان والثقة" : "Safety & Trust Center"}</h1>
-        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D1D5DB] sm:text-base">{copy.intro}</p>
+        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D1D5DB] sm:text-base">{brandText(copy.intro)}</p>
 
         <div className="mt-8 grid gap-4 lg:grid-cols-2">
           <article className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.05] p-5 sm:p-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
               <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-300" aria-hidden="true" />
-              {copy.controlsTitle}
+              {brandText(copy.controlsTitle)}
             </h2>
             <ul className="mt-4 space-y-3 text-sm leading-6 text-[#D1D5DB]">
               {copy.controls.map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
                   <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />
-                  <span>{item}</span>
+                  <span>{brandText(item)}</span>
                 </li>
               ))}
             </ul>
@@ -122,13 +122,13 @@ export default async function SafetyTrustCenterPage({ params }: { params: Promis
           <article className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] p-5 sm:p-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
               <AlertTriangle className="h-5 w-5 shrink-0 text-amber-300" aria-hidden="true" />
-              {copy.limitsTitle}
+              {brandText(copy.limitsTitle)}
             </h2>
             <ul className="mt-4 space-y-3 text-sm leading-6 text-[#D1D5DB]">
               {copy.limits.map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
                   <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" aria-hidden="true" />
-                  <span>{item}</span>
+                  <span>{brandText(item)}</span>
                 </li>
               ))}
             </ul>
@@ -139,31 +139,31 @@ export default async function SafetyTrustCenterPage({ params }: { params: Promis
           <article id="settlement" className="scroll-mt-28 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-5 sm:p-6">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
               <LockKeyhole className="h-5 w-5 shrink-0 text-[#D4AF37]" aria-hidden="true" />
-              {copy.settlementTitle}
+              {brandText(copy.settlementTitle)}
             </h2>
             <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{currencyText(copy.settlement)}</p>
           </article>
           <article className="rounded-2xl border border-white/10 bg-black/30 p-5 sm:p-6">
-            <h2 className="text-lg font-semibold text-white">{copy.channelsTitle}</h2>
-            <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{copy.channels}</p>
+            <h2 className="text-lg font-semibold text-white">{brandText(copy.channelsTitle)}</h2>
+            <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{brandText(copy.channels)}</p>
           </article>
         </div>
 
         <article className="mt-4 rounded-2xl border border-red-400/20 bg-red-400/[0.05] p-5 sm:p-6">
-          <h2 className="text-lg font-semibold text-white">{copy.suspiciousTitle}</h2>
-          <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{copy.suspicious}</p>
+          <h2 className="text-lg font-semibold text-white">{brandText(copy.suspiciousTitle)}</h2>
+          <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{brandText(copy.suspicious)}</p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Link href="/report-abuse" locale={locale} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#C9A227] px-4 py-2 text-sm font-semibold text-black transition hover:bg-[#D4AF37]">
-              {copy.report}
+              {brandText(copy.report)}
             </Link>
             <Link href="/terms" locale={locale} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-white transition hover:border-[#C9A227]/50">
-              {copy.terms}
+              {brandText(copy.terms)}
             </Link>
           </div>
         </article>
 
         <div id="faq" className="mt-10 scroll-mt-28">
-          <h2 className="text-xl font-semibold text-white sm:text-2xl">{copy.faqTitle}</h2>
+          <h2 className="text-xl font-semibold text-white sm:text-2xl">{brandText(copy.faqTitle)}</h2>
           <div className="mt-4 space-y-3">
             {faqs.map((faq) => (
               <details key={faq.id} className="group rounded-2xl border border-white/10 bg-black/30 p-4 open:border-[#C9A227]/30 sm:p-5">
@@ -177,7 +177,7 @@ export default async function SafetyTrustCenterPage({ params }: { params: Promis
         </div>
 
         <p className="mt-8 text-xs text-[#9CA3AF]">
-          {copy.updated}: <time dateTime={PUBLIC_TRUST_LAST_UPDATED}>{PUBLIC_TRUST_LAST_UPDATED}</time>
+          {brandText(copy.updated)}: <time dateTime={PUBLIC_TRUST_LAST_UPDATED}>{PUBLIC_TRUST_LAST_UPDATED}</time>
         </p>
       </div>
     </section>

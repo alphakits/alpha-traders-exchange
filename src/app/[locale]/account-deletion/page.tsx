@@ -1,3 +1,4 @@
+import { brandText } from "@/components/ui/currency-text";
 import { ContactForm } from "@/components/sections/contact/contact-form";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { buildPageMetadata } from "@/lib/seo";
@@ -25,9 +26,9 @@ export default async function AccountDeletionPage({ params }: { params: Promise<
         <h1 className="page-title">{isAr ? "طلب حذف الحساب" : "Request account deletion"}</h1>
         <div className="mt-5 space-y-4 text-sm leading-7 text-[#D1D5DB] sm:text-base">
           <p>
-            {isAr
+            {brandText(isAr
               ? "يمكنك بدء حذف حساب Alpha Traders والبيانات الشخصية المرتبطة به من هذه الصفحة، حتى إذا لم يعد التطبيق مثبتًا على جهازك."
-              : "You can start deletion of your Alpha Traders account and associated personal data from this page, even if the app is no longer installed."}
+              : "You can start deletion of your Alpha Traders account and associated personal data from this page, even if the app is no longer installed.")}
           </p>
           <ol className="list-decimal space-y-2 ps-6">
             <li>

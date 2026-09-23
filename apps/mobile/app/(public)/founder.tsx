@@ -1,4 +1,5 @@
-import { ImageBackground, ScrollView, StyleSheet, Text, View } from "react-native";
+import { BrandedText as Text } from "../../src/components/branded-text";
+import { ImageBackground, ScrollView, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";

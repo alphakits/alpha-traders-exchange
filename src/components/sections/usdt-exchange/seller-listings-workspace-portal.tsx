@@ -1,6 +1,7 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 
@@ -283,7 +284,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                       <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
                       <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{currencyText(formatIls(toNumber(listing.price)))}</p>
                       <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{currencyText(listingPaymentMethods)}</p>
-                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
+                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{brandText(listingRequiredAction)}</p>
                       <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
                     </button>
                     <div
@@ -295,12 +296,12 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     >
                     {listing.status === "draft" && listing.approvalStatus === "pending" ? (
                       <p className="mb-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100">
-                        {isAr ? "بانتظار موافقة إدارة Alpha Traders — هذا العرض غير ظاهر للمشترين بعد." : "Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet."}
+                        {brandText(isAr ? "بانتظار موافقة إدارة Alpha Traders — هذا العرض غير ظاهر للمشترين بعد." : "Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet.")}
                       </p>
                     ) : null}
                     <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                       <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{currencyText(listingStatusLabel(listing.status, isAr))}</span></p>
-                      <p>{isAr ? "الإجراء المطلوب" : "Required action"}: <span className="text-white">{listingRequiredAction}</span></p>
+                      <p>{isAr ? "الإجراء المطلوب" : "Required action"}: <span className="text-white">{brandText(listingRequiredAction)}</span></p>
                       <p>{isAr ? "طلبات الشراء" : "Purchase requests"}: <span className="text-white">{requestsCount}</span></p>
                       <p>{isAr ? "آخر نشاط" : "Last activity"}: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
                     </div>

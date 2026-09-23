@@ -1,6 +1,7 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
+
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
@@ -327,7 +328,7 @@ export function GuestOnboarding({
                 {isAr ? "تهيئة حسابك" : "Account setup"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-                {isAr ? "ابدأ رحلتك في Alpha Traders" : "Start your Alpha Traders journey"}
+                {brandText(isAr ? "ابدأ رحلتك في Alpha Traders" : "Start your Alpha Traders journey")}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#CDD2DD] md:text-base">
                 {isAr
@@ -597,13 +598,13 @@ export function GuestOnboarding({
                     <p className="font-semibold text-white">{isAr ? "ماذا يحدث بعد التقديم؟" : "What happens after you apply?"}</p>
                     <ul className="mt-2 list-disc space-y-1 ps-5">
                       <li>{isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review."}</li>
-                      <li>{isAr
+                      <li>{brandText(isAr
                         ? (phoneVerificationEnabled
                           ? "يتواصل فريق Alpha Traders عبر WhatsApp على رقمك المحقق."
                           : "يتواصل فريق Alpha Traders عبر WhatsApp باستخدام الرقم الذي تقدمه في الطلب.")
                         : (phoneVerificationEnabled
                           ? "The Alpha Traders team contacts you via WhatsApp using your verified number."
-                          : "The Alpha Traders team contacts you via WhatsApp using the number you provide in your application.")}</li>
+                          : "The Alpha Traders team contacts you via WhatsApp using the number you provide in your application."))}</li>
                       <li>{isAr ? "قد نطلب معلومات إضافية قبل الموافقة." : "Additional information may be requested before approval."}</li>
                     </ul>
                   </div>

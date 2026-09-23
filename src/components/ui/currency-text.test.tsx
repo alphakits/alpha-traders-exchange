@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { currencyText } from "./currency-text";
+import { brandText, currencyText } from "./currency-text";
 
 describe("currency text", () => {
   it("preserves complete labels, amounts and Arabic text while coloring only the currency", () => {
@@ -18,5 +18,22 @@ describe("currency text", () => {
     expect(container.querySelectorAll(".currency-usdt")).toHaveLength(1);
     expect(currencyText(15_000)).toBe(15_000);
     expect(currencyText(null)).toBeNull();
+  });
+  it("accents English and Arabic brand mentions without changing copy or currency styling", () => {
+    const value = "Alpha Traders · ALPHA TRADERS · ألفا تريدرز: 15,000 USDT";
+    const { container, rerender } = render(<p>{brandText(value)}</p>);
+    expect(container.textContent).toBe(value);
+    expect(container.querySelectorAll(".brand-alpha-traders")).toHaveLength(3);
+    expect(container.querySelector(".currency-usdt")?.textContent).toBe("USDT");
+    rerender(<p>{brandText("تم استلام إشعار من Alpha Traders")}</p>);
+    expect(container.querySelectorAll(".brand-alpha-traders")).toHaveLength(1);
+    expect(container.querySelector(".brand-alpha-traders")?.textContent).toBe("Alpha Traders");
+  });
+  it("preserves mixed children and does not accent partial names or inject markup", () => {
+    const { container } = render(<p>{brandText(["Alpha Traders", " & ", <strong key="amount">USDT</strong>, " Alpha Traderslike <script>alert(1)</script>"])}</p>);
+    expect(container.querySelectorAll(".brand-alpha-traders")).toHaveLength(1);
+    expect(container.querySelector("strong")?.textContent).toBe("USDT");
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.textContent).toContain("<script>alert(1)</script>");
   });
 });

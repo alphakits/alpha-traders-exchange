@@ -1,4 +1,4 @@
-import { currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Award, CheckCircle2, Crown, ShieldCheck, Sparkles, Star, UserRound } from "lucide-react";
@@ -336,7 +336,7 @@ export default async function PublicUserProfilePage({
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p className="text-[#9CA3AF]">{isAr ? "لا يتم عرض البريد الإلكتروني أو رقم الهاتف في الملف العام." : "Phone number and email are never shown on public profiles."}</p>
-              <p className="pt-2 text-white">{isAr ? "ابدأ صفقة للتواصل الآمن داخل Alpha Traders." : "Start a trade for secure in-platform communication."}</p>
+              <p className="pt-2 text-white">{brandText(isAr ? "ابدأ صفقة للتواصل الآمن داخل Alpha Traders." : "Start a trade for secure in-platform communication.")}</p>
             </CardContent>
           </Card>
         </div>

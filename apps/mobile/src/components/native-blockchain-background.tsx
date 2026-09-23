@@ -1,9 +1,9 @@
+import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useRef, type PropsWithChildren } from "react";
 import {
   Animated,
   Easing,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
   type DimensionValue,

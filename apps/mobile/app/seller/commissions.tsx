@@ -1,6 +1,7 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { AttentionSiren } from "../../src/components/attention-siren";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

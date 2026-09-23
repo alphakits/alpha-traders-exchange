@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../components/branded-text";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -6,7 +7,6 @@ import {
   Pressable,
   StyleSheet,
   Switch,
-  Text,
   TextInput,
   View,
 } from "react-native";

@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "./branded-text";
 import { useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import logo from "../../../../public/images/brand/alpha-traders-logo-512.png";

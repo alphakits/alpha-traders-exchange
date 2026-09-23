@@ -1,5 +1,6 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
 import { Redirect, Tabs } from "expo-router";
-import { StyleSheet, Text, View, type ColorValue } from "react-native";
+import { StyleSheet, View, type ColorValue } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { colors, radius, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../../src/auth/auth-context";

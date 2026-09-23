@@ -1,3 +1,4 @@
+import { BrandedText as Text } from "../components/branded-text";
 import { useCallback } from "react";
 import {
   ActivityIndicator,
@@ -5,7 +6,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
