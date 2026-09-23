@@ -618,6 +618,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
+                <p role="status" className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-3 text-xs leading-5 text-emerald-100">
+                  {isAr ? "نفحص الدفعات كل دقيقة ونحدّث حالة العمولة وصلاحياتك تلقائياً بعد التحقق من الاستلام. أرسل المبلغ الدقيق كما يظهر. إذا تأخر الاكتشاف، أرسل TxID أدناه؛ لا تدفع مرة أخرى." : "Payments are checked every minute. Your commission status and access update automatically after receipt is verified. Send the exact amount shown. If detection is delayed, submit the TxID below; do not pay again."}
+                </p>
 
                 {selectedCommissionPayment?.paymentVerificationStatus === "pending_verification" ? (
                   <div data-testid="commission-payment-pending" role="status" className="flex items-start gap-3 rounded-2xl border border-blue-500/35 bg-blue-950/35 p-4 text-sm text-blue-100">

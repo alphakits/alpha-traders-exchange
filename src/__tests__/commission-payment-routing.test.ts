@@ -1731,3 +1731,57 @@ describe("commission wallet payment routing", () => {
     expect(snapshot.notifications.filter((notification) => notification.title === "Commission payment verified")).toHaveLength(1);
   });
 });
+
+
+describe("automatic Binance internal commission settlement", () => {
+  beforeEach(() => {
+    clearCommissionWalletEnvironment();
+    clearMarketplaceEmailAttempts();
+    globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
+    globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
+    globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+    invalidateAlphaExchangeStoreCache();
+    vi.stubEnv("ALPHA_EXCHANGE_BINANCE_READ_API_KEY", "test-read-key");
+    vi.stubEnv("ALPHA_EXCHANGE_BINANCE_READ_API_SECRET", "test-read-secret");
+  });
+
+  afterEach(() => {
+    clearMarketplaceEmailAttempts();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    invalidateAlphaExchangeStoreCache();
+    globalThis.__alphaExchangeMemorySnapshot = undefined as never;
+    globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+  });
+
+  it("verifies the credited deposit, unlocks the seller, and rejects replay", async () => {
+    await getSellerCommissionStatus(SELLER_ID);
+    const amount = currentCommission().paymentExpectedAmount!;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify([{
+      id: "769800519366885376", txId: "410678442518", coin: "USDT", network: "TRX",
+      address: TRC20_WALLET, amount: amount.toFixed(6), status: 1, transferType: 1,
+      insertTime: Date.now(), travelRuleStatus: 0,
+    }])));
+    vi.stubGlobal("fetch", fetchMock);
+    const input = { sellerUserId: SELLER_ID, commissionId: COMMISSION_ID, payerWalletAddress: "",
+      paymentSignature: "binance-deposit:769800519366885376", network: "TRC20" };
+    const result = await submitSellerCommissionWalletPayment(input);
+    expect(result.verification.verified).toBe(true);
+    expect(currentCommission()).toMatchObject({ paymentStatus: "paid", paymentVerificationStatus: "verified", paymentSignature: input.paymentSignature });
+    expect((await getSellerCommissionStatus(SELLER_ID)).status).toBe("clear");
+    await expect(submitSellerCommissionWalletPayment(input)).rejects.toThrow(/already settled/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).auditLogs.filter((log) => log.action === "commission_paid")).toHaveLength(1);
+  });
+
+  it("does not unlock on an uncredited internal deposit or a rounded amount", async () => {
+    await getSellerCommissionStatus(SELLER_ID);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([{
+      id: "769800519366885376", txId: "410678442518", coin: "USDT", network: "TRX",
+      address: TRC20_WALLET, amount: "5", status: 1, transferType: 1, insertTime: Date.now(),
+    }]))));
+    const result = await submitSellerCommissionWalletPayment({ sellerUserId: SELLER_ID, commissionId: COMMISSION_ID,
+      payerWalletAddress: "", paymentSignature: "binance-deposit:769800519366885376", network: "TRC20" });
+    expect(result.verification.verified).toBe(false); expect(currentCommission().paymentStatus).not.toBe("paid");
+  });
+});
