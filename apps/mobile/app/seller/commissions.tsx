@@ -275,7 +275,7 @@ export default function SellerCommissionsScreen() {
             </View>
             <Text style={[styles.networkLockTitle, isRTL && styles.rtlText]}>{isAr ? "USDT · TRC20 / BEP20" : "USDT · TRC20 / BEP20"}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>
-              {isAr ? "هذه هي شبكة دفع العمولة الوحيدة. لا تختر أي شبكة أخرى." : "This is the only commission-payment network. Do not select another network."}
+              {isAr ? "أرسل عبر الشبكة المحددة أعلاه فقط. يجب أن تطابق شبكة الإرسال عنوان الاستلام." : "Send only on the network selected above. The sending network must match the recipient address."}
             </Text>
           </View>
 
@@ -318,7 +318,7 @@ export default function SellerCommissionsScreen() {
               <Text style={styles.copyButtonText}>{addressCopied ? (isAr ? "✓ تم نسخ العنوان" : "✓ Address copied") : (isAr ? "نسخ العنوان" : "Copy address")}</Text>
             </Pressable>
             <Text accessibilityLiveRegion="polite" style={[styles.warning, isRTL && styles.rtlText]}>
-              {isAr ? "أرسل USDT على الشبكة المختارة فقط: TRC20 أو BEP20. يجب أن تكون معاملة عامة على البلوكشين؛ لا تستخدم Binance Pay أو تحويلاً داخلياً." : "Send USDT only on the selected TRC20 or BEP20 network. Use a public blockchain transfer, not Binance Pay or an internal transfer."}
+              {isAr ? "أرسل USDT إلى العنوان الظاهر على الشبكة المختارة فقط: TRC20 أو BEP20. تُفحص أيضًا تحويلات Binance الداخلية إلى هذا العنوان تلقائيًا. لا تستخدم Binance Pay أو UID أو البريد الإلكتروني." : "Send USDT to the displayed address on the selected TRC20 or BEP20 network. Binance internal transfers to this deposit address are also checked automatically. Do not use Binance Pay, UID, or email transfers."}
             </Text>
           </View>
 
@@ -353,7 +353,9 @@ export default function SellerCommissionsScreen() {
             <View style={[styles.inputMeta, isRTL && styles.rowReverse]}>
               <Text style={[transactionIdHasInput && !transactionIdIsValid ? styles.fieldError : styles.hint, isRTL && styles.rtlText]}>
                 {transactionIdHasInput && !transactionIdIsValid
-                  ? (isAr ? "يجب أن يكون 64 حرفًا سداسيًا بالضبط، من دون 0x." : "Must be exactly 64 hex characters, without 0x.")
+                  ? commissionNetwork === "BEP20"
+                    ? (isAr ? "يجب أن يبدأ بـ 0x ثم 64 حرفًا سداسيًا بالضبط." : "Must start with 0x followed by exactly 64 hex characters.")
+                    : (isAr ? "يجب أن يكون 64 حرفًا سداسيًا بالضبط، من دون 0x." : "Must be exactly 64 hex characters, without 0x.")
                   : (isAr ? "استخدم TxID من سجل سحب Binance، وليس رقم الطلب." : "Use the TxID from Binance withdrawal history, not the order number.")}
               </Text>
               <Text style={styles.counter}>{transactionHash.length}/{commissionNetwork === "BEP20" ? 66 : TRON_TRANSACTION_ID_LENGTH}</Text>

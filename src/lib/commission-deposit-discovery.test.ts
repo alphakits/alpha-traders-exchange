@@ -70,6 +70,75 @@ describe("Binance read-only internal deposit verification", () => {
     const result = await verifyBinanceInternalCommissionDeposit({ signature: "binance-deposit:1234567890", network: "TRC20", recipient: TRON, amount: 5.000001, earliestTimestamp: Date.now() - 60000 });
     expect(result.verified).toBe(true);
   });
+  it("pages through Binance history with stable time bounds and a shared deadline", async () => {
+    enableBinance();
+    const requests: URL[] = [];
+    const signals: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input, init) => {
+      const url = new URL(String(input));
+      requests.push(url); signals.push(init.signal);
+      const offset = Number(url.searchParams.get("offset"));
+      return json(offset === 0
+        ? Array.from({ length: 200 }, (_, index) => internal({ id: String(index + 1) }))
+        : [internal({ id: "201" })]);
+    }));
+
+    const scan = await scanBinanceCommissionDeposits(Date.now() - 60_000);
+
+    expect(scan).toMatchObject({ configured: true, complete: true, pages: 2 });
+    expect(scan.deposits).toHaveLength(201);
+    expect(requests.map((url) => url.searchParams.get("offset"))).toEqual(["0", "200"]);
+    expect(requests[1].searchParams.get("startTime")).toBe(requests[0].searchParams.get("startTime"));
+    expect(requests[1].searchParams.get("endTime")).toBe(requests[0].searchParams.get("endTime"));
+    expect(signals[1]).toBe(signals[0]);
+  });
+  it("walks older 89-day windows without gaps and resets the page offset", async () => {
+    enableBinance();
+    const windowMs = 89 * 24 * 60 * 60_000;
+    const minTimestamp = Date.now() - 2 * windowMs - 2 * 24 * 60 * 60_000;
+    const bounds: Array<{ start: number; end: number; offset: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input) => {
+      const url = new URL(String(input));
+      const start = Number(url.searchParams.get("startTime"));
+      bounds.push({ start, end: Number(url.searchParams.get("endTime")), offset: url.searchParams.get("offset") });
+      return json(start === minTimestamp ? [internal({ insertTime: minTimestamp })] : []);
+    }));
+
+    const scan = await scanBinanceCommissionDeposits(minTimestamp);
+
+    expect(scan).toMatchObject({ configured: true, complete: true, pages: 3 });
+    expect(scan.deposits).toEqual([expect.objectContaining({ timestamp: minTimestamp })]);
+    expect(bounds.map((bound) => bound.offset)).toEqual(["0", "0", "0"]);
+    expect(bounds[0].end - bounds[0].start).toBe(windowMs);
+    expect(bounds[1].end).toBe(bounds[0].start - 1);
+    expect(bounds[2].end).toBe(bounds[1].start - 1);
+    expect(bounds[2].start).toBe(minTimestamp);
+  });
+  it("reports a full five-page response as incomplete rather than claiming the history is exhausted", async () => {
+    enableBinance();
+    const offsets: number[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      offsets.push(offset);
+      return json(Array.from({ length: 200 }, (_, index) => internal({ id: String(offset + index + 1) })));
+    }));
+
+    const scan = await scanBinanceCommissionDeposits(Date.now() - 60_000);
+
+    expect(scan).toMatchObject({ configured: true, complete: false, pages: 5 });
+    expect(scan.deposits).toHaveLength(1_000);
+    expect(offsets).toEqual([0, 200, 400, 600, 800]);
+  });
+  it("shares the five-page budget across empty historical windows", async () => {
+    enableBinance();
+    const fetchMock = vi.fn(async () => json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const scan = await scanBinanceCommissionDeposits(Date.now() - 6 * 89 * 24 * 60 * 60_000);
+
+    expect(scan).toEqual({ configured: true, complete: false, pages: 5, deposits: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
   it.each([
     { status: 0 }, { status: 6 }, { address: "wrong" }, { coin: "USDC" }, { network: "ETH" }, { transferType: 0 },
     { travelRuleStatus: 1 }, { amount: "5.00000100001" }, { insertTime: 1 },

@@ -15,7 +15,7 @@ import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
+import { CANONICAL_TRC20_COMMISSION_WALLET, COMMISSION_PAYMENT_CLOCK_SKEW_MS } from "@/lib/commission-config";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
@@ -1013,7 +1013,6 @@ function getCommissionSubject(record: CommissionRecord) {
 
 const USDT_MICROS_PER_TOKEN = 1_000_000;
 const MAX_COMMISSION_PAYMENT_SUFFIX_MICROS = 999_999;
-const COMMISSION_PAYMENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const TRON_TX_NOT_FOUND_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 function usdtToMicros(value: number) {
@@ -1074,8 +1073,8 @@ function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
         && (paymentStatus === "paid" || record.paymentVerificationStatus === "pending_verification");
       if (!isCompatibleOriginalTrc20Submission) {
         // A terminal or incompatible pre-upgrade submission cannot safely keep
-        // the shared base amount. Reissue it as a fresh exact intent below so
-        // the seller can self-service a new transfer and TxID.
+        // the shared base amount. Reserve it and assign a fresh exact intent
+        // below; any original payment still requires review before a new transfer.
         record.paymentReservedExpectedAmounts = Array.from(new Set([
           ...(record.paymentReservedExpectedAmounts ?? []),
           storedAmount,
@@ -1086,7 +1085,7 @@ function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
         record.paymentExpectedAmountAssignedAt = undefined;
         if (record.paymentVerificationStatus === "pending_verification") {
           record.paymentVerificationStatus = "failed";
-          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. No payment was credited. Send the newly shown exact amount as USDT on TRON (TRC20) to the Binance commission address, then submit the new TxID.";
+          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. The commission has not been credited. If you already sent payment, do not send another transfer. Ask the owner to review the original payment reference and receipt before making any new payment.";
         }
         markAssignmentChanged(record);
         continue;
@@ -1162,7 +1161,7 @@ function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
         usedExpectedMicros.add(baseMicros);
         if (record.paymentVerificationStatus === "pending_verification") {
           record.paymentVerificationStatus = "failed";
-          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. No payment was credited. Send the newly shown exact amount as USDT on TRON (TRC20) to the Binance commission address, then submit the new TxID.";
+          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. The commission has not been credited. If you already sent payment, do not send another transfer. Ask the owner to review the original payment reference and receipt before making any new payment.";
         }
         markAssignmentChanged(record);
       }
@@ -4220,6 +4219,7 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
       changed: false,
       requests: [] as PurchaseRequest[],
       notificationPublications: [] as DeferredNotificationPublication[],
+      confirmationCommissionIds: [] as string[],
     };
   }
 
@@ -4299,6 +4299,11 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
 
   for (const current of reconciledRecords) {
     const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, current.sellerId);
+    markCommissionPaymentConfirmationPending(current, {
+      commission: current,
+      amountDueUsdt: current.paymentExpectedAmount ?? getCommissionAmountDueUsdt(snapshot, current),
+      remainingCommissions,
+    });
     const fullyUnlocked = remainingCommissions.length === 0;
     const nextCommission = remainingCommissions[0];
     const sellerPublication = pushNotification(snapshot, {
@@ -4314,14 +4319,15 @@ async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
       relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
       actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
       actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
-      reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      reason: fullyUnlocked ? "commission_payment_verified" : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
       forceInApp: true,
       deferRealtime: true,
     });
     if (sellerPublication) notificationPublications.push(sellerPublication);
   }
 
-  return { changed: true, requests, notificationPublications };
+  return { changed: true, requests, notificationPublications,
+    confirmationCommissionIds: reconciledRecords.map((record) => record.id) };
 }
 
 async function readDbWithPersistedCommissionPaymentExpectedAmounts() {
@@ -4357,6 +4363,9 @@ async function readDbWithPersistedCommissionPaymentExpectedAmounts() {
   }
   for (const publication of committedReconciliation.notificationPublications) {
     publishNotificationPublication(publication);
+  }
+  for (const commissionId of committedReconciliation.confirmationCommissionIds) {
+    await dispatchCommissionPaymentConfirmationEmail(commissionId);
   }
   return readDb({ bypassCache: true });
 }
@@ -4788,63 +4797,147 @@ function buildCommissionPaymentConfirmation(input: CommissionPaymentConfirmation
   };
 }
 
-async function dispatchCommissionPaymentConfirmationEmail(
-  db: AlphaExchangeDb,
-  sellerId: string,
+function markCommissionPaymentConfirmationPending(
+  record: CommissionRecord,
   input: CommissionPaymentConfirmationContext,
 ) {
-  const seller = db.users.find((user) => user.id === sellerId);
-  if (!seller) return;
-  const confirmation = buildCommissionPaymentConfirmation(input);
-  const delivery = async () => {
-    try {
-      const result = await sendMarketplaceEmail({
-        event: "commission_paid",
-        to: seller.email,
-        recipientName: seller.fullName,
-        recipientLocale: normalizePreferredLocale(seller.preferredLocale),
-        title: confirmation.title,
-        message: confirmation.message,
-        actionLabel: confirmation.actionLabel,
-        actionPath: confirmation.actionPath,
-        referenceLabel: confirmation.commissionLabel,
-        idempotencyKey: `commission-paid:${input.commission.id}:${seller.id}`,
-      });
-      if (!result.ok) {
-        logEvent("error", {
-          event: "marketplace_email_delivery",
-          targetUserId: seller.id,
-          resourceId: input.commission.id,
-          outcome: "failed",
-          reason: "commission_paid",
-          metadata: {
-            providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
-            deliveryReason: result.reason,
-          },
-        });
-      }
-    } catch (error) {
-      logEvent("error", {
-        event: "marketplace_email_delivery",
-        targetUserId: seller.id,
-        resourceId: input.commission.id,
-        outcome: "failed",
-        reason: "commission_paid",
-        metadata: { errorType: error instanceof Error ? error.name : typeof error },
-      });
-    }
+  record.paymentConfirmationEmailPending = {
+    id: randomUUID(),
+    requestedAt: nowIso(),
+    amountDueUsdt: input.amountDueUsdt,
+    remainingCommissions: input.remainingCommissions.map(({ id, displayNumber }) => ({ id, displayNumber })),
   };
+}
 
-  // Commission settlement is a transactional account-access event, so it is
-  // delivered independently of optional marketplace-marketing preferences.
-  // Schedule it only after the canonical payment write has committed.
+async function deliverPendingCommissionPaymentConfirmationEmail(commissionId: string) {
+  try {
+    // Read canonical state again: the deferred callback may run after an owner
+    // corrected a settlement, or another worker already queued its receipt.
+    const db = await readDbForSelectedTables(["users", "commissions"]);
+    const record = db.commissionRecords.find((item) => item.id === commissionId);
+    const pending = record?.paymentConfirmationEmailPending;
+    if (!record || record.paymentStatus !== "paid" || !pending) return "skipped" as const;
+    let claimed = false;
+    const markAttempt = (snapshot: AlphaExchangeDb) => {
+      const current = snapshot.commissionRecords.find((item) => item.id === commissionId);
+      claimed = current?.paymentStatus === "paid" && current.paymentConfirmationEmailPending?.id === pending.id;
+      if (claimed && current?.paymentConfirmationEmailPending) {
+        current.paymentConfirmationEmailPending.lastAttemptAt = nowIso();
+      }
+      return snapshot;
+    };
+    markAttempt(db);
+    await writeDb(db, {
+      selectedTables: ["commissions"],
+      rebaseTables: ["commissions"],
+      rebaseOnLatest: markAttempt,
+      cacheResult: false,
+    });
+    if (!claimed) return "skipped" as const;
+    const seller = db.users.find((user) => user.id === record.sellerId);
+    if (!seller) {
+      logEvent("error", { event: "marketplace_email_delivery", resourceId: commissionId,
+        outcome: "failed", reason: "commission_paid", metadata: { deliveryReason: "email_recipient_unavailable" } });
+      return "failed" as const;
+    }
+    const confirmation = buildCommissionPaymentConfirmation({
+      commission: record,
+      amountDueUsdt: pending.amountDueUsdt,
+      remainingCommissions: pending.remainingCommissions,
+    });
+    const result = await sendMarketplaceEmail({
+      event: "commission_paid",
+      to: seller.email,
+      recipientName: seller.fullName,
+      recipientLocale: normalizePreferredLocale(seller.preferredLocale),
+      title: confirmation.title,
+      message: confirmation.message,
+      actionLabel: confirmation.actionLabel,
+      actionPath: confirmation.actionPath,
+      referenceLabel: confirmation.commissionLabel,
+      idempotencyKey: `commission-paid:${record.id}:${seller.id}`,
+      maxAttempts: 1,
+    });
+    if (!result.ok) {
+      logEvent("error", {
+        event: "marketplace_email_delivery", targetUserId: seller.id, resourceId: record.id,
+        outcome: "failed", reason: "commission_paid",
+        metadata: { providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+          deliveryReason: result.reason },
+      });
+      return "failed" as const;
+    }
+    const clearQueued = (snapshot: AlphaExchangeDb) => {
+      const current = snapshot.commissionRecords.find((item) => item.id === commissionId);
+      if (current?.paymentConfirmationEmailPending?.id === pending.id) {
+        delete current.paymentConfirmationEmailPending;
+      }
+      return snapshot;
+    };
+    clearQueued(db);
+    await writeDb(db, {
+      selectedTables: ["commissions"],
+      rebaseTables: ["commissions"],
+      rebaseOnLatest: clearQueued,
+      cacheResult: false,
+    });
+    return "queued" as const;
+  } catch (error) {
+    // Keep the settlement marker after any interruption. Re-enqueueing uses
+    // the same durable outbox/provider key, including a crash after enqueue.
+    logEvent("error", { event: "marketplace_email_delivery", resourceId: commissionId,
+      outcome: "failed", reason: "commission_paid",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error } });
+    return "failed" as const;
+  }
+}
+
+async function dispatchCommissionPaymentConfirmationEmail(commissionId: string) {
+  const delivery = async () => { await deliverPendingCommissionPaymentConfirmationEmail(commissionId); };
+  // The pending marker was committed with payment. A killed after() callback
+  // is recovered by the scheduled sweep without repeating settlement.
   try {
     after(delivery);
   } catch {
-    // Store tests and non-request maintenance jobs run without a Next.js
-    // request context; keep the same behavior there without losing coverage.
     await delivery();
   }
+}
+
+export async function recoverPendingCommissionPaymentConfirmationEmails(input: {
+  limit?: number;
+  maxDurationMs?: number;
+} = {}) {
+  const startedAt = Date.now();
+  const limit = Math.max(1, Math.min(20, Math.floor(input.limit ?? 5)));
+  const budgetMs = Math.max(0, Math.min(30_000, Math.floor(input.maxDurationMs ?? 10_000)));
+  const db = await readDbForSelectedTables(["commissions"]);
+  const pending = db.commissionRecords.filter((record) => (
+    record.paymentStatus === "paid" && Boolean(record.paymentConfirmationEmailPending)
+  )).sort((a, b) => {
+    const left = a.paymentConfirmationEmailPending!;
+    const right = b.paymentConfirmationEmailPending!;
+    return (left.lastAttemptAt ?? left.requestedAt).localeCompare(right.lastAttemptAt ?? right.requestedAt)
+      || a.id.localeCompare(b.id);
+  });
+  let checked = 0;
+  let queued = 0;
+  let errors = 0;
+  let skipped = 0;
+  let budgetExhausted = false;
+  for (const record of pending.slice(0, limit)) {
+    // The existing email transport has a 5-second timeout. Do not begin a
+    // provider attempt too close to the caller's deadline.
+    if (Date.now() - startedAt + 6_000 > budgetMs) {
+      budgetExhausted = true;
+      break;
+    }
+    checked += 1;
+    const result = await deliverPendingCommissionPaymentConfirmationEmail(record.id);
+    if (result === "queued") queued += 1;
+    else if (result === "failed") errors += 1;
+    else skipped += 1;
+  }
+  return { checked, queued, errors, pending: Math.max(0, pending.length - queued - skipped), budgetExhausted };
 }
 
 type DeferredNotificationPublication = {
@@ -15785,6 +15878,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         amountDueUsdt: canonicalAmountDueUsdt,
         remainingCommissions,
       };
+      markCommissionPaymentConfirmationPending(nextRecord, paymentConfirmation);
       const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
@@ -15797,7 +15891,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         relatedHref: confirmation.actionPath,
         actionHref: confirmation.actionPath,
         actionLabel: confirmation.actionLabel.en,
-        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        reason: confirmation.fullyUnlocked ? "commission_payment_verified" : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         forceInApp: true,
         deferRealtime: true,
       });
@@ -15865,7 +15959,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     publishNotificationPublication(publication);
   }
   if (committed.paymentConfirmation) {
-    await dispatchCommissionPaymentConfirmationEmail(db, committed.commission.sellerId, committed.paymentConfirmation);
+    await dispatchCommissionPaymentConfirmationEmail(committed.commission.id);
   }
   return {
     commission: committed.commission,
@@ -16140,6 +16234,7 @@ export async function updateCommissionPaymentStatus(input: {
     const nextRecord: CommissionRecord = {
       ...current,
       paymentStatus: input.paymentStatus,
+      paymentConfirmationEmailPending: input.paymentStatus === "paid" ? current.paymentConfirmationEmailPending : undefined,
       paymentVerificationStatus,
       paymentVerificationNotes,
       paidAt: input.paymentStatus === "paid" ? current.paidAt ?? now : undefined,
@@ -16175,6 +16270,7 @@ export async function updateCommissionPaymentStatus(input: {
         amountDueUsdt,
         remainingCommissions,
       };
+      markCommissionPaymentConfirmationPending(nextRecord, paymentConfirmation);
       const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const publication = pushNotification(snapshot, {
         userId: current.sellerId,
@@ -16187,7 +16283,7 @@ export async function updateCommissionPaymentStatus(input: {
         relatedHref: confirmation.actionPath,
         actionHref: confirmation.actionPath,
         actionLabel: confirmation.actionLabel.en,
-        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        reason: confirmation.fullyUnlocked ? "commission_payment_verified" : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         forceInApp: true,
         deferRealtime: true,
       });
@@ -16221,7 +16317,7 @@ export async function updateCommissionPaymentStatus(input: {
     publishNotificationPublication(publication);
   }
   if (result.paymentConfirmation) {
-    await dispatchCommissionPaymentConfirmationEmail(db, result.commission.sellerId, result.paymentConfirmation);
+    await dispatchCommissionPaymentConfirmationEmail(result.commission.id);
   }
   return result.commission;
 }
@@ -18270,6 +18366,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
         amountDueUsdt: canonicalAmountDue,
         remainingCommissions,
       };
+      markCommissionPaymentConfirmationPending(nextRecord, paymentConfirmation);
       const confirmation = buildCommissionPaymentConfirmation(paymentConfirmation);
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
@@ -18282,7 +18379,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
         relatedHref: confirmation.actionPath,
         actionHref: confirmation.actionPath,
         actionLabel: confirmation.actionLabel.en,
-        reason: confirmation.fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        reason: confirmation.fullyUnlocked ? "commission_payment_verified" : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         forceInApp: true,
         deferRealtime: true,
       });
@@ -18334,7 +18431,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
     publishNotificationPublication(publication);
   }
   if (committed.paymentConfirmation && committed.commission) {
-    await dispatchCommissionPaymentConfirmationEmail(db, committed.commission.sellerId, committed.paymentConfirmation);
+    await dispatchCommissionPaymentConfirmationEmail(committed.commission.id);
   }
   return result;
 }

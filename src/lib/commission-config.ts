@@ -2,6 +2,9 @@ import { getWalletAddressValidationError } from "@/lib/wallet-address";
 
 export type CommissionNetworkId = "TRC20" | "BEP20";
 
+/** Keep automatic discovery and receipt verification on the same intent-time boundary. */
+export const COMMISSION_PAYMENT_CLOCK_SKEW_MS = 5 * 60_000;
+
 export type CommissionWalletResolution =
   | {
     available: true;

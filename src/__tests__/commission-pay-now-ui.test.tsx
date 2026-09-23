@@ -222,6 +222,7 @@ describe("seller commission Pay Now", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -677,6 +678,110 @@ describe("seller commission Pay Now", () => {
       expect(document.body.textContent).toContain("Payment verified. All commission dues are settled");
       expect(document.body.textContent).not.toContain("0.000000 USDT");
     });
+  });
+
+  it.each(["focus", "interval", "notification"])("settles an automatic payment without a submitted TxID on %s refresh", async (refreshMethod) => {
+    if (refreshMethod === "interval") vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    const commissionStatus = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain("7.00 USDT");
+      expect(notificationStreamListener).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: "Pay Now" }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("7.000001 USDT"));
+
+    commissionRecordsOverride = [];
+    if (refreshMethod === "interval") {
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    } else if (refreshMethod === "focus") {
+      fireEvent(window, new Event("focus"));
+    } else {
+      act(() => {
+        notificationStreamListener?.(new MessageEvent("notifications", {
+          data: JSON.stringify({
+            unreadCount: 1,
+            notifications: [{
+              id: "notification-final-commission-paid",
+              userId: seller.id,
+              category: "trade",
+              title: "Commission payment verified",
+              message: "All commission dues are settled.",
+              isRead: false,
+              reason: "commission_payment_verified",
+              actionHref: "/usdt-exchange",
+              createdAt: "2026-09-12T00:00:00.000Z",
+            }],
+          }),
+        }));
+      });
+    }
+
+    await waitFor(() => {
+      expect(document.getElementById("commission-payment")).toBeNull();
+      expect(document.body.textContent).toContain("Payment verified. All commission dues are settled.");
+      expect(commissionStatus.textContent).toContain("No commission due");
+      expect(document.body.textContent).not.toContain("0.000000 USDT");
+    });
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/commissions/pay"))).toBe(false);
+  });
+
+  it("closes an automatically settled selected panel on notification refresh without switching to the remaining commission", async () => {
+    const remainingRecord: MockPayableCommission = {
+      commissionId: "commission-trade-93",
+      amountDue: 7,
+      paymentAmountDue: 7.000001,
+      relatedTradeDisplayNumber: 93,
+      dueAt: "2026-09-11T00:00:00.000Z",
+    };
+    commissionRecordsOverride = [remainingRecord, {
+      commissionId: "commission-trade-94",
+      amountDue: 8,
+      paymentAmountDue: 8.000001,
+      relatedTradeDisplayNumber: 94,
+      dueAt: "2026-09-12T00:00:00.000Z",
+    }];
+    render(<UsdtExchangePage locale="en" initialSessionUser={seller} />);
+    const commissionStatus = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain("Choose one unpaid commission to pay.");
+      expect(notificationStreamListener).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: /Trade #94/i }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("8.000001 USDT"));
+
+    commissionRecordsOverride = [remainingRecord];
+    act(() => {
+      notificationStreamListener?.(new MessageEvent("notifications", {
+        data: JSON.stringify({
+          unreadCount: 1,
+          notifications: [{
+            id: "notification-commission-paid-94",
+            userId: seller.id,
+            category: "trade",
+            title: "Commission payment verified",
+            message: "Your payment was verified. One commission remains due.",
+            isRead: false,
+            reason: "commission_payment_due",
+            actionHref: "/usdt-exchange?commission=pay&commissionId=commission-trade-93#commission-payment",
+            createdAt: "2026-09-12T00:00:00.000Z",
+          }],
+        }),
+      }));
+    });
+
+    await waitFor(() => {
+      expect(document.getElementById("commission-payment")).toBeNull();
+      expect(document.body.textContent).toContain("Select the next outstanding commission when you are ready.");
+      expect(document.body.textContent).not.toContain("0.000000 USDT");
+      expect(commissionStatus.textContent).toContain("7.00 USDT");
+    });
+    // Remaining debt is available only after an explicit new selection.
+    fireEvent.click(within(commissionStatus).getByRole("button", { name: "Pay Now" }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("7.000001 USDT"));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/commissions/pay"))).toBe(false);
   });
 
   it("closes a pending payment panel when background verification settles that commission", async () => {
