@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { enqueueMarketplaceEmail, runMarketplaceEmailSweep, type PreparedMarketplaceEmail, type EmailProviderResult } from "@/lib/marketplace-email-outbox";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { redactPrivateContactDetails } from "@/lib/privacy-redaction";
@@ -308,13 +310,55 @@ export async function sendMarketplaceEmail(
   }
 
   const email = buildMarketplaceEmail(input);
+  const activeStatuses = ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"];
+  const requiredStatuses: Partial<Record<MarketplaceEmailEvent, string[]>> = {
+    new_buy_request: ["pending"], trade_accepted: ["accepted", "payment_sent"],
+    buyer_payment_sent: ["payment_sent"], seller_funds_received: ["funds_received"],
+    seller_usdt_release_started: ["usdt_release_pending"], seller_usdt_released: ["usdt_sent"],
+    trade_room_message: activeStatuses, trade_room_poke: activeStatuses, trade_action_reminder: activeStatuses,
+  };
+  let requestId: string | undefined;
+  try {
+    const path = /^\/trade-room\/([^/?#]+)/.exec(input.actionPath);
+    if (path) requestId = decodeURIComponent(path[1]);
+  } catch { /* Malformed internal paths cannot become a database lookup. */ }
+  const prepared: PreparedMarketplaceEmail = {
+    event: input.event,
+    recipientEmail: input.to,
+    idempotencyKey: input.idempotencyKey ?? `marketplace:${randomUUID()}`,
+    ...(requestId && requiredStatuses[input.event] ? { requestId, requiredTradeStatuses: requiredStatuses[input.event] } : {}),
+    body: JSON.stringify({
+      from, to: [input.to], subject: email.subject, html: email.html, text: email.text,
+      headers: buildBrandedEmailHeaders(), attachments: [buildBrandedEmailLogoAttachment()],
+    }),
+  };
+  const queued = await enqueueMarketplaceEmail(prepared, (message) => sendPreparedMarketplaceEmail(message, { maxAttempts: 1 }));
+  if (queued) return queued;
+  const result = await sendPreparedMarketplaceEmail(prepared, input);
+  if (result.ok) return result;
+  // Keep the established local/test transport contract; recovery metadata is
+  // server-internal and is consumed only by the durable worker.
+  return { ok: false as const, reason: result.reason,
+    ...(result.providerStatus !== undefined ? { providerStatus: result.providerStatus } : {}),
+    ...(result.providerMessage !== undefined ? { providerMessage: result.providerMessage } : {}),
+  };
+}
+
+export async function deliverMarketplaceEmailQueue() {
+  return runMarketplaceEmailSweep((email) => sendPreparedMarketplaceEmail(email, { maxAttempts: 1 }));
+}
+
+async function sendPreparedMarketplaceEmail(
+  prepared: PreparedMarketplaceEmail,
+  input: { maxAttempts?: number; retryDelayMs?: number; timeoutMs?: number } = {},
+): Promise<EmailProviderResult> {
+  const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
+  if (!apiKey) return { ok: false, reason: "resend_not_configured", retryable: true };
   const maxAttempts = Math.max(1, Math.min(3, Math.floor(input.maxAttempts ?? 3)));
   const retryDelayMs = Math.max(0, Math.min(1_000, Math.floor(input.retryDelayMs ?? 100)));
   const timeoutMs = Math.max(250, Math.min(15_000, Math.floor(input.timeoutMs ?? 5_000)));
-  let latestFailure:
-    | { ok: false; reason: "resend_request_failed"; providerStatus: number; providerMessage: string }
-    | { ok: false; reason: "resend_network_failed" | "resend_timeout"; providerMessage: string }
-    = { ok: false, reason: "resend_network_failed", providerMessage: "Email request did not run." };
+  let latestFailure: Extract<EmailProviderResult, { ok: false }>
+    = { ok: false, reason: "resend_network_failed", providerMessage: "Email request did not run.", retryable: true };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
@@ -327,17 +371,9 @@ export async function sendMarketplaceEmail(
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
+          "Idempotency-Key": prepared.idempotencyKey,
         },
-        body: JSON.stringify({
-          from,
-          to: [input.to],
-          subject: email.subject,
-          html: email.html,
-          text: email.text,
-          headers: buildBrandedEmailHeaders(),
-          attachments: [buildBrandedEmailLogoAttachment()],
-        }),
+        body: prepared.body,
         signal: controller.signal,
       });
 
@@ -346,10 +382,12 @@ export async function sendMarketplaceEmail(
       const responseBody = await response.text();
       let providerMessage = responseBody;
       let quotaExceeded = false;
+      let concurrentIdempotentRequest = false;
       try {
         const parsed = JSON.parse(responseBody) as { message?: unknown; name?: unknown };
         providerMessage = typeof parsed.message === "string" ? parsed.message : responseBody;
         quotaExceeded = parsed.name === "daily_quota_exceeded" || parsed.name === "monthly_quota_exceeded";
+        concurrentIdempotentRequest = parsed.name === "concurrent_idempotent_requests";
       } catch {
         // Keep the raw response when Resend does not return JSON.
       }
@@ -359,16 +397,21 @@ export async function sendMarketplaceEmail(
         providerStatus: response.status,
         providerMessage: providerMessage.slice(0, 500),
       };
-      retryable = !quotaExceeded && (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500);
+      retryable = !quotaExceeded && (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500
+        || (response.status === 409 && concurrentIdempotentRequest));
       providerRetryDelayMs = retryAfterMs(response.headers?.get("Retry-After") ?? null);
       // Avoid exhausting every attempt within the same rate-limit window when
       // a throttled response omits its Retry-After header.
       if (response.status === 429) providerRetryDelayMs = Math.max(1_000, providerRetryDelayMs);
+      latestFailure.retryAfterMs = providerRetryDelayMs;
+      latestFailure.retryable = retryable;
+      latestFailure.quotaExceeded = quotaExceeded;
     } catch (error) {
       const timedOut = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
       latestFailure = {
         ok: false,
         reason: timedOut ? "resend_timeout" : "resend_network_failed",
+        retryable: true,
         providerMessage: timedOut
           ? "Resend request timed out."
           : error instanceof Error

@@ -190,6 +190,14 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
         "ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET is not set. Cardless ATM credentials will use existing server-only key material until a dedicated stable secret is configured.",
       );
     }
+    const previousCardlessSecret = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_PREVIOUS_SECRET?.trim();
+    if (previousCardlessSecret && previousCardlessSecret.length < 32) {
+      errors.push("SECURITY: ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_PREVIOUS_SECRET must contain at least 32 characters.");
+    }
+    const cardlessActivation = process.env.ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_ACTIVATE_AT?.trim();
+    if (cardlessActivation && (!cardlessCredentialSecret || !Number.isFinite(Date.parse(cardlessActivation)))) {
+      errors.push("SECURITY: ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_ACTIVATE_AT requires a dedicated secret and a valid activation date.");
+    }
     if (!process.env.NEXT_PUBLIC_SITE_URL) {
       warnings.push(
         "NEXT_PUBLIC_SITE_URL is not set. Production metadata and sitemap will fall back to Vercel-provided hostnames instead of the custom domain.",

@@ -276,4 +276,18 @@ describe("marketplace email delivery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it.each([
+    ["concurrent_idempotent_requests", 2, true],
+    ["invalid_idempotent_request", 1, false],
+  ])("distinguishes recoverable and permanent idempotency conflicts (%s)", async (name, attempts, ok) => {
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha <notifications@example.com>");
+    const send = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ name }), { status: 409 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", send);
+    expect(await sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en", retryDelayMs: 0 })).toMatchObject({ ok });
+    expect(send).toHaveBeenCalledTimes(attempts);
+  });
 });

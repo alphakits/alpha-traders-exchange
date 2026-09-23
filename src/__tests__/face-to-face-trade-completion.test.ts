@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequestStatus, UserRole } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
@@ -175,6 +175,7 @@ function completeFaceToFace(actor: "buyer" | "seller") {
 }
 
 describe("guided cash-trade completion", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
@@ -429,6 +430,20 @@ describe("guided cash-trade completion", () => {
     expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
   });
 
+  it("keeps already-submitted ATM details readable when the encryption key changes", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "legacy-material-used-only-for-tests");
+    const { request } = await readyRequest();
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "dedicated-material-used-only-for-tests");
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(JSON.stringify(room.messages)).toContain("482913");
+    expect(room.request.buyerReceivingWalletAddress).toBeUndefined();
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    expect(JSON.stringify(currentSnapshot())).not.toContain("cardless:v1:");
+  });
+
   it("repairs a legacy non-hundred cash amount at its saved listing price", async () => {
     const { request } = await readyRequest();
     const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
@@ -517,6 +532,7 @@ describe("guided cash-trade completion", () => {
     const persisted = JSON.stringify(currentSnapshot());
     expect(persisted).not.toContain("482913");
     expect(persisted).not.toContain(value);
+    vi.stubEnv("ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET", "rotated-dedicated-key-for-test-only-material");
     expect((await updatePurchaseRequestStatus(input)).statusChanged).toBe(false);
     await expect(updatePurchaseRequestStatus({ ...input, cardlessVerificationValue: kind === "id_number" ? "112345678" : "28/02/1992" }))
       .rejects.toMatchObject({ code: "cardless-code-conflict" });
