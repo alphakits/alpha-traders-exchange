@@ -98,10 +98,25 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
       void persistRegistration(message, userId, registrationKey);
     };
 
+    const handleSignedOut = () => {
+      // Logout immediately navigates to the lightweight sign-in page. Notify
+      // the shell synchronously so it cannot retain the old session's Arabic.
+      currentUserIdRef.current = null;
+      lastRegistrationRef.current = null;
+      postToNativeApp({
+        type: "alpha.web.session",
+        version: NATIVE_WEB_BRIDGE_VERSION,
+        authenticated: false,
+        locale: "en",
+      });
+    };
+
+    window.addEventListener("alpha-auth-signed-out", handleSignedOut);
     window.addEventListener("message", handleMessage);
     document.addEventListener("message", handleMessage as EventListener);
     return () => {
       stopped = true;
+      window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
       window.removeEventListener("message", handleMessage);
       document.removeEventListener("message", handleMessage as EventListener);
     };
