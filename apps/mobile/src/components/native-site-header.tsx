@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Text as LogoText,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -130,7 +131,7 @@ export function NativeSiteHeader() {
           <SafeAreaView pointerEvents="box-none" style={styles.modalSafeArea}>
             <View style={[styles.menuPanel, isRTL && styles.menuPanelRtl]}>
               <View style={[styles.menuTop, isRTL && styles.rowReverse]}>
-                <Text style={[styles.menuTitle, isRTL && styles.rtlText]}>{t("brand")}</Text>
+                <LogoText style={[styles.menuTitle, isRTL && styles.rtlText]}>{t("brand")}</LogoText>
                 <Pressable
                   accessibilityLabel={t("closeMenu")}
                   accessibilityRole="button"

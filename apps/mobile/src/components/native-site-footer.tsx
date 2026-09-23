@@ -1,6 +1,6 @@
 import { BrandedText as Text } from "./branded-text";
 import { useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text as LogoText, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import logo from "../../../../public/images/brand/alpha-traders-logo-512.png";
@@ -105,7 +105,7 @@ export function NativeSiteFooter() {
         <View style={[styles.brandRow, isRTL && styles.rowReverse]}>
           <Image accessible={false} alt="" source={logo} style={styles.logo} />
           <View style={styles.brandCopy}>
-            <Text style={[styles.brand, isRTL && styles.rtlText]}>ALPHA TRADERS</Text>
+            <LogoText style={[styles.brand, isRTL && styles.rtlText]}>ALPHA TRADERS</LogoText>
             <Text style={[styles.descriptor, isRTL && styles.rtlText]}>{isAr ? "أكاديمية وسوق" : "ACADEMY & EXCHANGE"}</Text>
           </View>
         </View>

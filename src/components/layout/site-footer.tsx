@@ -202,7 +202,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
-                  {brandText(BRAND_PRIMARY_NAME)}
+                  {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
                   {isAr ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}
@@ -256,7 +256,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
-                  {brandText(BRAND_PRIMARY_NAME)}
+                  {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
                   {isAr ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}

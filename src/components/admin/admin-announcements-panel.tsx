@@ -1,6 +1,5 @@
 "use client";
 
-import { brandText } from "@/components/ui/currency-text";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -436,7 +435,7 @@ export function AdminAnnouncementsPanel() {
             <div className="overflow-hidden rounded-2xl border border-[#4A3D16] bg-[#101010] shadow-2xl">
               <div className="border-b border-[#4A3D16] bg-[#171308] px-5 py-6 text-center">
                 <Image src="/images/brand/alpha-traders-logo.webp" alt={BRAND_NAME} width={88} height={88} className="mx-auto rounded-2xl object-cover" />
-                <div className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#D6B84C]">{brandText(BRAND_NAME)}</div>
+                <div className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#D6B84C]">{BRAND_NAME}</div>
                 <h2 lang="ar" dir="rtl" className="mt-3 text-2xl font-bold leading-tight text-white">{titleAr || "عنوان الإعلان"}</h2>
                 <p lang="en" dir="ltr" className="mt-2 text-sm text-[#D1D5DB]">{titleEn || "Announcement title"}</p>
               </div>
