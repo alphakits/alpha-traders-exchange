@@ -6,6 +6,7 @@ import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
 import { currencyText } from "@/components/ui/currency-text";
 import { formatTradeId } from "@/lib/format-id";
+import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import { marketplacePaymentMethodLabelForLocale } from "@/lib/marketplace-display-localization";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import type { AuditLogEntry, PurchaseRequest, TradeChatMessage, TradeDisputeCase, TradeEvidenceFile, UserRole } from "@/types/alpha-exchange";
@@ -78,7 +79,7 @@ export function OwnerTradeHistory({ locale, room }: { locale: "ar" | "en"; room:
   const isAr = locale === "ar";
   const t = (en: string, ar: string) => isAr ? ar : en;
   const request = room.request;
-  const date = (value?: string) => value ? new Date(value).toLocaleString(isAr ? "ar-IL-u-nu-latn" : "en-IL") : "—";
+  const date = (value?: string) => value ? new Date(value).toLocaleString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { timeZone: ISRAEL_TIME_ZONE }) : "—";
   const statusLabels: Record<PurchaseRequest["status"], string> = {
     pending: t("Pending", "قيد الانتظار"), accepted: t("Accepted", "مقبولة"), payment_sent: t("Payment sent", "تم إرسال الدفع"),
     funds_received: t("Funds received", "تم استلام الأموال"), usdt_release_pending: t("USDT release pending", "بانتظار إرسال USDT"),
@@ -108,6 +109,7 @@ export function OwnerTradeHistory({ locale, room }: { locale: "ar" | "en"; room:
       <p className="flex items-center gap-2 text-xs font-medium text-rose-200"><ShieldCheck className="h-4 w-4" aria-hidden="true" />{t("Owner review · read only", "مراجعة المالك · للقراءة فقط")}</p>
       <h1 className="mt-2 text-xl font-semibold">{t("Trade room history", "سجل غرفة الصفقة")} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi></h1>
       <p className="mt-2 text-sm text-[#D1D5DB]">{t("Review the saved conversation, attachments, and every recorded trade event.", "راجع المحادثة والمرفقات المحفوظة وجميع أحداث الصفقة المسجلة.")}</p>
+      <p className="mt-2 text-xs text-[#9CA3AF]">{t("All times are shown in Israel time.", "جميع الأوقات معروضة حسب توقيت إسرائيل.")}</p>
       <p className="mt-3 text-sm text-emerald-200">{currencyText(statusLabels[request.status])}</p>
       <nav aria-label={t("Trade history sections", "أقسام سجل الصفقة")} className="mt-4 flex flex-wrap gap-2">
         <a className={linkClass} href="#history-chat"><MessageCircle className="h-4 w-4" aria-hidden="true" />{t("Chat", "المحادثة")} ({messages.length})</a>
