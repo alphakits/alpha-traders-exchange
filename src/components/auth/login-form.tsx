@@ -10,11 +10,14 @@ import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { clearClientLocaleChoice, englishLocalePath } from "@/i18n/locale-preference";
-import { Eye, EyeOff } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpen, ChartNoAxesCombined, Eye, EyeOff, GraduationCap, UserRound } from "lucide-react";
 import { LoginAtmosphere } from "./login-atmosphere";
+import { AppLoginNetwork } from "./app-login-network";
 import styles from "./login-atmosphere.module.css";
+import appStyles from "./app-login-network.module.css";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
+const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
 
 type RedirectUser = { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined;
 
@@ -52,6 +55,7 @@ export function LoginForm({
   const redirectStartedRef = useRef(false);
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
   const [showPassword, setShowPassword] = useState(false);
+  const [isNativeApp, setIsNativeApp] = useState(false);
   const [statusMessage, setStatusMessage, statusMessageFeedbackKey] = useActionFeedbackState<string | null>(
     sessionExpired
       ? (isAr ? "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى." : "Your session expired. Please sign in again.")
@@ -67,6 +71,9 @@ export function LoginForm({
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
+    // Appearance only: a phone browser keeps the website layout. The installed
+    // app provides this bridge before the document loads through its WebView.
+    setIsNativeApp(typeof window.ReactNativeWebView?.postMessage === "function");
     // Store only the checkbox preference. Credentials stay in the form and
     // authentication remains in the existing server-issued HttpOnly cookie.
     try {
@@ -190,9 +197,9 @@ export function LoginForm({
   }
 
   return (
-    <section className={styles.page}>
+    <section className={styles.page} data-login-surface={isNativeApp ? "app" : "web"}>
       <LoginAtmosphere />
-      <div className={`${styles.card} mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border lg:grid-cols-[1.05fr_0.95fr]`}>
+      <div className={`${styles.card} ${isNativeApp ? appStyles.card : ""} mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border lg:grid-cols-[1.05fr_0.95fr]`}>
         <div className="relative hidden overflow-hidden border-r border-white/10 bg-[radial-gradient(circle_at_22%_20%,rgba(201,162,39,0.2),transparent_34%),radial-gradient(circle_at_80%_22%,rgba(147,197,253,0.16),transparent_28%),linear-gradient(160deg,#050505,#0b0b0b_52%,#111827)] p-10 lg:flex lg:flex-col">
           <div className="absolute inset-0 opacity-40">
             <div className="absolute left-14 top-16 h-40 w-40 rounded-full bg-[#C9A227]/10 blur-3xl" />
@@ -237,27 +244,33 @@ export function LoginForm({
           </div>
         </div>
 
-        <div className="relative p-5 sm:p-8 lg:p-10">
+        <div className={`relative ${isNativeApp ? "p-6" : "p-5"} sm:p-8 lg:p-10`}>
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(201,162,39,0.08),transparent_36%)]" />
           <div className="relative z-10 mx-auto w-full max-w-xl">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+            <p className={`${isNativeApp ? appStyles.badge : ""} inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]`}>
               {isAr ? "تجربة دخول مميزة" : "Premium Sign In"}
             </p>
             <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
             <p className="mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]">
-              {brandText(isAr ? "أهلًا بعودتك إلى Alpha Traders. سجّل الدخول لمتابعة صفقاتك ودوراتك." : "Welcome back to Alpha Traders. Sign in to your trades and courses.")}
+              {brandText(isNativeApp
+                ? (isAr ? "ادخل إلى Alpha Academy و Alpha Exchange باستخدام حسابك في Alpha Traders." : "Access Alpha Academy and Alpha Exchange with your Alpha Traders account.")
+                : (isAr ? "أهلًا بعودتك إلى Alpha Traders. سجّل الدخول لمتابعة صفقاتك ودوراتك." : "Welcome back to Alpha Traders. Sign in to your trades and courses."))}
             </p>
 
-            <div className="mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2">
+            <div className={isNativeApp ? appStyles.benefits : "mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2"}>
               {(isAr
                 ? ["حفظ تقدّمك في الأكاديمية", "الوصول إلى دوراتك", "شراء وبيع USDT بأمان", "استلام الإشعارات", "بناء ملفك كمتداول", "تتبّع رحلتك في التداول"]
                 : ["Save Academy progress", "Access your courses", "Buy & sell USDT securely", "Receive notifications", "Build your trader profile", "Track your trading journey"]
-              ).map((item) => (
-                <div key={item} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">{currencyText(item)}</div>
-              ))}
+              ).map((item, index) => {
+                const Icon = benefitIcons[index];
+                return <div key={item} className={isNativeApp ? appStyles.benefit : "rounded-xl border border-white/10 bg-black/20 px-3 py-2"}>
+                  {isNativeApp && Icon ? <Icon size={17} strokeWidth={1.5} aria-hidden="true" /> : null}
+                  <span>{currencyText(item)}</span>
+                </div>;
+              })}
             </div>
 
-            <form className="mt-6 grid gap-4" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
+            <form className={`${isNativeApp ? appStyles.form : ""} mt-6 grid gap-4`} onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
               <div className="grid gap-2">
                 <label htmlFor="login-email" className="text-sm text-[#B7B7B7]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
                 <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
@@ -321,6 +334,7 @@ export function LoginForm({
           </div>
         </div>
       </div>
+      {isNativeApp ? <AppLoginNetwork /> : null}
     </section>
   );
 }

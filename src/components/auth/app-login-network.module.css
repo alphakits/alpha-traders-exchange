@@ -1,0 +1,138 @@
+.card {
+  border-color: #d4af3759;
+  box-shadow: 0 22px 72px #0009, 0 0 40px #bb923d0a, 0 1px 0 #ffe6a026 inset;
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  bottom: 0;
+  left: 0;
+  width: 32%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f3d88d, transparent);
+  animation: edgeLight 10s ease-in-out infinite alternate;
+}
+
+.badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e9ce86;
+  box-shadow: 0 0 9px #e9ce8666;
+}
+
+.benefits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+  margin-top: 1.25rem;
+  padding: .65rem;
+  border: 1px solid #d4af3729;
+  border-radius: 1rem;
+  background: linear-gradient(125deg, #c9a2270f, #57ac9407);
+}
+
+.benefit {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+  padding: .65rem .5rem;
+  border: 1px solid #ffffff0d;
+  border-radius: .65rem;
+  color: #d9dad6;
+  background: #05070566;
+  font-size: .75rem;
+  line-height: 1.5;
+}
+
+.benefit svg { flex-shrink: 0; color: #d9bd72; }
+.benefit:nth-child(3) svg { color: #78c8ae; }
+.form input { transition: border-color .18s ease, box-shadow .18s ease; }
+.form input:focus-visible { box-shadow: 0 0 18px #d4af3714; }
+.form button[type="submit"] { position: relative; overflow: hidden; }
+.form button[type="submit"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 36%, #fff8 50%, transparent 64%);
+  transform: translateX(-130%);
+  animation: buttonLight 10s ease-in-out infinite;
+}
+.form button[type="submit"][disabled]::before { animation: none; }
+
+.scene {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  max-width: 60rem;
+  min-height: 160px;
+  aspect-ratio: 2.8;
+  max-height: 290px;
+  margin: .25rem auto 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  contain: layout paint;
+}
+
+.aura {
+  position: absolute;
+  inset: 5% 8% 0;
+  background: radial-gradient(ellipse at 48% 62%, #d4af371a, transparent 55%), radial-gradient(ellipse at 80% 70%, #47bba910, transparent 45%);
+}
+
+.network { position: absolute; inset: 0; width: 100%; height: 100%; }
+.matrix { position: absolute; inset: 0; mask-image: linear-gradient(transparent, #000 36%, #000 65%, transparent); }
+.matrix span {
+  position: absolute;
+  top: -20%;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  color: #79c6a8;
+  font: 9px/1.8 ui-monospace, monospace;
+  letter-spacing: .25em;
+  opacity: .18;
+  animation: dataStream 11s linear infinite;
+}
+.matrix span:nth-child(even) { color: #e0c681; opacity: .13; }
+.core { animation: coreFloat 7s ease-in-out infinite; }
+.satellite { animation: nodeFloat 8s ease-in-out infinite; }
+.packets { animation: packets 14s linear infinite; opacity: .75; }
+.orbit { animation: packets 22s linear infinite reverse; }
+.signature {
+  position: absolute;
+  bottom: 1%;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .65rem;
+  color: #aa9664;
+  font-size: 8px;
+  letter-spacing: .22em;
+}
+.signature b { color: #73b6a0; font-weight: 400; }
+.signature span { width: 1.5rem; height: 1px; background: #c5a65242; }
+
+.scene[data-animate="false"] * { animation-play-state: paused; }
+@keyframes edgeLight { to { transform: translateX(215%); } }
+@keyframes buttonLight { 0%, 72% { transform: translateX(-130%); } 92%, 100% { transform: translateX(130%); } }
+@keyframes dataStream { from { transform: translateY(-18%); } to { transform: translateY(58%); } }
+@keyframes coreFloat { 50% { transform: translateY(-6px); } }
+@keyframes nodeFloat { 50% { transform: translateY(-4px); } }
+@keyframes packets { to { stroke-dashoffset: -116; } }
+
+@media (max-width: 359px) {
+  .benefits { grid-template-columns: 1fr; }
+  .benefit { padding: .5rem .65rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card::after, .form button[type="submit"]::before, .scene * { animation: none; }
+  .form input { transition: none; }
+}
