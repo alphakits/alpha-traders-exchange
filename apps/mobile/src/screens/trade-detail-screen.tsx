@@ -1,3 +1,4 @@
+import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
 import { updateMobileTradeTerms } from "../api/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,7 +33,7 @@ import { colors, radius, spacing, typography } from "@alpha-traders/design-token
 import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
   recalculateMobileCardlessAmount,
-  completeMobileCashTrade,
+  completeMobileTrade,
   getMobileTrade,
   getMobileTradeBankDetails,
   MobileApiError,
@@ -86,7 +87,9 @@ function stageInstruction(
       return t("cashBuyerWaitReceiptConfirmation");
     }
     if (status === "funds_received" || status === "usdt_release_pending") {
-      return side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
+      return side === "seller" && cashTradeKind === "face_to_face"
+        ? t("faceSellerDeliverComplete")
+        : side === "seller" ? t("cashSellerSendUsdtNext") : t("cashBuyerWaitUsdt");
     }
     if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
   }
@@ -95,7 +98,7 @@ function stageInstruction(
   if (status === "payment_sent") return t("waitingForFunds");
   if (status === "funds_received") return t("waitingForRelease");
   if (status === "usdt_release_pending") return t("waitingForProof");
-  if (status === "usdt_sent") return t("waitingForReceipt");
+  if (status === "usdt_sent") return side === "seller" ? t("cashSellerCompleteNext") : t("cashBuyerWaitCompletion");
   if (status === "completed" || status === "review_open") return t("tradeFinished");
   return t("tradeEnded");
 }
@@ -419,9 +422,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("complete-cash-trade");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
-        completeMobileCashTrade(tokens, requestLocale, requestId));
+        completeMobileTrade(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
-      setNotice(query.data?.trade.paymentMethod === "Cardless ATM Withdrawal" ? t("cardlessAtmCompleted") : t("faceToFaceCompleted"));
+      setNotice(t("tradeFinished"));
       applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
@@ -434,8 +437,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   function confirmCashTradeCompletion() {
     if (busyAction) return;
-    const isCardlessAtm = query.data?.trade.paymentMethod === "Cardless ATM Withdrawal";
-    Alert.alert(isCardlessAtm ? t("cardlessAtmCompletionTitle") : t("faceToFaceCompletionTitle"), t("cashUsdtCompletionConfirmation"), [
+    const message = query.data?.trade.status === "usdt_sent" ? t("cashUsdtCompletionConfirmation") : locale === "ar"
+      ? "أؤكد استلام الدفعة وإرسال كامل USDT إلى محفظة المشتري الصحيحة. إكمال الصفقة يفتح التقييم ويسجل عمولة 1%. لا يلزم انتظار المشتري ولا يمكن إلغاء الصفقة بعدها."
+      : "I confirm payment was received and the full USDT amount was sent to the correct buyer wallet. Completing opens feedback and records the 1% commission. No buyer wait is required and the trade cannot be cancelled afterward.";
+    Alert.alert(t("sentUsdtComplete"), message, [
       { text: t("cancel"), style: "cancel" },
       { text: t("confirm"), onPress: () => void completeCashTrade() },
     ]);
@@ -452,6 +457,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         getMobileTradeBankDetails(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current !== operationScope) return;
       setBankDetails(response.bankDetails);
+      scrollToGuidanceTarget("bank");
       await query.refetch();
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) {
@@ -780,8 +786,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         {actions.canViewBankDetails ? (
-          <View style={styles.section}>
-            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("bankDetails")}</Text>
+          <View collapsable={false} onLayout={(event) => recordGuidanceLayout("bank", event)} style={[styles.section, styles.importantPanel]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren key={bankDetails ? "revealed" : "locked"} />{t("bankDetails")}</Text>
             {bankDetails ? (
               <View style={styles.bankRows}>
                 <DetailRow isRTL={isRTL} label={t("accountHolder")} value={bankDetails.accountHolderName} />
@@ -798,12 +804,20 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
+        {isCardlessAtm && trade.status === "payment_sent" ? trade.messages.filter(message => message.credentialKind === "cardless_code").map((message, index) => (
+          <View key={`withdrawal-${message.createdAt}-${index}`} style={[styles.section, styles.importantPanel]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren />{t("withdrawalDetailsTitle")}</Text>
+            {trade.bankName ? <DetailRow isRTL={isRTL} label={t("bankName")} value={trade.bankName} /> : null}
+            <Text selectable style={[styles.messageText, isRTL && styles.rtlText]}>{message.message}</Text>
+          </View>
+        )) : null}
+
         {cashTradeKind && !["declined", "cancelled", "completed", "review_open", "locked"].includes(trade.status) ? (
           <View style={styles.faceToFaceCard}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
               {t("cashNoEvidenceTitle")}
             </Text>
-            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("cashNoEvidenceBody")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{isFaceToFace ? t("faceSellerDeliverComplete") : t("cashNoEvidenceBody")}</Text>
           </View>
         ) : null}
 
@@ -831,16 +845,16 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {t("cancelTrade")}
             </GoldButton>
           ) : null}
-          {actions.canCompleteFaceToFace ? (
+          {(actions.canCompleteTrade ?? actions.canCompleteFaceToFace) ? (
             <GoldButton
               disabled={actionsDisabled}
               loading={busyAction === "complete-cash-trade"}
               onPress={confirmCashTradeCompletion}
             >
-              {t("sentUsdtComplete")}
+              ✅ {t("sentUsdtComplete")}
             </GoldButton>
           ) : null}
-          {actions.canMarkUsdtSent ? (
+          {actions.canMarkUsdtSent && !actions.canCompleteTrade ? (
             <GoldButton
               disabled={actionsDisabled}
               loading={busyAction === "usdt_sent"}
@@ -967,6 +981,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
             >
               {t("submitDispute")}
             </GoldButton>
+          </View>
+        ) : null}
+
+        {trade.side === "seller" && trade.sellerCommissionDue ? (
+          <View style={[styles.section, styles.importantPanel]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren />{isRTL ? "عمولة مستحقة" : "Commission Due"}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{formatUsdt(trade.sellerCommissionDue.amount)}</Text>
+            <GoldButton onPress={() => router.push("/seller/commissions")}>💳 {isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
           </View>
         ) : null}
 
@@ -1136,6 +1158,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 }
 
 const styles = StyleSheet.create({
+  importantPanel: { borderColor: "rgba(248,113,113,0.65)", borderWidth: 1, backgroundColor: "rgba(127,29,29,0.22)" },
   safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },

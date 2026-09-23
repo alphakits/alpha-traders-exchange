@@ -1,5 +1,6 @@
 "use client";
 
+import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountId } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
@@ -28,7 +29,7 @@ import {
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
-import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradeCompletionAvailable, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
@@ -108,7 +109,7 @@ type StatusPrimaryAction = {
   successLabel: string;
   mode: "status";
   nextStatus: PrimaryStatus;
-  command?: "complete_cash_trade";
+  command?: "complete_cash_trade" | "complete_trade";
   confirmationMessage?: string;
   requiresEvidenceSide?: "buyer" | "seller";
 };
@@ -276,7 +277,7 @@ function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOv
   if (status === "funds_received") return isAr ? "البائع أكّد استلام الأموال" : "Seller confirmed funds received";
   if (status === "usdt_release_pending" && isOverdue) return isAr ? "متأخرة — مهلة إصدار USDT انتهت" : "Overdue — USDT release deadline exceeded";
   if (status === "usdt_release_pending") return isAr ? "جاري إرسال USDT" : "USDT release in progress";
-  if (status === "usdt_sent") return isAr ? "في انتظار تأكيد المشتري" : "Waiting for buyer receipt confirmation";
+  if (status === "usdt_sent") return isAr ? "تم إرسال USDT — أكمل الصفقة" : "USDT sent — complete the trade";
   if (status === "review_open" || status === "completed" || status === "locked") return isAr ? "الصفقة مكتملة" : "Trade completed";
   if (status === "declined") return isAr ? "تم رفض الطلب" : "Request declined";
   if (status === "cancelled") return isAr ? "تم إلغاء الطلب" : "Request cancelled";
@@ -353,6 +354,21 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
+  if (isSeller && isSellerTradeCompletionAvailable(request.paymentMethod, request.status)) {
+    return {
+      label: isAr ? "تحديد الصفقة كمكتملة" : "Mark Trade as Completed",
+      successLabel: isAr ? "تم إكمال الصفقة" : "Trade Completed",
+      mode: "status",
+      nextStatus: "completed",
+      command: "complete_trade",
+      confirmationMessage: request.status !== "usdt_sent"
+        ? (isAr ? "أؤكد أنني استلمت النقد وأرسلت كامل USDT إلى محفظة المشتري على الشبكة الصحيحة. إكمال الصفقة يفتح التقييم ويسجل عمولة 1% ولا يمكن إلغاؤه. هل تريد الإكمال؟" : "I confirm I received the cash and sent the full USDT amount to the buyer wallet on the correct network. Completing opens feedback and records the 1% commission. This cannot be cancelled. Complete trade?")
+        : isAr
+        ? "لقد أكدت بالفعل إرسال USDT. سيؤدي هذا الإجراء النهائي إلى إكمال الصفقة وفتح التقييم وتسجيل عمولة 1%. لا يحتاج المشتري إلى تأكيد الاستلام، ولا يمكن التراجع أو الإلغاء بعد ذلك."
+        : "You already confirmed USDT was sent. This final action completes the trade, opens review, and records the 1% commission. Buyer confirmation is not required, and this cannot be undone or cancelled.",
+    };
+  }
+
   if (isCashTrade && isSeller && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status)) {
     return {
       label: isAr ? "تأكيد إرسال USDT" : "Confirm USDT Sent",
@@ -362,19 +378,6 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       confirmationMessage: isAr
         ? "تحقق من الشبكة وعنوان محفظة المشتري والمبلغ الكامل. أكد فقط بعد إرسال كامل USDT. بعد التأكيد سيظهر زر منفصل لإكمال الصفقة، ولن يكون الإلغاء ممكنًا."
         : "Verify the network, buyer wallet, and full amount. Confirm only after sending all USDT. A separate completion button appears next, and cancellation remains unavailable.",
-    };
-  }
-
-  if (isCashTrade && isSeller && isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
-    return {
-      label: isAr ? "تحديد الصفقة كمكتملة" : "Mark Trade as Completed",
-      successLabel: isAr ? "تم إكمال الصفقة" : "Trade Completed",
-      mode: "status",
-      nextStatus: "completed",
-      command: "complete_cash_trade",
-      confirmationMessage: isAr
-        ? "لقد أكدت بالفعل إرسال USDT. سيؤدي هذا الإجراء النهائي إلى إكمال الصفقة وفتح التقييم وتسجيل عمولة 1%. لا يحتاج المشتري إلى تأكيد الاستلام، ولا يمكن التراجع أو الإلغاء بعد ذلك."
-        : "You already confirmed USDT was sent. This final action completes the trade, opens review, and records the 1% commission. Buyer confirmation is not required, and this cannot be undone or cancelled.",
     };
   }
 
@@ -470,7 +473,7 @@ function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: b
       ? (isAr ? "أرسل USDT ثم أكد الإرسال" : "Send USDT, then confirm it was sent")
       : (isAr ? "حتى يرسل البائع USDT ويؤكد الإرسال" : "Until the seller sends USDT and confirms it");
   }
-  if (isCashTrade && isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
+  if (request.status === "usdt_sent") {
     return isSeller
       ? (isAr ? "أكمل الصفقة الآن" : "Complete the trade now")
       : (isAr ? "حتى يكمل البائع الصفقة" : "Until the seller completes the trade");
@@ -489,9 +492,6 @@ function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: b
     if (isOverdue) return isAr ? "المهلة منتهية — يلزم الإجراء فورًا" : "Deadline exceeded — action is required now";
     return isAr ? "ضمن مهلة إصدار مدتها 45 دقيقة" : "Within the 45-minute release window";
   }
-  if (request.status === "usdt_sent") return isSeller
-    ? (isAr ? "حتى يؤكد المشتري الاستلام" : "Until the buyer confirms receipt")
-    : (isAr ? "أكد الاستلام فور وصول USDT" : "Confirm as soon as USDT arrives");
   return isAr ? "لا يوجد وقت انتظار" : "No waiting time";
 }
 
@@ -581,7 +581,9 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "₮",
           title: isAr ? "الإجراء المطلوب الآن" : "Action Required Now",
           headline: isAr ? "المحفظة ظاهرة — أرسل USDT ثم أكد" : "Wallet Revealed — Send USDT, Then Confirm",
-          detail: isAr ? "انسخ عنوان المشتري أدناه وتحقق من الشبكة والمبلغ. بعد إرسال كامل USDT اضغط «تأكيد إرسال USDT». لا يلزم رفع صورة." : "Copy the buyer wallet below and verify the network and amount. After sending all USDT, tap “Confirm USDT Sent.” No photo is required.",
+          detail: isFaceToFacePaymentMethod(request.paymentMethod)
+            ? (isAr ? "أرسل كامل USDT إلى المحفظة أدناه، ثم أكمل الصفقة. لا يلزم انتظار المشتري أو رفع صورة." : "Send the full USDT amount to the wallet below, then complete the trade. No buyer wait or photo is required.")
+            : (isAr ? "أرسل كامل USDT إلى المحفظة أدناه، ثم أكد الإرسال." : "Send the full USDT amount to the wallet below, then confirm it was sent."),
           yourAction: primaryAction?.label ?? (isAr ? "تأكيد إرسال USDT" : "Confirm USDT Sent"),
           counterpartyAction: isAr ? "المشتري ينتظر USDT" : "Buyer is waiting for USDT",
           tradeStatus: currentStatus,
@@ -596,7 +598,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           tradeStatus: currentStatus,
         };
   }
-  if (isCashTrade && isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
+  if (request.status === "usdt_sent") {
     return isSeller
       ? {
           icon: "✅",
@@ -611,7 +613,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "⏳",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "أكد البائع إرسال USDT" : "Seller Confirmed USDT Sent",
-          detail: isAr ? "تحقق من محفظتك ثم أكد استلام كامل USDT باستخدام الزر أدناه." : "Check your wallet, then confirm the full USDT receipt using the button below.",
+          detail: isAr ? "تحقق من محفظتك. يمكنك تأكيد الاستلام الآن، أو يستطيع البائع إكمال الصفقة دون انتظارك." : "Check your wallet. You can confirm receipt now, or the seller can complete the trade independently.",
           yourAction: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
           counterpartyAction: isAr ? "البائع يكمل الصفقة" : "Seller completes the trade",
           tradeStatus: currentStatus,
@@ -724,31 +726,6 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           tradeStatus: currentStatus,
         };
   }
-  if (request.status === "usdt_sent") {
-    return isSeller
-      ? {
-          icon: "✅",
-          title: isAr ? "الحالة الحالية" : "Current Status",
-          headline: isAr ? "بانتظار المشتري لتأكيد الاستلام" : "Waiting for Buyer to Confirm Receipt",
-          detail: isAr ? "تم إرسال USDT. سينتقل التداول إلى الاكتمال بعد تأكيد المشتري." : "USDT has been sent. The trade completes after the buyer confirms receipt.",
-          yourAction: isAr ? "لا يوجد إجراء الآن" : "No action now",
-          counterpartyAction: isAr ? "المشتري يجب أن يؤكد استلام USDT" : "Buyer needs to confirm USDT receipt",
-          tradeStatus: currentStatus,
-        }
-      : {
-          icon: "⏰",
-          title: isAr ? "الحالة الحالية" : "Action Required",
-          headline: request.buyerConfirmationArchivedAt
-            ? (isAr ? "تأكيد الاستلام متأخر — أكد استلام USDT الآن" : "Confirmation Overdue — Confirm USDT Receipt Now")
-            : (isAr ? "أكد استلام USDT" : "Confirm USDT Received"),
-          detail: request.buyerConfirmationArchivedAt
-            ? (isAr ? "لم يتم تأكيد استلام USDT خلال 5 دقائق. يرجى التأكيد الآن لإكمال الصفقة والسماح بالمشتريات الجديدة." : "USDT receipt was not confirmed within 5 minutes. Please confirm now to complete the trade and unblock future purchases.")
-            : (isAr ? "بعد التأكيد ستنتقل الصفقة إلى سجل الصفقات الناجحة." : "After confirmation, the trade moves into your completed history."),
-          yourAction: primaryAction?.label ?? (isAr ? "تأكيد استلام USDT" : "Confirm USDT Received"),
-          counterpartyAction: isAr ? "البائع أرسل USDT" : "Seller has already sent the USDT",
-          tradeStatus: currentStatus,
-        };
-  }
   if (request.status === "declined") {
     return {
       icon: "✕",
@@ -839,7 +816,7 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
           detail: isAr ? "البائع يرسل USDT وسيؤكد الإرسال بعد ذلك." : "Seller is sending USDT and will confirm it afterward.",
         };
   }
-  if (isCashTrade && isCashTradeCompletionAvailable(request.paymentMethod, request.status)) {
+  if (request.status === "usdt_sent") {
     return isSeller
       ? {
           isYourTurn: true,
@@ -1111,7 +1088,9 @@ function buildOptimisticRoom(
   };
   const cashTrade = isCashTradePaymentMethod(room.request.paymentMethod);
   const cardlessAtm = isCardlessAtmPaymentMethod(room.request.paymentMethod);
-  const timelineEvent = command === "complete_cash_trade"
+  const timelineEvent = command === "complete_trade"
+    ? { type: "trade_completed" as const, message: "Seller confirmed trade completed" }
+    : command === "complete_cash_trade"
     ? { type: "trade_completed" as const, message: `Seller marked the ${cardlessAtm ? "Cardless ATM" : "Face-to-Face"} trade complete.` }
     : cashTrade && nextStatus === "payment_sent"
       ? { type: "payment_sent" as const, message: cardlessAtm ? "Buyer confirmed the cardless withdrawal code was sent" : "Buyer confirmed the cash was handed to the seller" }
@@ -2109,7 +2088,7 @@ function TradeRoomPageSession({
           clientOperationId: globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(16).padStart(12, "0")}${Math.random().toString(16).slice(2).padEnd(20, "0").slice(0, 20)}`,
         }
       : action.command
-      ? { action: action.command }
+      ? { action: action.command, ...(action.command === "complete_trade" ? { usdtSentConfirmed: true } : {}) }
       : nextStatus === "accepted"
         ? { status: nextStatus, safetyAcknowledged: sellerSafetyAcknowledged }
         : { status: nextStatus };
@@ -3027,6 +3006,13 @@ function TradeRoomPageSession({
                 </CardHeader></div>
                 <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
                   {actionFeedback}
+                {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
+                  <div key={message.id} className="important-payment-panel rounded-xl border p-4">
+                    <p className="flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
+                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{currencyText(requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified"))}</strong></p>
+                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{currencyText(localizeCardlessWithdrawalMessage(message.message, locale))}</p>
+                  </div>
+                )) : null}
                   <p>
                     {isAr
                       ? "اكتملت صفقتك بالكامل وتم تسجيلها."
@@ -3171,12 +3157,12 @@ function TradeRoomPageSession({
               )}
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
-                  <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
+                  <p className="flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
                   <p>{currencyText(isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
-                    {isAr ? "ادفع الآن" : "Pay Now"}
+                    <span aria-hidden="true">💳</span>{isAr ? "ادفع الآن" : "Pay Now"}
                   </Button>
                 </div>
               ) : null}
@@ -3247,7 +3233,7 @@ function TradeRoomPageSession({
                           <LoaderCircle className="h-4 w-4 animate-spin" />
                           <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
                         </span>
-                      ) : primaryActionButtonLabel}
+                      ) : <><span aria-hidden="true">{primaryAction.mode === "status" && primaryAction.nextStatus === "completed" ? "✅" : "⚡"}</span>{primaryActionButtonLabel}</>}
                     </Button>
                     {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{currencyText(primaryActionDisabledReason)}</p> : null}
                     {!isSeller && request.status === "accepted" && !isCashTrade ? (
@@ -3298,8 +3284,8 @@ function TradeRoomPageSession({
                 ) : null}
                 {actionFeedback}
                 {canRevealBankDetails ? (
-                  <div className="rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4">
-                    <p className="text-xs uppercase tracking-[0.14em] text-[#BFDBFE]">{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>
+                  <div className="important-payment-panel rounded-2xl border p-4">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-red-100"><AttentionSiren key={bankDetails ? "revealed" : "locked"} />{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>
                     {bankDetailsBusy ? (
                       <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "جارٍ تحميل تفاصيل الحساب البنكي..." : "Loading bank account details..."}</p>
                     ) : bankDetailsError ? (
@@ -3381,13 +3367,6 @@ function TradeRoomPageSession({
                       </p>
                     </div>
                   ) : null}
-                {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
-                  <div key={message.id} className="rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
-                    <p className="font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
-                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{currencyText(requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified"))}</strong></p>
-                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{currencyText(localizeCardlessWithdrawalMessage(message.message, locale))}</p>
-                  </div>
-                )) : null}
                 {isSeller && request.status === "accepted" && !isCashTrade ? (
                   <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
                     <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
@@ -3617,7 +3596,9 @@ function TradeRoomPageSession({
                   {isCashTrade ? (
                     <>
                       <p className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-100">
-                        {currencyText(isAr
+                        {currencyText(isFaceToFaceTrade
+                          ? (isAr ? "💵 يؤكد المشتري تسليم النقد ← يؤكد البائع الاستلام ← يرسل USDT إلى المحفظة الظاهرة ← ✅ يكمل الصفقة." : "💵 Buyer confirms cash → Seller confirms receipt → Seller sends USDT to the revealed wallet → ✅ Complete trade.")
+                          : isAr
                           ? "1) يؤكد المشتري النقد أو الرمز. 2) يؤكد البائع استلام النقد. 3) تظهر المحفظة. 4) يؤكد البائع إرسال USDT. 5) يحدد البائع الصفقة كمكتملة."
                           : "1) Buyer confirms the cash or code. 2) Seller confirms cash received. 3) Wallet is revealed. 4) Seller confirms USDT sent. 5) Seller marks the trade completed.")}
                       </p>
@@ -3926,7 +3907,7 @@ function TradeRoomPageSession({
             {room.sellerCommissionDueCount > 0 && isSeller ? (
               <Card className="border-amber-500/30 bg-amber-500/10">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-amber-200" />{isAr ? "عمولة مستحقة" : "Commission Due"}</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-[#FDE68A]">
                   <p>{currencyText(isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`)}</p>
@@ -3934,7 +3915,7 @@ function TradeRoomPageSession({
                   <p className="mt-1">{currencyText(isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
-                    {isAr ? "ادفع الآن" : "Pay Now"}
+                    <span aria-hidden="true">💳</span>{isAr ? "ادفع الآن" : "Pay Now"}
                   </Button>
                 </CardContent>
               </Card>

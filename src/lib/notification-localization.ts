@@ -2,6 +2,7 @@ import type { AppLocale } from "@/i18n/routing";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification } from "@/types/alpha-exchange";
 
 const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
+  "trade ready to complete": "الصفقة جاهزة للإكمال",
   "listing expired": "انتهت صلاحية العرض",
   "congratulations on your new seller rank": "تهانينا على رتبة البائع الجديدة",
   "commission overdue": "عمولة متأخرة",
@@ -149,6 +150,13 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
 };
 
 const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
+  "seller marked usdt as sent. the seller can now complete the trade without waiting for buyer confirmation.": "أكد البائع إرسال USDT. يمكنه الآن إكمال الصفقة دون انتظار تأكيد المشتري.",
+  "seller confirmed trade completed": "أكد البائع اكتمال الصفقة",
+  "seller confirmed usdt delivery and completed the trade. the trade has moved to history and review, and the seller commission is due.": "أكد البائع تسليم USDT وأكمل الصفقة. انتقلت الصفقة إلى السجل والتقييم وأصبحت عمولة البائع مستحقة.",
+  "seller marked usdt as sent and can complete the trade. check your receiving wallet; you may also confirm receipt.": "أكد البائع إرسال USDT ويمكنه إكمال الصفقة. تحقق من محفظتك؛ يمكنك أيضًا تأكيد الاستلام.",
+  "you confirmed usdt was sent. complete the trade now; no buyer confirmation is required.": "لقد أكدت إرسال USDT. أكمل الصفقة الآن دون انتظار تأكيد المشتري.",
+  "you completed the trade. check your commission due.": "أكملت الصفقة. راجع العمولة المستحقة عليك.",
+
   "your seller account is approved and now active.": "تمت الموافقة على حساب البائع الخاص بك، وهو نشط الآن.",
   "your seller application was rejected.": "تم رفض طلبك للانضمام كبائع.",
   "your marketplace recovery fee payment was submitted and is awaiting owner verification.":

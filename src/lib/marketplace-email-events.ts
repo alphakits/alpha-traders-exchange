@@ -131,8 +131,8 @@ function tradeEmailContent(
         ...common,
         title,
         message: {
-          ar: "وافق البائع على صفقة اللقاء الشخصي. بعد تسليم النقد اضغط زر التأكيد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلام النقد ستظهر له محفظتك ليؤكد إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
-          en: "The seller accepted the Face-to-Face trade. After handing over the cash, use the confirmation button; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can confirm USDT sent, then complete the trade separately.",
+          ar: "وافق البائع على صفقة اللقاء الشخصي. أكد تسليم النقد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلامه تظهر له محفظتك ليرسل كامل USDT ويكمل الصفقة دون انتظار تأكيد آخر منك.",
+          en: "The seller accepted the Face-to-Face trade. Confirm handing over the cash; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can send all USDT and complete the trade without another buyer confirmation.",
         },
       };
     }
@@ -250,8 +250,8 @@ function tradeEmailContent(
             en: "The seller marked USDT as sent. Only the seller completes the trade, with no photo upload; completion moves it to review and records the commission.",
           }
         : {
-            ar: "أكّد البائع إرسال USDT. أكّد الاستلام في غرفة الصفقة.",
-            en: "The seller marked USDT as sent. Confirm receipt in the Trade Room.",
+            ar: "أكّد البائع إرسال USDT ويمكنه إكمال الصفقة دون انتظارك. تحقق من محفظتك؛ يمكنك أيضًا تأكيد الاستلام.",
+            en: "The seller marked USDT as sent and can complete the trade without waiting. Check your wallet; you may also confirm receipt in the Trade Room.",
           },
     };
   }

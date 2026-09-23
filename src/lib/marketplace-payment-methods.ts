@@ -89,6 +89,13 @@ export function isCashTradeCompletionAvailable(method: unknown, status: unknown)
     && (CASH_TRADE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
 }
 
+/** The explicit seller command also confirms USDT delivery for an in-person exchange. */
+export function isSellerTradeCompletionAvailable(method: unknown, status: unknown) {
+  if (!normalizeMarketplacePaymentMethod(method)) return false;
+  return status === "usdt_sent" || (isFaceToFacePaymentMethod(method)
+    && (status === "funds_received" || status === "usdt_release_pending"));
+}
+
 /** Cash trades record USDT as sent before the seller can complete the trade. */
 export function isCashTradeUsdtSentConfirmationAvailable(method: unknown, status: unknown) {
   return isCashTradePaymentMethod(method)

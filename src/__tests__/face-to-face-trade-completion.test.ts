@@ -183,6 +183,72 @@ describe("guided cash-trade completion", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it.each([
+    [FACE_TO_FACE, "funds_received"],
+    [FACE_TO_FACE, "usdt_release_pending"],
+    ["Bank Transfer", "usdt_sent"],
+    ["Cardless ATM Withdrawal", "usdt_sent"],
+  ] as const)("settles %s from %s on the seller's confirmation exactly once", async (paymentMethod, status) => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, status });
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const,
+      nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    const results = await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(results.filter(result => result.statusChanged)).toHaveLength(1);
+    expect(results.every(result => result.request.status === "review_open")).toBe(true);
+    const snapshot = currentSnapshot();
+    const saved = snapshot.purchaseRequests.find(request => request.id === requestId)!;
+    expect(saved.completedAt).toBeTruthy();
+    expect(saved.reviewUnlockedAt).toBeTruthy();
+    expect(saved.timeline.filter(event => event.type === "trade_completed")).toEqual([
+      expect.objectContaining({ actorUserId: SELLER_ID, message: "Seller confirmed trade completed" }),
+    ]);
+    if (status !== "usdt_sent") {
+      expect(saved.usdtSentAt).toBeTruthy();
+      expect(saved.timeline.filter(event => event.type === "usdt_sent")).toHaveLength(1);
+    }
+    expect(snapshot.commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
+      expect.objectContaining({ sellerId: SELLER_ID, commissionAmount: 2.5, paymentStatus: "pending" }),
+    ]);
+    expect(snapshot.marketplaceListings.find(listing => listing.id === listingId)).toMatchObject({ availableAmount: "750", activeTradeRequestId: undefined });
+    expect(snapshot.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: BUYER_ID, title: "Review available" }),
+      expect.objectContaining({ userId: SELLER_ID, message: "You completed the trade. Check your commission due." }),
+    ]));
+    await submitBuyerTradeReview({ requestId, buyerUserId: BUYER_ID, rating: 5, comment: "Received the full trade amount." });
+    expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.buyerReview?.rating).toBe(5);
+  });
+
+  it("requires explicit USDT delivery confirmation for the face-to-face shortcut", async () => {
+    seedTrade({ status: "funds_received" });
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" }))
+      .rejects.toMatchObject({ code: "seller-usdt-confirmation-required" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it.each([
+    [FACE_TO_FACE, "payment_sent"], [FACE_TO_FACE, "accepted"],
+    ["Bank Transfer", "funds_received"], ["Bank Transfer", "usdt_release_pending"],
+    ["Cardless ATM Withdrawal", "funds_received"],
+  ] as const)("rejects premature seller completion for %s at %s", async (paymentMethod, status) => {
+    seedTrade({ paymentMethod, status });
+    await expect(updatePurchaseRequestStatus({ requestId: "face-request-1", actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true }))
+      .rejects.toMatchObject({ code: "seller-completion-status-not-eligible" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it("rejects the seller completion command from the buyer and pauses for open disputes", async () => {
+    seedTrade({ paymentMethod: "Bank Transfer", status: "usdt_sent" });
+    const command = { requestId: "face-request-1", nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await expect(updatePurchaseRequestStatus({ ...command, actorUserId: BUYER_ID, actorRole: "buyer" }))
+      .rejects.toMatchObject({ code: "seller-completion-required" });
+    currentSnapshot().disputes.push({ id: "dispute-1", purchaseRequestId: "face-request-1", status: "open" } as never);
+    await expect(updatePurchaseRequestStatus({ ...command, actorUserId: SELLER_ID, actorRole: "approved_seller" }))
+      .rejects.toMatchObject({ code: "trade-disputed" });
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
   async function propose(action: "counter_offer" | "propose_amount", value: string) {
     const request = currentSnapshot().purchaseRequests[0];
     return updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action, value, expectedUpdatedAt: request.updatedAt, safetyAcknowledged: true });

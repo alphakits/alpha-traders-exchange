@@ -172,7 +172,7 @@ describe("automatic hourly Trade Room action reminders", () => {
     ["payment_sent", SELLER_ID],
     ["funds_received", SELLER_ID],
     ["usdt_release_pending", SELLER_ID],
-    ["usdt_sent", BUYER_ID],
+    ["usdt_sent", SELLER_ID],
   ] as const)("targets only the participant responsible during %s", async (status, recipientUserId) => {
     currentSnapshot().purchaseRequests.push(requestForStatus(status));
 

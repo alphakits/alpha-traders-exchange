@@ -2360,3 +2360,11 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
     animation: none !important;
   }
 }
+/* Important payment details: finite cue, stable text, and no layout movement. */
+@keyframes attention-siren-pulse {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 5px rgba(248, 113, 113, .45)); }
+  50% { opacity: .55; filter: drop-shadow(0 0 1px rgba(248, 113, 113, .15)); }
+}
+.attention-siren { display: inline-block; flex-shrink: 0; animation: attention-siren-pulse 1.5s ease-in-out 3; }
+.important-payment-panel { border-color: rgba(248, 113, 113, .55) !important; background: linear-gradient(125deg, rgba(127, 29, 29, .24), rgba(11, 11, 11, .96)) !important; box-shadow: 0 0 22px rgba(239, 68, 68, .09); }
+@media (prefers-reduced-motion: reduce) { .attention-siren { animation: none; } }

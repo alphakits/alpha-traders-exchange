@@ -1,5 +1,6 @@
 "use client";
 
+import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountId } from "@/lib/public-account-identity";
 
 import { currencyText } from "@/components/ui/currency-text";
@@ -469,7 +470,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               {sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? (
                 <div className="rounded-2xl border border-red-600/60 bg-red-950/60 p-4 text-sm text-red-100">
                   <div className="flex items-start gap-3">
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                    <AttentionSiren className="mt-0.5 text-xl" />
                     <div className="flex-1 space-y-2">
                       <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
                       {selectedCommissionIsAdminIssued ? (
@@ -523,7 +524,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   onClick={() => openCommissionPayment(commissionWorkspaceAction.commissionId)}
                   className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-600"
                 >
-                  {isAr ? "ادفع الآن" : "Pay Now"}
+                  <span aria-hidden="true">🚨</span>{isAr ? "ادفع الآن" : "Pay Now"}
                 </Button>
               ) : null}
               {commissionWorkspaceAction.kind === "review-unpaid" ? (
@@ -564,7 +565,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
+                    <AttentionSiren />
                     {isAr ? "دفع العمولة" : "Commission Payment"}
                   </CardTitle>
                   <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#6B7280] hover:text-white" aria-label={isAr ? "إغلاق دفع العمولة" : "Close commission payment"} onClick={() => setCommissionPayOpen(false)}>
@@ -656,7 +657,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
 
                 {selectedCommissionPayment?.paymentVerificationStatus === "failed" ? (
                   <div data-testid="commission-payment-failed" role="alert" className="flex items-start gap-3 rounded-2xl border border-red-500/40 bg-red-950/35 p-4 text-sm text-red-100">
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                    <AttentionSiren className="mt-0.5 text-xl" />
                     <div className="min-w-0 space-y-1.5">
                       <p className="font-semibold text-red-200">{isAr ? "فشل التحقق من الدفع" : "Payment verification failed"}</p>
                       <p className="text-xs leading-5">
@@ -1024,7 +1025,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     ) : null}
                     {listingBlockedByCommission && commissionWorkspaceAction.kind === "pay-one" ? (
                       <Button type="button" size="sm" variant="secondary" onClick={() => openCommissionPayment(commissionWorkspaceAction.commissionId)}>
-                        {isAr ? "ادفع الآن" : "Pay Now"}
+                        <span aria-hidden="true">🚨</span>{isAr ? "ادفع الآن" : "Pay Now"}
                       </Button>
                     ) : null}
                     {listingBlockedByCommission && commissionWorkspaceAction.kind === "review-unpaid" ? (

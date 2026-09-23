@@ -52,6 +52,15 @@ function actionRequest(action: string, payload: Record<string, unknown> = {}) {
 }
 
 describe("Trade Room status route post-commit reliability", () => {
+  it("passes explicit seller completion and delivery confirmation to settlement", async () => {
+    const response = await PATCH(actionRequest("complete_trade", { usdtSentConfirmed: true }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: "seller-1", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true,
+    }));
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({

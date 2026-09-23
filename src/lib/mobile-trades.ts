@@ -11,6 +11,7 @@ import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
   isCashTradeCompletionAvailable,
+  isSellerTradeCompletionAvailable,
   isCashTradePaymentMethod,
   isCashTradeUsdtSentConfirmationAvailable,
 } from "@/lib/marketplace-payment-methods";
@@ -55,6 +56,7 @@ export function toMobileTradeMessage(
       : "counterparty";
   return {
     sender,
+    ...(message.credentialKind === "cardless_code" ? { credentialKind: "cardless_code" as const } : {}),
     message: message.kind === "system"
       ? localizeTradeRoomSystemMessage(message.message, locale).text
       : message.credentialKind === "cardless_code"
@@ -104,6 +106,7 @@ export function toMobileTradeActions(
       && !isCashTrade,
     canConfirmReceived: isBuyer
       && request.status === "usdt_sent",
+    canCompleteTrade: isSeller && isSellerTradeCompletionAvailable(request.paymentMethod, request.status),
     canCompleteFaceToFace: isSeller
       && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
     canOpenDispute: isBuyer && context.canOpenDispute && !context.hasOpenDispute,
@@ -149,6 +152,7 @@ export function toMobileTradeDetail(
     : undefined;
   return {
     ...toMobileTradeSummary(request, userId),
+    ...(!isBuyer && room.sellerCommissionDueCount > 0 ? { sellerCommissionDue: { count: room.sellerCommissionDueCount, amount: room.sellerCommissionDueAmount } } : {}),
     counterpartyDisplayName: isBuyer ? room.counterpart.sellerName : room.counterpart.buyerName,
     receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
       ? request.buyerReceivingWalletAddress

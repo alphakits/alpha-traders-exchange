@@ -861,6 +861,13 @@ export function recalculateMobileCardlessAmount(tokens: MobileAuthTokens, locale
   return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, { locale, method: "PATCH", accessToken: tokens.accessToken, body: { action: "recalculate_cardless_amount" } });
 }
 
+export function completeMobileTrade(tokens: MobileAuthTokens, locale: MobileLocale, requestId: string) {
+  return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+    locale, method: "PATCH", accessToken: tokens.accessToken,
+    body: { action: "complete_trade", usdtSentConfirmed: true },
+  });
+}
+
 export function completeMobileCashTrade(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
