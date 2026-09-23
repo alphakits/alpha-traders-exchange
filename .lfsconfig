@@ -1,0 +1,4 @@
+# Test-runner branch only. The workflow checks out the exact release commit
+# before installing dependencies or executing the unchanged browser suite.
+[lfs]
+    fetchexclude = public/files/**

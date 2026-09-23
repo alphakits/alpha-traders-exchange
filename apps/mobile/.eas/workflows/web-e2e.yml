@@ -1,5 +1,5 @@
-name: Alpha Exchange Browser Reliability
-run_name: Browser reliability • ${{ github.sha }}
+name: Alpha Exchange Exact Release Browser Reliability
+run_name: Browser reliability • release e15f917
 
 on:
   workflow_dispatch: {}
@@ -15,6 +15,16 @@ jobs:
       PLAYWRIGHT_HTML_OUTPUT_DIR: apps/mobile/playwright-report
     steps:
       - uses: eas/checkout
+        with:
+          ref: e15f917cb6a868969296c2b431cdd2a8e87f3fdc
+      - name: Verify the exact release source
+        run: |
+          test "$(git rev-parse HEAD)" = "e15f917cb6a868969296c2b431cdd2a8e87f3fdc"
+          test "$(git rev-parse HEAD^{tree})" = "160fb6d1a66f555239a3950001ec4cd1efa55964"
+          git diff --exit-code
+          git diff --cached --exit-code
+          git log -1 --format='Verified release source: %H'
+        working_directory: ../..
       - uses: eas/install_node_modules
       - name: Install Chromium and system dependencies
         run: npx playwright install --with-deps chromium
