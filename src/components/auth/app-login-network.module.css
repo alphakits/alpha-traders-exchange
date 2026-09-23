@@ -1,7 +1,49 @@
+.authShell:has(.page) {
+  min-height: 100svh;
+}
+
+.authShell:has(.page) > header {
+  box-sizing: border-box;
+  height: 64px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 4px 12px;
+}
+
+.authShell:has(.page) > header > a { gap: 8px; padding: 5px 8px; }
+.authShell:has(.page) > header img { width: 40px; height: 40px; }
+.authShell:has(.page) > header > a > span > span:first-child { font-size: 14px; line-height: 20px; }
+.authShell:has(.page) > header > a > span > span:last-child { font-size: 9px; line-height: 12px; letter-spacing: .12em; }
+.authShell:has(.page) > header > button { min-width: 44px; height: 44px; flex-shrink: 0; }
+.authShell:has(.page) > main { align-items: stretch; padding: 4px 12px; }
+
+/* Fit the normal phone view by reclaiming spacing, not by clipping the page.
+   Errors, the keyboard and larger accessibility text can still scroll. */
+.page[data-login-surface="app"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  max-width: 420px;
+  min-height: calc(100svh - 72px);
+  padding-block: 0;
+}
+
 .card {
+  display: block;
+  flex-shrink: 0;
   border-color: #d4af3759;
   box-shadow: 0 22px 72px #0009, 0 0 40px #bb923d0a, 0 1px 0 #ffe6a026 inset;
 }
+
+.page .card { border-radius: 24px; }
+.card > :first-child { display: none; }
+.panel { padding: 12px 16px; }
+.heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; }
+.heading h1 { order: 1; margin: 0; font-size: 26px; line-height: 30px; }
+.heading .badge { order: 2; margin: 0; padding: 3px 7px; font-size: 9px; line-height: 14px; letter-spacing: .12em; }
+.intro { margin-top: 4px; font-size: 12px; line-height: 18px; }
 
 .card::after {
   content: "";
@@ -26,10 +68,10 @@
 
 .benefits {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .5rem;
-  margin-top: 1.25rem;
-  padding: .65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+  padding: 5px;
   border: 1px solid #d4af3729;
   border-radius: 1rem;
   background: linear-gradient(125deg, #c9a2270f, #57ac9407);
@@ -37,20 +79,40 @@
 
 .benefit {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: .5rem;
+  justify-content: center;
+  gap: 3px;
   min-width: 0;
-  padding: .65rem .5rem;
+  padding: 4px 2px;
   border: 1px solid #ffffff0d;
   border-radius: .65rem;
   color: #d9dad6;
   background: #05070566;
-  font-size: .75rem;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
 }
 
-.benefit svg { flex-shrink: 0; color: #d9bd72; }
+.benefit svg { flex-shrink: 0; width: 14px; height: 14px; color: #d9bd72; }
 .benefit:nth-child(3) svg { color: #78c8ae; }
+.form { margin-top: 12px; gap: 8px; }
+.field { position: relative; gap: 0; }
+.field > label {
+  position: absolute;
+  z-index: 1;
+  top: -7px;
+  inset-inline-start: 12px;
+  padding-inline: 4px;
+  border-radius: 4px;
+  background: #0b0c0b;
+  font-size: 11px;
+  line-height: 14px;
+}
+.field input { height: 48px; font-size: 16px; }
+.options { font-size: 12px; }
+.form > button[type="submit"] { height: 44px; min-height: 44px; }
+.register { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 4px; margin-top: 2px; font-size: 12px; line-height: 18px; }
 .form input { transition: border-color .18s ease, box-shadow .18s ease; }
 .form input:not([type="checkbox"]):focus-visible { box-shadow: 0 0 0 2px #c9a227, 0 0 18px #d4af3714; }
 .form button[type="submit"] { position: relative; overflow: hidden; }
@@ -70,10 +132,10 @@
   isolation: isolate;
   width: 100%;
   max-width: 60rem;
-  min-height: 160px;
-  aspect-ratio: 2.8;
-  max-height: 290px;
-  margin: .25rem auto 0;
+  flex: 1 0 64px;
+  min-height: 64px;
+  max-height: 220px;
+  margin: 0 auto;
   overflow: hidden;
   pointer-events: none;
   user-select: none;
@@ -129,8 +191,21 @@
 @keyframes packets { to { stroke-dashoffset: -116; } }
 
 @media (max-width: 359px) {
-  .benefits { grid-template-columns: 1fr; }
-  .benefit { padding: .5rem .65rem; }
+  .panel { padding-inline: 12px; }
+  .benefit { font-size: 10.5px; }
+}
+@media (max-height: 740px) {
+  .authShell:has(.page) > header { height: 56px; }
+  .page[data-login-surface="app"] { min-height: calc(100svh - 64px); }
+  .panel { padding-block: 8px; }
+  .heading h1 { font-size: 24px; line-height: 28px; }
+  .intro { line-height: 16px; }
+  .benefits { margin-top: 6px; padding: 4px; }
+  .benefit { gap: 2px; padding-block: 3px; }
+  .benefit svg { display: none; }
+  .field input { height: 44px; }
+  .field button[aria-controls="login-password"] { top: 0; right: 0; }
+  .scene { flex-basis: 40px; min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .card::after, .form button[type="submit"]::before, .scene * { animation: none; }
