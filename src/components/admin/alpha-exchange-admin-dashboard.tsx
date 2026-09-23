@@ -34,10 +34,10 @@ import type {
 import { isMarketplaceSmokeTestListing } from "@/lib/marketplace-smoke-test";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
-  bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
-  silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
-  gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
-  diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+  bronze: "rank-tone rank-tone--bronze",
+  silver: "rank-tone rank-tone--silver",
+  gold: "rank-tone rank-tone--gold",
+  diamond: "rank-tone rank-tone--diamond",
   elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
 };
 
@@ -2280,10 +2280,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         {SELLER_LEVELS.map((rank) => {
                           const count = (data?.approvedSellers ?? []).filter((s) => (s.sellerPrestigeRank ?? "bronze") === rank).length;
                           const rankColors: Record<SellerLevel, string> = {
-                            bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
-                            silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
-                            gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
-                            diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+                            bronze: "rank-tone rank-tone--bronze",
+                            silver: "rank-tone rank-tone--silver",
+                            gold: "rank-tone rank-tone--gold",
+                            diamond: "rank-tone rank-tone--diamond",
                             elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
                           };
                           return (
@@ -2498,10 +2498,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <div className="mt-2 flex flex-wrap gap-2">
                               {SELLER_LEVELS.map((rank, idx) => {
                                 const colors: Record<SellerLevel, string> = {
-                                  bronze: "border-[#CD7F32]/30 text-[#E8A96A]",
-                                  silver: "border-[#C0C0C0]/30 text-[#C9CED9]",
-                                  gold: "border-[#C9A227]/30 text-[#FDE68A]",
-                                  diamond: "border-[#7CC9FF]/30 text-[#7CC9FF]",
+                                  bronze: "rank-tone rank-tone--bronze",
+                                  silver: "rank-tone rank-tone--silver",
+                                  gold: "rank-tone rank-tone--gold",
+                                  diamond: "rank-tone rank-tone--diamond",
                                   elite: "border-[#F8E7A0]/30 text-[#F8E7A0]",
                                 };
                                 const volumes: Record<SellerLevel, string> = { bronze: "0 USDT", silver: "15K+", gold: "50K+", diamond: "150K+", elite: "500K+" };

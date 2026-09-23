@@ -29,6 +29,7 @@ import {
   uploadMobileProfilePhoto,
 } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
+import { SellerRankIdentity, SELLER_PROFILE_TONES } from "../components/seller-rank-identity";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import type { MessageKey } from "../i18n/messages";
@@ -72,14 +73,7 @@ const PRIVACY_CONTROLS: Array<{ key: PrivacyKey; label: MessageKey; body: Messag
   { key: "showEmailPublic", label: "showEmailPublic", body: "showEmailPublicBody" },
 ];
 
-const LEVEL_COLORS: Record<Level | "owner", { accent: string; border: string; soft: string; surface: string }> = {
-  bronze: { accent: "#E3A57D", border: "rgba(201,122,69,0.42)", soft: "rgba(201,122,69,0.12)", surface: "rgba(38,23,16,0.96)" },
-  silver: { accent: "#D7DEEA", border: "rgba(194,205,220,0.44)", soft: "rgba(194,205,220,0.12)", surface: "rgba(26,30,37,0.96)" },
-  gold: { accent: "#F2D67F", border: "rgba(212,175,55,0.46)", soft: "rgba(212,175,55,0.12)", surface: "rgba(42,29,13,0.96)" },
-  diamond: { accent: "#CCECFF", border: "rgba(138,197,255,0.5)", soft: "rgba(138,197,255,0.13)", surface: "rgba(14,28,48,0.96)" },
-  elite: { accent: "#FDE7A4", border: "rgba(212,175,55,0.54)", soft: "rgba(212,175,55,0.14)", surface: "rgba(45,15,19,0.97)" },
-  owner: { accent: "#FDE7A4", border: "rgba(248,113,113,0.52)", soft: "rgba(185,28,28,0.17)", surface: "rgba(47,14,18,0.98)" },
-};
+const LEVEL_COLORS = SELLER_PROFILE_TONES;
 
 function profileDraft(profile: MobileAccountProfile): ProfileDraft {
   return {
@@ -325,7 +319,7 @@ export function AccountProfilePanel() {
   const { profile, stats, roleBadge, accountStatuses } = query.data;
   const isOwner = roleBadge === "owner";
   const isSeller = stats.kind === "seller";
-  const theme = LEVEL_COLORS[isOwner ? "owner" : stats.level];
+  const theme = (isSeller ? SELLER_PROFILE_TONES : LEVEL_COLORS)[isOwner ? "owner" : stats.level];
   const currentDraft = draft ?? profileDraft(profile);
   const progress = Math.max(0, Math.min(100, stats.progressToNextLevelPercent));
   const profilePhotoUrl = safeRemoteImageUrl(profile.profilePhotoUrl);
@@ -396,6 +390,8 @@ export function AccountProfilePanel() {
             ) : null}
           </View>
           {mediaError ? <Text accessibilityRole="alert" style={[styles.errorText, isRTL && styles.rtlText]}>{mediaError}</Text> : null}
+
+          {stats.kind === "seller" ? <SellerRankIdentity rank={stats.level} owner={isOwner} summary={stats} /> : null}
 
           <View style={[styles.statusGrid, isRTL && styles.rowReverse]}>
             <MetricCard accent={theme.accent} isRTL={isRTL} label={copy("ACCOUNT STATUS", "حالة الحساب")} value={accountStatuses.map((value) => localizedStatus(value, isAr)).join(" • ")} />
@@ -489,7 +485,7 @@ export function AccountProfilePanel() {
 
       <View style={[styles.panel, { borderColor: isSeller ? theme.border : colors.border }]}>
         <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{copy("Reputation board", "لوحة السمعة")}</Text>
-        <View style={[styles.tierCard, { backgroundColor: theme.soft, borderColor: theme.border }]}>
+        {stats.kind !== "seller" ? <View style={[styles.tierCard, { backgroundColor: theme.soft, borderColor: theme.border }]}>
           <Text style={[styles.eyebrow, { color: theme.accent }, isRTL && styles.rtlText]}>{isSeller ? copy("SELLER TIER", "مستوى البائع") : copy("BUYER RANK", "رتبة المشتري")}</Text>
           <View style={[styles.tierTop, isRTL && styles.rowReverse]}>
             <View style={styles.tierCopy}>
@@ -502,7 +498,7 @@ export function AccountProfilePanel() {
             <View style={[styles.progressFill, { backgroundColor: theme.accent, width: `${Math.max(3, progress)}%` }]} />
           </View>
           <Text style={[styles.progressLabel, isRTL && styles.rtlText]}>{stats.nextLevel ? `${localizedNumber(stats.amountToNextLevelUsdt, 2)} USDT ${copy("to unlock the next level", "للوصول للمستوى التالي")}` : copy("Highest level unlocked", "تم فتح أعلى مستوى")}</Text>
-        </View>
+        </View> : null}
 
         <View style={[styles.metricsGrid, isRTL && styles.rowReverse]}>
           {stats.kind === "seller" ? (
@@ -579,7 +575,7 @@ const styles = StyleSheet.create({
   root: { gap: spacing.xl },
   loading: { alignItems: "center", minHeight: 240, justifyContent: "center" },
   errorCard: { backgroundColor: "rgba(11,11,11,0.94)", borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.lg, padding: spacing.lg },
-  heroCard: { backgroundColor: "rgba(11,11,11,0.96)", borderRadius: radius.lg, borderWidth: 1, overflow: "hidden" },
+  heroCard: { backgroundColor: "rgba(9,12,18,0.88)", borderRadius: radius.lg, borderWidth: 1, overflow: "hidden" },
   cover: { height: 166, overflow: "hidden", position: "relative" },
   coverImage: { bottom: 0, height: "100%", left: 0, opacity: 0.9, position: "absolute", right: 0, top: 0, width: "100%" },
   coverGlow: { borderRadius: 220, height: 300, position: "absolute", right: -100, top: -180, width: 380 },

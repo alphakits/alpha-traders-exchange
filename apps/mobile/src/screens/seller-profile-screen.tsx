@@ -15,6 +15,7 @@ import type { MobileSellerBadge, MobileSellerProfile } from "@alpha-traders/cont
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileSellerProfile } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
+import { SellerRankIdentity, SELLER_PROFILE_TONES } from "../components/seller-rank-identity";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import { safeRemoteImageUrl } from "../media/safe-media-url";
@@ -120,6 +121,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
   }
 
   const seller = query.data.seller;
+  const tone = SELLER_PROFILE_TONES[seller.isOwner ? "owner" : seller.level];
   const joinedYear = memberYear(seller.memberSince, locale);
   const profilePhotoUrl = safeRemoteImageUrl(seller.profilePhotoUrl);
   const averageRating = finiteMetric(seller.averageRating);
@@ -135,8 +137,9 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
           <Text style={styles.screenLabel}>{t("sellerProfile")}</Text>
         </View>
 
-        <View style={[styles.heroCard, isRTL && styles.rowReverse]}>
-          <View accessible={false} style={styles.avatar}>
+        <SellerRankIdentity rank={seller.level} owner={seller.isOwner} />
+        <View style={[styles.heroCard, { borderColor: tone.border }, isRTL && styles.rowReverse]}>
+          <View accessible={false} style={[styles.avatar, { borderColor: tone.accent }]}>
             <Text accessible={false} style={styles.avatarFallback}>{seller.displayName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
             {profilePhotoUrl ? (
               <Image accessible={false} alt="" source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
@@ -150,7 +153,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
             <View style={[styles.statusRow, isRTL && styles.rowReverse]}>
               <View style={[styles.statusDot, seller.onlineStatus === "online" && styles.statusOnline]} />
               <Text style={styles.statusText}>{seller.onlineStatus === "online" ? t("online") : t("offline")}</Text>
-              <Text style={styles.levelBadge}>{levelLabel(seller.level, t)}</Text>
+              <Text style={[styles.levelBadge, { borderColor: tone.border, color: tone.accent, backgroundColor: tone.soft }]}>{levelLabel(seller.level, t)}</Text>
             </View>
             <Text style={[styles.memberSince, isRTL && styles.rtlText]}>{t("memberSince")} {joinedYear}</Text>
           </View>
@@ -167,7 +170,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         {seller.badges.length ? (
           <View style={[styles.badges, isRTL && styles.rowReverse]}>
             {seller.badges.map((badge) => (
-              <Text key={badge} style={styles.badge}>◆ {badgeLabel(badge, t)}</Text>
+              <Text key={badge} style={[styles.badge, { borderColor: tone.border, color: tone.accent, backgroundColor: tone.soft }]}>◆ {badgeLabel(badge, t)}</Text>
             ))}
           </View>
         ) : null}

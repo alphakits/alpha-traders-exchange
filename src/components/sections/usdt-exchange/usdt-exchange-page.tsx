@@ -1138,11 +1138,11 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
   });
   const sellerEmailVerified = listing.sellerProfile?.emailVerified === true;
   const sellerRankBorderColor: Record<string, string> = {
-    bronze: "rgba(201,122,69,0.62)",
-    silver: "rgba(194,205,220,0.68)",
-    gold: "rgba(212,175,55,0.7)",
+    bronze: "rgba(var(--rank-bronze-rgb),0.62)",
+    silver: "rgba(var(--rank-silver-rgb),0.68)",
+    gold: "rgba(var(--rank-gold-rgb),0.7)",
     platinum: "rgba(203,219,243,0.72)",
-    diamond: "rgba(138,197,255,0.74)",
+    diamond: "rgba(var(--rank-diamond-rgb),0.74)",
     legendary: "rgba(212,175,55,0.78)",
   };
   return (

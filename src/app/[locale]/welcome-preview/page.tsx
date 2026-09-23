@@ -1,3 +1,4 @@
+import { SellerDesignPreview } from "@/components/profile/seller-design-preview";
 import { BuyerContactPreview } from "@/components/auth/buyer-contact-prompt";
 import { notFound } from "next/navigation";
 import { AccountWelcome } from "@/components/ui/account-welcome";
@@ -18,11 +19,12 @@ import type { PurchaseRequest } from "@/types/alpha-exchange";
 export const metadata = { title: "Welcome design preview", robots: { index: false, follow: false } };
 
 /** Non-production component review: no account access, permissions or live data. */
-export default async function WelcomePreview({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ view?: string }> }) {
+export default async function WelcomePreview({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ view?: string; rank?: string }> }) {
   if (process.env.VERCEL_ENV === "production") notFound();
   const locale = (await params).locale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   const view = (await searchParams).view;
+  if (view === "seller-design" || view === "seller-public") return <SellerDesignPreview locale={locale} rank={(await searchParams).rank} publicView={view === "seller-public"} />;
   if (view === "history") {
     const sample: OwnerTradeHistoryData = {
       request: {

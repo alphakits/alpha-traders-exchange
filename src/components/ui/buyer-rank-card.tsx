@@ -8,7 +8,7 @@ export function BuyerRankCard({ summary, locale }: { summary?: BuyerRankSummary 
   const rank = summary ?? initialRank;
   const isAr = locale === "ar";
   return (
-    <div className="buyer-rank-hero-card mt-5">
+    <div className="buyer-rank-hero-card mt-5" data-profile-rank={rank.key}>
       <div className="flex items-center gap-3">
         <RankEmblem rank={rank.key} className="buyer-rank-hero-emblem" />
         <div className="min-w-0">

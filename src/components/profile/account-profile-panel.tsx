@@ -9,7 +9,7 @@ import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-f
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { rankSurfaceTone } from "@/lib/rank-identity";
+import { rankSurfaceTone, rankVisualKey } from "@/lib/rank-identity";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
@@ -786,6 +786,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     "owner",
   ].some((role) => establishedAccountRoles.includes(role))
     && !["buyer", "pending_seller", "approved_seller", "administrator", "owner"].includes(payload.roleBadge);
+  const DetailsContainer = isSeller ? "details" : "div";
   const sellerRankKey = payload.stats.kind === "seller" ? tierVisualKey(payload.stats.sellerLevel) : "bronze";
   const sellerLevelForUi = payload.stats.kind === "seller" ? payload.stats.sellerLevel : "bronze";
   const buyerActivityStats = payload.stats.kind === "buyer" ? payload.stats : payload.stats.buyerActivity;
@@ -809,19 +810,20 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     : [];
 
   return (
-    <section className="section-container page-shell">
+    <section className={cn("section-container page-shell", isSeller && "seller-prestige-page")} data-profile-rank={isSeller ? (isOwner ? "owner" : rankVisualKey(sellerLevelForUi)) : undefined}>
       <div className="mx-auto max-w-7xl space-y-5 xl:space-y-6">
-        <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
+        <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-prestige-account-hero seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
           <PrivateProfileHeader
             locale={locale}
             fullName={payload.profile.fullName}
             publicOwner={isOwner}
+            sellerRank={isSeller ? sellerLevelForUi : undefined}
             publicId={publicAccountId(payload.profile)}
             avatarUrl={avatarUrl}
             coverUrl={coverUrl}
-            coverClassName={theme.coverTone}
+            coverClassName={isSeller ? undefined : theme.coverTone}
             avatarClassName={cn(theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}
-            nameClassName={cn(isOwner && "font-extrabold tracking-[0.015em]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}
+            nameClassName={cn(isOwner && "font-extrabold tracking-[0.015em]", isSeller ? "seller-prestige-name" : theme.usernameClass)}
             coverActions={(
               <>
                 <Button
@@ -888,8 +890,23 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
             </div>
           </PrivateProfileHeader>
 
-          <div className="px-5 pb-6 md:px-8">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+          {payload.stats.kind === "seller" ? (
+            <div className="seller-prestige-account-progress px-5 pb-5 md:px-8">
+              <SellerRankCard locale={locale} owner={isOwner} summary={{
+                ...payload.stats,
+                sellerLevel: normalizeSellerLevel(payload.stats.sellerLevel) ?? "bronze",
+                nextLevel: normalizeSellerLevel(payload.stats.nextLevel) ?? undefined,
+              }} />
+              <div className="seller-prestige-quick-stats">
+                <div><span>{isAr ? "الصفقات المكتملة" : "Completed trades"}</span><strong>{payload.stats.completedTrades.toLocaleString("en-IL")}</strong></div>
+                <div><span>{isAr ? "التقييم" : "Rating"}</span><strong>{payload.stats.averageRating > 0 ? `${payload.stats.averageRating.toFixed(2)} ★` : "—"}</strong></div>
+                <div><span>{isAr ? "العروض النشطة" : "Active listings"}</span><strong>{payload.stats.activeListings.toLocaleString("en-IL")}</strong></div>
+              </div>
+            </div>
+          ) : null}
+          <DetailsContainer className="seller-account-details px-5 pb-6 md:px-8">
+            {isSeller ? <summary className="cursor-pointer py-3 text-sm font-medium text-[#D1D5DB]">{isAr ? "تفاصيل الحساب" : "Account details"}</summary> : null}
+            <div className={cn("grid gap-3", isSeller ? "grid-cols-2 xl:grid-cols-4" : "md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5")}>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة الحساب" : "Account status"}</p>
                 <p className="mt-2 text-sm font-medium text-white">{currencyText(statusCopy)}</p>
@@ -911,7 +928,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                 <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "يمكنك تعديل ذلك من إعدادات الهوية" : "Controlled in identity controls below"}</p>
               </div>
             </div>
-          </div>
+          </DetailsContainer>
         </Card>
 
         <input
@@ -942,8 +959,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         {photoError ? <ActionFeedback revealKey={photoErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{currencyText(photoError)}</ActionFeedback> : null}
         {coverError ? <ActionFeedback revealKey={coverErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-400">{currencyText(coverError)}</ActionFeedback> : null}
 
-        <AccountNotificationPreferences key={payload.profile.id} locale={locale} />
-        <NewsPreferences key={`news-${payload.profile.id}`} locale={locale} />
+
+        {!isSeller ? <><AccountNotificationPreferences key={payload.profile.id} locale={locale} /><NewsPreferences key={`news-${payload.profile.id}`} locale={locale} /></> : null}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px] xl:items-start">
           <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
@@ -1044,18 +1061,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <CardContent className="space-y-3">
                 {payload.stats.kind === "seller" ? (
                   <>
-                    <SellerRankCard locale={locale} summary={{
-                      ...payload.stats,
-                      sellerLevel: normalizeSellerLevel(payload.stats.sellerLevel) ?? "bronze",
-                      nextLevel: normalizeSellerLevel(payload.stats.nextLevel) ?? undefined,
-                    }} />
-
-                    <div className="grid gap-2 text-sm sm:grid-cols-2">
+                    <div className="grid gap-2 text-sm">
                       <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييم المتوسط" : "Average rating"}</p><p className="mt-1 font-semibold text-white">{payload.stats.averageRating.toFixed(2)} ★</p></div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeListings.toLocaleString("en-IL")}</p></div>
                     </div>
 
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
@@ -1170,6 +1177,14 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
             </Card>
           </div>
         </div>
+
+        {isSeller ? <details className="seller-profile-preferences rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-white">{isAr ? "الإشعارات والتنبيهات" : "Notifications & alerts"}</summary>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <AccountNotificationPreferences key={payload.profile.id} locale={locale} />
+            <NewsPreferences key={`news-${payload.profile.id}`} locale={locale} />
+          </div>
+        </details> : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-4">
           {[
