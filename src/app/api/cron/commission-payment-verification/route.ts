@@ -191,7 +191,7 @@ export async function GET(request: NextRequest) {
     const ok = autoReconciliation.errors === 0 && result.errors === 0 && emailRecovery.errors === 0;
     logEvent(ok ? "info" : "error", {
       event: "commission_payment_verification_cron", outcome: ok ? "success" : "failed",
-      reason: ok ? undefined : "commission_verification_degraded", metadata: { ...result, autoReconciliation, emailRecovery,
+      reason: ok ? undefined : "commission_verification_degraded", metadata: { ...result, autoReconciliation, confirmationRecovery: emailRecovery,
         // Nested objects are truncated by the runtime console renderer.
         providerHealth: JSON.stringify(autoReconciliation.providers),
       },

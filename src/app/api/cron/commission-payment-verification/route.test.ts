@@ -55,6 +55,23 @@ describe("commission scheduler", () => {
     expect(body.emailRecovery.errors).toBe(1);
     expect(JSON.stringify(body)).not.toContain("private database");
   });
+  it("keeps confirmation counters visible through log redaction without changing the response contract", async () => {
+    const recovery = { checked: 2, queued: 1, errors: 0, pending: 1, budgetExhausted: false };
+    mocks.records.mockResolvedValue([]);
+    mocks.recoverEmails.mockResolvedValue(recovery);
+    const logged = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const response = await GET(request());
+      const body = await response.json();
+      const summary = logged.mock.calls.find(([, entry]) => entry?.event === "commission_payment_verification_cron")?.[1];
+      expect(summary?.metadata.confirmationRecovery).toEqual(recovery);
+      expect(summary?.metadata).not.toHaveProperty("emailRecovery");
+      expect(body.emailRecovery).toEqual(recovery);
+      expect(body).not.toHaveProperty("confirmationRecovery");
+    } finally {
+      logged.mockRestore();
+    }
+  });
   it("leaves durable confirmations for the next run when verification has used the email budget", async () => {
     const now = Date.now();
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
