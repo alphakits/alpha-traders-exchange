@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useId, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileText, Gavel, ShieldAlert, Upload, X } from "lucide-react";
@@ -246,7 +247,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "رسوم الاستعادة" : "Recovery Fee"}</p>
             <p className="mt-1 text-sm font-semibold text-[#FDE68A]">
-              {status.activeRecord ? `${status.activeRecord.feeAmount.toFixed(2)} ${status.activeRecord.feeCurrency}` : "0.00 USDT"}
+              {currencyText(status.activeRecord ? `${status.activeRecord.feeAmount.toFixed(2)} ${status.activeRecord.feeCurrency}` : "0.00 USDT")}
             </p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
@@ -258,7 +259,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         {status.blockReason ? (
           <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-100">
             <p className="inline-flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />{isAr ? "التقييد الحالي" : "Current restriction"}</p>
-            <p className="mt-1">{localizedRestrictionMessage(status, locale)}</p>
+            <p className="mt-1">{currencyText(localizedRestrictionMessage(status, locale))}</p>
           </div>
         ) : (
           <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-100">
@@ -279,7 +280,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.appealStatus !== "submitted"} onClick={() => void runAction("appeal_reject")}>{isAr ? "رفض الاستئناف" : "Reject Appeal"}</Button>
         </div>
 
-        {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{error}</ActionFeedback> : null}
+        {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{currencyText(error)}</ActionFeedback> : null}
 
         {issueFeeOpen ? (
           <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -289,7 +290,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1.5 text-sm text-[#D1D5DB]">
-                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "مبلغ الرسوم بـ USDT" : "Fee amount in USDT"}</span>
+                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{currencyText(isAr ? "مبلغ الرسوم بـ USDT" : "Fee amount in USDT")}</span>
                 <input
                   type="number"
                   min="0.01"
@@ -342,16 +343,16 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
                 <span>{isAr ? "اختر صورة أو ملف PDF" : "Choose image or PDF files"}</span>
               </label>
               <p id={`${evidenceInputId}-help`} className="text-xs text-[#9CA3AF]">
-                {issueFeeEvidenceFiles.length
+                {currencyText(issueFeeEvidenceFiles.length
                   ? (isAr ? `تم اختيار ${issueFeeEvidenceFiles.length} ملف` : `${issueFeeEvidenceFiles.length} file${issueFeeEvidenceFiles.length === 1 ? "" : "s"} selected`)
-                  : (isAr ? "ارفع لقطة شاشة أو صورة أو ملف PDF واحدًا على الأقل." : "Upload at least one screenshot, image, or PDF.")}
+                  : (isAr ? "ارفع لقطة شاشة أو صورة أو ملف PDF واحدًا على الأقل." : "Upload at least one screenshot, image, or PDF."))}
               </p>
               {issueFeeEvidenceFiles.length ? (
                 <ul className="space-y-1.5" aria-label={isAr ? "الملفات المحددة" : "Selected files"}>
                   {issueFeeEvidenceFiles.map((file, index) => (
                     <li key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-xs">
                       <FileText className="h-4 w-4 shrink-0 text-[#C9A227]" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate" dir="auto">{file.name}</span>
+                      <span className="min-w-0 flex-1 truncate" dir="auto">{currencyText(file.name)}</span>
                       <button
                         type="button"
                         onClick={() => setIssueFeeEvidenceFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))}
@@ -377,9 +378,9 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           <div className="mt-3 space-y-2">
             {status.recentAuditEntries.length ? status.recentAuditEntries.slice(0, 8).map((entry) => (
               <div key={entry.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 text-xs text-[#E5E7EB]">
-                <p className="font-semibold text-white">{localizedAuditAction(entry.action, locale)}</p>
-                <p className="mt-0.5 text-[#9CA3AF]">{formatDate(entry.createdAt, locale)}</p>
-                {entry.reason ? <p className="mt-1">{isAr ? "السبب" : "Reason"}: {localizedComplianceText(entry.reason, locale)}</p> : null}
+                <p className="font-semibold text-white">{currencyText(localizedAuditAction(entry.action, locale))}</p>
+                <p className="mt-0.5 text-[#9CA3AF]">{currencyText(formatDate(entry.createdAt, locale))}</p>
+                {entry.reason ? <p className="mt-1">{isAr ? "السبب" : "Reason"}: {currencyText(localizedComplianceText(entry.reason, locale))}</p> : null}
                 {entry.evidenceReferences?.length ? <p className="mt-1 text-[#C9A227]">{isAr ? "الإثبات" : "Evidence"}: {entry.evidenceReferences.length} {isAr ? "مرفقات" : "attachment(s)"}</p> : null}
               </div>
             )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد نشاط امتثال حتى الآن." : "No compliance activity yet."}</p>}

@@ -2,6 +2,7 @@
 
 import { createElement, useCallback, useLayoutEffect, useRef, useState, type HTMLAttributes, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
+import { currencyText } from "@/components/ui/currency-text";
 
 export const ACTION_FEEDBACK_REVEALED = "alpha:action-feedback-revealed";
 
@@ -135,6 +136,6 @@ export function ActionFeedback({
     "data-action-feedback": "",
     tabIndex: -1,
     style: { scrollMarginBlockStart: "7rem", scrollMarginBlockEnd: "7rem", ...style },
-  }, children);
+  }, currencyText(children));
   return portalHost ? createPortal(feedback, portalHost) : feedback;
 }

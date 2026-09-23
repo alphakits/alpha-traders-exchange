@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, LoaderCircle, MessageCircle, Paperclip, ShieldCheck, Upload } from "lucide-react";
@@ -2899,7 +2900,7 @@ function TradeRoomPageSession({
       <main className="min-h-screen bg-[#050505] px-4 py-6 text-white md:px-6">
         <div className="mx-auto max-w-4xl rounded-2xl border border-red-500/25 bg-red-500/10 p-6">
           <h1 className="text-lg font-semibold">{isAr ? "تعذر فتح غرفة الصفقة" : "Unable to open Trade Room"}</h1>
-          <p className="mt-2 text-sm text-[#FCA5A5]">{errorMessage ?? (isAr ? "الصفقة غير متاحة أو ليس لديك صلاحية الوصول." : "Trade was not found or you do not have access.")}</p>
+          <p className="mt-2 text-sm text-[#FCA5A5]">{currencyText(errorMessage ?? (isAr ? "الصفقة غير متاحة أو ليس لديك صلاحية الوصول." : "Trade was not found or you do not have access."))}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button type="button" onClick={() => void fetchRoom()}>
               {isAr ? "إعادة المحاولة" : "Retry"}
@@ -2921,7 +2922,7 @@ function TradeRoomPageSession({
               {reviewCommentError ? <AlertTriangle className="h-4 w-4 text-red-300" />
                 : reviewBusy ? <LoaderCircle className="h-4 w-4 animate-spin" />
                   : <CheckCircle2 className="h-4 w-4 text-emerald-300" />}
-              <span>{statusMessage}</span>
+              <span>{currencyText(statusMessage)}</span>
             </div>
           </ActionFeedback>
         ) : null}
@@ -2930,7 +2931,7 @@ function TradeRoomPageSession({
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
             <div className="flex items-center gap-2">
               <LoaderCircle className="h-4 w-4 animate-spin" />
-              <span>{actionNotice}</span>
+              <span>{currencyText(actionNotice)}</span>
             </div>
           </div>
         ) : null}
@@ -2939,7 +2940,7 @@ function TradeRoomPageSession({
           <ActionFeedback autoReveal={false} revealKey={actionErrorFeedbackKey} role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
-              <span>{actionError}</span>
+              <span>{currencyText(actionError)}</span>
             </div>
           </ActionFeedback>
         ) : null}
@@ -2955,15 +2956,15 @@ function TradeRoomPageSession({
     : [];
   const cardlessAmountEditor = isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
     <div className="space-y-2 text-sm">
-      <p>{isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${adjustmentPrice} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${adjustmentPrice} per USDT`}</p>
+      <p>{currencyText(isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${adjustmentPrice} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${adjustmentPrice} per USDT`)}</p>
       <label className="block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
       {recordedCashAmount ? <Input id="adjust-withdrawal-ils" dir="ltr" readOnly value={recordedCashAmount} /> : <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy || room.hasOpenDispute} className="min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
         <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
         {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>₪{option.ilsAmount} · {option.usdtAmount} USDT</option>)}
       </select>}
-      <p className="text-xs text-[#D1D5DB]">{isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount."}</p>
-      <p className="font-semibold text-[#FDE68A]">{calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—"} USDT</p>
-      <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</Button>
+      <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount.")}</p>
+      <p className="font-semibold text-[#FDE68A]">{currencyText(calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—")} <span className="currency-usdt">USDT</span></p>
+      <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{currencyText(isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount")}</Button>
     </div>
   ) : null;
   const tradeTerms = (
@@ -2982,12 +2983,12 @@ function TradeRoomPageSession({
             <details data-testid="trade-details" className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4">
               <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold">{isAr ? "تفاصيل الصفقة والأمان" : "Trade details and safety"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
               <div className="mt-3 space-y-3 text-sm text-[#D1D5DB]">
-                <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{counterpartName}</span></p>
-                <p>{isAr ? "حسابك" : "Your account"}: {actor.fullName}</p>
-                <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {requestPaymentMethodLabel}</p>
-                <p>{isAr ? "السعر لكل USDT" : "Price per USDT"}: <bdi dir="ltr">₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / USDT</bdi></p>
-                {request.bankName ? <p>{isAr ? "البنوك المعتمدة" : "Supported Banks"}: {requestBankNamesLabel}</p> : null}
-                {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {request.closeReason ?? (isAr ? "غير محدد" : "Not specified")}</p> : null}
+                <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{currencyText(counterpartName)}</span></p>
+                <p>{isAr ? "حسابك" : "Your account"}: {currencyText(actor.fullName)}</p>
+                <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
+                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / <span className="currency-usdt">USDT</span></bdi></p>
+                {request.bankName ? <p>{isAr ? "البنوك المعتمدة" : "Supported Banks"}: {currencyText(requestBankNamesLabel)}</p> : null}
+                {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
                 <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
               </div>
             </details>
@@ -2998,11 +2999,11 @@ function TradeRoomPageSession({
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
           <div className="flex items-center justify-between gap-3">
-            <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi></h1>
+            <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
             {!showSuccessScreen ? <Button type="button" variant="secondary" size="sm" onClick={() => chatSectionRef.current && revealTradeRoomDeepLinkTarget(chatSectionRef.current)}><MessageCircle className="h-4 w-4" />{isAr ? "الدردشة" : "Chat"}</Button> : null}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
-            <p><bdi dir="ltr" className="font-semibold text-white">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT</bdi> · <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</bdi></p>
+            <p><bdi dir="ltr" className="font-semibold text-white">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi> · <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {currencyText(request.currency)}</bdi></p>
             <p className="text-xs text-[#9CA3AF]">{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
           </div>
           <div className="flex items-center gap-2">
@@ -3030,9 +3031,9 @@ function TradeRoomPageSession({
                       : "Your trade has been fully completed and recorded."}
                   </p>
                   <p>
-                    {isFaceToFaceTrade
+                    {currencyText(isFaceToFaceTrade
                       ? (isAr ? "شكرًا لتأكيد اكتمال التبادل وجهًا لوجه." : "Thank you for confirming that the in-person exchange was completed.")
-                      : (isAr ? "شكرًا لتأكيد استلام USDT." : "Thank you for confirming that you received your USDT.")}
+                      : (isAr ? "شكرًا لتأكيد استلام USDT." : "Thank you for confirming that you received your USDT."))}
                   </p>
                   <p>
                     {isAr
@@ -3113,7 +3114,7 @@ function TradeRoomPageSession({
                       </p>
                     ) : null}
                     {reviewCommentError ? (
-                      <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-300">{reviewCommentError}</ActionFeedback>
+                      <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-xs text-red-300">{currencyText(reviewCommentError)}</ActionFeedback>
                     ) : null}
                     <Button
                       type="submit"
@@ -3142,7 +3143,7 @@ function TradeRoomPageSession({
                           {[5,4,3,2,1].map((rating) => <option key={rating} value={rating}>{"★".repeat(rating)} ({rating})</option>)}
                         </select>
                         <Textarea ref={reviewCommentInputRef} aria-label={isAr ? "تعليق عن المشتري" : "Buyer feedback"} placeholder={isAr ? "كيف كانت تجربتك مع المشتري؟" : "How was your experience with this buyer?"} maxLength={500} value={reviewComment} onChange={(event) => setReviewComment(event.target.value)} disabled={reviewBusy || actionBusy} />
-                        {reviewCommentError ? <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-red-300">{reviewCommentError}</ActionFeedback> : null}
+                        {reviewCommentError ? <ActionFeedback revealKey={reviewCommentErrorFeedbackKey} as="p" role="alert" className="text-red-300">{currencyText(reviewCommentError)}</ActionFeedback> : null}
                         <Button type="submit" disabled={reviewBusy || actionBusy}>{reviewBusy ? (isAr ? "جاري الحفظ..." : "Saving...") : (isAr ? "إرسال التقييم" : "Submit buyer review")}</Button>
                       </form>
                     </details>
@@ -3156,21 +3157,21 @@ function TradeRoomPageSession({
                     ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
                     : (isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete.")}</p>
                   <p>{isAr ? "انتقلت الصفقة الآن إلى السجل والمراجعة، وتم تسجيل العمولة المستحقة على البائع." : "The trade is now in history and review, and the seller commission has been recorded."}</p>
-                  <p>{isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                  <p>{currencyText(isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
                 </>
               ) : (
                 <>
-                  <p>{isAr ? `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT تم استلامها.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT received.`}</p>
-                  <p>{isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt."}</p>
-                  <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
-                  <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                  <p>{currencyText(isAr ? `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT تم استلامها.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT received.`)}</p>
+                  <p>{currencyText(isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt.")}</p>
+                  <p>{currencyText(isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
+                  <p>{currencyText(isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
                 </>
               )}
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`}</p>
-                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`}</p> : null}
+                  <p>{currencyText(isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     {isAr ? "ادفع الآن" : "Pay Now"}
@@ -3179,7 +3180,7 @@ function TradeRoomPageSession({
               ) : null}
               {isActorBuyer && request.sellerBuyerReview ? <div className="rounded-xl border border-white/15 bg-black/20 p-3">
                 <p className="font-medium">{isAr ? "تقييم البائع لك" : "Seller feedback for you"} · {request.sellerBuyerReview.rating}/5</p>
-                <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{request.sellerBuyerReview.comment}</p>
+                <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{currencyText(request.sellerBuyerReview.comment)}</p>
               </div> : null}
               {!showSuccessScreen && isBuyerCompletionSyncInFlight ? (
                 <Card className="border-[#C9A227]/35 bg-[#C9A227]/10">
@@ -3225,9 +3226,9 @@ function TradeRoomPageSession({
           <div className="space-y-4">
             <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
               <div id="status-banner" ref={statusBannerRef} tabIndex={-1} className={`space-y-2 p-4 pb-3 sm:p-5 sm:pb-3 ${stepPulse ? "ring-1 ring-inset ring-[#C9A227]/30" : ""}`}>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{statusBanner?.title ?? (isAr ? "الحالة الحالية" : "Current Status")}</p>
-                <CardTitle className="text-xl leading-snug">{hasPendingTradeTerms ? (isSeller ? (isAr ? "بانتظار موافقة المشتري على الشروط" : "Waiting for the Buyer to Review the Terms") : (isAr ? "راجع شروط الصفقة المقترحة" : "Review the Proposed Trade Terms")) : statusBanner?.headline ?? tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade)}</CardTitle>
-                <p className="text-sm text-[#D1D5DB]">{hasPendingTradeTerms ? (isAr ? "يجب تأكيد الشروط قبل متابعة الدفع أو إرسال USDT." : "Confirm the terms before continuing with payment or sending USDT.") : statusBanner?.detail ?? turn?.detail}</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{currencyText(statusBanner?.title ?? (isAr ? "الحالة الحالية" : "Current Status"))}</p>
+                <CardTitle className="text-xl leading-snug">{currencyText(hasPendingTradeTerms ? (isSeller ? (isAr ? "بانتظار موافقة المشتري على الشروط" : "Waiting for the Buyer to Review the Terms") : (isAr ? "راجع شروط الصفقة المقترحة" : "Review the Proposed Trade Terms")) : statusBanner?.headline ?? tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</CardTitle>
+                <p className="text-sm text-[#D1D5DB]">{currencyText(hasPendingTradeTerms ? (isAr ? "يجب تأكيد الشروط قبل متابعة الدفع أو إرسال USDT." : "Confirm the terms before continuing with payment or sending USDT.") : statusBanner?.detail ?? turn?.detail)}</p>
               </div>
               <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
                 {hasPendingTradeTerms ? tradeTerms : null}
@@ -3246,7 +3247,7 @@ function TradeRoomPageSession({
                         </span>
                       ) : primaryActionButtonLabel}
                     </Button>
-                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
+                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{currencyText(primaryActionDisabledReason)}</p> : null}
                     {!isSeller && request.status === "accepted" && !isCashTrade ? (
                       <p className="text-xs text-[#9CA3AF]">
                         {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
@@ -3265,13 +3266,13 @@ function TradeRoomPageSession({
                       {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
                     </Button>
                     <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
-                      {room.hasOpenDispute
+                      {currencyText(room.hasOpenDispute
                         ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
                         : request.status === "pending"
                         ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
                         : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
                           ? (isAr ? "يمكن لأي طرف الإلغاء قبل إرسال أو استلام المال أو النقد أو USDT، وقبل مشاركة رمز السحب أو إثبات الدفع." : "Either participant can cancel before money, cash or USDT is sent or received, and before withdrawal details or payment evidence are shared.")
-                          : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem.")}
+                          : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem."))}
                     </p>
                   </div>
                 ) : null}
@@ -3287,7 +3288,7 @@ function TradeRoomPageSession({
                     <Input ref={primaryAction.uploadSide === "buyer" ? buyerEvidenceInputRef : sellerEvidenceInputRef} type="file" tabIndex={-1} accept=".png,.jpg,.jpeg,.webp,.pdf" className="sr-only"
                       aria-label={primaryAction.uploadSide === "buyer" ? (isAr ? "اختيار إيصال الدفع" : "Choose payment receipt") : (isAr ? "اختيار إثبات إرسال USDT" : "Choose USDT release proof")}
                       disabled={actionBusy || Boolean(evidenceBusy)} onChange={(event) => (primaryAction.uploadSide === "buyer" ? setBuyerEvidenceFile : setSellerEvidenceFile)(event.target.files?.[0] ?? null)} />
-                    {(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile) ? <p className="break-all text-xs text-[#C9A227]">{isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile)?.name}</bdi></p> : null}
+                    {(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile) ? <p className="break-all text-xs text-[#C9A227]">{isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{currencyText((primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile)?.name)}</bdi></p> : null}
                     <Button type="button" variant="secondary" size="sm" className="min-h-11 w-full" disabled={actionBusy || Boolean(evidenceBusy)} onClick={() => (primaryAction.uploadSide === "buyer" ? buyerEvidenceInputRef : sellerEvidenceInputRef).current?.click()}>
                       <Upload className="h-4 w-4" aria-hidden="true" />{(primaryAction.uploadSide === "buyer" ? buyerEvidenceFile : sellerEvidenceFile) ? (isAr ? "تغيير الملف" : "Change File") : primaryAction.uploadSide === "buyer" ? (isAr ? "اختيار إيصال الدفع" : "Choose Payment Receipt") : (isAr ? "اختيار إثبات البائع" : "Choose Seller Proof")}
                     </Button>
@@ -3300,13 +3301,13 @@ function TradeRoomPageSession({
                     {bankDetailsBusy ? (
                       <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "جارٍ تحميل تفاصيل الحساب البنكي..." : "Loading bank account details..."}</p>
                     ) : bankDetailsError ? (
-                      <ActionFeedback revealKey={bankDetailsErrorFeedbackKey} as="p" role="alert" className="mt-2 text-sm text-amber-200">{bankDetailsError}</ActionFeedback>
+                      <ActionFeedback revealKey={bankDetailsErrorFeedbackKey} as="p" role="alert" className="mt-2 text-sm text-amber-200">{currencyText(bankDetailsError)}</ActionFeedback>
                     ) : bankDetails ? (
                       <div className="mt-2 space-y-1 text-sm text-[#E5E7EB]">
-                        <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{bankDetails.accountHolderName}</bdi></span></p>
-                        <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white"><bdi dir="auto">{getIsraeliBankDisplayName(bankDetails.bankName, locale)}</bdi></span></p>
-                        <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{bankDetails.branchNumber}</bdi></span></p>
-                        <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white"><bdi dir="ltr">{bankDetails.accountNumber}</bdi></span></p>
+                        <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{currencyText(bankDetails.accountHolderName)}</bdi></span></p>
+                        <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white"><bdi dir="auto">{currencyText(getIsraeliBankDisplayName(bankDetails.bankName, locale))}</bdi></span></p>
+                        <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{currencyText(bankDetails.branchNumber)}</bdi></span></p>
+                        <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white"><bdi dir="ltr">{currencyText(bankDetails.accountNumber)}</bdi></span></p>
                       </div>
                     ) : (
                       <div className="mt-2 space-y-3 text-sm text-[#D1D5DB]">
@@ -3333,12 +3334,12 @@ function TradeRoomPageSession({
                           {isAr ? "محفظة استلام المشتري" : "Buyer Receiving Wallet"}
                         </p>
                         <p className="mt-2 text-sm text-[#D1D5DB]">
-                          {isAr
+                          {currencyText(isAr
                             ? `أرسل USDT فقط عبر شبكة ${request.network} إلى هذا العنوان.`
-                            : `Send USDT ONLY on ${request.network} to this address.`}
+                            : `Send USDT ONLY on ${request.network} to this address.`)}
                         </p>
                         <p dir="ltr" className="mt-3 break-all rounded-xl border border-white/10 bg-black/45 p-3 text-left font-mono text-sm text-white">
-                          {sellerWalletAddress}
+                          {currencyText(sellerWalletAddress)}
                         </p>
                         <Button type="button" variant="secondary" className="mt-3 w-full sm:w-auto" onClick={() => void copySellerWallet()}>
                           <Copy className="mr-2 h-4 w-4" />
@@ -3358,9 +3359,9 @@ function TradeRoomPageSession({
                 <details className="text-xs text-[#9CA3AF]">
                   <summary className="flex min-h-11 cursor-pointer items-center">{isAr ? "تفاصيل المرحلة والتحديثات" : "Step details and updates"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
                   <div className="space-y-2 pb-2">
-                    <p>{statusBanner?.yourAction}</p>
-                    <p>{statusBanner?.counterpartyAction}</p>
-                    <p>{waitingEstimate}</p>
+                    <p>{currencyText(statusBanner?.yourAction)}</p>
+                    <p>{currencyText(statusBanner?.counterpartyAction)}</p>
+                    <p>{currencyText(waitingEstimate)}</p>
                     <p>{deliveryConfirmation}</p>
                   </div>
                 </details>
@@ -3368,21 +3369,21 @@ function TradeRoomPageSession({
                     <div className="mt-3 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#F4D87A]">
                       <p className="font-semibold">{request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer")}</p>
                       <p className="mt-1 text-[#E5E7EB]">
-                        {request.priceOfferAcceptedAt
+                        {currencyText(request.priceOfferAcceptedAt
                           ? (isAr
                             ? `وافق البائع على سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT بدلاً من سعر العرض الأصلي ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
                             : `The seller accepted ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT instead of the original ₪${toNumber(request.listingPriceAtRequest).toFixed(2)} listing price.`)
                           : (isAr
                             ? `اقترح المشتري سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT. سعر العرض الأصلي هو ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
-                            : `The buyer offered ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT. The original listing price is ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`)}
+                            : `The buyer offered ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT. The original listing price is ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`))}
                       </p>
                     </div>
                   ) : null}
                 {isCardlessAtmTrade && request.status === "payment_sent" ? room.messages.filter((message) => message.credentialKind === "cardless_code").map((message) => (
                   <div key={message.id} className="rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
                     <p className="font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب المرسلة" : "Submitted withdrawal details"}</p>
-                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified")}</strong></p>
-                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{localizeCardlessWithdrawalMessage(message.message, locale)}</p>
+                    <p className="mt-2">{isAr ? "بنك السحب" : "Withdrawal bank"}: <strong>{currencyText(requestBankNamesLabel || (isAr ? "غير محدد" : "Not specified"))}</strong></p>
+                    <p dir="auto" className="mt-2 whitespace-pre-wrap break-words text-base">{currencyText(localizeCardlessWithdrawalMessage(message.message, locale))}</p>
                   </div>
                 )) : null}
                 {isSeller && request.status === "accepted" && !isCashTrade ? (
@@ -3400,9 +3401,9 @@ function TradeRoomPageSession({
                   <div className="rounded-xl border border-amber-500/35 bg-amber-500/12 p-3 text-sm text-amber-100">
                     <p className="font-medium">{isAr ? "تحذير عدم النشاط" : "Inactivity warning"}</p>
                     <p className="mt-1">
-                      {isAr
+                      {currencyText(isAr
                         ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. أكمل الخطوة الحالية لتجنب التأخير.`
-                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. Complete the current step to avoid delays.`}
+                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. Complete the current step to avoid delays.`)}
                     </p>
                   </div>
                 ) : null}
@@ -3476,7 +3477,7 @@ function TradeRoomPageSession({
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
             <span className="min-w-0 truncate">
               <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
-              <span className="font-semibold text-[#FDE68A]">{tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer")}</span>
+              <span className="font-semibold text-[#FDE68A]">{currencyText(tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer"))}</span>
             </span>
             <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
           </summary>
@@ -3492,11 +3493,11 @@ function TradeRoomPageSession({
                   onClick={() => setSelectedStep(step.id)}
                   className={`min-h-11 rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
                 >
-                  {tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}
+                  {currencyText(tradeStepLabel(step, isAr, request.priceMode === "buyer_offer"))}
                 </button>
               ))}
             </div>
-            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{timelineEventLabel(selectedStepEvent, isAr)}</p> : null}
+            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{currencyText(timelineEventLabel(selectedStepEvent, isAr))}</p> : null}
           </div>
         </details>
 
@@ -3511,7 +3512,7 @@ function TradeRoomPageSession({
                   <p className="font-medium text-white">{isAr ? "إيصال دفع المشتري" : "Buyer Payment Receipt"}</p>
                   {canShowBuyerReceipt ? (
                     <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence!.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
-                      {request.buyerEvidence!.fileName}
+                      {currencyText(request.buyerEvidence!.fileName)}
                     </a>
                   ) : (
                     <p className="mt-2 text-[#9CA3AF]">
@@ -3525,21 +3526,21 @@ function TradeRoomPageSession({
                   <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Release Proof"}</p>
                   {request.sellerEvidence ? (
                     <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
-                      {request.sellerEvidence.fileName}
+                      {currencyText(request.sellerEvidence.fileName)}
                     </a>
                   ) : (
                     <p className="mt-2 text-[#9CA3AF]">
-                      {sellerEvidenceUploadOpen
+                      {currencyText(sellerEvidenceUploadOpen
                         ? (isAr ? "بانتظار رفع إثبات البائع." : "Waiting for seller upload.")
-                        : (isAr ? "سيتم تمكين الرفع عند مرحلة إصدار USDT." : "Upload will be available at the USDT release stage.")}
+                        : (isAr ? "سيتم تمكين الرفع عند مرحلة إصدار USDT." : "Upload will be available at the USDT release stage."))}
                     </p>
                   )}
                   {actorSide === "seller" && sellerEvidenceUploadOpen && primaryAction?.mode !== "upload" ? (
                     <div className="mt-3 space-y-2">
                       <p className="text-xs text-[#9CA3AF]">
-                        {sellerEvidenceRequired
+                        {currencyText(sellerEvidenceRequired
                           ? (isAr ? "رفع الإثبات مطلوب قبل تأكيد إرسال USDT." : "Seller evidence is required before marking USDT sent.")
-                          : (isAr ? "يمكنك رفع إثبات اختياري قبل تأكيد إرسال USDT." : "You may upload optional evidence before marking USDT sent.")}
+                          : (isAr ? "يمكنك رفع إثبات اختياري قبل تأكيد إرسال USDT." : "You may upload optional evidence before marking USDT sent."))}
                       </p>
                       <Input
                         ref={sellerEvidenceInputRef}
@@ -3567,7 +3568,7 @@ function TradeRoomPageSession({
                       {sellerEvidenceFile ? (
                         <div className="space-y-2">
                           <p className="text-xs text-[#C9A227]">
-                            {isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{sellerEvidenceFile.name}</bdi>
+                            {isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{currencyText(sellerEvidenceFile.name)}</bdi>
                           </p>
                           <div className="flex flex-wrap gap-2">
                             <Button type="button" size="sm" variant="secondary" onClick={() => {
@@ -3607,16 +3608,16 @@ function TradeRoomPageSession({
               <details open={!isCashTrade && Boolean(room.releaseDeadlineActive)} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4">
                 <summary className="flex min-h-11 cursor-pointer items-center gap-2 font-semibold">
                   <ShieldCheck className="h-4 w-4 shrink-0 text-[#C9A227]" />
-                  {isCashTrade ? (isAr ? "كيفية إتمام الصفقة · لا يلزم رفع صورة" : "How this trade works · No photo required") : (isAr ? "مهلة إصدار USDT" : "USDT Release Deadline")}
+                  {currencyText(isCashTrade ? (isAr ? "كيفية إتمام الصفقة · لا يلزم رفع صورة" : "How this trade works · No photo required") : (isAr ? "مهلة إصدار USDT" : "USDT Release Deadline"))}
                   <ChevronDown className="ms-auto h-4 w-4 shrink-0 group-open:rotate-180" aria-hidden="true" />
                 </summary>
                 <div className="mt-3 space-y-3 text-sm text-[#D1D5DB]">
                   {isCashTrade ? (
                     <>
                       <p className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-100">
-                        {isAr
+                        {currencyText(isAr
                           ? "1) يؤكد المشتري النقد أو الرمز. 2) يؤكد البائع استلام النقد. 3) تظهر المحفظة. 4) يؤكد البائع إرسال USDT. 5) يحدد البائع الصفقة كمكتملة."
-                          : "1) Buyer confirms the cash or code. 2) Seller confirms cash received. 3) Wallet is revealed. 4) Seller confirms USDT sent. 5) Seller marks the trade completed."}
+                          : "1) Buyer confirms the cash or code. 2) Seller confirms cash received. 3) Wallet is revealed. 4) Seller confirms USDT sent. 5) Seller marks the trade completed.")}
                       </p>
                       <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-amber-100">
                         {isAr
@@ -3633,15 +3634,15 @@ function TradeRoomPageSession({
                           : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#FDE68A]"
                     }`}>
                       <p className="text-xs uppercase tracking-[0.14em]">{isAr ? "الوقت المتبقي" : "Time Remaining"}</p>
-                      <p className="mt-1 text-3xl font-bold">{formatDuration(timeRemainingSeconds)}</p>
+                      <p className="mt-1 text-3xl font-bold">{currencyText(formatDuration(timeRemainingSeconds))}</p>
                       {(room.releaseDeadlineOverdue || room.isOverdue) ? <p className="mt-2 text-sm text-red-200">{isAr ? "انتهت المهلة — تم وضع الصفقة كمتأخرة." : "Deadline reached — trade is overdue."}</p> : null}
                     </div>
                   ) : (
-                    <p>{isAr ? "سيبدأ عداد 45 دقيقة بعد تأكيد استلام الدفع وبدء مرحلة إصدار USDT." : "The 45-minute timer starts when seller confirms funds and enters USDT release stage."}</p>
+                    <p>{currencyText(isAr ? "سيبدأ عداد 45 دقيقة بعد تأكيد استلام الدفع وبدء مرحلة إصدار USDT." : "The 45-minute timer starts when seller confirms funds and enters USDT release stage.")}</p>
                   )}
                   {!isCashTrade ? (
                     <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
-                      {isAr ? "تذكير الإرسال: يرسل البائع USDT فقط بعد تأكيد الدفع داخل Alpha Exchange." : "Release reminder: The seller sends USDT only after confirming payment inside Alpha Exchange."}
+                      {currencyText(isAr ? "تذكير الإرسال: يرسل البائع USDT فقط بعد تأكيد الدفع داخل Alpha Exchange." : "Release reminder: The seller sends USDT only after confirming payment inside Alpha Exchange.")}
                     </p>
                   ) : null}
                   {!isCashTrade && room.releaseDeadlineActive ? (
@@ -3673,7 +3674,7 @@ function TradeRoomPageSession({
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="text-white">{timelineEventLabel(event, isAr)}</p>
+                          <p className="text-white">{currencyText(timelineEventLabel(event, isAr))}</p>
                           {count > 1 ? <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-[#D1D5DB]">×{count}</span> : null}
                         </div>
                         <p className="text-xs text-[#9CA3AF]">{new Date(event.createdAt).toLocaleString(dateLocale)}</p>
@@ -3685,9 +3686,9 @@ function TradeRoomPageSession({
                 )}
                 {activeTimeline.length > 4 ? (
                   <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => setShowAllTimeline((value) => !value)}>
-                    {showAllTimeline
+                    {currencyText(showAllTimeline
                       ? (isAr ? "عرض أحدث التحديثات فقط" : "Show Latest Updates Only")
-                      : (isAr ? `عرض كل التحديثات (${activeTimeline.length})` : `Show All Updates (${activeTimeline.length})`)}
+                      : (isAr ? `عرض كل التحديثات (${activeTimeline.length})` : `Show All Updates (${activeTimeline.length})`))}
                   </Button>
                 ) : null}
               </div>
@@ -3711,14 +3712,14 @@ function TradeRoomPageSession({
                       {pokeBusy ? (
                         <span className="inline-flex items-center gap-2"><LoaderCircle className="h-4 w-4 animate-spin" />{isAr ? "جارٍ التنبيه..." : "Notifying..."}</span>
                       ) : canSendPoke ? (
-                        <span className="inline-flex items-center gap-2"><BellRing className="h-4 w-4" />{isAr ? `تنبيه ${pokeCounterpartLabel}` : `Poke ${pokeCounterpartLabel}`}</span>
+                        <span className="inline-flex items-center gap-2"><BellRing className="h-4 w-4" />{currencyText(isAr ? `تنبيه ${pokeCounterpartLabel}` : `Poke ${pokeCounterpartLabel}`)}</span>
                       ) : (
                         isAr
                           ? `يمكنك التنبيه مجددًا خلال ${formatDuration(pokeCooldownRemainingSeconds)}`
                           : `Poke again in ${formatDuration(pokeCooldownRemainingSeconds)}`
                       )}
                     </Button>
-                    {pokeResult ? <p role={pokeResult.error ? "alert" : "status"} className={`mt-2 text-xs ${pokeResult.error ? "text-red-300" : "text-emerald-300"}`}>{pokeResult.message}</p> : null}
+                    {pokeResult ? <p role={pokeResult.error ? "alert" : "status"} className={`mt-2 text-xs ${pokeResult.error ? "text-red-300" : "text-emerald-300"}`}>{currencyText(pokeResult.message)}</p> : null}
                     {!canSendPoke && !pokeBusy ? (
                       <p className="mt-1 text-center text-[11px] text-[#9CA3AF] sm:text-right">
                         {isAr ? "يتم فرض فترة الانتظار على الخادم." : "The server enforces this cooldown."}
@@ -3731,12 +3732,12 @@ function TradeRoomPageSession({
                 <details className="rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-[#D1D5DB]">
                   <summary className="flex min-h-11 cursor-pointer items-center">{isAr ? "تفاصيل الصفقة" : "Trade details"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
                   <div className="grid gap-1 pb-3 md:grid-cols-2 xl:grid-cols-3">
-                    <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade)}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{request.sellerId === actor.id ? actor.fullName : counterpartName}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{request.buyerId === actor.id ? actor.fullName : counterpartName}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {currencyText(tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{currencyText(request.sellerId === actor.id ? actor.fullName : counterpartName)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{currencyText(request.buyerId === actor.id ? actor.fullName : counterpartName)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{turn?.detail}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>
                   </div>
                 </details>
                 <div ref={chatScrollRef} onScroll={handleChatScroll} className="max-h-[420px] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
@@ -3786,10 +3787,10 @@ function TradeRoomPageSession({
                                 {localizedSystemMessage
                                   ? localizedSystemMessage.segments.map((segment, index) => (
                                       segment.isolate
-                                        ? <bdi key={`${message.id}-segment-${index}`} dir="auto">{segment.value}</bdi>
-                                        : <span key={`${message.id}-segment-${index}`}>{segment.value}</span>
+                                        ? <bdi key={`${message.id}-segment-${index}`} dir="auto">{currencyText(segment.value)}</bdi>
+                                        : <span key={`${message.id}-segment-${index}`}>{currencyText(segment.value)}</span>
                                     ))
-                                  : <bdi dir="auto">{messageBody}</bdi>}
+                                  : <bdi dir="auto">{currencyText(messageBody)}</bdi>}
                               </p>
                               {message.imageUrl ? (
                                 <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block overflow-hidden rounded-xl border border-white/10">
@@ -3798,7 +3799,7 @@ function TradeRoomPageSession({
                               ) : null}
                               <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#9CA3AF]">
                                 <span>{new Date(message.createdAt).toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}</span>
-                                <span>{statusIcon}{ownMessage ? ` • ${readByCounterparty ? (isAr ? "مرئية" : "Seen") : (isAr ? "مرسلة" : "Sent")}` : ""}</span>
+                                <span>{statusIcon}{currencyText(ownMessage ? ` • ${readByCounterparty ? (isAr ? "مرئية" : "Seen") : (isAr ? "مرسلة" : "Sent")}` : "")}</span>
                               </div>
                             </div>
                           </div>
@@ -3846,7 +3847,7 @@ function TradeRoomPageSession({
                   {chatErrorMessage ? (
                     <ActionFeedback revealKey={chatErrorMessageFeedbackKey} role="alert" id="trade-chat-error"   data-testid="trade-chat-error" className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                      <span>{chatErrorMessage}</span>
+                      <span>{currencyText(chatErrorMessage)}</span>
                     </ActionFeedback>
                   ) : null}
                   {!isCashTrade ? (
@@ -3875,12 +3876,12 @@ function TradeRoomPageSession({
                           </Button>
                         ) : null}
                       </div>
-                      {chatImage ? <p className="break-all text-xs text-[#D1D5DB]"><bdi dir="ltr">{chatImage.name}</bdi></p> : null}
+                      {chatImage ? <p className="break-all text-xs text-[#D1D5DB]"><bdi dir="ltr">{currencyText(chatImage.name)}</bdi></p> : null}
                     </>
                   ) : (
                     <p className="text-xs text-[#FDE68A]">{isAr ? "لا صور أو إثباتات دفع في صفقات النقد؛ استخدم خطوات التأكيد المحمية أعلاه." : "No photos or payment evidence are accepted for cash trades; use the protected confirmation steps above."}</p>
                   )}
-                  {chatNotice ? <p role="status" className="text-xs text-emerald-300">{chatNotice}</p> : null}
+                  {chatNotice ? <p role="status" className="text-xs text-emerald-300">{currencyText(chatNotice)}</p> : null}
                   <div className="flex items-center gap-2">
                     <Button type="submit" className="flex-1" disabled={chatBusy || (!chatDraft.trim() && !chatImage)}>
                       {chatBusy ? (
@@ -3904,7 +3905,7 @@ function TradeRoomPageSession({
                 {isFaceToFaceTrade ? (
                   <>
                     <p>{isAr ? "التقِ في مكان عام وآمن. يؤكد المشتري تسليم النقد، ثم يؤكد البائع استلامه قبل ظهور المحفظة." : "Meet in a safe public place. The buyer confirms handing over cash, then the seller confirms receipt before the wallet is revealed."}</p>
-                    <p>{isAr ? "البائع وحده يكمل الصفقة بعد إرسال كامل USDT إلى عنوان المشتري الصحيح." : "Only the seller completes the trade, after sending the full USDT amount to the correct buyer wallet."}</p>
+                    <p>{currencyText(isAr ? "البائع وحده يكمل الصفقة بعد إرسال كامل USDT إلى عنوان المشتري الصحيح." : "Only the seller completes the trade, after sending the full USDT amount to the correct buyer wallet.")}</p>
                   </>
                 ) : isCardlessAtmTrade ? (
                   <>
@@ -3913,7 +3914,7 @@ function TradeRoomPageSession({
                   </>
                 ) : (
                   <>
-                    <p>{isAr ? "لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "USDT is released only after seller confirms payment inside Alpha Exchange."}</p>
+                    <p>{currencyText(isAr ? "لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "USDT is released only after seller confirms payment inside Alpha Exchange.")}</p>
                     <p>{isAr ? "لا ترسل أي دفعة خارج مسار الصفقة المعتمد." : "Never send payment outside the Alpha Exchange process."}</p>
                   </>
                 )}
@@ -3926,9 +3927,9 @@ function TradeRoomPageSession({
                   <CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-amber-200" />{isAr ? "عمولة مستحقة" : "Commission Due"}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-[#FDE68A]">
-                  <p>{isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`}</p>
-                  <p className="mt-1">{isAr ? `المبلغ الإجمالي: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total due: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`}</p>
-                  <p className="mt-1">{isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`}</p>
+                  <p>{currencyText(isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`)}</p>
+                  <p className="mt-1">{currencyText(isAr ? `المبلغ الإجمالي: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total due: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p>
+                  <p className="mt-1">{currencyText(isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     {isAr ? "ادفع الآن" : "Pay Now"}
@@ -3952,7 +3953,7 @@ function TradeRoomPageSession({
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-[#FCA5A5]">
             <div className="flex items-center gap-2">
               <Clock3 className="h-4 w-4" />
-              <span>{errorMessage}</span>
+              <span>{currencyText(errorMessage)}</span>
             </div>
           </div>
         ) : null}

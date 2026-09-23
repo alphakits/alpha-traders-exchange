@@ -406,5 +406,5 @@ it("keeps the recorded cardless cash fixed and recalculates only once", async ()
   fireEvent.click(adjust);
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
   await act(async () => response.resolve(Response.json({ request: { ...current.request, usdtAmount: "125" } })));
-  expect(await screen.findByText("Amount confirmed: 125 USDT for ILS 400.00.")).toBeTruthy();
+  expect(await screen.findByText((_, element) => element?.textContent === "Amount confirmed: 125 USDT for ILS 400.00." && !Array.from(element.children).some(child => child.textContent === "Amount confirmed: 125 USDT for ILS 400.00."))).toBeTruthy();
 });

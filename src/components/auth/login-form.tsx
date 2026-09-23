@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
@@ -191,7 +192,7 @@ export function LoginForm({
               isAr ? "استلام الإشعارات والتحديثات" : "Stay in sync with notifications and updates",
             ].map((item) => (
               <div key={item} className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-[#E5E7EB] backdrop-blur">
-                {item}
+                {currencyText(item)}
               </div>
             ))}
           </div>
@@ -200,7 +201,7 @@ export function LoginForm({
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "لوحة التداول" : "Trading Workspace"}</p>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <p className="text-xs text-[#9CA3AF]">USDT / ILS</p>
+                  <p className="text-xs text-[#9CA3AF]"><span className="currency-usdt">USDT</span> / ILS</p>
                   <p className="mt-1 text-lg font-semibold text-white">{isAr ? "مباشر" : "LIVE"}</p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/30 p-3">
@@ -228,7 +229,7 @@ export function LoginForm({
                 ? ["حفظ تقدّمك في الأكاديمية", "الوصول إلى دوراتك", "شراء وبيع USDT بأمان", "استلام الإشعارات", "بناء ملفك كمتداول", "تتبّع رحلتك في التداول"]
                 : ["Save Academy progress", "Access your courses", "Buy & sell USDT securely", "Receive notifications", "Build your trader profile", "Track your trading journey"]
               ).map((item) => (
-                <div key={item} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">{item}</div>
+                <div key={item} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">{currencyText(item)}</div>
               ))}
             </div>
 
@@ -255,7 +256,7 @@ export function LoginForm({
               </Button>
             </form>
 
-            {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{errorMessage}</ActionFeedback> : null}
+            {errorMessage ? <ActionFeedback revealKey={errorMessageFeedbackKey} as="p" role="alert" className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{currencyText(errorMessage)}</ActionFeedback> : null}
             {requiresEmailVerification ? (
               <Button
                 type="button"
@@ -268,7 +269,7 @@ export function LoginForm({
                 {isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email"}
               </Button>
             ) : null}
-            {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{statusMessage}</ActionFeedback> : null}
+            {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{currencyText(statusMessage)}</ActionFeedback> : null}
 
             <p className="mt-6 text-sm text-[#9CA3AF]">
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}

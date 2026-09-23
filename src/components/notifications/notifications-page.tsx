@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BellDot, CheckCheck, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
@@ -743,15 +744,15 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
               ))}
             </div>
           ) : null}
-          {!loading && (error || loadError) ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{error ?? loadError}</ActionFeedback> : null}
+          {!loading && (error || loadError) ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{currencyText(error ?? loadError)}</ActionFeedback> : null}
           {!loading && !error && pageItems.length === 0 ? (
             <div className="empty-state-panel py-8 text-center">
               <CheckCheck className="mx-auto h-7 w-7 text-[#C9A227]" aria-hidden="true" />
               <p className="mt-2 text-base font-medium text-white">{isAr ? "لا توجد إشعارات هنا" : "Nothing here right now"}</p>
               <p className="mt-1 text-sm leading-6 text-[#AEB4BE]">
-                {isAr
+                {currencyText(isAr
                   ? `لا توجد إشعارات ضمن تصنيف «${notificationFilterLabel(filter, locale)}».`
-                  : `There are no notifications in “${notificationFilterLabel(filter, locale)}”.`}
+                  : `There are no notifications in “${notificationFilterLabel(filter, locale)}”.`)}
               </p>
             </div>
           ) : null}
@@ -762,9 +763,9 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                 <div className={`flex items-end justify-between gap-3 border-b pb-2 ${group.isActionGroup ? "border-amber-400/25" : "border-white/10"}`}>
                   <div>
                     <h2 className={`text-sm font-semibold leading-5 ${group.isActionGroup ? "text-amber-200" : "text-[#D7DBE2]"} ${!isAr && !group.isActionGroup ? "uppercase tracking-[0.08em]" : ""}`}>
-                      {group.label}
+                      {currencyText(group.label)}
                     </h2>
-                    {group.description ? <p className="mt-0.5 text-sm leading-5 text-[#AEB4BE]">{group.description}</p> : null}
+                    {group.description ? <p className="mt-0.5 text-sm leading-5 text-[#AEB4BE]">{currencyText(group.description)}</p> : null}
                   </div>
                   <span className="shrink-0 text-xs text-[#8F96A1]">{group.items.length}</span>
                 </div>
@@ -783,20 +784,20 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-base font-semibold leading-6 text-white"><bdi dir="auto">{formatNotificationTitle(notification, locale)}</bdi></h3>
+                            <h3 className="text-base font-semibold leading-6 text-white"><bdi dir="auto">{currencyText(formatNotificationTitle(notification, locale))}</bdi></h3>
                             {!notification.isRead ? (
                               <span role="img" className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[#E5BD3D]" aria-label={isAr ? "غير مقروء" : "Unread"} />
                             ) : null}
                           </div>
-                          <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
-                          <p className="mt-2 text-base leading-7 text-[#D7DBE2]"><bdi dir="auto" className="text-base">{formatNotificationMessage(notification, locale)}</bdi></p>
+                          <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
+                          <p className="mt-2 text-base leading-7 text-[#D7DBE2]"><bdi dir="auto" className="text-base">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p>
                           <div className="mt-3 flex flex-wrap gap-1.5 text-xs leading-5">
                             {actionRequired ? <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 font-semibold text-amber-200">{isAr ? "مطلوب منك إجراء" : "Action required"}</span> : null}
-                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</bdi></span> : null}
-                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</bdi></span> : null}
-                            {notification.relatedSellerName ? <span className="max-w-full truncate rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[#FDE68A]">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{notification.relatedSellerName}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{notification.relatedSellerUsername}</bdi></> : null}</span> : null}
-                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="ltr">{notification.tradeSnapshot.usdtAmount} USDT</bdi></span> : null}
-                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{notification.tradeSnapshot.counterpartyName}</bdi></span> : null}
+                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId))}</bdi></span> : null}
+                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{currencyText(formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId))}</bdi></span> : null}
+                            {notification.relatedSellerName ? <span className="max-w-full truncate rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[#FDE68A]">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{currencyText(notification.relatedSellerName)}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{currencyText(notification.relatedSellerUsername)}</bdi></> : null}</span> : null}
+                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="ltr">{currencyText(notification.tradeSnapshot.usdtAmount)} <span className="currency-usdt">USDT</span></bdi></span> : null}
+                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{currencyText(notification.tradeSnapshot.counterpartyName)}</bdi></span> : null}
                           </div>
                           <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                             {hasPrimaryDestination ? (
@@ -819,7 +820,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                                 }}
                                 onClick={() => void openNotificationDestination(notification)}
                               >
-                                {resolveNotificationActionLabel(notification)}
+                                {currencyText(resolveNotificationActionLabel(notification))}
                               </Button>
                             ) : null}
                             {notification.category === "application" && extractSellerApplicationId(notification) ? (
@@ -884,7 +885,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
           <div className="flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm leading-5 text-[#9CA3AF]">
               {isAr ? "عرض" : "Showing"} {pageItems.length ? pageStart + 1 : 0}-{Math.min(pageStart + PAGE_SIZE, filteredNotifications.length)} {isAr ? "من" : "of"} {filteredNotifications.length}
-              {totalCount > notifications.length ? (isAr ? ` (تم تحميل ${notifications.length} من ${totalCount})` : ` loaded (${notifications.length}/${totalCount} total)`) : ""}
+              {currencyText(totalCount > notifications.length ? (isAr ? ` (تم تحميل ${notifications.length} من ${totalCount})` : ` loaded (${notifications.length}/${totalCount} total)`) : "")}
             </p>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">
               <Button type="button" size="sm" variant="secondary" className="h-11 px-3 text-sm md:h-9" disabled={currentPage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>

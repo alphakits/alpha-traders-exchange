@@ -52,7 +52,7 @@ describe("FooterMarketOverview", () => {
   it("keeps all pair text visible and directionally stable on narrow and Arabic layouts", () => {
     render(<FooterMarketOverview locale="ar" />);
 
-    const pairLabel = screen.getByText("USDT / ILS");
+    const pairLabel = screen.getByText((_, element) => element?.tagName === "BDI" && element.textContent === "USDT / ILS");
     const row = pairLabel.closest("div");
     expect(pairLabel.closest("bdi")?.getAttribute("dir")).toBe("ltr");
     expect(screen.getByText("₪3.64").closest("bdi")?.getAttribute("dir")).toBe("ltr");

@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { PUBLIC_TRUST_LAST_UPDATED } from "@/lib/public-trust";
@@ -158,7 +159,7 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
             <article key={section.id} id={section.id} className="scroll-mt-28 rounded-2xl border border-white/10 bg-black/30 p-5">
               <h2 className="text-base font-semibold text-white sm:text-lg">{section.title}</h2>
               <div className="mt-3 space-y-3 text-sm leading-7 text-[#D1D5DB]">
-                {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                {section.paragraphs.map((paragraph) => <p key={paragraph}>{currencyText(paragraph)}</p>)}
               </div>
             </article>
           ))}

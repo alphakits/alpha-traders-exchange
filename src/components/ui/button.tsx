@@ -2,6 +2,7 @@ import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { currencyText } from "@/components/ui/currency-text";
 
 export const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] disabled:pointer-events-none disabled:opacity-40 disabled:shadow-none active:translate-y-0 active:scale-[0.97]",
@@ -47,7 +48,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-        <span>{loading && loadingLabel ? loadingLabel : children}</span>
+        <span>{currencyText(loading && loadingLabel ? loadingLabel : children)}</span>
       </button>
     );
   },

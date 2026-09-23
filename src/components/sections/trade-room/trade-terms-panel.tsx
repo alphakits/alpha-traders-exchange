@@ -1,5 +1,6 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useRef, useState, type ReactNode } from "react";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
@@ -49,12 +50,12 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
         disabled={disabled || busy || !seller || (!canCorrect && !counter)} onClick={() => setEditing((current) => !current)}>
         {counter && seller ? (isAr ? "تقديم عرض مقابل" : "Make a counter-offer") : (isAr ? "تعديل المبلغ" : "Adjust Amount")}
       </Button>
-      {!canCorrect && !counter && request.status !== "pending" ? <p className="text-xs text-[#D1D5DB]">{isAr ? "بدأ إرسال USDT، لذلك أصبح المبلغ مقفلاً." : "USDT release has started, so the amount is locked."}</p>
+      {!canCorrect && !counter && request.status !== "pending" ? <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "بدأ إرسال USDT، لذلك أصبح المبلغ مقفلاً." : "USDT release has started, so the amount is locked.")}</p>
         : !seller ? <p className="text-xs text-[#D1D5DB]">{isAr ? "يقدّم البائع تصحيح المبلغ، وتظهر لك الشروط هنا للموافقة قبل تطبيقها. اطلب التعديل في دردشة الصفقة." : "The seller proposes an amount correction; you review and approve it here before it applies. Request a change in the trade chat."}</p>
         : !canCorrect && !counter ? <p className="text-xs text-[#D1D5DB]">{isAr ? "اقبل الطلب أولاً، ثم يمكنك اقتراح تصحيح المبلغ للمشتري." : "Accept the request first, then propose an amount correction for the buyer."}</p> : null}
     </>}
     {pending ? <>
-      <p dir="ltr" className="break-words">{proposal.usdtAmount} USDT · {request.currency} {proposal.fiatAmount} · {proposal.pricePerUsdt} / USDT</p>
+      <p dir="ltr" className="break-words">{currencyText(proposal.usdtAmount)} <span className="currency-usdt">USDT</span> · {currencyText(request.currency)} {currencyText(proposal.fiatAmount)} · {currencyText(proposal.pricePerUsdt)} / <span className="currency-usdt">USDT</span></p>
       <p className="text-sm">{isAr ? "راجع الكمية والسعر والإجمالي بدقة. لا تتغير الشروط إلا بعد موافقة المشتري." : "Review the exact amount, price and total. Terms change only after the buyer accepts."}</p>
       <div className="flex flex-wrap gap-2">
         {seller ? <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</Button> : <>
@@ -64,14 +65,14 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
       </div>
     </> : editing && seller && (counter || canCorrect) ? <div id="trade-amount-editor" className="space-y-3">
       {!counter && amountEditor ? amountEditor : <>
-      <label className="block text-sm">{counter ? (isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount")}
+      <label className="block text-sm">{currencyText(counter ? (isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount"))}
         <Input dir="ltr" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled || busy} placeholder={counter ? request.pricePerUsdt : request.usdtAmount} className="mt-2 text-left" />
       </label>
-      <p className="text-sm">{isAr ? "سيصل الاقتراح للمشتري للموافقة. لا ترسل المال أو USDT أثناء انتظار الرد." : "The buyer will receive this proposal. Wait for their response before sending money or USDT."}</p>
-      {counter && face && !request.sellerSafetyAcknowledged ? <label className="flex gap-2 text-sm"><input type="checkbox" checked={safety} onChange={(event) => setSafety(event.target.checked)} />{isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT."}</label> : null}
+      <p className="text-sm">{currencyText(isAr ? "سيصل الاقتراح للمشتري للموافقة. لا ترسل المال أو USDT أثناء انتظار الرد." : "The buyer will receive this proposal. Wait for their response before sending money or USDT.")}</p>
+      {counter && face && !request.sellerSafetyAcknowledged ? <label className="flex gap-2 text-sm"><input type="checkbox" checked={safety} onChange={(event) => setSafety(event.target.checked)} />{currencyText(isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT.")}</label> : null}
       <Button disabled={disabled || busy || !value.trim() || (counter && face && !request.sellerSafetyAcknowledged && !safety)} onClick={() => void submit(counter ? "counter_offer" : "propose_amount")}>{busy ? (isAr ? "جارٍ الإرسال…" : "Sending…") : counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</Button>
       </>}
     </div> : null}
-    {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{error}</ActionFeedback> : null}
+    {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{currencyText(error)}</ActionFeedback> : null}
   </section>;
 }
