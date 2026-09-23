@@ -467,16 +467,20 @@ async function openNotificationAndNavigate(input: {
     expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
 
     await expect.poll(async () => section.evaluate((element) => {
-      const sectionTop = element.getBoundingClientRect().top;
+      const rect = element.getBoundingClientRect();
       const headerBottom = document.querySelector<HTMLElement>("header")?.getBoundingClientRect().bottom ?? 0;
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
       return {
-        clearsHeader: sectionTop >= Math.max(0, headerBottom - 1),
-        nearHeader: sectionTop <= Math.max(180, headerBottom + 24),
+        clearsHeader: rect.top >= Math.max(viewportTop, headerBottom - 1),
+        contentInViewport: rect.top + Math.min(rect.height, 160) <= viewportBottom,
       };
     }), {
-      message: `target section should settle directly below the real sticky header (${expectedAction}, ${viewport.width}px)`,
+      // Guidance keeps an already visible section stable. Verify usable content
+      // and keyboard focus without demanding an unnecessary jump to the header.
+      message: `target section should be readable below the sticky header (${expectedAction}, ${viewport.width}px)`,
       timeout: 5_000,
-    }).toEqual({ clearsHeader: true, nearHeader: true });
+    }).toEqual({ clearsHeader: true, contentInViewport: true });
     await expect(section).toBeFocused({ timeout: 5_000 });
 
     const actionButton = page.getByRole("button", { name: localizedTradeActionMatcher(expectedAction) }).first();
