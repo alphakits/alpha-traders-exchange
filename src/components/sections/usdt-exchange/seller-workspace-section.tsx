@@ -27,7 +27,7 @@ import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkI
 import type { CommissionWorkspaceAction } from "@/lib/dashboard-workspace";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCashTradePaymentMethod, normalizeMarketplacePaymentMethod, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
-import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
+import { ensurePayoutBankIsSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { containsArabicText, localizeActivityCopy } from "@/lib/notification-localization";
 import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -1146,13 +1146,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <button
                           key={`create-method-${method}`}
                           type="button"
+                          aria-pressed={selected}
                           onClick={() => setListingCreateForm((prev) => {
-                            const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
-                            return {
+                            const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS, true);
+                            return syncListingBankSelection({
                               ...prev,
                               paymentMethods: nextMethods,
                               bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
-                            };
+                            }, sellerBankAccounts);
                           })}
                           className={`rounded-xl border p-3 text-start transition-all duration-200 ${
                             selected
@@ -1166,6 +1167,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     })}
                   </div>
                   <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`}</p>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "تحتاج إلى حساب بنكي محفوظ فقط عند اختيار التحويل البنكي. السحب بلا بطاقة واللقاء الشخصي لا يحتاجان إلى حساب بنكي في ملفك." : "A saved bank account is required only for Bank Transfer. Cardless Withdrawal and Face to Face do not require bank details in your profile."}</p>
                   <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>راجع إرشادات أمان الدفع في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
                 <div className="space-y-2">
@@ -1212,8 +1214,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 {listingCreateRequiresBank ? (
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{isAr ? "البنوك المدعومة" : "Supported banks"}</FieldLabel>
-                  <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`}</p>
+                  <FieldLabel required>{listingCreateRequiresBankAccount ? (isAr ? "البنوك المدعومة" : "Supported banks") : (isAr ? "بنوك السحب بلا بطاقة" : "Cardless withdrawal banks")}</FieldLabel>
+                  <p className="mt-1 text-xs text-[#D1D5DB]">{listingCreateRequiresBankAccount
+                    ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
+                    : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                     {ISRAELI_BANKS.map((bank) => {
                       const selected = listingCreateSelectedBanks.includes(bank.name);

@@ -17,6 +17,7 @@ import {
   runTradeActionReminders,
   TRADE_ACTION_REMINDER_INTERVAL_MS,
   updateSellerBankAccount,
+  updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
@@ -145,6 +146,72 @@ describe("seller bank accounts and trade guardrails", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  function listingInput(paymentMethods: string[]) {
+    return {
+      sellerId: SELLER_ID, sellerDisplayName: "Seller One", actorUserId: SELLER_ID,
+      availableAmount: "1000", price: "3.10", currency: "ILS", network: "TRC20" as const,
+      paymentMethods, bankName: paymentMethods.includes("Cardless ATM Withdrawal") || paymentMethods.includes("Bank Transfer") ? "Bank Hapoalim" : undefined,
+      minimumTrade: "100", maximumTrade: "1000", responseTime: "5 min", acceptedCommissionPolicy: true,
+    };
+  }
+
+  it.each([
+    ["Face-to-Face (Meet in Person)"],
+    ["Cardless ATM Withdrawal"],
+    ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+  ])("creates and edits a cash listing without any saved bank account: %s", async (...methods) => {
+    const listing = await createMarketplaceListing({ ...listingInput(methods), bankAccountId: "unused-stale-account" });
+    expect(listing.paymentMethods).toEqual(methods);
+    expect(listing.bankAccountId).toBeUndefined();
+    const edited = await updateMarketplaceListingForSeller({
+      listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID,
+      paymentMethods: methods, sellerDescription: "Available this evening.",
+    });
+    expect(edited.bankAccountId).toBeUndefined();
+    expect(edited.sellerDescription).toBe("Available this evening.");
+  });
+
+  it.each([
+    ["Bank Transfer"],
+    ["Bank Transfer", "Face-to-Face (Meet in Person)"],
+    ["Bank Transfer", "Cardless ATM Withdrawal"],
+    ["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+  ])("requires a saved bank account whenever Bank Transfer is included: %s", async (...methods) => {
+    await expect(createMarketplaceListing(listingInput(methods))).rejects.toThrow("Save a bank account");
+    const account = await addSellerBankAccount({
+      sellerId: SELLER_ID, actorUserId: SELLER_ID, accountHolderName: "Seller One",
+      bankName: "Bank Hapoalim", branchNumber: "123", accountNumber: "1234567890", isDefault: true,
+    });
+    const listing = await createMarketplaceListing({ ...listingInput(methods), bankAccountId: account.id });
+    expect(listing.bankAccountId).toBe(account.id);
+  });
+
+  it("validates a newly enabled Bank Transfer and unlinks the account when it is removed", async () => {
+    const methods = ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"];
+    const listing = await createMarketplaceListing(listingInput(methods));
+    const edit = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+    await expect(updateMarketplaceListingForSeller({
+      ...edit, paymentMethods: [...methods, "Bank Transfer"],
+    })).rejects.toThrow("Save a bank account");
+    expect(currentSnapshot().marketplaceListings.find((entry) => entry.id === listing.id)?.paymentMethods).toEqual(methods);
+    const account = await addSellerBankAccount({
+      sellerId: SELLER_ID, actorUserId: SELLER_ID, accountHolderName: "Seller One",
+      bankName: "Bank Hapoalim", branchNumber: "123", accountNumber: "1234567890", isDefault: true,
+    });
+    const bankListing = await updateMarketplaceListingForSeller({
+      ...edit, paymentMethods: [...methods, "Bank Transfer"], bankAccountId: account.id,
+    });
+    expect(bankListing.bankAccountId).toBe(account.id);
+    const cashListing = await updateMarketplaceListingForSeller({ ...edit, paymentMethods: methods });
+    expect(cashListing.bankAccountId).toBeUndefined();
+    await deleteSellerBankAccount({ sellerId: SELLER_ID, actorUserId: SELLER_ID, bankAccountId: account.id });
+    const faceToFaceListing = await updateMarketplaceListingForSeller({
+      ...edit, paymentMethods: ["Face-to-Face (Meet in Person)"],
+    });
+    expect(faceToFaceListing.bankAccountId).toBeUndefined();
+    expect(faceToFaceListing.bankName).toBeUndefined();
   });
 
   it("enforces max 2 bank accounts and blocks deleting linked active listing account", async () => {
