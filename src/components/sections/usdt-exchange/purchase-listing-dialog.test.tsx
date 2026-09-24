@@ -15,7 +15,7 @@ function Harness({ locale = "en", selectedMinTrade = 10, selectedMaxTrade = 1000
   const amount = Number(buyerInfo.usdtAmount);
   const invalid = Boolean(getWalletAddressValidationError(buyerInfo.receivingNetwork!, buyerInfo.receivingWalletAddress));
   return <PurchaseListingDialog locale={locale} listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", bankName: "Bank Hapoalim, Bank Leumi", network: "TRC20" } as Props["listing"]}
-    sellerProfileData={null} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTotal={amount * price}
+    sellerProfileData={null} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={amount * price} estimatedBuyerFee={amount * price * 0.01} estimatedTotal={amount * price * 1.01}
     isOwnerViewer={false} isOwnerProfileActionLoading={false} purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
     selectedPaymentMethods={[selectedPaymentMethod!]} selectedPaymentMethod={selectedPaymentMethod} buyerTradeAmount={amount} selectedMinTrade={selectedMinTrade} selectedMaxTrade={selectedMaxTrade} buyerTradeAmountInvalid={amount <= 0 || amount < selectedMinTrade || amount > selectedMaxTrade}
     buyerWalletValidationError={null} buyerWalletInvalid={invalid} priceMode={priceMode} offeredPrice={offeredPrice} minimumOfferedPrice="2.85" offerPriceInvalid={price < 2.85} offeredTradePrice={Number(offeredPrice)}
