@@ -1033,6 +1033,8 @@ export function tradeRoomSnapshotSignature(room: TradeRoomData) {
     room.request.completedAt ?? "",
     room.request.buyerEvidence?.id ?? "",
     room.request.sellerEvidence?.id ?? "",
+    room.counterpart.buyerPublicId ?? "",
+    room.counterpart.sellerPublicId ?? "",
     messageSignature,
     timelineSignature,
     room.deadlineAt ?? "",
