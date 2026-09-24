@@ -42,6 +42,8 @@ type PurchaseListingDialogProps = {
   isSellerProfileLoading: boolean;
   selectedAmount: number;
   selectedPrice: number;
+  estimatedTradeValue: number;
+  estimatedBuyerFee: number;
   estimatedTotal: number;
   isOwnerViewer: boolean;
   isOwnerProfileActionLoading: boolean;
@@ -108,6 +110,8 @@ export function PurchaseListingDialog({
   isSellerProfileLoading,
   selectedAmount,
   selectedPrice,
+  estimatedTradeValue,
+  estimatedBuyerFee,
   estimatedTotal,
   isOwnerViewer,
   isOwnerProfileActionLoading,
@@ -254,7 +258,7 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                  {isAr ? "دفعة المشتري المقدّرة" : "Estimated buyer payment"}: <span className="text-[#C9A227]">{currencyText(formatIls(estimatedTotal))}</span> · {isAr ? "عمولة المنصة 1% يدفعها البائع بعد اكتمال الصفقة" : "The seller pays the 1% platform commission after completion"}
+                  {isAr ? "قيمة الصفقة" : "Trade value"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTradeValue))}</span> · {isAr ? "عمولة المشتري 1%" : "Buyer fee 1%"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedBuyerFee))}</span> · {isAr ? "الإجمالي الذي تدفعه" : "Total you pay"}: <span className="text-[#C9A227]">{currencyText(formatIls(estimatedTotal))}</span>
                 </p>
               </div>
 
