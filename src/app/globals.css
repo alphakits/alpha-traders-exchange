@@ -650,10 +650,14 @@ html[lang="ar"] :where(body, body *) {
   letter-spacing: 0.18em;
 }
 
-.currency-usdt {
+.currency-usdt,
+.currency-money {
   color: var(--usdt-ink, #34d399) !important;
   -webkit-text-fill-color: var(--usdt-ink, #34d399);
 }
+
+/* Numeric fields keep their raw values for validation and payment submission. */
+input.currency-money::placeholder { color: #9ca3af; -webkit-text-fill-color: #9ca3af; }
 
 .brand-alpha-traders {
   color: var(--brand-ink, #fda4af) !important;

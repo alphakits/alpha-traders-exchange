@@ -6,7 +6,7 @@ import { AttentionSiren } from "@/components/ui/attention-siren";
 import { CommissionAutomationPanel } from "./commission-automation-panel";
 import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-identity";
 
-import { brandText, currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
 import { useState, type Dispatch, type FormEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
@@ -421,7 +421,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </div>
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-xs text-[#D1D5DB]">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-              <p className="mt-1 text-base font-semibold text-white"><span className="currency-usdt">USDT</span> / ILS {currencyText(formatIls(marketPricePerUsdt))}</p>
+              <p className="mt-1 text-base font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(formatIls(marketPricePerUsdt))}</p>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
                 <p>{sellerOverviewStats.activeListings} {isAr ? "عروض نشطة" : "Active listings"}</p>
                 <p>{sellerOverviewStats.pendingRequests} {isAr ? "طلبات شراء" : "Purchase requests"}</p>
@@ -448,7 +448,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               { label: isAr ? "مستوى البائع" : "Seller Level", value: sellerLevelLabel(props.sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level, isAr), icon: Trophy },
               { label: isAr ? "درجة الثقة" : "Trust Score", value: (sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1), icon: ShieldCheck },
               { label: isAr ? "التقييم" : "Rating", value: (sellerOverviewStats.reputation?.rating ?? 0).toFixed(2), icon: Star },
-              { label: isAr ? "حجم التداول الكلي" : "Lifetime Volume", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
+              { label: isAr ? "حجم التداول الكلي" : "Lifetime Volume", value: formatIls(sellerOverviewStats.revenueGenerated), icon: WalletCards },
               { label: isAr ? "متوسط وقت الاستجابة" : "Average Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
               { label: isAr ? "مشاهدات الملف" : "Profile Views", value: isAr ? "غير متوفر" : "Not available", icon: Users },
             ].map((stat) => (
@@ -1071,9 +1071,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "السوق غير متاح مؤقتاً — يتم استخدام آخر سعر معروف." : "Market temporarily unavailable — using last known price.")}
                 </p>
                 <div className="mt-2 space-y-1">
-                  <p>1 <span className="currency-usdt">USDT</span> = <span className="font-semibold text-white">{currencyText(formatIls(marketPricePerUsdt))}</span></p>
+                  <p>{currencyText("1 USDT")} = <span className="font-semibold text-white">{currencyText(formatIls(marketPricePerUsdt))}</span></p>
                   <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(formatIls(maxAllowedListingPrice))}</span></p>
-                  {listingCreateAmount > 0 ? <p>{Math.trunc(listingCreateAmount).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
+                  {listingCreateAmount > 0 ? <p>{currencyText(`${Math.trunc(listingCreateAmount).toLocaleString("en-US")} USDT`)} ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
                 </div>
               </div>
               <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
@@ -1089,7 +1089,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     }}
                     inputMode="decimal"
                     aria-required
-                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}
+                    className={`currency-money ${cn("h-11", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">{isAr ? "يمكن إدخال ما يصل إلى 6 منازل عشرية." : "You can enter up to 6 decimal places."}</p>
                 </div>
@@ -1102,7 +1102,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
                     aria-required
                     aria-invalid={listingCreatePriceInvalid || undefined}
-                    className={cn("h-11 transition-all duration-200", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}
+                    className={`currency-money ${cn("h-11 transition-all duration-200", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}`}
                   />
                   <p className={`text-xs transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
@@ -1176,7 +1176,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))}
                     inputMode="decimal"
                     aria-required
-                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}
+                    className={`currency-money ${cn("h-11", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">{isAr ? "أصغر مبلغ صفقة تقبله." : "The smallest trade amount you are willing to accept."}</p>
                 </div>
@@ -1201,7 +1201,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     inputMode="decimal"
                     aria-required
                     aria-invalid={listingCreateTradeRangeInvalid || undefined}
-                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}
+                    className={`currency-money ${cn("h-11", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">{currencyText(isAr ? "لا يمكن أن يتجاوز مبلغ USDT المعروض." : "Maximum trade cannot exceed your listed USDT amount.")}</p>
                 </div>
@@ -1290,7 +1290,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 ) : null}
                 <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "القيمة الإجمالية المباشرة" : "Live total value"}</p>
-                  <p className="mt-1">{Math.trunc(listingCreateAmount).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+                  <p className="mt-1">{currencyText(`${Math.trunc(listingCreateAmount).toLocaleString("en-US")} USDT`)}</p>
                   <p className="mt-1">× {currencyText(formatIls(listingCreatePrice || 0))} = <span className="font-semibold text-white">{currencyText(formatIls(listingCreateTotalIls))}</span></p>
                 </div>
                 <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#F3F4F6]">
@@ -1327,7 +1327,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </p>
                       ) : null}
                       {!listingCommissionAgreement ? <p className="text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة بنسبة 1% قبل النشر." : "You must accept the 1% commission policy before publishing."}</p> : null}
-                      {listingCreateAmount > 0 ? <p>{Math.trunc(listingCreateAmount).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> ≈ {currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</p> : null}
+                      {listingCreateAmount > 0 ? <p>{currencyText(`${Math.trunc(listingCreateAmount).toLocaleString("en-US")} USDT`)} ≈ {currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</p> : null}
                     </div>
                   </div>
                 </div>
@@ -1495,7 +1495,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"} {currencyText(safeText(request.buyerName, isAr ? "مشتري" : "Buyer"))}</p>
                         {request.priceMode === "buyer_offer" ? (
                           <span className="mt-1.5 inline-flex rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">
-                            {isAr ? "عرض سعر" : "Price Offer"} · ₪{toNumber(request.pricePerUsdt).toFixed(2)}/<span className="currency-usdt">USDT</span>
+                            {isAr ? "عرض سعر" : "Price Offer"} · {currencyText(`₪${toNumber(request.pricePerUsdt).toFixed(2)}`)}/<span className="currency-usdt">USDT</span>
                           </span>
                         ) : null}
                       </div>
@@ -1503,8 +1503,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
                       </div>
                       <div className="text-sm text-[#D1D5DB]">
-                        <p>{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
-                        <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {currencyText(request.currency)}</p>
+                        <p>{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</p>
+                        <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</p>
                       </div>
                       <p className="text-xs text-[#9CA3AF]">{new Date(request.updatedAt || request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</p>
                       <p className="text-sm text-[#C9A227] md:text-end">{isExpanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "عرض" : "View")}</p>
@@ -1514,10 +1514,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>{isAr ? "مرجع الصفقة" : "Trade Ref"}: <span className="text-white">{currencyText(shortTradeRef(request, isAr))}</span></p>
                       <p>{isAr ? "اسم المشتري" : "Buyer Name"}: <span className="text-white">{currencyText(request.buyerName)}</span></p>
-                      <p>{currencyText(isAr ? "كمية USDT" : "USDT Amount")}: <span className="text-white">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")}</span></p>
-                      <p>{isAr ? "المبلغ بالعملة التقليدية" : "Fiat Amount"}: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {currencyText(request.currency)}</span></p>
-                      <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعر المشتري المقترح" : "Buyer Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
-                      {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر العرض الأصلي" : "Original Listing Price"}: <span className="text-white">₪{toNumber(request.listingPriceAtRequest).toFixed(2)}</span></p> : null}
+                      <p>{currencyText(isAr ? "كمية USDT" : "USDT Amount")}: <span className="text-white">{moneyText(Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US"))}</span></p>
+                      <p>{isAr ? "المبلغ بالعملة التقليدية" : "Fiat Amount"}: <span className="text-white">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</span></p>
+                      <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعر المشتري المقترح" : "Buyer Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)}</span></p>
+                      {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر العرض الأصلي" : "Original Listing Price"}: <span className="text-white">{currencyText(`₪${toNumber(request.listingPriceAtRequest).toFixed(2)}`)}</span></p> : null}
                       <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
                       <p>{isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</span></p>
                       <p>{isAr ? "العرض" : "Listing"}: <span className="text-white">{currencyText(shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber }))}</span></p>
@@ -1761,7 +1761,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="ltr">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</bdi></span></p>
                   <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.successRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></span></p>
                   <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.completedTrades}</bdi></span></p>
-                  <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi></span></p>
+                  <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{currencyText(`${Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} USDT`)}</bdi></span></p>
                   <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.activeListings}</bdi></span></p>
                   <p>{isAr ? "متوسط وقت الاستجابة" : "Average Response Time"}: <span className="text-white">{currencyText(sellerOverviewStats.averageResponseTime)}</span></p>
                   <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{sessionUser && <UserPresence userId={sessionUser.id} initial={sessionUser} isAr={isAr} compact />}</span></p>
@@ -1795,7 +1795,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "حجم التداول الكلي" : "Lifetime Trade Volume"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+                      <p className="mt-1 text-lg font-semibold text-white">{currencyText(`${Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} USDT`)}</p>
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "متوسط التقييم" : "Average Rating"}</p>

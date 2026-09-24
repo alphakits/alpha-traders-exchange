@@ -281,7 +281,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
                         <p className="mt-0.5 text-xs text-[#9CA3AF]">{currencyText(listingAttention)}</p>
                       </div>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{currencyText(`${Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US")} USDT`)}</p>
                       <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{currencyText(formatIls(toNumber(listing.price)))}</p>
                       <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{currencyText(listingPaymentMethods)}</p>
                       <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{brandText(listingRequiredAction)}</p>
@@ -378,19 +378,19 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
                         <div className="space-y-2">
                           <Input
                             value={listingEditForm.price}
                             onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
                             placeholder={isAr ? "السعر" : "Price"}
-                            className={`transition-all duration-200 ${
+                            className={`currency-money ${`transition-all duration-200 ${
                               listingEditPriceInvalid
                                 ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
                                 : listingEditPriceValid
                                   ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
                                   : ""
-                            }`}
+                            }`}`}
                           />
                           <p className={`text-xs transition-colors duration-200 ${
                             listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
@@ -409,8 +409,8 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <option value="BEP20">BEP20</option>
                           <option value="SOL">SOL</option>
                         </select>
-                        <Input inputMode="decimal" value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
-                        <Input inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
+                        <Input className="currency-money" inputMode="decimal" value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: normalizeTradeAmountInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
                         <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة الدفع" : "Payment Method"} *</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-3">
@@ -574,7 +574,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
                               {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}
                               {listingEditBankAccountMismatch ? <p className="text-amber-200">{isAr ? "يجب أن تشمل البنوك المدعومة بنك استلام الدفعات المحدد." : "Supported banks must include the selected payout bank."}</p> : null}
-                              {listingEditAmount > 0 ? <p>{Math.trunc(listingEditAmount).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> ≈ {currencyText(formatIls(listingEditAmount * marketPricePerUsdt))}</p> : null}
+                              {listingEditAmount > 0 ? <p>{currencyText(`${Math.trunc(listingEditAmount).toLocaleString("en-US")} USDT`)} ≈ {currencyText(formatIls(listingEditAmount * marketPricePerUsdt))}</p> : null}
                             </div>
                           </div>
                         </div>

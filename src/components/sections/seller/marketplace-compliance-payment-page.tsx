@@ -1,5 +1,7 @@
 "use client";
 
+import { currencyText } from "@/components/ui/currency-text";
+
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Copy, ShieldCheck, Wallet } from "lucide-react";
@@ -168,7 +170,7 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
           <div className="grid gap-3 sm:grid-cols-4">
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p><p className="mt-1 font-semibold text-white">{paymentStatusLabel}</p></div>
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المخالفة" : "Violation"}</p><p className="mt-1 font-semibold text-white"><bdi dir="ltr">#{activeRecord.violationNumber}</bdi></p></div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المبلغ المستحق" : "Amount Due"}</p><p className="mt-1 font-semibold text-[#FDE68A]"><bdi dir="ltr">{activeRecord.feeAmount.toFixed(2)} {activeRecord.feeCurrency}</bdi></p></div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المبلغ المستحق" : "Amount Due"}</p><p className="mt-1 font-semibold text-[#FDE68A]"><bdi dir="ltr">{currencyText(`${activeRecord.feeAmount.toFixed(2)} ${activeRecord.feeCurrency}`)}</bdi></p></div>
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}</p><p className="mt-1 font-semibold text-white"><bdi dir="ltr">{activeRecord.recoveryWalletNetwork ?? "-"}</bdi></p></div>
           </div>
 

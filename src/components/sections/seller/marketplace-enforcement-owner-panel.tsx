@@ -297,7 +297,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
                   step="0.01"
                   value={issueFeeAmount}
                   onChange={(event) => setIssueFeeAmount(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-white/10 bg-[#080808] px-3 text-white outline-none transition focus:border-[#C9A227]"
+                  className="currency-money h-11 w-full rounded-xl border border-white/10 bg-[#080808] px-3 text-white outline-none transition focus:border-[#C9A227]"
                 />
               </label>
               <label className="space-y-1.5 text-sm text-[#D1D5DB]">

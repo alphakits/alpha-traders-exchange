@@ -1,7 +1,7 @@
 "use client";
 
-
-import { brandText, currencyText } from "@/components/ui/currency-text";
+import { formatMoneyNumber } from "@/lib/accent-text";
+import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getCardlessCashAmountOptions, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
@@ -244,12 +244,12 @@ export function PurchaseListingDialog({
               <div className="rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-emerald-500/10 via-black/50 to-[#C9A227]/12 p-3">
                 <div className={`flex items-end justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className={isAr ? "text-right" : ""}>
-                    <p className="text-2xl font-bold leading-none text-white">{Math.trunc(selectedAmount).toLocaleString("en-US")}</p>
+                    <p className="text-2xl font-bold leading-none text-white">{moneyText(Math.trunc(selectedAmount).toLocaleString("en-US"))}</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">{currencyText(isAr ? "USDT متاح" : "USDT Available")}</p>
                   </div>
                   <div className={isAr ? "text-left" : "text-right"}>
                     <p className="text-2xl font-bold leading-none text-[#C9A227]">{currencyText(priceMode === "buyer_offer" && offeredTradePrice <= 0 ? "—" : formatIls(priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice))}</p>
-                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price")} · ILS / <span className="currency-usdt">USDT</span></p>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price")} · {currencyText("ILS / USDT")}</p>
                     {priceMode === "buyer_offer" ? <p className="mt-1 text-[10px] text-[#9CA3AF]">{isAr ? "سعر البائع" : "Seller price"}: {currencyText(formatIls(selectedPrice))}</p> : null}
                   </div>
                 </div>
@@ -284,7 +284,7 @@ export function PurchaseListingDialog({
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="font-medium text-white">{isAr ? "أحدث العمولات" : "Recent Commission"}</p>
-                      {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{entry.commissionAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="currency-usdt">USDT</span> • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>)}
+                      {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{currencyText(`${entry.commissionAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`)} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>)}
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="font-medium text-white">{isAr ? "أحدث الصفقات" : "Recent Trades"}</p>
@@ -316,13 +316,13 @@ export function PurchaseListingDialog({
                 </div>
                 {isCardless ? <div className="space-y-2 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-3">
                   <label htmlFor="cardless-ils-amount" className="text-sm font-medium">{isAr ? "مبلغ رمز السحب بالشيكل" : "Withdrawal code amount in ILS"}</label>
-                  <select id="cardless-ils-amount" required disabled={isSubmittingPurchase} dir="ltr" className="min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
+                  <select id="cardless-ils-amount" required disabled={isSubmittingPurchase} dir="ltr" className="currency-money min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
                     const option = cardlessCashOptions.find((item) => item.ilsAmount === event.target.value);
                     onBuyerDetailsChange?.({ cardlessIlsAmount: event.target.value, usdtAmount: option?.usdtAmount ?? "" });
                   }} aria-invalid={cardlessCashUnavailable || undefined} aria-describedby="cardless-amount-help">
                     <option value="">{isAr ? "اختر مبلغ السحب من البنك" : "Select the bank withdrawal amount"}</option>
                     {cardlessCashUnavailable ? <option value={buyerInfo.cardlessIlsAmount} disabled>{formatIls(Number(buyerInfo.cardlessIlsAmount))} — {isAr ? "غير متاح لهذا العرض" : "Unavailable for this listing"}</option> : null}
-                    {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>₪{Number(option.ilsAmount).toLocaleString("en-IL")} · {option.usdtAmount} USDT</option>)}
+                    {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
                   </select>
                   <p id="cardless-amount-help" className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "اختر المبلغ المطابق لرمز البنك. تظهر فقط المبالغ التي تناسب رصيد البائع وحدود العرض. تُحسب كمية USDT تلقائياً بالسعر المتفق عليه، دون تغيير مبلغ السحب." : "Select the amount matching your bank code. Only amounts within the seller’s balance and trade limits are shown. USDT is calculated at the agreed price without changing the cash amount.")}</p>
                   {!cardlessCashOptions.length || cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ السحب لا يناسب حدود هذا العرض بالسعر الحالي. اختر عرضاً مناسباً، أو أنشئ رمز سحب جديداً لمبلغ متاح. لا تستخدم رمزاً بمبلغ مختلف." : "This withdrawal does not fit the listing at the current price. Choose a matching listing, or prepare a new bank code for an available amount. Do not use a code for a different amount."}</p> : null}
@@ -330,8 +330,8 @@ export function PurchaseListingDialog({
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{currencyText(isAr ? "كمية USDT" : "USDT Amount")} <span className="text-red-300">*</span></label>
-                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} readOnly={isCardless} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
-                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} - {selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} <span className="currency-usdt">USDT</span></p>
+                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} readOnly={isCardless} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`currency-money ${`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
+                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {currencyText(`${selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} - ${selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
                   </div>
                   {priceMode === "buyer_offer" ? (
                     <div className="space-y-2 md:col-span-3">
@@ -340,7 +340,7 @@ export function PurchaseListingDialog({
                         {currencyText(isAr ? "سعرك لكل USDT" : "Your Price per USDT")} <span className="text-red-300">*</span>
                       </label>
                       <div className="relative">
-                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-[#F4D87A]">₪</span>
+                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm currency-money">₪</span>
                         <Input
                           id="buyer-offered-price"
                           dir="ltr"
@@ -353,7 +353,7 @@ export function PurchaseListingDialog({
                           placeholder={minimumOfferedPrice || "0.00"}
                           value={offeredPrice}
                           onChange={(event) => onOfferedPriceChange(event.target.value)}
-                          className={`pl-7 text-left ${offerPriceInvalid ? "border-red-500/80" : offeredPrice ? "border-emerald-500/70" : ""}`}
+                          className={`currency-money ${`pl-7 text-left ${offerPriceInvalid ? "border-red-500/80" : offeredPrice ? "border-emerald-500/70" : ""}`}`}
                           aria-invalid={offerPriceInvalid || undefined}
                           aria-describedby="buyer-offer-price-help"
                         />

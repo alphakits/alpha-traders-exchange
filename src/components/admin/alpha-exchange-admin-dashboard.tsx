@@ -1,6 +1,6 @@
 "use client";
 
-import { currencyText } from "@/components/ui/currency-text";
+import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 
@@ -2404,7 +2404,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         ) : <span className="text-[#9CA3AF]">—</span>}
                                       </td>
                                       <td className="px-4 py-3 text-[#D1D5DB]">
-                                        {Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)).toLocaleString("en-IL")}
+                                        {moneyText(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)).toLocaleString("en-IL"))}
                                       </td>
                                       <td className="px-4 py-3">
                                         {seller.sellerStatus === "suspended" ? (
@@ -2537,8 +2537,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   className={`border-t border-white/10 ${adminDestination.listingId === listing.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
                                 >
                                   <td className="px-4 py-3 text-white">{currencyText(listing.sellerDisplayName)}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(listing.availableAmount)}</td>
-                                  <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(listing.price)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{moneyText(listing.availableAmount)}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{moneyText(listing.price)}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.network}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(listing.bankName ?? "—")}</td>
                                   <td className="px-4 py-3">
@@ -2879,9 +2879,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     <td className="px-4 py-3 text-white">{currencyText(request.buyerName)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(seller?.fullName ?? request.sellerId)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">
-                                      <p>{currencyText(request.usdtAmount ?? listing?.availableAmount ?? "—")} <span className="currency-usdt">USDT</span></p>
+                                      <p>{currencyText(`${request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT`)}</p>
                                       <p className={`mt-1 text-xs ${request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-[#9CA3AF]"}`}>
-                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} ₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}
+                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} {currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)}
                                       </p>
                                     </td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayListingId(listing, request.listingId))}</td>
@@ -2964,7 +2964,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </div>
                             <div>
                               <label htmlFor="manual-commission-amount" className="mb-1.5 block text-xs font-medium text-[#D1D5DB]">{currencyText(t("Commission amount (USDT)", "قيمة العمولة (USDT)"))}</label>
-                              <Input
+                              <Input className="currency-money"
                                 id="manual-commission-amount"
                                 type="number"
                                 inputMode="decimal"
@@ -3393,7 +3393,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                       <p className="text-xs text-[#9CA3AF]">{currencyText(record.sellerEmail)}</p>
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">#{record.violationNumber}</td>
-                                    <td className="px-4 py-3 text-[#FDE68A]">{record.feeAmount.toFixed(2)} {currencyText(record.feeCurrency)}</td>
+                                    <td className="px-4 py-3 text-[#FDE68A]">{currencyText(`${record.feeAmount.toFixed(2)} ${record.feeCurrency}`)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(record.issuedAt))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(record.dueAt ? formatDate(record.dueAt) : "—")}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(record.reason)}</td>
@@ -4295,10 +4295,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>{t("Listing:", "العرض:")} <span className="font-mono font-medium text-white">{currencyText(displayListingId(listingById.get(selectedRequest.listingId), selectedRequest.listingId))}</span></p>
                 <p>{t("Seller:", "البائع:")} <span className="text-white">{currencyText(sellersById.get(selectedRequest.sellerId)?.fullName ?? selectedRequest.sellerId)}</span></p>
                 <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedRequest.status))}</span></p>
-                <p>{currencyText(t("USDT Amount:", "كمية USDT:"))} <span className="text-white">{currencyText(selectedRequest.usdtAmount)}</span></p>
-                <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{currencyText(selectedRequest.fiatAmount)} {currencyText(selectedRequest.currency)}</span></p>
-                <p>{currencyText(selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:"))} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)}</span></p>
-                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">₪{currencyText(selectedRequest.listingPriceAtRequest ?? "—")}</span></p> : null}
+                <p>{currencyText(t("USDT Amount:", "كمية USDT:"))} <span className="text-white">{moneyText(selectedRequest.usdtAmount ?? "—")}</span></p>
+                <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{currencyText(`${selectedRequest.fiatAmount} ${selectedRequest.currency}`)}</span></p>
+                <p>{currencyText(selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:"))} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`₪${(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)}`)}</span></p>
+                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">{currencyText(`₪${selectedRequest.listingPriceAtRequest ?? "—"}`)}</span></p> : null}
                 <p>{t("Network:", "الشبكة:")} <span className="text-white">{selectedRequest.network}</span></p>
                 <p>{t("Payment Method:", "طريقة الدفع:")} <span className="text-white">{currencyText(marketplacePaymentMethodLabelForLocale(selectedRequest.paymentMethod, locale))}</span></p>
                 <p>{t("Receiving Bank:", "البنك المستلم:")} <span className="text-white">{currencyText(selectedRequest.bankName ?? "—")}</span></p>
