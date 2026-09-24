@@ -575,7 +575,7 @@ test("listing publish failures stay visible beside the mobile submit action", as
   await expect(result).toHaveAttribute("role", "alert");
   await expect(result).toContainText("Selected payout bank could not be verified. Please choose it again.");
   await expect(result).toBeFocused({ timeout: 30_000 });
-  await expect(createListing.locator("#create-available")).toHaveValue("1000");
+  await expect(createListing.locator("#create-available")).toHaveValue("1,000");
   await expect(submitButton).toBeEnabled();
 
   await seller.page.unroute("**/api/alpha-exchange/listings");

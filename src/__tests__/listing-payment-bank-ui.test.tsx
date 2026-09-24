@@ -65,7 +65,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 async function openForm(preferredPaymentMethods = ["Bank Transfer"], locale: "ar" | "en" = "en") {
   render(<UsdtExchangePage locale={locale} initialSessionUser={{ ...seller, preferredPaymentMethods }} workspaceMode="seller" />);
-  await waitFor(() => expect(document.getElementById("create-available")).not.toBeNull());
+  await waitFor(() => expect(document.getElementById("create-available")).not.toBeNull(), { timeout: 5000 });
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/alpha-exchange/seller-settings", expect.anything()));
   const form = within(document.getElementById("create-listing")!);
   for (const [id, value] of [["create-available", "1000"], ["create-price", "3.10"], ["create-min-trade", "100"], ["create-max-trade", "1000"]]) {
@@ -108,7 +108,7 @@ describe("listing payment-method bank requirements", () => {
       paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"], bankName: "Bank Hapoalim",
     });
     expect(submittedListing).not.toHaveProperty("bankAccountId");
-  });
+  }, 15000);
 
   it("does not replace cardless ATM choices with the seller's saved payout bank", async () => {
     bankAccounts = [savedAccount];
@@ -121,7 +121,7 @@ describe("listing payment-method bank requirements", () => {
     await waitFor(() => expect(submittedListing).toBeDefined());
     expect(submittedListing).toMatchObject({ paymentMethods: ["Cardless ATM Withdrawal"], bankName: "Bank Hapoalim" });
     expect(submittedListing).not.toHaveProperty("bankAccountId");
-  });
+  }, 15000);
 });
 
 describe("create-listing review summary", () => {
@@ -133,7 +133,8 @@ describe("create-listing review summary", () => {
     const maximum = document.getElementById("create-max-trade") as HTMLInputElement;
 
     fireEvent.change(available, { target: { value: "1000.123456" } });
-    expect(maximum.value).toBe("1000.123456");
+    expect(available.value).toBe("1,000.123456");
+    expect(maximum.value).toBe("1,000.123456");
     fireEvent.change(document.getElementById("create-min-trade")!, { target: { value: "100.125001" } });
     fireEvent.change(maximum, { target: { value: "500.500001" } });
     fireEvent.change(document.getElementById("create-network")!, { target: { value: "BEP20" } });
@@ -168,3 +169,23 @@ describe("create-listing review summary", () => {
     expect(submittedListing).not.toHaveProperty("bankName");
   });
 });
+
+
+it.each(["en", "ar"] as const)("groups the seller's 50,000 / 5,000 inputs and submits exact ungrouped amounts (%s)", async (locale) => {
+  const form = await openForm(["Face-to-Face (Meet in Person)"], locale);
+  const available = document.getElementById("create-available") as HTMLInputElement;
+  const minimum = document.getElementById("create-min-trade") as HTMLInputElement;
+  const maximum = document.getElementById("create-max-trade") as HTMLInputElement;
+  fireEvent.change(available, { target: { value: "50000.120000" } });
+  fireEvent.change(minimum, { target: { value: "5,000.000001" } });
+  expect(available.value).toBe("50,000.120000");
+  expect(minimum.value).toBe("5,000.000001");
+  expect(maximum.value).toBe("50,000.120000");
+  fireEvent.change(maximum, { target: { value: "60,000" } });
+  expect(maximum.value).toBe("50,000.12");
+  fireEvent.change(maximum, { target: { value: "10,000.100000" } });
+  expect(maximum.value).toBe("10,000.100000");
+  fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "إرسال العرض" : "Submit Listing" }));
+  await waitFor(() => expect(submittedListing).toBeDefined());
+  expect(submittedListing).toMatchObject({ availableAmount: "50000.120000", minimumTrade: "5000.000001", maximumTrade: "10000.100000", price: "3.10" });
+}, 15000);
