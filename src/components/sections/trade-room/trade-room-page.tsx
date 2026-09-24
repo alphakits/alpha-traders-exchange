@@ -2961,7 +2961,7 @@ function TradeRoomPageSession({
   const recordedCashAmount = parseCardlessCashAmount(request.fiatAmount);
   const adjustmentPrice = request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "";
   const adjustmentCashOptions = isCardlessAtmTrade && room.listing
-    ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)))
+    ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)), room.request.feePolicyVersion === "buyer_seller_1pct_v1")
     : [];
   const cardlessAmountEditor = isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
     <div className="space-y-2 text-sm">
@@ -2972,7 +2972,7 @@ function TradeRoomPageSession({
         {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
       </select>}
       <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount.")}</p>
-      <p className="font-semibold text-[#FDE68A]">{currencyText(`${calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—"} USDT`)}</p>
+      <p className="font-semibold text-[#FDE68A]">{currencyText(`${calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice, room.request.feePolicyVersion === "buyer_seller_1pct_v1") ?? "—"} USDT`)}</p>
       <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{currencyText(isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount")}</Button>
     </div>
   ) : null;
@@ -3312,6 +3312,11 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
                 {actionFeedback}
+                {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="rounded-xl border border-emerald-500/30 p-3 text-sm">
+                  <p>{isSeller
+                    ? (isAr ? "عمولتك كبائع 1% فقط. إجمالي دفعة المشتري يشمل عمولته 1% لصالح Alpha. بعد الإنهاء تحوّل عمولتك وعمولته المحصّلة معًا." : "Your seller fee is only 1%. The buyer payment includes their 1% fee for Alpha. After completion, forward your fee and their collected fee together.")
+                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount.")}</p>
+                </div> : null}
                 {canRevealBankDetails ? (
                   <div className="important-payment-panel rounded-2xl border p-4">
                     <p className="flex items-center gap-2 text-sm font-semibold text-red-100"><AttentionSiren key={bankDetails ? "revealed" : "locked"} />{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>

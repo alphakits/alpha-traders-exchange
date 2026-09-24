@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/i18n/navigation", () => ({ Link: () => null }));
 import { PurchaseListingDialog } from "./purchase-listing-dialog";
 import { getWalletAddressValidationError } from "@/lib/wallet-address";
-import { calculateCardlessUsdtAmount } from "@alpha-traders/contracts";
+import { calculateCardlessUsdtAmount, calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 type Props = ComponentProps<typeof PurchaseListingDialog>;
 const noop = () => {};
 type HarnessProps = Partial<Pick<Props, "locale" | "selectedMinTrade" | "selectedMaxTrade" | "selectedPrice" | "selectedPaymentMethod" | "priceMode" | "onClose" | "onSubmit" | "isSubmittingPurchase">> & { initialBuyerInfo?: Partial<Props["buyerInfo"]> };
@@ -15,7 +15,7 @@ function Harness({ locale = "en", selectedMinTrade = 10, selectedMaxTrade = 1000
   const amount = Number(buyerInfo.usdtAmount);
   const invalid = Boolean(getWalletAddressValidationError(buyerInfo.receivingNetwork!, buyerInfo.receivingWalletAddress));
   return <PurchaseListingDialog locale={locale} listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", bankName: "Bank Hapoalim, Bank Leumi", network: "TRC20" } as Props["listing"]}
-    sellerProfileData={null} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={amount * price} estimatedBuyerFee={amount * price * 0.01} estimatedTotal={amount * price * 1.01}
+    sellerProfileData={null} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={Number(calculateFiatAmount(String(amount), price.toFixed(2)) ?? 0)} estimatedBuyerFee={Number(calculateTradeBuyerFiatFee(String(amount), price.toFixed(2)) ?? 0)} estimatedTotal={Number(calculateTradePaymentTotal(String(amount), price.toFixed(2), true) ?? 0)}
     isOwnerViewer={false} isOwnerProfileActionLoading={false} purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
     selectedPaymentMethods={[selectedPaymentMethod!]} selectedPaymentMethod={selectedPaymentMethod} buyerTradeAmount={amount} selectedMinTrade={selectedMinTrade} selectedMaxTrade={selectedMaxTrade} buyerTradeAmountInvalid={amount <= 0 || amount < selectedMinTrade || amount > selectedMaxTrade}
     buyerWalletValidationError={null} buyerWalletInvalid={invalid} priceMode={priceMode} offeredPrice={offeredPrice} minimumOfferedPrice="2.85" offerPriceInvalid={price < 2.85} offeredTradePrice={Number(offeredPrice)}
@@ -23,7 +23,7 @@ function Harness({ locale = "en", selectedMinTrade = 10, selectedMaxTrade = 1000
     onClose={onClose} onSubmit={onSubmit} onQuickBuy={noop} onPaymentMethodChange={noop} onBuyerAmountChange={(usdtAmount) => setBuyerInfo((current) => ({ ...current, usdtAmount }))}
     onBuyerWalletChange={(receivingWalletAddress) => setBuyerInfo((current) => ({ ...current, receivingWalletAddress }))} onOfferedPriceChange={(value) => {
       setOfferedPrice(value);
-      setBuyerInfo((current) => ({ ...current, usdtAmount: calculateCardlessUsdtAmount(current.cardlessIlsAmount ?? "", value) ?? "" }));
+      setBuyerInfo((current) => ({ ...current, usdtAmount: calculateCardlessUsdtAmount(current.cardlessIlsAmount ?? "", value, true) ?? "" }));
     }} onSafetyAcknowledgedChange={noop} onGoToVerification={noop}
     onOwnerSellerProfileState={noop} onOwnerSuspendSeller={noop} formatIls={(value) => String(value)} localizedAuditAction={String} paymentMethodEmoji={() => ""} paymentMethodLabel={String} sellerLevelToneKey={() => "bronze"} tradeStatusLabel={String} />;
 }
@@ -42,7 +42,7 @@ describe("prepared cardless purchase form", () => {
     const cash = screen.getByLabelText("Withdrawal code amount in ILS") as HTMLSelectElement;
     expect(Array.from(cash.options).slice(1).map((option) => Number(option.value))).toEqual(Array.from({ length: 32 }, (_, i) => (i + 1) * 100));
     fireEvent.change(cash, { target: { value: "500" } });
-    expect((screen.getByLabelText(/USDT Amount/) as HTMLInputElement).value).toBe("156.25");
+    expect((screen.getByLabelText(/USDT Amount/) as HTMLInputElement).value).toBe("154.70297");
     expect(submit.disabled).toBe(true);
     const bank = screen.getByLabelText(/Bank that issued your withdrawal code/) as HTMLSelectElement;
     expect(bank.required).toBe(true);
@@ -66,10 +66,10 @@ describe("cardless listing limits and escape", () => {
   it("offers only compatible cash amounts for the reported 600–660 listing", () => {
     render(<Harness selectedMinTrade={600} selectedMaxTrade={660} selectedPrice={3.03} initialBuyerInfo={preparedBankCode} />);
     const cash = screen.getByLabelText("Withdrawal code amount in ILS") as HTMLSelectElement;
-    expect(Array.from(cash.options).filter((option) => option.value).map((option) => option.value)).toEqual(["1900"]);
+    expect(Array.from(cash.options).filter((option) => option.value).map((option) => option.value)).toEqual(["1900", "2000"]);
     fireEvent.change(cash, { target: { value: "1900" } });
     const amount = screen.getByLabelText(/USDT Amount/) as HTMLInputElement;
-    expect(amount.value).toBe("627.062706");
+    expect(amount.value).toBe("620.854165");
     expect(amount.readOnly).toBe(true);
     expect(cash.compareDocumentPosition(amount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(false);
@@ -79,9 +79,9 @@ describe("cardless listing limits and escape", () => {
   it("preserves an incompatible bank amount, explains it, and permits cancellation", () => {
     const close = vi.fn();
     const submit = vi.fn();
-    render(<Harness selectedMinTrade={600} selectedMaxTrade={660} selectedPrice={3.03} onClose={close} onSubmit={submit} initialBuyerInfo={{ ...preparedBankCode, cardlessIlsAmount: "2000", usdtAmount: "660.066007" }} />);
+    render(<Harness selectedMinTrade={600} selectedMaxTrade={660} selectedPrice={3.03} onClose={close} onSubmit={submit} initialBuyerInfo={{ ...preparedBankCode, cardlessIlsAmount: "2100", usdtAmount: "686.207921" }} />);
     const cash = screen.getByLabelText("Withdrawal code amount in ILS") as HTMLSelectElement;
-    expect(cash.value).toBe("2000");
+    expect(cash.value).toBe("2100");
     expect(cash.selectedOptions[0].disabled).toBe(true);
     expect(screen.getByRole("alert").textContent).toContain("Do not use a code for a different amount");
     expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
@@ -92,10 +92,10 @@ describe("cardless listing limits and escape", () => {
   });
 
   it("revalidates a price offer without silently changing the bank cash amount", () => {
-    render(<Harness selectedMinTrade={600} selectedMaxTrade={660} priceMode="buyer_offer" initialBuyerInfo={{ ...preparedBankCode, cardlessIlsAmount: "2000", usdtAmount: "625" }} />);
+    render(<Harness selectedMinTrade={600} selectedMaxTrade={650} priceMode="buyer_offer" initialBuyerInfo={{ ...preparedBankCode, cardlessIlsAmount: "2000", usdtAmount: "618.811881" }} />);
     expect((screen.getByRole("button", { name: "Submit Price Offer" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.change(document.getElementById("buyer-offered-price")!, { target: { value: "3.03" } });
-    expect((screen.getByLabelText(/USDT Amount/) as HTMLInputElement).value).toBe("660.066007");
+    expect((screen.getByLabelText(/USDT Amount/) as HTMLInputElement).value).toBe("653.5307");
     expect((screen.getByLabelText("Withdrawal code amount in ILS") as HTMLSelectElement).value).toBe("2000");
     expect(screen.getByRole("alert")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Submit Price Offer" }) as HTMLButtonElement).disabled).toBe(true);
@@ -103,7 +103,7 @@ describe("cardless listing limits and escape", () => {
 
   it.each(["en", "ar"] as const)("explains an empty cash range and keeps Cancel available in %s", (locale) => {
     const close = vi.fn();
-    render(<Harness locale={locale} selectedMinTrade={650} selectedMaxTrade={660} selectedPrice={3.03} onClose={close} />);
+    render(<Harness locale={locale} selectedMinTrade={655} selectedMaxTrade={660} selectedPrice={3.03} onClose={close} />);
     const cash = document.getElementById("cardless-ils-amount") as HTMLSelectElement;
     expect(cash.options.length).toBe(1);
     expect(screen.getByRole("alert")).toBeTruthy();

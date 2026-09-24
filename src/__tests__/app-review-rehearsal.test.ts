@@ -333,7 +333,7 @@ describe("full Exchange App Review rehearsal", () => {
     const savedRequest = saved.purchaseRequests.find((entry) => entry.id === created.request.id);
     expect(savedListing).toMatchObject({ availableAmount: "900", status: "active", activeTradeRequestId: undefined });
     expect((await getCommissionRecordsForAdmin()).find((entry) => entry.purchaseRequestId === created.request.id))
-      .toMatchObject({ paymentStatus: "pending", sellerFeeAmount: 1, buyerFeeCollectedAmount: 1, commissionAmount: 2 });
+      .toMatchObject({ paymentStatus: "pending", sellerFeeAmount: 1, buyerFeeCollectedAmount: 0, commissionAmount: 1 });
     expect(savedRequest?.timeline.map((entry) => entry.type)).toEqual(expect.arrayContaining([
       "price_offer_submitted",
       "price_offer_accepted",

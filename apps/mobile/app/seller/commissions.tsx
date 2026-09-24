@@ -339,6 +339,11 @@ export default function SellerCommissionsScreen() {
             </Text>
           </View>
 
+          {selectedRecord?.feePolicyVersion === "buyer_seller_1pct_v1" ? <View style={styles.instructionsCard}>
+            <Text style={styles.body}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {selectedRecord.sellerFeeAmount?.toFixed(2)} USDT</Text>
+            <Text style={styles.body}>{isAr ? "عمولة المشتري المحصّلة لصالح Alpha (1%)" : "Buyer fee collected for Alpha (1%)"}: {selectedRecord.buyerFeeCollectedAmount?.toFixed(2)} USDT</Text>
+            <Text style={styles.body}>{isAr ? "حصتك 1% فقط. تحوّل معها عمولة المشتري المستلمة ضمن دفعته، بمجموع أساسي 2%." : "Your own fee is only 1%. Forward it together with the buyer fee received in their payment, for a combined base amount of 2%."}</Text>
+          </View> : null}
           <View style={styles.instructionsCard}>
             <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة على الشبكة المختارة" : "Pay from Binance or another wallet"}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "1. افتح السحب أو الإرسال واختر USDT." : "1. Open Withdraw or Send and choose USDT."}</Text>

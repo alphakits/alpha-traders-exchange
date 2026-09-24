@@ -185,6 +185,19 @@ describe("guided cash-trade completion", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("settles an acknowledged two-sided fee exactly once for %s", async (paymentMethod) => {
+    const { requestId } = seedTrade({ paymentMethod, status: "usdt_sent" });
+    const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+    request.feePolicyVersion = "buyer_seller_1pct_v1";
+    request.fiatAmount = "808.00";
+    invalidateAlphaExchangeStoreCache();
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(currentSnapshot().commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
+      expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, commissionAmount: 5, paymentStatus: "pending" }),
+    ]);
+  });
+
   it.each([
     [FACE_TO_FACE, "funds_received"],
     [FACE_TO_FACE, "usdt_release_pending"],
@@ -209,7 +222,7 @@ describe("guided cash-trade completion", () => {
       expect(saved.timeline.filter(event => event.type === "usdt_sent")).toHaveLength(1);
     }
     expect(snapshot.commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
-      expect.objectContaining({ sellerId: SELLER_ID, sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, commissionAmount: 5, paymentStatus: "pending" }),
+      expect.objectContaining({ sellerId: SELLER_ID, sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 0, commissionAmount: 2.5, paymentStatus: "pending" }),
     ]);
     expect(snapshot.marketplaceListings.find(listing => listing.id === listingId)).toMatchObject({ availableAmount: "750", activeTradeRequestId: undefined });
     expect(snapshot.notifications).toEqual(expect.arrayContaining([
@@ -436,6 +449,24 @@ describe("guided cash-trade completion", () => {
     return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
   }
 
+  it("freezes the disclosed buyer fee in a new ATM request and preserves the exact cash through recalculation", async () => {
+    const { request } = await readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "154.70297", cardlessIlsAmount: "500" });
+    expect(request).toMatchObject({ feePolicyVersion: "buyer_seller_1pct_v1", fiatAmount: "500.00", usdtAmount: "154.70297" });
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    const adjusted = await recalculateCardlessTradeAmount(seller);
+    expect(adjusted).toMatchObject({ feePolicyVersion: "buyer_seller_1pct_v1", fiatAmount: "500.00", usdtAmount: "154.70297" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" });
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 1.55, buyerFeeCollectedAmount: 1.55, commissionAmount: 3.1, paymentStatus: "pending" })]);
+  });
+
+  it("rejects an ATM request that omits the disclosed buyer fee from its cash amount", async () => {
+    await expect(readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1" })).rejects.toThrow(/exact ILS withdrawal amount/);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
   it.each(["seller", "buyer"] as const)("lets the %s cancel a prepared cardless request while the code is still hidden", async (actor) => {
     const { request } = await readyRequest();
     expect(request.messages?.some((message) => message.credentialKind === "cardless_code")).toBe(true);
@@ -554,7 +585,7 @@ describe("guided cash-trade completion", () => {
       updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed" }),
     ]);
     expect(currentSnapshot().commissionRecords).toHaveLength(1);
-    expect(currentSnapshot().commissionRecords[0]).toMatchObject({ sellerFeeAmount: 1.25, buyerFeeCollectedAmount: 1.25, commissionAmount: 2.5 });
+    expect(currentSnapshot().commissionRecords[0]).toMatchObject({ sellerFeeAmount: 1.25, buyerFeeCollectedAmount: 0, commissionAmount: 1.25 });
     expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("875");
   });
 

@@ -840,6 +840,7 @@ export interface AdminAnnouncementRun {
 }
 
 export interface PurchaseRequest {
+  feePolicyVersion?: "buyer_seller_1pct_v1";
   termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;

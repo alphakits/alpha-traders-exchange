@@ -1,4 +1,5 @@
 "use client";
+import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
@@ -284,6 +285,9 @@ export type SellerCommissionStatus = {
   source?: string;
   issueReason?: string;
   payableRecords?: Array<{
+    feePolicyVersion?: "buyer_seller_1pct_v1";
+    sellerFeeAmount?: number;
+    buyerFeeCollectedAmount?: number;
     commissionId: string;
     amountDue: number;
     paymentAmountDue?: number;
@@ -3116,7 +3120,7 @@ export function UsdtExchangePage({
     if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
       !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
       || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
-      || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, (requestedAmount * (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price))).toFixed(2))
+      || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, calculateTradePaymentTotal(String(requestedAmount), (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price)).toFixed(2), true) ?? "")
     )) {
       setStatusMessage(isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Choose the withdrawal bank and complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
       return;
@@ -3131,6 +3135,7 @@ export function UsdtExchangePage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          feePolicyVersion: "buyer_seller_1pct_v1",
           listingId: selectedListing.id,
           usdtAmount: tradeAmount,
           buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
@@ -3241,9 +3246,9 @@ export function UsdtExchangePage({
     ? (selectedOfferValidation?.ok ? toNumber(selectedOfferValidation.offeredPrice) : 0)
     : selectedPrice;
   const selectedTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const estimatedTradeValue = selectedTradeAmount * selectedTradePrice;
-  const estimatedBuyerFee = estimatedTradeValue * 0.01;
-  const estimatedTotal = estimatedTradeValue + estimatedBuyerFee;
+  const estimatedTradeValue = Number(calculateFiatAmount(String(selectedTradeAmount), selectedTradePrice.toFixed(2)) ?? 0);
+  const estimatedBuyerFee = Number(calculateTradeBuyerFiatFee(String(selectedTradeAmount), selectedTradePrice.toFixed(2)) ?? 0);
+  const estimatedTotal = Number(calculateTradePaymentTotal(String(selectedTradeAmount), selectedTradePrice.toFixed(2), true) ?? 0);
 
   const isApprovedSeller = isApprovedSellerSession;
   const isSellerWorkspaceUser = hasSellerWorkspaceAccess;
@@ -6014,7 +6019,7 @@ export function UsdtExchangePage({
             setFaceToFaceSafetyAcknowledged(false);
             if (isCardlessAtmPaymentMethod(method)) {
               const price = purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : selectedListing.price;
-              setBuyerInfo((prev) => ({ ...prev, usdtAmount: calculateCardlessUsdtAmount(prev.cardlessIlsAmount, price) ?? "" }));
+              setBuyerInfo((prev) => ({ ...prev, usdtAmount: calculateCardlessUsdtAmount(prev.cardlessIlsAmount, price, true) ?? "" }));
             }
           }}
           onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
@@ -6022,7 +6027,7 @@ export function UsdtExchangePage({
           onOfferedPriceChange={(value) => {
             const price = normalizePriceOfferInput(value);
             setBuyerOfferedPrice(price);
-            const amount = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, price);
+            const amount = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, price, true);
             if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && amount) setBuyerInfo((prev) => ({ ...prev, usdtAmount: amount }));
           }}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}

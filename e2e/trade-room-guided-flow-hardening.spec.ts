@@ -212,6 +212,7 @@ async function logout(request: APIRequestContext) {
 
 function purchaseRequestPayload(usdtAmount = "300") {
   return {
+    feePolicyVersion: "buyer_seller_1pct_v1",
     listingId: ids.listing,
     usdtAmount,
     buyerName: "Guided Buyer",

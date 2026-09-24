@@ -559,6 +559,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               {sellerWorkspaceSummary?.blockedReason ? (
                 <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
               ) : null}
+              {selectedCommissionPayment?.feePolicyVersion === "buyer_seller_1pct_v1" ? (
+                <div className="space-y-2 rounded-xl border border-emerald-500/30 p-3 text-sm">
+                  <p>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0))}</span></p>
+                  <p>{isAr ? "عمولة المشتري المحصّلة لصالح Alpha (1%)" : "Buyer fee collected for Alpha (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.buyerFeeCollectedAmount ?? 0))}</span></p>
+                  <p>{isAr ? "حصتك أنت 1% فقط. تحوّل معها عمولة المشتري التي استلمتها ضمن دفعته؛ مجموع التحويل الأساسي 2%." : "Your own fee is only 1%. You also forward the buyer fee included in the payment you received; the combined base amount is 2%."}</p>
+                </div>
+              ) : null}
               {commissionWorkspaceAction.kind === "pay-one" ? (
                 <Button
                   type="button"

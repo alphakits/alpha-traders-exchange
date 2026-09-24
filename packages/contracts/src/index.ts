@@ -8,3 +8,5 @@ export * from "./cardless-withdrawal";
 export * from "./israeli-banks";
 export * from "./user-presence";
 export * from "./trade-chat";
+
+export * from "./marketplace-fees";

@@ -361,6 +361,7 @@ async function uploadEvidence(page: Page, requestId: string, side: "buyer" | "se
 async function createRequest(request: APIRequestContext, listingId: string, usdtAmount: string) {
   const response = await request.post("/api/alpha-exchange/purchase-requests", {
     data: {
+      feePolicyVersion: "buyer_seller_1pct_v1",
       listingId,
       usdtAmount,
       buyerName: "Lifecycle Buyer",
@@ -1220,6 +1221,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   expect(hiddenListings.listings.some((listing) => listing.id === created.listing.id)).toBeFalsy();
   response = await buyer.page.request.post("/api/alpha-exchange/purchase-requests", {
     data: {
+      feePolicyVersion: "buyer_seller_1pct_v1",
       listingId: created.listing.id,
       usdtAmount: "100",
       buyerName: "Vacation Buyer",

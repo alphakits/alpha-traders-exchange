@@ -41,7 +41,7 @@ function request(payload: Record<string, unknown>) {
   return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ feePolicyVersion: "buyer_seller_1pct_v1", ...payload }),
   });
 }
 

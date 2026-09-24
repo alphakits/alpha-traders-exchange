@@ -770,6 +770,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View style={styles.summaryCard}>
+          {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={{ color: "#34d399", marginBottom: 8 }}>{trade.side === "seller"
+            ? (isRTL ? "عمولتك كبائع 1% فقط. دفعة المشتري تشمل عمولته 1% لصالح Alpha؛ تحوّل الحصتين معًا بعد الإنهاء." : "Your seller fee is only 1%. The buyer payment includes their 1% fee for Alpha; forward both fees after completion.")
+            : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
           <DetailRow isRTL={isRTL} label={t("tradeValue")} value={formatCurrencyAmountAsUsd(trade.fiatAmount, trade.currency, usdIlsRate)} />

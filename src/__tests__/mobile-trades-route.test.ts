@@ -157,7 +157,8 @@ describe("mobile trades collection route", () => {
 
   it("creates a request from the authenticated identity and ignores forged contact fields", async () => {
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Bank Transfer",
@@ -172,7 +173,8 @@ describe("mobile trades collection route", () => {
     expect(mocks.createPurchaseRequest).toHaveBeenCalledWith(expect.objectContaining({
       buyerId: "buyer-1",
       buyerName: "Buyer One",
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       priceMode: "listing_price",
       offeredPrice: undefined,
     }));
@@ -197,7 +199,8 @@ describe("mobile trades collection route", () => {
     });
 
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Bank Transfer",
@@ -214,7 +217,8 @@ describe("mobile trades collection route", () => {
     mocks.hasRole.mockReturnValue(false);
 
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "wallet-value",
       paymentMethod: "Bank Transfer",
@@ -231,7 +235,8 @@ describe("mobile trades collection route", () => {
     mocks.createPurchaseRequest.mockRejectedValue(new Error("TRC20 requires a valid 34-character Tron address beginning with T."));
 
     const response = await POST(mobileRequest("POST", {
-      listingId: "listing-1",
+      feePolicyVersion: "buyer_seller_1pct_v1",
+        listingId: "listing-1",
       usdtAmount: "500",
       receivingWalletAddress: "invalid-wallet",
       paymentMethod: "Bank Transfer",

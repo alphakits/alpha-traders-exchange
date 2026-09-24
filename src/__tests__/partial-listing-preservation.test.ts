@@ -1060,8 +1060,8 @@ describe("partial listing preservation", () => {
       paymentStatus: "pending",
       grossAmount: 960,
       sellerFeeAmount: 3,
-      buyerFeeCollectedAmount: 3,
-      commissionAmount: 6,
+      buyerFeeCollectedAmount: 0,
+      commissionAmount: 3,
     });
   });
 
