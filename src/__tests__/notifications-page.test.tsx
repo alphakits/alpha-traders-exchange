@@ -211,11 +211,15 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(actionsSummary.getAttribute("aria-pressed")).toBe("false");
     expect(unreadSummary.getAttribute("aria-pressed")).toBe("false");
 
-    fireEvent.click(actionsSummary);
+    await act(async () => {
+      fireEvent.click(actionsSummary);
+    });
     expect(actionsSummary.getAttribute("aria-pressed")).toBe("true");
     expect(unreadSummary.getAttribute("aria-pressed")).toBe("false");
 
-    fireEvent.click(unreadSummary);
+    await act(async () => {
+      fireEvent.click(unreadSummary);
+    });
     expect(actionsSummary.getAttribute("aria-pressed")).toBe("false");
     expect(unreadSummary.getAttribute("aria-pressed")).toBe("true");
   });
@@ -341,7 +345,10 @@ describe("NotificationsPage mobile hierarchy", () => {
       expect.objectContaining({ method: "PATCH" }),
     ));
     expect(routerPush).toHaveBeenCalledWith("/usdt-exchange?listing=listing-1#my-listings");
-    confirmRead?.({ ok: true, status: 200, json: async () => ({}) });
+    await act(async () => {
+      confirmRead?.({ ok: true, status: 200, json: async () => ({}) });
+      await readResponse;
+    });
   });
 
   it("archives Later durably and does not resurrect it from session state after re-login", async () => {
