@@ -141,7 +141,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
               <Text style={styles.dotSeparator}>•</Text>
               <View style={[styles.presence, isRTL && styles.rowReverse]}>
                 <View style={[styles.statusDot, isOnline && styles.statusDotOnline]} />
-                <Text style={[styles.statusText, isOnline && styles.statusOnline]}>{isOnline ? t("online") : t("offline")}</Text>
+                <Text style={[styles.statusText, isOnline && styles.statusOnline]}>{isAr ? presence.compactLabelAr : presence.compactLabel}</Text>
               </View>
             </View>
             <Text style={[styles.reference, isRTL && styles.rtlText]}>{copy("Listing", "العرض")} {listingReference(listing)}</Text>
