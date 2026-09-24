@@ -1027,7 +1027,9 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     // New two-sided trade records store the total payable to Alpha (seller 1%
     // plus the buyer 1% already collected by the seller). Legacy records must
     // remain seller-only so an old completed trade is never retroactively charged.
-    if (typeof record.buyerFeeCollectedAmount === "number") return roundUsdt(record.commissionAmount);
+    if (record.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION && typeof record.buyerFeeCollectedAmount === "number") {
+      return roundUsdt(record.commissionAmount);
+    }
     const calculated = calculateSellerCommissionAmount(request.usdtAmount);
     if (calculated !== null) return calculated;
   }
