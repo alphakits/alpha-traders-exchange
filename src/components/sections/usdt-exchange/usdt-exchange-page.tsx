@@ -5170,7 +5170,6 @@ export function UsdtExchangePage({
       isAr={isAr}
       prominent={showBuyerSellerApplicationUpFront}
       compact={isDashboardWorkspace}
-      hideBuyerDiscovery={desktopBuyerNavigation}
       isLoading={isSellerApplicationLoading}
       isApprovedSellerSession={isApprovedSellerSession}
       shouldCondense={shouldCondenseSellerApplication}
