@@ -54,7 +54,11 @@ export function isTradeAmountLessThan(left: string, right: string) {
   return leftUnits < rightUnits;
 }
 
-export function calculateSellerCommissionAmount(usdtAmount: string) {
+export const MARKETPLACE_BUYER_FEE_RATE = 0.01;
+export const MARKETPLACE_SELLER_FEE_RATE = 0.01;
+export const MARKETPLACE_TOTAL_FEE_RATE = MARKETPLACE_BUYER_FEE_RATE + MARKETPLACE_SELLER_FEE_RATE;
+
+function calculateOnePercentUsdtFee(usdtAmount: string) {
   const amountMicrounits = toAmountMicrounits(usdtAmount, false);
   if (amountMicrounits === null) return null;
   // Every positive completed trade must create a payable obligation. Without
@@ -63,4 +67,40 @@ export function calculateSellerCommissionAmount(usdtAmount: string) {
   const roundedCommissionCents = (amountMicrounits + BigInt(500_000)) / BigInt(1_000_000);
   const commissionCents = roundedCommissionCents > BigInt(0) ? roundedCommissionCents : BigInt(1);
   return Number(commissionCents) / 100;
+}
+
+export function calculateSellerCommissionAmount(usdtAmount: string) {
+  return calculateOnePercentUsdtFee(usdtAmount);
+}
+
+export function calculateBuyerCommissionAmount(usdtAmount: string) {
+  return calculateOnePercentUsdtFee(usdtAmount);
+}
+
+export function calculateSellerTotalAlphaDue(usdtAmount: string) {
+  const sellerFee = calculateSellerCommissionAmount(usdtAmount);
+  const buyerFeeCollected = calculateBuyerCommissionAmount(usdtAmount);
+  if (sellerFee === null || buyerFeeCollected === null) return null;
+  return Number((sellerFee + buyerFeeCollected).toFixed(2));
+}
+
+export function calculateBuyerFiatFee(fiatAmount: string) {
+  const match = fiatAmount.match(/^(?:0|[1-9]\\d*)(?:\\.(\\d{1,2}))?$/);
+  if (!match) return null;
+  const [wholePart, decimalPart = ""] = fiatAmount.split(".");
+  const fiatCents = BigInt(wholePart) * BigInt(100) + BigInt(decimalPart.padEnd(2, "0"));
+  // One percent of fiat cents, rounded half-up to the nearest cent.
+  const feeCents = (fiatCents + BigInt(50)) / BigInt(100);
+  return `${feeCents / BigInt(100)}.${(feeCents % BigInt(100)).toString().padStart(2, "0")}`;
+}
+
+export function calculateBuyerFiatTotal(fiatAmount: string) {
+  const fee = calculateBuyerFiatFee(fiatAmount);
+  if (fee === null) return null;
+  const [baseWhole, baseDecimal = ""] = fiatAmount.split(".");
+  const [feeWhole, feeDecimal = ""] = fee.split(".");
+  const baseCents = BigInt(baseWhole) * BigInt(100) + BigInt(baseDecimal.padEnd(2, "0"));
+  const feeCents = BigInt(feeWhole) * BigInt(100) + BigInt(feeDecimal.padEnd(2, "0"));
+  const totalCents = baseCents + feeCents;
+  return `${totalCents / BigInt(100)}.${(totalCents % BigInt(100)).toString().padStart(2, "0")}`;
 }
