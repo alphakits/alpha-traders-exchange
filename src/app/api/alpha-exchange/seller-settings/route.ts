@@ -45,7 +45,7 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:seller-settings", maxRequests: 20, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:seller-settings", identifier: user.id, maxRequests: 20, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many settings update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }

@@ -27,7 +27,7 @@ const steps = [
     arguments: ["run", "mobile:review-rehearsal"],
   },
   {
-    label: "Ten-trade Exchange scale rehearsal",
+    label: "Fifteen-seller Exchange scale rehearsal",
     executable: npmExecutable,
     arguments: ["run", "mobile:scale-rehearsal"],
   },

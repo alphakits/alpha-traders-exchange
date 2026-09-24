@@ -124,6 +124,41 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
 });
 
 describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("%s live recovery", (method) => {
+  it("pauses background requests offline and reconnects once with the saved trade and draft intact", async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    const current = room(method, "accepted");
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json(current)));
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />); });
+    fireEvent.change(screen.getByPlaceholderText("Type a message..."), { target: { value: "My unsent draft" } });
+    const oldStream = RoomStream.instances[0];
+    await act(async () => oldStream.snapshot(current));
+    // A failure may already have scheduled a reconnect when connectivity drops.
+    await act(async () => oldStream.dispatchEvent(new Event("error")));
+    online.mockReturnValue(false);
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    const reads = fetchMock.mock.calls.length;
+    const streams = RoomStream.instances.length;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(reads);
+    expect(RoomStream.instances).toHaveLength(streams);
+    expect((screen.getByPlaceholderText("Type a message...") as HTMLTextAreaElement).value).toBe("My unsent draft");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+    online.mockReturnValue(true);
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(reads + 1);
+    expect(RoomStream.instances).toHaveLength(streams + 1);
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText("Type a message...") as HTMLTextAreaElement).value).toBe("My unsent draft");
+  });
+
   it("renews a planned stream connection without repeating a trade action", async () => {
     vi.useFakeTimers();
     const current = room(method, "accepted");
@@ -262,7 +297,7 @@ it("keeps copy and reminder feedback beside the chat controls", async () => {
   current.poke.available = true;
   current.poke.canPoke = true;
   current.poke.counterpartRole = "seller";
-  vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { writeText: vi.fn().mockResolvedValue(undefined) } } }));
+  vi.stubGlobal("navigator", Object.create(navigator, { onLine: { value: true }, clipboard: { value: { writeText: vi.fn().mockResolvedValue(undefined) } } }));
   vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(Response.json(url.endsWith("/poke") ? { poke: current.poke } : current))));
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
   fireEvent.click(await screen.findByRole("button", { name: "Poke Seller" }));

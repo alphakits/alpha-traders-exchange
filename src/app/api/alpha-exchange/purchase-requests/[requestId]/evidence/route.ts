@@ -66,6 +66,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-upload",
+    identifier: user.id,
     maxRequests: 20,
     windowMs: 60_000,
   });

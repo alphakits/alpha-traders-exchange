@@ -38,6 +38,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:review-submit",
+    identifier: user.id,
     maxRequests: 20,
     windowMs: 60_000,
   });
