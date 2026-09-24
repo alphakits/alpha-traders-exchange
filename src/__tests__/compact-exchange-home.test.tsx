@@ -117,12 +117,13 @@ describe("compact Exchange home", () => {
     expect(screen.queryByRole("button", { name: "View and Manage Listings" })).toBeNull();
   });
 
-  it("keeps the existing marketplace welcome and workspace layout", async () => {
+  it("keeps the marketplace welcome and workspace without the redundant discovery card", async () => {
     viewportWidth = 390;
     const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
     expect(screen.getByText("AT ID")).toBeTruthy();
     expect(within(container.querySelector("#workspace-summary")! as HTMLElement).getAllByRole("button")).toHaveLength(6);
-    await screen.findByText("Find an Approved Seller");
+    await screen.findByText("Become an Approved Seller");
+    expect(screen.queryByText("Find an Approved Seller")).toBeNull();
   });
 
   it.each(["en", "ar"] as const)("opens only the seller's active requests and keeps one integrated workspace (%s)", async (locale) => {
@@ -377,7 +378,8 @@ describe("desktop buyer workspace", () => {
     viewportWidth = width;
     const isAr = locale === "ar";
     const { container } = render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
-    await screen.findByText(isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller");
+    await screen.findByText(isAr ? "انضم كبائع معتمد" : "Become an Approved Seller");
+    expect(screen.queryByText(isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller")).toBeNull();
     const welcome = container.querySelector('[data-account-role="buyer"]') as HTMLElement;
     expect(welcome.querySelector("#workspace-summary")).toBeNull();
     const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
@@ -403,7 +405,8 @@ describe("desktop buyer workspace", () => {
     expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
     expect((within(document.getElementById("my-trade-requests-section")!).getByRole("combobox") as HTMLSelectElement).value).toBe("all");
     expect(document.querySelector('[aria-controls="buyer-trade-details-home-active-trade"]')).toBeTruthy();
-    await screen.findByText("Find an Approved Seller");
+    await screen.findByText("Become an Approved Seller");
+    expect(screen.queryByText("Find an Approved Seller")).toBeNull();
   });
 
   it("focuses the actual listings after a desktop dashboard deep link", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 
-import { brandText, currencyText } from "@/components/ui/currency-text";
+import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import type { FormEventHandler } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
@@ -10,11 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FieldLabel, requiredFieldClasses } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import type { SellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import type { SellerApplication } from "@/types/alpha-exchange";
-
-const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
 
 const SELLER_APPLICATION_METHOD_OPTIONS = [
   { id: "USDT (ERC20 / Ethereum)", group: "Crypto", recommended: true },
@@ -40,7 +37,6 @@ type SellerApplicationSectionProps = {
   isAr: boolean;
   prominent?: boolean;
   compact?: boolean;
-  hideBuyerDiscovery?: boolean;
   isLoading: boolean;
   isApprovedSellerSession: boolean;
   shouldCondense: boolean;
@@ -71,7 +67,6 @@ export function SellerApplicationSection({
   isAr,
   prominent = false,
   compact = false,
-  hideBuyerDiscovery = false,
   isLoading,
   isApprovedSellerSession,
   shouldCondense,
@@ -90,7 +85,7 @@ export function SellerApplicationSection({
   onSubmit,
 }: SellerApplicationSectionProps) {
   return (
-    <div className={`${prominent ? "mt-5" : "mt-10"} grid ${compact ? "gap-4" : hideBuyerDiscovery ? "gap-6" : "gap-6 xl:grid-cols-2"}`}>
+    <div className={`${prominent ? "mt-5" : "mt-10"} grid ${compact ? "gap-4" : "gap-6"}`}>
       <Card id="seller-application" className={prominent ? "border-[#C9A227]/45 bg-[linear-gradient(145deg,rgba(201,162,39,0.13),rgba(11,11,11,0.96)_48%)] shadow-[0_18px_65px_rgba(201,162,39,0.12)]" : "border-white/10 bg-[#0B0B0B]/90"}>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-3">
@@ -181,13 +176,6 @@ export function SellerApplicationSection({
           )}
         </CardContent>
       </Card>
-
-      {!compact && !hideBuyerDiscovery ? (
-      <Card className="border-white/10 bg-[#0B0B0B]/90">
-        <CardHeader><CardTitle>{isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller"}</CardTitle><CardDescription>{currencyText(isAr ? "تصفح البائعين المعتمدين وابدأ صفقة USDT آمنة ومُنسَّقة من خلال Alpha Exchange." : "Browse verified sellers and start a secure USDT trade coordinated through Alpha Exchange.")}</CardDescription></CardHeader>
-        <CardContent><div className="space-y-4"><div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]"><p className="mb-2 font-medium text-white">{currencyText(isAr ? "كيف تشتري USDT:" : "How to buy USDT:")}</p><ol className="list-inside list-decimal space-y-2"><li>{isAr ? "تصفح" : "Browse the"} <a href="#marketplace" className="text-[#93C5FD] hover:underline">{isAr ? "السوق المباشر" : "Live Marketplace"}</a> {isAr ? "أعلاه" : "above"}</li><li>{isAr ? "اختر بائعًا موثقًا يناسب احتياجاتك" : "Choose a verified seller that fits your needs"}</li><li>{isAr ? "اضغط" : "Click"} <strong className="text-white">{currencyText(isAr ? "شراء USDT" : "Buy USDT")}</strong> {isAr ? "على عرضه" : "on their listing"}</li><li>{isAr ? "أدخل تفاصيل الصفقة وأرسلها" : "Fill in your trade details and submit"}</li><li>{brandText(isAr ? "Alpha Traders تنسق الباقي" : "Alpha Traders coordinates the rest")}</li></ol></div><a href="#marketplace"><Button className="w-full">{isAr ? "تصفح البائعين" : "Browse Sellers"}</Button></a><p className="text-center text-xs text-[#9CA3AF]">{isAr ? "هل تحتاج مساعدة؟" : "Need help?"}{" "}{WHATSAPP_URL ? <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">{brandText(isAr ? "تواصل مع Alpha Traders على WhatsApp" : "Contact Alpha Traders on WhatsApp")}</a> : null}</p></div></CardContent>
-      </Card>
-      ) : null}
     </div>
   );
 }
