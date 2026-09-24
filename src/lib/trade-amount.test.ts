@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateFiatAmount, calculateSellerCommissionAmount, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, normalizeLocalizedDecimalInput, normalizeTradeAmountInput, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateBuyerCommissionAmount, calculateBuyerFiatFee, calculateBuyerFiatTotal, calculateFiatAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, normalizeLocalizedDecimalInput, normalizeTradeAmountInput, subtractTradeAmounts } from "@/lib/trade-amount";
 
 describe("trade amount input", () => {
   it("preserves fractional USDT amounts up to six decimals", () => {
@@ -58,6 +58,14 @@ describe("trade amount input", () => {
     expect(subtractTradeAmounts("0.876544", "0.876544")).toBe("0");
     expect(subtractTradeAmounts("0.1", "0.100001")).toBeNull();
     expect(isTradeAmountLessThan("0.876544", "0.9")).toBe(true);
+  });
+
+  it("calculates separate 1% buyer and seller fees while Alpha receives 2%", () => {
+    expect(calculateBuyerCommissionAmount("1000")).toBe(10);
+    expect(calculateSellerCommissionAmount("1000")).toBe(10);
+    expect(calculateSellerTotalAlphaDue("1000")).toBe(20);
+    expect(calculateBuyerFiatFee("3500.00")).toBe("35.00");
+    expect(calculateBuyerFiatTotal("3500.00")).toBe("3535.00");
   });
 
   it("calculates the one-percent seller commission with decimal half-up rounding", () => {
