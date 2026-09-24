@@ -13,6 +13,19 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe("shared live presence subscriptions", () => {
+  it("changes an unrecorded account to Online after its first live activity without a reload", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ users: {
+      seller: { onlineStatus: "offline", lastActiveAt: null, lastSeenAt: null },
+    } }) }));
+    render(<Status userId="seller" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByText("seller:No activity recorded yet")).toBeTruthy();
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ users: {
+      seller: { onlineStatus: "online", lastSeenAt: new Date().toISOString(), lastActiveAt: new Date().toISOString() },
+    } }) } as Response);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByText("seller:Online")).toBeTruthy();
+  });
   it("batches cards, updates without reloading, and expires a disconnected user", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ serverTime: "2026-09-24T12:00:00Z", users: {
       seller: { onlineStatus: "online", lastSeenAt: "2026-09-24T12:00:00Z", lastActiveAt: "2026-09-24T12:00:00Z" },

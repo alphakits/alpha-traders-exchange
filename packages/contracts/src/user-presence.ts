@@ -31,9 +31,19 @@ export function deriveUserPresence(input: UserPresenceData, now = Date.now()) {
   const online = !input.presenceHidden && input.onlineStatus === "online"
     && lastSeen !== null && now - lastSeen < PRESENCE_LEASE_MS
     && elapsed !== null && elapsed < PRESENCE_IDLE_MS;
-  if (input.presenceHidden) return { online: false, tone: "idle" as const, label: "Activity hidden", labelAr: "النشاط مخفي", minutesSinceActive: null };
-  if (online) return { online, tone: "online" as const, label: "Online", labelAr: "متصل الآن", minutesSinceActive };
-  if (elapsed === null) return { online: false, tone: "idle" as const, label: "Offline · Activity unavailable", labelAr: "غير متصل · النشاط غير متوفر", minutesSinceActive };
+  if (input.presenceHidden) return { online: false, tone: "idle" as const, label: "Activity hidden", labelAr: "النشاط مخفي", compactLabel: "Activity hidden", compactLabelAr: "النشاط مخفي", minutesSinceActive: null };
+  if (online) return { online, tone: "online" as const, label: "Online", labelAr: "متصل الآن", compactLabel: "Online", compactLabelAr: "متصل الآن", minutesSinceActive };
+  // Accounts that have not sent their first activity update have no observed
+  // status. Missing/invalid timestamps must not become a claim of "Offline".
+  if (elapsed === null) {
+    const unrecorded = input.lastActiveAt === null && input.lastSeenAt === null;
+    return {
+      online: false, tone: "idle" as const,
+      label: unrecorded ? "No activity recorded yet" : "Activity unavailable",
+      labelAr: unrecorded ? "لم يُسجَّل نشاط بعد" : "النشاط غير متوفر",
+      compactLabel: "Status unknown", compactLabelAr: "الحالة غير معروفة", minutesSinceActive,
+    };
+  }
   const recent = elapsed < 60_000;
   const amount = elapsed < 3_600_000 ? Math.max(1, Math.floor(elapsed / 60_000))
     : elapsed < 86_400_000 ? Math.floor(elapsed / 3_600_000) : Math.floor(elapsed / 86_400_000);
@@ -44,6 +54,8 @@ export function deriveUserPresence(input: UserPresenceData, now = Date.now()) {
     tone: elapsed < 3_600_000 ? "recent" as const : "idle" as const,
     label: recent ? "Offline · Active just now" : `Offline · Active ${amount}${unit === "min" ? " " : ""}${unit} ago`,
     labelAr: recent ? "غير متصل · نشط للتو" : `غير متصل · نشط قبل ${amount} ${unitAr}`,
+    compactLabel: "Offline",
+    compactLabelAr: "غير متصل",
     minutesSinceActive,
   };
 }

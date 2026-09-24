@@ -18,7 +18,18 @@ describe("deriveSellerPresence", () => {
     expect(deriveSellerPresence({ onlineStatus: "online", lastSeenAt: iso(0), lastActiveAt: iso(-300_000) }, NOW).online).toBe(false);
   });
   it.each([undefined, null, "invalid", iso(60_000)])("never fabricates activity from %s", lastActiveAt => {
-    expect(deriveSellerPresence({ onlineStatus: "online", lastActiveAt }, NOW).online).toBe(false);
+    const presence = deriveSellerPresence({ onlineStatus: "online", lastActiveAt }, NOW);
+    expect(presence.online).toBe(false);
+    expect(presence.label).toBe("Activity unavailable");
+    expect(presence.compactLabel).toBe("Status unknown");
+    expect(presence.compactLabelAr).toBe("الحالة غير معروفة");
+  });
+  it("does not call an account offline before its first recorded activity", () => {
+    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: null, lastSeenAt: null }, NOW);
+    expect(presence.label).not.toContain("Offline");
+    expect(presence.label).toBe("No activity recorded yet");
+    expect(presence.minutesSinceActive).toBeNull();
+    expect(presence.compactLabel).toBe("Status unknown");
   });
   it("shows real elapsed activity while offline", () => {
     expect(deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-25 * 60_000) }, NOW).label).toBe("Offline · Active 25 min ago");
@@ -29,6 +40,7 @@ describe("deriveSellerPresence", () => {
     expect(presence.online).toBe(false);
     expect(presence.minutesSinceActive).toBeNull();
     expect(presence.label).toBe("Activity hidden");
+    expect(presence.compactLabel).toBe("Activity hidden");
   });
 });
 

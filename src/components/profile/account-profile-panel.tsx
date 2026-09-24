@@ -879,7 +879,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <RoleBadge variant={payload.roleBadge} locale={locale} />
               <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
                 <span className={cn("h-1.5 w-1.5 rounded-full", onlineNow ? "bg-emerald-400" : "bg-zinc-500")} />
-                {onlineNow ? (isAr ? "متصل الآن" : "Online now") : (isAr ? "غير متصل" : "Offline")}
+                {isAr ? presence.compactLabelAr : presence.compactLabel}
               </span>
               {isSeller ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-[11px] font-semibold text-[#F4D87A]">

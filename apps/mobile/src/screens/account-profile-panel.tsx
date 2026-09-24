@@ -319,6 +319,7 @@ export function AccountProfilePanel() {
   }
 
   const { profile, stats, roleBadge, accountStatuses } = query.data;
+  const presence = deriveUserPresence(profile);
   const isOwner = roleBadge === "owner";
   const isSeller = stats.kind === "seller";
   const theme = (isSeller ? SELLER_PROFILE_TONES : LEVEL_COLORS)[isOwner ? "owner" : stats.level];
@@ -377,7 +378,7 @@ export function AccountProfilePanel() {
           <Text style={[styles.email, isRTL && styles.rtlText]}>{profile.email}</Text>
           <View style={[styles.badgeRow, isRTL && styles.rowReverse]}>
             <Text style={[styles.roleBadge, { borderColor: theme.border, color: theme.accent }]}>{localizedRole(roleBadge, isAr)}</Text>
-            <Text style={styles.presenceBadge}><Text style={{ color: deriveUserPresence(profile).online ? colors.success : colors.textMuted }}>●</Text> {deriveUserPresence(profile).online ? t("online") : t("offline")}</Text>
+            <Text style={styles.presenceBadge}><Text style={{ color: presence.online ? colors.success : colors.textMuted }}>●</Text> {isAr ? presence.compactLabelAr : presence.compactLabel}</Text>
             {isSeller ? <Text style={styles.verifiedBadge}>✓ {t("verifiedSeller")}</Text> : null}
             {isSeller ? <Text style={[styles.rankBadge, { backgroundColor: theme.soft, borderColor: theme.border, color: theme.accent }]}>{isOwner ? copy("Legendary Seller", "بائع أسطوري") : `${t(levelKey(stats.level))} ${copy("Seller", "بائع")}`}</Text> : null}
           </View>
@@ -398,7 +399,7 @@ export function AccountProfilePanel() {
           <View style={[styles.statusGrid, isRTL && styles.rowReverse]}>
             <MetricCard accent={theme.accent} isRTL={isRTL} label={copy("ACCOUNT STATUS", "حالة الحساب")} value={accountStatuses.map((value) => localizedStatus(value, isAr)).join(" • ")} />
             <MetricCard isRTL={isRTL} label={t("memberSince").toUpperCase()} value={localizedDate(profile.memberSince, locale)} />
-            <MetricCard isRTL={isRTL} label={copy("LAST ACTIVE", "آخر نشاط")} value={locale === "ar" ? deriveUserPresence(profile).labelAr : deriveUserPresence(profile).label} />
+            <MetricCard isRTL={isRTL} label={copy("LAST ACTIVE", "آخر نشاط")} value={isAr ? presence.labelAr : presence.label} />
             <MetricCard isRTL={isRTL} label={t("publicVisibility").toUpperCase()} value={currentDraft.allowProfileSearch ? t("searchable") : t("privateProfile")} />
           </View>
         </View>
