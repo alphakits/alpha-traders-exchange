@@ -32,6 +32,7 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
 import { GET, PATCH } from "@/app/api/mobile/v1/trades/[requestId]/route";
+import { publicAccountId } from "@/lib/public-account-identity";
 
 function request(method: "GET" | "PATCH", body?: Record<string, unknown>) {
   return new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades/purchase-1", {
@@ -151,10 +152,10 @@ describe("mobile trade detail route", () => {
     expect(payload.trade).toMatchObject({
       id: "purchase-1",
       side: "buyer",
-      counterpartyDisplayName: "Verified Seller",
+      counterpartyDisplayName: publicAccountId({ id: "private-seller-id", role: "approved_seller" }),
       actions: { canViewBankDetails: true, canCompleteFaceToFace: false },
       timeline: [{ type: "request_accepted" }],
-      messages: [{ sender: "counterparty", message: "Ready when you are" }],
+      messages: [{ sender: "counterparty", participantRole: "seller", senderPublicId: publicAccountId({ id: "private-seller-id", role: "approved_seller" }), status: "sent", message: "Ready when you are" }],
     });
     for (const value of [
       "private-seller-id",
@@ -166,6 +167,8 @@ describe("mobile trade detail route", () => {
       "private-message-id",
       "+972500000000",
       "private note",
+      "Verified Seller",
+      "Buyer One",
     ]) {
       expect(serialized).not.toContain(value);
     }

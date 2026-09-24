@@ -20,6 +20,7 @@ import {
 } from "@/lib/marketplace-email-events";
 import { checkRateLimit, checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
+import { publicAccountId } from "@/lib/public-account-identity";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -127,7 +128,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return mobileJson(
       {
-        message: toMobileTradeMessage(posted.message, auth.user.id, locale),
+        message: toMobileTradeMessage(posted.message, auth.user.id, locale, {
+          request: revision,
+          counterpart: revision.buyerId === auth.user.id
+            ? { buyerPublicId: publicAccountId(auth.user) }
+            : { sellerPublicId: publicAccountId(auth.user) },
+        }),
         created: posted.created,
       },
       requestId,

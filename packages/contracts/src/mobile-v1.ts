@@ -970,6 +970,9 @@ export interface MobileTradeSummary {
 export interface MobileTradeMessage {
   credentialKind?: "cardless_code";
   sender: "you" | "counterparty" | "system";
+  senderPublicId?: string;
+  participantRole?: import("./trade-chat").TradeChatParticipantRole;
+  status?: import("./trade-chat").TradeChatStatus;
   message: string;
   createdAt: string;
 }
@@ -987,6 +990,7 @@ export interface MobileTradeReview {
 export interface MobileTradeDetail extends MobileTradeSummary {
   sellerCommissionDue?: { count: number; amount: number };
   counterpartyDisplayName: string;
+  participants?: { buyerPublicId: string; sellerPublicId: string };
   receivingWalletAddress?: string;
   timeline: Array<{
     type: MobileTradeTimelineEvent;

@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
-      markMessagesRead: true,
+      markMessagesRead: false,
       strongConsistency: false,
     });
     return NextResponse.json({

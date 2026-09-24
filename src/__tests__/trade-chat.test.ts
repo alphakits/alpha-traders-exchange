@@ -26,6 +26,7 @@ import {
   postTradeRoomPoke,
 } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
+import { publicAccountId } from "@/lib/public-account-identity";
 
 const BUYER_ID = "buyer-1";
 const SELLER_ID = "seller-1";
@@ -263,6 +264,29 @@ describe("Trade Room participant communication", () => {
     expect(adminRoom.messages[0]?.readByUserIds).toEqual([BUYER_ID]);
     expect(adminRoom.messages[0]?.seenAt).toBeUndefined();
     expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("marks only displayed message IDs, preserving unread messages and ordinary room reads", async () => {
+    const first = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "First message" });
+    const second = await postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: BUYER_ID, message: "Newer message" });
+    const before = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(before.messages.every(message => !message.seenAt)).toBe(true);
+    const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: true, readMessageIds: [first.message.id, "message-in-another-trade"], strongConsistency: true });
+    expect(room.messages.find(message => message.id === first.message.id)?.readByUserIds).toContain(SELLER_ID);
+    expect(room.messages.find(message => message.id === second.message.id)?.readByUserIds).not.toContain(SELLER_ID);
+    expect(snapshot().purchaseRequests[0].messages).toHaveLength(2);
+  });
+
+  it("provides canonical public chat IDs even for sellers trading as buyers", async () => {
+    const buyer = snapshot().users.find(user => user.id === BUYER_ID)!;
+    buyer.fullName = "Private Buyer Name"; buyer.sellerStatus = "approved_seller";
+    const seller = snapshot().users.find(user => user.id === SELLER_ID)!;
+    seller.fullName = "Private Seller Name";
+    const room = await getTradeRoomData({ purchaseRequestId: "trade-1", actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.counterpart.buyerPublicId).toBe(publicAccountId(buyer));
+    expect(room.counterpart.sellerPublicId).toBe(publicAccountId(seller));
+    expect(JSON.stringify(room.counterpart)).not.toContain("Private");
+    expect(JSON.stringify(room.counterpart)).not.toContain("972500000000");
   });
 
   it("persists one exact message and notification when an uncertain request is retried", async () => {

@@ -15,6 +15,9 @@ import { navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { publishTradeHeaderActivity, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { TradeTermsPanel } from "./trade-terms-panel";
+import { TradeChatMessageLabel, TradeChatMessageStatus } from "./trade-chat-message-label";
+import { tradeChatPublicId } from "@/lib/trade-chat-presentation";
+import { useTradeChatReadReceipts, type TradeChatReceipt } from "./use-trade-chat-read-receipts";
 import { OwnerTradeHistoryPage } from "./owner-trade-history";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,7 +47,7 @@ type Locale = "ar" | "en";
 type TradeRoomData = {
   request: PurchaseRequest;
   listing: MarketplaceListing | null;
-  counterpart: { buyerName: string; sellerName: string };
+  counterpart: { buyerName: string; sellerName: string; buyerPublicId?: string; sellerPublicId?: string };
   messages: TradeChatMessage[];
   poke: {
     available: boolean;
@@ -1031,6 +1034,8 @@ export function tradeRoomSnapshotSignature(room: TradeRoomData) {
     room.request.completedAt ?? "",
     room.request.buyerEvidence?.id ?? "",
     room.request.sellerEvidence?.id ?? "",
+    room.counterpart.buyerPublicId ?? "",
+    room.counterpart.sellerPublicId ?? "",
     messageSignature,
     timelineSignature,
     room.deadlineAt ?? "",
@@ -1424,6 +1429,22 @@ function TradeRoomPageSession({
   const lastRoomSyncAtRef = useRef(0);
   const lastResumeAtRef = useRef(0);
   const backgroundRefreshInFlightRef = useRef(false);
+  const applyChatReceipts = useCallback((receipts: TradeChatReceipt[]) => {
+    const current = roomRef.current;
+    if (!current || current.request.id !== requestId || !receipts.length) return;
+    const byId = new Map(receipts.map(receipt => [receipt.id, receipt]));
+    const next = { ...current, messages: current.messages.map(message => {
+      const receipt = byId.get(message.id);
+      return receipt ? { ...message, ...receipt, readByUserIds: [...new Set([...message.readByUserIds, ...receipt.readByUserIds])] } : message;
+    }) };
+    roomRef.current = next;
+    setRoom(next);
+    writeTradeRoomCache(requestId, actor.id, next);
+  }, [actor.id, requestId]);
+  useTradeChatReadReceipts({
+    container: chatScrollRef, requestId, actorId: actor.id, messages: room?.messages ?? [], onReceipts: applyChatReceipts,
+    enabled: canonicalSessionReady && Boolean(room && (room.request.buyerId === actor.id || room.request.sellerId === actor.id)),
+  });
   const setStatusMessage = useCallback((message: string | null) => {
     const stage = roomRef.current?.request.status;
     setStatusFeedback(message && stage ? { message, stage } : null);
@@ -2851,7 +2872,6 @@ function TradeRoomPageSession({
 
   const isActorBuyer = request?.buyerId === actor.id;
   const actorSide: "buyer" | "seller" = isActorBuyer ? "buyer" : "seller";
-  const chatCounterpartName = counterpartName ?? (isActorBuyer ? request?.sellerId ?? "Seller" : request?.buyerId ?? "Buyer");
 
   const handleChatDraftChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     setChatDraft(event.target.value);
@@ -3720,12 +3740,16 @@ function TradeRoomPageSession({
                 ) : null}
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#D1D5DB]" aria-label={isAr ? "طرفا الدردشة" : "Chat participants"}>
+                  <span>{isAr ? "المشتري" : "Buyer"} · <bdi dir="ltr" className="font-semibold text-[#F5D77B]">{tradeChatPublicId(room, "buyer")}</bdi></span>
+                  <span>{isAr ? "البائع" : "Seller"} · <bdi dir="ltr" className="font-semibold text-[#F5D77B]">{tradeChatPublicId(room, "seller")}</bdi></span>
+                </div>
                 <details className="rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-[#D1D5DB]">
                   <summary className="flex min-h-11 cursor-pointer items-center">{isAr ? "تفاصيل الصفقة" : "Trade details"}<ChevronDown className="ms-auto h-4 w-4" aria-hidden="true" /></summary>
                   <div className="grid gap-1 pb-3 md:grid-cols-2 xl:grid-cols-3">
                     <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {currencyText(tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{currencyText(request.sellerId === actor.id ? room?.counterpart.sellerName || publicAccountName(actor) : counterpartName)}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{currencyText(request.buyerId === actor.id ? room?.counterpart.buyerName || publicAccountName(actor) : counterpartName)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="ltr">{tradeChatPublicId(room, "seller")}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="ltr">{tradeChatPublicId(room, "buyer")}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>
@@ -3741,17 +3765,6 @@ function TradeRoomPageSession({
                       const localizedSystemMessage = message.kind === "system"
                         ? localizeTradeRoomSystemMessage(messageBody, locale)
                         : null;
-                      const counterpartyId = ownMessage ? (isSeller ? request.buyerId : request.sellerId) : "";
-                      const readByCounterparty = ownMessage && message.readByUserIds.includes(counterpartyId);
-                      const statusIcon = message.deletedAt
-                        ? (isAr ? "تم حذف الرسالة" : "Message deleted")
-                        : message.seenAt
-                          ? "👁"
-                          : message.deliveredAt
-                            ? "✓✓"
-                            : message.sentAt
-                              ? "✓"
-                              : "🕒";
                       return (
                         <div
                           key={message.id}
@@ -3767,10 +3780,12 @@ function TradeRoomPageSession({
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/30 text-xs font-semibold">
                               {message.kind === "system"
                                 ? <BellRing className="h-4 w-4 text-[#93C5FD]" aria-hidden="true" />
-                                : (ownMessage ? actor.fullName.slice(0, 1) : chatCounterpartName.slice(0, 1))}
+                                : <span aria-hidden="true">AT</span>}
                             </div>
                             <div className="min-w-0 flex-1">
+                              <TradeChatMessageLabel message={message} context={room} actorId={actor.id} locale={locale} />
                               <p
+                                data-trade-message-id={message.id}
                                 lang={localizedSystemMessage ? locale : undefined}
                                 dir={localizedSystemMessage?.dir ?? "auto"}
                                 className="whitespace-pre-wrap break-words"
@@ -3790,7 +3805,7 @@ function TradeRoomPageSession({
                               ) : null}
                               <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#9CA3AF]">
                                 <span>{new Date(message.createdAt).toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}</span>
-                                <span>{statusIcon}{currencyText(ownMessage ? ` • ${readByCounterparty ? (isAr ? "مرئية" : "Seen") : (isAr ? "مرسلة" : "Sent")}` : "")}</span>
+                                <TradeChatMessageStatus message={message} parties={request} locale={locale} />
                               </div>
                             </div>
                           </div>

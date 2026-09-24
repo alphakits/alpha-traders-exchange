@@ -255,6 +255,13 @@ describe("Trade Room client stability helpers", () => {
     expect(tradeRoomSnapshotSignature(deliveredMiddle)).not.toBe(tradeRoomSnapshotSignature(base));
   });
 
+  it("replaces an older cached identity when canonical public IDs arrive without a trade change", () => {
+    const cached = room();
+    const refreshed = { ...cached, counterpart: { ...cached.counterpart, buyerPublicId: "#S-100001", sellerPublicId: "#S-200002" } };
+    expect(shouldIgnoreRegressiveSnapshot(cached, refreshed, false)).toBe(false);
+    expect(tradeRoomSnapshotSignature(refreshed)).not.toBe(tradeRoomSnapshotSignature(cached));
+  });
+
   it("shows newest timeline activity first and groups adjacent duplicate updates", () => {
     const entries: TradeTimelineEntry[] = [
       { id: "one", type: "payment_sent", actorUserId: "buyer-1", actorRole: "buyer", message: "Buyer marked payment sent", createdAt: "2026-08-22T12:00:00.000Z" },
