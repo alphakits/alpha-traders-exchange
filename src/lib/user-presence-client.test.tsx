@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLiveUserPresence } from "./user-presence-client";
+import { UserPresence } from "@/components/ui/user-presence";
 
 function Status({ userId }: { userId: string }) {
   const presence = useLiveUserPresence(userId);
@@ -17,14 +18,17 @@ describe("shared live presence subscriptions", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ users: {
       seller: { onlineStatus: "offline", lastActiveAt: null, lastSeenAt: null },
     } }) }));
-    render(<Status userId="seller" />);
+    render(<><Status userId="seller" /><UserPresence userId="seller" compact /></>);
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(screen.getByText("seller:No activity recorded yet")).toBeTruthy();
+    expect(screen.getByText("Status unknown")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
     vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ users: {
       seller: { onlineStatus: "online", lastSeenAt: new Date().toISOString(), lastActiveAt: new Date().toISOString() },
     } }) } as Response);
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(screen.getByText("seller:Online")).toBeTruthy();
+    expect(screen.getByText("Online")).toBeTruthy();
   });
   it("batches cards, updates without reloading, and expires a disconnected user", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ serverTime: "2026-09-24T12:00:00Z", users: {
