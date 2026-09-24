@@ -665,12 +665,10 @@ export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
     );
   }
   const wordmark = (() => {
-    if (bank.id === "hapoalim") return { top: "POALIM", bottom: "BANK" };
     if (bank.id === "leumi") return { top: "LEUMI", bottom: "BANK" };
     if (bank.id === "mizrahi-tefahot") return { top: "MIZRAHI", bottom: "TEFAHOT" };
     if (bank.id === "discount") return { top: "DISCOUNT", bottom: "BANK" };
     if (bank.id === "fibi") return { top: "FIBI", bottom: "FIRST INTL" };
-    if (bank.id === "mercantile") return { top: "MERC", bottom: "BANK" };
     if (bank.id === "yahav") return { top: "YAHAV", bottom: "BANK" };
     return { top: "JERUSALEM", bottom: "BANK" };
   })();
