@@ -26,5 +26,5 @@
       "schedule": "* * * * *"
     }
   ],
-  "buildCommand": "npm run verify:release"
+  "buildCommand": "node scripts/verify-listing-preview.mjs"
 }
