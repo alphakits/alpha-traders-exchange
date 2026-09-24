@@ -33,15 +33,13 @@ export function deriveUserPresence(input: UserPresenceData, now = Date.now()) {
     && elapsed !== null && elapsed < PRESENCE_IDLE_MS;
   if (input.presenceHidden) return { online: false, tone: "idle" as const, label: "Activity hidden", labelAr: "النشاط مخفي", compactLabel: "Activity hidden", compactLabelAr: "النشاط مخفي", minutesSinceActive: null };
   if (online) return { online, tone: "online" as const, label: "Online", labelAr: "متصل الآن", compactLabel: "Online", compactLabelAr: "متصل الآن", minutesSinceActive };
-  // Accounts that have not sent their first activity update have no observed
-  // status. Missing/invalid timestamps must not become a claim of "Offline".
+  // Only a valid live activity lease is Online. Without one, show Offline;
+  // append a last-active time only when the server actually recorded it.
   if (elapsed === null) {
-    const unrecorded = input.lastActiveAt === null && input.lastSeenAt === null;
     return {
       online: false, tone: "idle" as const,
-      label: unrecorded ? "No activity recorded yet" : "Activity unavailable",
-      labelAr: unrecorded ? "لم يُسجَّل نشاط بعد" : "النشاط غير متوفر",
-      compactLabel: "Status unknown", compactLabelAr: "الحالة غير معروفة", minutesSinceActive,
+      label: "Offline", labelAr: "غير متصل",
+      compactLabel: "Offline", compactLabelAr: "غير متصل", minutesSinceActive,
     };
   }
   const recent = elapsed < 60_000;

@@ -1048,7 +1048,9 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .seller-presence--idle { color: #8d97a4; }
 
 .seller-presence-dot {
+  position: relative;
   display: inline-block;
+  flex-shrink: 0;
   height: 8px;
   width: 8px;
   border-radius: 9999px;
@@ -1057,6 +1059,22 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .seller-presence-dot--online {
   background: #34d399;
   box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18), 0 0 10px rgba(52, 211, 153, 0.6);
+}
+.seller-presence-dot--online::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  pointer-events: none;
+  animation: user-presence-pulse 1.8s ease-out infinite;
+}
+@keyframes user-presence-pulse {
+  0% { transform: scale(1); opacity: .65; }
+  80%, 100% { transform: scale(2.5); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seller-presence-dot--online::after { display: none; animation: none; }
 }
 .seller-presence-dot--recent {
   background: #fbbf24;
