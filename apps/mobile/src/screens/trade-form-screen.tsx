@@ -136,7 +136,9 @@ export function TradeFormScreen({
   const selectedPriceUsd = mode === "offer"
     ? numericValue(priceForUsdInput(canonicalOfferPrice, listing?.currency, usdIlsRate))
     : listingPriceUsd;
-  const estimatedTotalUsd = numericValue(amount) * selectedPriceUsd;
+  const tradeValueUsd = numericValue(amount) * selectedPriceUsd;
+  const buyerFeeUsd = tradeValueUsd * 0.01;
+  const estimatedTotalUsd = tradeValueUsd + buyerFeeUsd;
   const cardlessPrice = listing ? mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price) : "";
   useEffect(() => {
     if (isCardless) { const calculated = calculateCardlessUsdtAmount(cashAmount, cardlessPrice); if (calculated) setAmount(calculated); }
@@ -444,6 +446,9 @@ export function TradeFormScreen({
         <View style={styles.totalCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("estimatedTotal")}</Text>
           <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsd(estimatedTotalUsd)}</Text>
+          <Text style={[styles.fee, isRTL && styles.rtlText]}>
+            {isRTL ? `قيمة الصفقة: ${formatUsd(tradeValueUsd)} · عمولة المشتري 1٪: ${formatUsd(buyerFeeUsd)}` : `Trade value: ${formatUsd(tradeValueUsd)} · Buyer fee 1%: ${formatUsd(buyerFeeUsd)}`}
+          </Text>
           <Text style={[styles.fee, isRTL && styles.rtlText]}>{t("feeIncluded")}</Text>
           <Text style={[styles.hint, isRTL && styles.rtlText]}>{t("serviceFeeNote")}</Text>
         </View>
