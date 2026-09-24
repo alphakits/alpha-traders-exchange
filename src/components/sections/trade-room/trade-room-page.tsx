@@ -3767,7 +3767,6 @@ function TradeRoomPageSession({
                       return (
                         <div
                           key={message.id}
-                          data-trade-message-id={message.id}
                           className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
                             message.kind === "system"
                               ? "mx-auto border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#D1D5DB]"
@@ -3785,6 +3784,7 @@ function TradeRoomPageSession({
                             <div className="min-w-0 flex-1">
                               <TradeChatMessageLabel message={message} context={room} actorId={actor.id} locale={locale} />
                               <p
+                                data-trade-message-id={message.id}
                                 lang={localizedSystemMessage ? locale : undefined}
                                 dir={localizedSystemMessage?.dir ?? "auto"}
                                 className="whitespace-pre-wrap break-words"

@@ -15,8 +15,11 @@ export function observeTradeChatReadReceipts(container: HTMLElement, requestId: 
   const flush = async () => {
     if (stopped || pending || !nativeActive.current || document.visibilityState !== "visible" || !document.hasFocus()) return;
     const bounds = container.getBoundingClientRect();
-    const top = Math.max(0, bounds.top), bottom = Math.min(window.innerHeight, bounds.bottom);
-    const left = Math.max(0, bounds.left), right = Math.min(window.innerWidth, bounds.right);
+    // Mobile keyboards can cover the layout viewport without resizing innerHeight.
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop ?? 0, viewportLeft = viewport?.offsetLeft ?? 0;
+    const top = Math.max(viewportTop, bounds.top), bottom = Math.min(viewportTop + (viewport?.height ?? window.innerHeight), bounds.bottom);
+    const left = Math.max(viewportLeft, bounds.left), right = Math.min(viewportLeft + (viewport?.width ?? window.innerWidth), bounds.right);
     const messageIds = [...container.querySelectorAll<HTMLElement>("[data-trade-message-id]")].filter(node => {
       const id = node.dataset.tradeMessageId ?? "";
       if (!unread.has(id) || acknowledged.has(id)) return false;
@@ -56,6 +59,9 @@ export function observeTradeChatReadReceipts(container: HTMLElement, requestId: 
   window.addEventListener("online", schedule);
   window.addEventListener("alpha-native-app-state", nativeState);
   document.addEventListener("visibilitychange", schedule);
+  const viewport = window.visualViewport;
+  viewport?.addEventListener("resize", schedule);
+  viewport?.addEventListener("scroll", schedule);
   const retry = setInterval(schedule, 5000);
   schedule();
   return () => {
@@ -66,6 +72,8 @@ export function observeTradeChatReadReceipts(container: HTMLElement, requestId: 
     window.removeEventListener("online", schedule);
     window.removeEventListener("alpha-native-app-state", nativeState);
     document.removeEventListener("visibilitychange", schedule);
+    viewport?.removeEventListener("resize", schedule);
+    viewport?.removeEventListener("scroll", schedule);
   };
 }
 

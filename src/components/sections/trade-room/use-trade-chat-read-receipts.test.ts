@@ -51,6 +51,17 @@ describe("visible chat read receipts", () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+  it("does not mark text covered by a mobile keyboard Seen until it becomes visible", async () => {
+    const viewport = Object.assign(new EventTarget(), { height: 140, width: 300, offsetTop: 0, offsetLeft: 0 });
+    vi.stubGlobal("visualViewport", viewport);
+    stop = observeTradeChatReadReceipts(container, "trade-1", ["message-1"], vi.fn());
+    await vi.advanceTimersByTimeAsync(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    viewport.height = 600;
+    viewport.dispatchEvent(new Event("resize"));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
   it("retries failed receipts without inventing a Seen state and stops on unmount", async () => {
     const onReceipts = vi.fn();
     fetchMock.mockRejectedValueOnce(new Error("offline"));
