@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldLabel, requiredFieldClasses } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { GroupedDecimalInput } from "@/components/ui/grouped-decimal-input";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { SellerRankCard, type SellerRankSummary } from "@/components/ui/seller-rank-card";
@@ -1099,12 +1100,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-available" required>{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</FieldLabel>
-                  <Input
+                  <GroupedDecimalInput
                     id="create-available"
                     placeholder={isAr ? "مثال: 25,000" : "e.g. 25,000"}
                     value={listingCreateForm.availableAmount}
-                    onChange={(event) => {
-                      const nextAmount = normalizeTradeAmountInput(event.target.value);
+                    onValueChange={(nextAmount) => {
                       setListingCreateForm((prev) => ({ ...prev, availableAmount: nextAmount, maximumTrade: nextAmount }));
                     }}
                     inputMode="decimal"
@@ -1115,12 +1115,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-price" required>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</FieldLabel>
-                  <Input
+                  <GroupedDecimalInput
                     id="create-price"
                     inputMode="decimal"
                     placeholder={isAr ? "السعر لكل USDT" : "Price per USDT"}
                     value={listingCreateForm.price}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
+                    normalize={normalizeDecimalInput}
+                    onValueChange={(price) => setListingCreateForm((prev) => ({ ...prev, price }))}
                     aria-required
                     aria-invalid={listingCreatePriceInvalid || undefined}
                     className={`currency-money ${cn("h-12 text-base transition-all duration-200 md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}`}
@@ -1174,11 +1175,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-min-trade" required>{currencyText(isAr ? "أدنى صفقة (USDT)" : "Minimum Trade (USDT)")}</FieldLabel>
-                  <Input
+                  <GroupedDecimalInput
                     id="create-min-trade"
                     placeholder={isAr ? "أدنى مبلغ" : "Smallest amount"}
                     value={listingCreateForm.minimumTrade}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))}
+                    onValueChange={(minimumTrade) => setListingCreateForm((prev) => ({ ...prev, minimumTrade }))}
                     inputMode="decimal"
                     aria-required
                     className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}`}
@@ -1187,16 +1188,15 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-max-trade" required>{currencyText(isAr ? "أقصى صفقة (USDT)" : "Maximum Trade (USDT)")}</FieldLabel>
-                  <Input
+                  <GroupedDecimalInput
                     id="create-max-trade"
                     placeholder={isAr ? "أكبر مبلغ" : "Largest amount"}
                     value={listingCreateForm.maximumTrade}
-                    onChange={(event) => setListingCreateForm((prev) => {
+                    onValueChange={(normalizedMax) => setListingCreateForm((prev) => {
                       const listedAmount = toNumber(prev.availableAmount);
                       if (listedAmount <= 0) {
                         return { ...prev, maximumTrade: "" };
                       }
-                      const normalizedMax = normalizeTradeAmountInput(event.target.value);
                       const requestedMax = toNumber(normalizedMax);
                       if (!normalizedMax || normalizedMax.endsWith(".") || requestedMax <= listedAmount) {
                         return { ...prev, maximumTrade: normalizedMax };
@@ -1257,7 +1257,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p className="mt-1 text-xs text-[#D1D5DB]">{listingCreateRequiresBankAccount
                     ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
                     : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
-                  <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}>
+                  <div className="mt-3 grid gap-2" data-testid="create-bank-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 7rem), 1fr))" }}>
                     {ISRAELI_BANKS.map((bank) => {
                       const selected = listingCreateSelectedBanks.includes(bank.name);
                       return (
@@ -1275,14 +1275,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                               : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/45"
                           }`}
                         >
-                          <div className="flex min-w-0 items-center gap-2">
+                          <div className="relative flex min-w-0 flex-col items-start gap-2 pe-4">
                             <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/35">
                               {renderBankLogo(bank)}
                             </span>
                             <div className="min-w-0 flex-1">
                               <p className="break-words text-sm font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
                             </div>
-                            {selected ? <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[#93C5FD]" /> : null}
+                            {selected ? <Check aria-hidden="true" className="absolute end-0 top-0 h-4 w-4 text-[#93C5FD]" /> : null}
                           </div>
                         </button>
                       );
