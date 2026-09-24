@@ -4,12 +4,14 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AppLocale } from "@/i18n/routing";
 import { clearClientLocaleChoice } from "@/i18n/locale-preference";
+import { isProtectedPage } from "@/lib/protected-page";
 
 export type CanonicalSessionRefreshResult = "authenticated" | "anonymous" | "unavailable";
 
 type CanonicalSessionContextValue = {
   user: ClientSessionUser | null;
   isResolving: boolean;
+  isRestoring: boolean;
   error: boolean;
   refresh: (options?: { force?: boolean; background?: boolean }) => Promise<CanonicalSessionRefreshResult>;
 };
@@ -29,12 +31,8 @@ export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
   );
 }
 
-export function getSessionExpiryLoginDestination(location: Pick<Location, "pathname" | "search" | "hash">) {
-  const pathname = location.pathname || "/";
-  const locale = pathname.match(/^\/(ar|en)(?:\/|$)/)?.[1] ?? "en";
-  if (new RegExp(`^/${locale}/(?:login|register)(?:/|$)`).test(pathname)) return null;
-  const intendedDestination = `${pathname}${location.search ?? ""}${location.hash ?? ""}`;
-  return `/en/login?sessionExpired=1&redirectTo=${encodeURIComponent(intendedDestination)}`;
+export function getSessionExpiryHomeDestination(location: Pick<Location, "pathname">) {
+  return isProtectedPage(location.pathname || "/") ? "/en" : null;
 }
 
 export function CanonicalSessionProvider({
@@ -52,6 +50,7 @@ export function CanonicalSessionProvider({
   // second /api/auth/me round trip on every navigation.
   const [isResolving, setIsResolving] = useState(initialSessionUser === null);
   const [error, setError] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const requestRef = useRef<Promise<CanonicalSessionRefreshResult> | null>(null);
   const cancelReadRef = useRef<(() => void) | null>(null);
   const requestIdRef = useRef(0);
@@ -98,7 +97,10 @@ export function CanonicalSessionProvider({
         if (!response.ok) {
           const result: CanonicalSessionRefreshResult = response.status === 401 || response.status === 403 ? "anonymous" : "unavailable";
           if (mountedRef.current && requestId === requestIdRef.current) {
-            if (result === "anonymous") setUser(null);
+            if (result === "anonymous") {
+              setUser(null);
+              setIsRestoring(false);
+            }
             setError(result === "unavailable");
           }
           return result;
@@ -111,6 +113,7 @@ export function CanonicalSessionProvider({
           // not remount its streams or reload every workspace panel.
           setUser((current) => JSON.stringify(current) === JSON.stringify(nextUser) ? current : nextUser);
           setError(false);
+          setIsRestoring(false);
         }
         return result;
       } catch {
@@ -175,7 +178,9 @@ export function CanonicalSessionProvider({
     mountedRef.current = true;
     void refresh({ background: hasInitialSession });
     const handleAuthChange = () => void refresh({ force: true });
-    const handleSignedOut = () => {
+    const sessionChannel = typeof BroadcastChannel === "function"
+      ? new BroadcastChannel("alpha.auth.session.v1") : null;
+    const clearSignedOutSession = () => {
       clearClientLocaleChoice();
       hadAuthenticatedSessionRef.current = false;
       expiryRedirectStartedRef.current = true;
@@ -188,6 +193,14 @@ export function CanonicalSessionProvider({
       setUser(null);
       setError(false);
       setIsResolving(false);
+      setIsRestoring(false);
+    };
+    const handleSignedOut = () => {
+      clearSignedOutSession();
+      sessionChannel?.postMessage("signed-out");
+    };
+    if (sessionChannel) sessionChannel.onmessage = (event) => {
+      if (event.data === "signed-out") clearSignedOutSession();
     };
     const resumeSessionRecovery = () => {
       if (document.visibilityState === "hidden" || navigator.onLine === false || expiryRedirectStartedRef.current) return;
@@ -199,13 +212,22 @@ export function CanonicalSessionProvider({
         void refresh({ background: true });
       }
     };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      // Back/forward cache can restore a page immediately after logout. Do not
+      // let the normal resume throttle skip verification of that saved page.
+      if (event.persisted) {
+        setIsRestoring(true);
+        void refresh({ force: true });
+      } else resumeSessionRecovery();
+    };
     window.addEventListener("alpha-auth-changed", handleAuthChange);
     window.addEventListener("alpha-auth-signed-out", handleSignedOut);
     window.addEventListener("online", resumeSessionRecovery);
-    window.addEventListener("pageshow", resumeSessionRecovery);
+    window.addEventListener("pageshow", handlePageShow);
     window.addEventListener("focus", resumeSessionRecovery);
     document.addEventListener("visibilitychange", resumeSessionRecovery);
     return () => {
+      sessionChannel?.close();
       mountedRef.current = false;
       recoveryNeededRef.current = false;
       clearSessionRecovery();
@@ -216,7 +238,7 @@ export function CanonicalSessionProvider({
       window.removeEventListener("alpha-auth-changed", handleAuthChange);
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
       window.removeEventListener("online", resumeSessionRecovery);
-      window.removeEventListener("pageshow", resumeSessionRecovery);
+      window.removeEventListener("pageshow", handlePageShow);
       window.removeEventListener("focus", resumeSessionRecovery);
       document.removeEventListener("visibilitychange", resumeSessionRecovery);
     };
@@ -271,14 +293,14 @@ export function CanonicalSessionProvider({
       return;
     }
     if (isResolving || error || !hadAuthenticatedSessionRef.current || expiryRedirectStartedRef.current) return;
-    const destination = getSessionExpiryLoginDestination(window.location);
+    const destination = getSessionExpiryHomeDestination(window.location);
     if (!destination) return;
     expiryRedirectStartedRef.current = true;
     clearClientLocaleChoice();
     window.location.replace(destination);
   }, [error, isResolving, user]);
 
-  return <CanonicalSessionContext.Provider value={{ user, isResolving, error, refresh }}>{children}</CanonicalSessionContext.Provider>;
+  return <CanonicalSessionContext.Provider value={{ user, isResolving, isRestoring, error, refresh }}>{children}</CanonicalSessionContext.Provider>;
 }
 
 export function useCanonicalSession() {

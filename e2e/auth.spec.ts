@@ -59,24 +59,24 @@ test.describe("Guest access", () => {
     await expect(page.locator("body")).toBeVisible();
   });
 
-  test("protected route /en/academy redirects to login", async ({ page }) => {
+  test("protected route /en/academy redirects to the public home", async ({ page }) => {
     await page.goto("/en/academy");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en$/);
   });
 
-  test("protected route /en/usdt-exchange redirects to login", async ({ page }) => {
+  test("protected route /en/usdt-exchange redirects to the public home", async ({ page }) => {
     await page.goto("/en/usdt-exchange");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en$/);
   });
 
-  test("protected route /en/dashboard redirects to login", async ({ page }) => {
+  test("protected route /en/dashboard redirects to the public home", async ({ page }) => {
     await page.goto("/en/dashboard");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en$/);
   });
 
-  test("protected route /en/profile redirects to login", async ({ page }) => {
+  test("protected route /en/profile redirects to the public home", async ({ page }) => {
     await page.goto("/en/profile");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en$/);
   });
 
   test("login page is publicly accessible", async ({ page }) => {
@@ -158,14 +158,14 @@ test.describe("Authentication", () => {
     expect(page.url()).toBe(urlAfterLogin);
   });
 
-  test("logout clears session and redirects to login", async ({ page }) => {
+  test("logout clears session and redirects to the public home", async ({ page }) => {
     test.setTimeout(60_000);
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.request.post("/api/auth/logout");
-    // After logout, protected route redirects to login
+    // After logout, protected routes return to the public homepage.
     await page.goto("/en/academy");
-    await expect(page).toHaveURL(/\/en\/login/, { timeout: 30_000 });
+    await expect(page).toHaveURL(/\/en$/, { timeout: 30_000 });
   });
 });
 

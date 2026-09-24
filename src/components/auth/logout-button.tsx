@@ -57,7 +57,7 @@ export function LogoutButton({
       onSignedOut?.();
       window.dispatchEvent(new Event("alpha-auth-signed-out"));
       window.dispatchEvent(new Event("alpha-auth-changed"));
-      window.location.replace("/en/login");
+      window.location.replace("/en");
     } catch (error) {
       window.clearTimeout(safetyTimeout);
       if (error instanceof Error && error.name === "AbortError") {

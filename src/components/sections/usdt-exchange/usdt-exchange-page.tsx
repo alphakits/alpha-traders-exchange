@@ -24,7 +24,6 @@ import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { rankSurfaceTone } from "@/lib/rank-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
@@ -308,11 +307,6 @@ export function canCancelBuyerHistoryRequest(request: PurchaseRequest, actorUser
 
 type FeatureCard = {
   icon: typeof ShieldCheck;
-  title: string;
-  body: string;
-};
-
-type TimelineStep = {
   title: string;
   body: string;
 };
@@ -1473,13 +1467,15 @@ export function UsdtExchangePage({
   const marketFeed = useMarketFeed({ refreshMs: 45_000 });
   const marketSnapshot = marketFeed.snapshot;
 
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
+  // Read the same principal as the header in this render. Mirroring it through
+  // an effect can briefly retain a previous account after sign-out.
+  const sessionUser = canonicalSession ? canonicalSession.user : initialSessionUser ?? null;
   const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   // The server-backed session is authoritative for seller-application eligibility.
   // The initial value is only a bootstrap snapshot and can have stale roles.
-  const [isSessionResolving, setIsSessionResolving] = useState(Boolean(canonicalSession));
-  const [sessionResolutionError, setSessionResolutionError] = useState(false);
+  const isSessionResolving = canonicalSession?.isResolving ?? false;
+  const sessionResolutionError = canonicalSession?.error ?? false;
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
@@ -2397,15 +2393,6 @@ export function UsdtExchangePage({
   }, [isAr, refreshNotifications, setStatusMessage]);
 
   useEffect(() => {
-    if (!canonicalSession) return;
-    setIsSessionResolving(canonicalSession.isResolving);
-    setSessionResolutionError(canonicalSession.error);
-    if (!canonicalSession.isResolving) {
-      setSessionUser(canonicalSession.user);
-    }
-  }, [canonicalSession]);
-
-  useEffect(() => {
     if (isLoginJourneyTraceEnabled()) {
       finalizeLoginJourneyRedirectEnd(Date.now());
     }
@@ -2846,29 +2833,6 @@ export function UsdtExchangePage({
       icon: Sparkles,
       title: isAr ? "تجربة عملاء بريميوم" : "Premium Customer Experience",
       body: isAr ? "واجهة وتجربة احترافية تمنحك ثقة ووضوح في كل مرحلة." : "A premium, confidence-first experience with clear process visibility.",
-    },
-  ], [isAr]);
-
-  const timelineSteps = useMemo<TimelineStep[]>(() => [
-    {
-      title: isAr ? "المشتري يرسل طلب الصفقة" : "Buyer submits trade request",
-      body: isAr ? "يتم تسجيل طلب الصفقة فور الإرسال ضمن سجل زمني دائم." : "The request is recorded as a permanent timeline event immediately.",
-    },
-    {
-      title: isAr ? "البائع يقبل الطلب" : "Seller accepts request and creates trade",
-      body: isAr ? "يبقى Trade ID ثابتًا من لحظة الطلب وحتى إكمال الصفقة." : "The Trade ID stays fixed from the moment the request is created through trade completion.",
-    },
-    {
-      title: isAr ? "المشتري يحدد Payment Sent" : "Buyer marks Payment Sent",
-      body: isAr ? "يتم تحديث الحالة زمنيًا لبدء مرحلة التسليم." : "Timeline updates to payment-sent stage for delivery handoff.",
-    },
-    {
-      title: isAr ? "البائع يحدد USDT Sent" : "Seller marks USDT Sent",
-      body: isAr ? "يتم تسجيل إرسال USDT وتنتظر الصفقة تأكيد المشتري." : "USDT-sent step is logged and waits for buyer confirmation.",
-    },
-    {
-      title: isAr ? "المشتري يؤكد الإتمام" : "Buyer confirms completion",
-      body: isAr ? "تُقفل الصفقة تلقائيًا ثم تُفتح نافذة المراجعة." : "Trade auto-locks and review window opens after completion.",
     },
   ], [isAr]);
 
@@ -3684,7 +3648,7 @@ export function UsdtExchangePage({
     return () => window.clearInterval(interval);
   }, [isAr]);
   const welcomeRole = sessionUser ? accountRoleIdentity(sessionUser) : "guest";
-  const workspaceDisplayId = sessionUser ? publicAccountName(sessionUser) : "#AT-000000";
+  const workspaceDisplayId = sessionUser ? publicAccountName(sessionUser) : "";
   // This greeting belongs to the authenticated account. Public trade identity stays AT ID.
   const workspacePrimaryName = sessionUser?.fullName?.trim() || (isAr ? "المتداول" : "Trader");
   const workspacePositiveMessage = welcomeRole === "owner"
@@ -3712,7 +3676,6 @@ export function UsdtExchangePage({
   const commissionWorkspaceAction = getCommissionWorkspaceAction(sellerCommissionStatus);
   const standardCommissionDueActive = isSellerWorkspaceUser && commissionWorkspaceAction.kind !== "none";
   const marketplaceComplianceActive = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
-  const workspaceIdentityName = isAr ? `السيد/السيدة ${workspacePrimaryName}` : `Mr./Mrs. ${workspacePrimaryName}`;
   type AttentionItem = {
     title: string;
     body: string;
@@ -5227,6 +5190,8 @@ export function UsdtExchangePage({
     </div>
   );
 
+  if (!sessionUser) return null;
+
   return (
     <section className="section-container page-shell exchange-marketplace-shell overflow-x-clip">
       {statusMessage && !selectedListing ? (
@@ -5344,110 +5309,6 @@ export function UsdtExchangePage({
         </>
       ) : null}
 
-      {!sessionUser ? (
-      <>
-      <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-10">
-        <div className="pointer-events-none absolute inset-0 opacity-40">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_82%_20%,rgba(201,162,39,0.12),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
-          <div className="absolute inset-0 bg-[repeating-linear-gradient(60deg,rgba(201,162,39,0.09)_0px,rgba(201,162,39,0.09)_1px,transparent_1px,transparent_56px),repeating-linear-gradient(-60deg,rgba(201,162,39,0.06)_0px,rgba(201,162,39,0.06)_1px,transparent_1px,transparent_56px)]" />
-          <span className="absolute left-[15%] top-[22%] h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4AF37]/80" />
-          <span className="absolute left-[54%] top-[35%] h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4AF37]/80 [animation-delay:0.7s]" />
-          <span className="absolute left-[77%] top-[58%] h-1.5 w-1.5 animate-pulse rounded-full bg-[#D4AF37]/80 [animation-delay:1.2s]" />
-        </div>
-
-        <div className={`relative z-10 max-w-4xl ${isAr ? "md:ms-auto md:text-right" : ""}`}>
-          <p className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-[#C9A227]">
-            <Store className="h-3.5 w-3.5" />
-            Alpha Exchange
-          </p>
-          <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">{isApprovedSeller ? (isAr ? "إعادة الدخول إلى مساحة البيع" : "Returning to your seller workspace") : (isAr ? "إعادة الدخول إلى مساحة الشراء" : "Returning to your buyer workspace")}</p>
-          <h1 className="mt-2 text-4xl font-semibold leading-tight text-white md:text-6xl md:leading-[1.1]">{currencyText(workspaceIdentityName)}</h1>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-white/85 md:text-lg">
-            {brandText(workspacePositiveMessage)}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved seller") : (isAr ? "مشتري نشط" : "Active buyer")}</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{currencyText(workspaceDisplayId)}</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-[#D1D5DB]">{isApprovedSeller ? sellerLevelLabel(sellerRankSummary?.sellerLevel ?? sellerOverviewStats.reputation?.level, isAr) : (isAr ? "جاهز للتصفح" : "Ready to browse")}</span>
-          </div>
-          <div className={`mt-7 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-            <a href="#marketplace">
-              <Button>{isAr ? "ابدأ صفقة" : "Start a Trade"}</Button>
-            </a>
-            <a href="#how-it-works">
-              <Button variant="secondary">{isAr ? "تعرّف على آلية العمل" : "Learn How It Works"}</Button>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <Card className="mt-8 border-white/10 bg-[#0B0B0B]/90">
-        <CardHeader>
-          <CardTitle>{isAr ? "للبائعين المعتمدين فقط" : "Approved Sellers Only"}</CardTitle>
-          <CardDescription>
-            {brandText(isAr
-              ? "يسمح فقط للبائعين المعتمدين من Alpha Traders بنشر العروض. يتم مراجعة كل طلب بائع يدويًا قبل الموافقة."
-              : "Only sellers approved by Alpha Traders are allowed to publish listings. Every seller application is reviewed manually before approval.")}
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      <div className="mt-6">
-        <AlphaMarketCenterView
-          locale={locale}
-          snapshot={marketSnapshot}
-          isLoading={marketFeed.isLoading}
-          error={marketFeed.error}
-        />
-      </div>
-
-      <div className="mt-6">
-        <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "مركز الثقة والأمان" : "Trust & Security"}</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              title: isAr ? "البائعون المعتمدون" : "Approved Sellers",
-              body: isAr ? "فقط البائعون المعتمدون يدويًا يمكنهم نشر العروض." : "Only manually approved sellers can publish listings.",
-              icon: ShieldCheck,
-            },
-            {
-              title: isAr ? "عمولة 1% شفافة" : "Transparent 1% Commission",
-              body: isAr ? "تحتسب Alpha Traders عمولة واضحة 1% على المعاملات المكتملة." : "Alpha Traders charges a simple, transparent 1% commission on completed transactions.",
-              icon: BadgePercent,
-            },
-            {
-              title: isAr ? "الخصوصية" : "Privacy",
-              body: isAr ? "يتم التعامل مع بيانات المستخدمين بشكل آمن." : "User information is handled securely.",
-              icon: LockKeyhole,
-            },
-            {
-              title: isAr ? "الدعم" : "Support",
-              body: isAr ? "دعم مباشر داخل غرفة التداول أثناء عملية التداول." : "Direct support inside the Trade Room during the trading process.",
-              icon: MessageCircle,
-            },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90">
-                <CardHeader>
-                  <div className="inline-flex items-center gap-2">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <CardTitle className="text-base">{currencyText(item.title)}</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>{currencyText(item.body)}</CardDescription>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-      </>
-      ) : null}
-
       {workspaceError ? (
         <Card className="mt-6 border-amber-500/30 bg-[#0B0B0B]/95">
           <CardContent className="flex items-center gap-3 p-4 text-sm text-[#FDE68A]">
@@ -5456,34 +5317,6 @@ export function UsdtExchangePage({
           </CardContent>
         </Card>
       ) : null}
-
-      {!sessionUser ? (
-      <div id="how-it-works" className="mt-12">
-        <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "كيف يعمل Alpha Exchange" : "How It Works"}</h2>
-        <div className="mt-6 space-y-3">
-          {timelineSteps.map((step, index) => (
-            <div key={step.title} className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5">
-              <div className="pointer-events-none absolute inset-y-0 start-0 w-1 bg-gradient-to-b from-[#C9A227]/80 via-[#C9A227]/20 to-transparent" />
-              <div className={`flex items-start gap-4 ${isAr ? "flex-row-reverse" : ""}`}>
-                <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#C9A227]">
-                  {index + 1}
-                </span>
-                <div>
-                  <h3 className="text-lg font-semibold">{currencyText(step.title)}</h3>
-                  <p className="mt-1 text-sm leading-7 text-[#9CA3AF]">{currencyText(step.body)}</p>
-                </div>
-              </div>
-              {index < timelineSteps.length - 1 ? (
-                <div className={`mt-3 flex ${isAr ? "justify-end pe-2" : "ps-2"}`}>
-                  <span className="text-[#C9A227]/65">↓</span>
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </div>
-      ) : null}
-
       <div id="marketplace" className={isDashboardWorkspace ? "hidden" : "mt-12"}>
         <div id="marketplace-sellers" className="scroll-mt-28" />
         <div className="flex flex-wrap items-center justify-between gap-2">

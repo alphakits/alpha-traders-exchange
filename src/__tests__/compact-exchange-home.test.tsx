@@ -66,6 +66,16 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("compact Exchange home", () => {
+  it.each([390, 1440])("never renders an anonymous buyer workspace at %spx", async width => {
+    viewportWidth = width;
+    const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={null} />);
+    await act(async () => {});
+    expect(container.textContent).toBe("");
+    expect(screen.queryByText("Returning to your buyer workspace")).toBeNull();
+    expect(screen.queryByText("#AT-000000")).toBeNull();
+    expect(screen.queryByText("Start a Trade")).toBeNull();
+  });
+
   it.each(["en", "ar"] as const)("keeps rank progress, moves browsing up, and opens the active trade in one click (%s)", async (locale) => {
     viewportWidth = 390;
     const isAr = locale === "ar";
