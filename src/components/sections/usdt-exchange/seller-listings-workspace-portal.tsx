@@ -15,9 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { DiscordShareAction, type DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, requiresSellerPayoutBankAccount, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { LISTING_CHANGE_REASONS } from "@/lib/listing-change-reasons";
-import { ensurePayoutBankIsSupported } from "@/lib/seller-listing-bank-selection";
+import { ensurePayoutBankIsSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { cn } from "@/lib/utils";
 import type { MarketplaceListing, PurchaseRequest, SupportedNetwork } from "@/types/alpha-exchange";
@@ -325,20 +325,20 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         disabled={listingBusy}
                         onClick={() => {
                           setEditingListingId(listing.id);
-                          setListingEditForm({
+                          setListingEditForm(syncListingBankSelection({
                             availableAmount: listing.availableAmount,
                             price: listing.price,
                             currency: listing.currency,
                             network: listing.network,
                             paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
-                            bankAccountId: listing.bankAccountId ?? (sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id ?? ""),
+                            bankAccountId: listing.bankAccountId ?? "",
                             bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listingMaximumForAvailableAmount(listing),
                             sellerDescription: listing.sellerDescription ?? "",
                             changeReason: "",
                             changeExplanation: "",
-                          });
+                          }, sellerBankAccounts));
                           setListingEditOriginal({
                             availableAmount: listing.availableAmount,
                             price: listing.price,
@@ -420,21 +420,14 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                                 <button
                                   key={`${listing.id}-method-${method}`}
                                   type="button"
+                                  aria-pressed={selected}
                                   onClick={() => setListingEditForm((prev) => {
-                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
-                                    const selectedAccount = sellerBankAccounts.find((account) => account.id === prev.bankAccountId);
-                                    const nextBanks = requiresSellerPayoutBankAccount(nextMethods)
-                                      ? ensurePayoutBankIsSupported(
-                                          parseIsraeliBankSelection(prev.bankName),
-                                          selectedAccount?.bankName,
-                                          MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
-                                        )
-                                      : parseIsraeliBankSelection(prev.bankName);
-                                    return {
+                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS, true);
+                                    return syncListingBankSelection({
                                       ...prev,
                                       paymentMethods: nextMethods,
-                                      bankName: requiresBankSelection(nextMethods) ? serializeIsraeliBankSelection(nextBanks) : "",
-                                    };
+                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                                    }, sellerBankAccounts);
                                   })}
                                   className={`rounded-xl border p-2.5 text-start transition-all duration-200 ${
                                     selected
@@ -452,8 +445,10 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} aria-label={isAr ? "وصف البائع" : "Seller description"} placeholder={isAr ? "وصف البائع" : "Seller Description"} />
                         {listingEditRequiresBank ? (
                         <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "البنوك المدعومة" : "Supported banks"} *</p>
-                          <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`}</p>
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{listingEditRequiresBankAccount ? (isAr ? "البنوك المدعومة" : "Supported banks") : (isAr ? "بنوك السحب بلا بطاقة" : "Cardless withdrawal banks")} *</p>
+                          <p className="mt-1 text-xs text-[#D1D5DB]">{listingEditRequiresBankAccount
+                            ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
+                            : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                             {ISRAELI_BANKS.map((bank) => {
                               const selected = listingEditSelectedBanks.includes(bank.name);

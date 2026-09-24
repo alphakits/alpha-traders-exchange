@@ -34,7 +34,7 @@ import { getSellerApplicationEligibility } from "@/lib/seller-application-eligib
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
-import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
+import { parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { getDefaultListingPaymentMethods, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, requiresSellerPayoutBankAccount, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
@@ -64,7 +64,7 @@ import { cn } from "@/lib/utils";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
-import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
+import { isPayoutBankSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
 import { normalizeLocalizedDecimalInput, normalizeTradeAmountInput } from "@/lib/trade-amount";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
@@ -1060,10 +1060,10 @@ export function requiresBankSelection(methods: string[] | undefined, fallback?: 
   return requiresIsraeliBankSelection(methods, fallback);
 }
 
-export function toggleSelection(values: string[], nextValue: string, maxSelections: number) {
+export function toggleSelection(values: string[], nextValue: string, maxSelections: number, allowEmpty = false) {
   const nextSet = new Set(values);
   if (nextSet.has(nextValue)) {
-    if (nextSet.size === 1) return values;
+    if (nextSet.size === 1 && !allowEmpty) return values;
     nextSet.delete(nextValue);
     return Array.from(nextSet);
   }
@@ -1637,22 +1637,8 @@ export function UsdtExchangePage({
   }, [isSessionResolving, refreshCanonicalSession, sessionUser]);
 
   useEffect(() => {
-    if (!sellerBankAccounts.length) return;
-    const preferredBankAccount = sellerBankAccounts.find((account) => account.isDefault) ?? sellerBankAccounts[0];
-    if (!preferredBankAccount) return;
-    setListingCreateForm((prev) => {
-      const selectedAccount = sellerBankAccounts.find((account) => account.id === prev.bankAccountId) ?? preferredBankAccount;
-      const nextBanks = ensurePayoutBankIsSupported(
-        parseIsraeliBankSelection(prev.bankName),
-        selectedAccount.bankName,
-        MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
-      );
-      const nextBankName = serializeIsraeliBankSelection(nextBanks);
-      if (prev.bankAccountId === selectedAccount.id && prev.bankName === nextBankName) return prev;
-      return { ...prev, bankAccountId: selectedAccount.id, bankName: nextBankName };
-    });
-    const preferredBankAccountId = preferredBankAccount.id;
-    setListingEditForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: preferredBankAccountId }));
+    setListingCreateForm((prev) => syncListingBankSelection(prev, sellerBankAccounts));
+    setListingEditForm((prev) => syncListingBankSelection(prev, sellerBankAccounts));
   }, [sellerBankAccounts]);
 
   const tradeReturnPath = selectedListing
@@ -4540,8 +4526,8 @@ export function UsdtExchangePage({
           currency: "ILS",
           network: listingCreateForm.network,
           paymentMethods: listingCreateSelectedMethods,
-          bankAccountId: listingCreateForm.bankAccountId || undefined,
-          bankName: serializeIsraeliBankSelection(listingCreateSelectedBanks),
+          bankAccountId: listingCreateRequiresBankAccount ? listingCreateForm.bankAccountId || undefined : undefined,
+          bankName: listingCreateRequiresBank ? serializeIsraeliBankSelection(listingCreateSelectedBanks) : undefined,
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
           sellerDescription: listingCreateForm.sellerDescription,
@@ -4619,8 +4605,8 @@ export function UsdtExchangePage({
           currency: listingEditForm.currency,
           network: listingEditForm.network,
           paymentMethods: listingEditSelectedMethods,
-          bankAccountId: listingEditForm.bankAccountId || undefined,
-          bankName: serializeIsraeliBankSelection(listingEditSelectedBanks),
+          bankAccountId: listingEditRequiresBankAccount ? listingEditForm.bankAccountId || undefined : undefined,
+          bankName: listingEditRequiresBank ? serializeIsraeliBankSelection(listingEditSelectedBanks) : undefined,
           minimumTrade: listingEditForm.minimumTrade,
           maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
           sellerDescription: listingEditForm.sellerDescription,
