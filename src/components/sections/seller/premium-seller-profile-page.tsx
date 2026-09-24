@@ -2,7 +2,7 @@ import { OwnerPrivateContact } from "@/components/profile/owner-private-contact"
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { ArrowRight, BadgeCheck, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, Trophy, WalletCards, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, ChevronDown, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, Trophy, WalletCards, Zap } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { publicAccountId } from "@/lib/public-account-identity";
@@ -230,7 +230,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
     return null;
   }
 
-  const visibleReviews = getVisibleSellerReviews(profile.latestReviews);
+  // The public profile supplies reviews newest first; filter moderation before choosing the latest.
+  const [latestReview, ...olderReviews] = getVisibleSellerReviews(profile.latestReviews);
   const reviewStats = { averageRating: profile.averageRating, reviewCount: profile.totalReviews };
   const paymentMethods = seller.preferredPaymentMethods?.length
     ? seller.preferredPaymentMethods
@@ -579,9 +580,31 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   <p className="text-xs text-[#9CA3AF]">{reviewStats.reviewCount} {isAr ? "تقييم" : "reviews"}</p>
                 </div>
               </div>
-              {visibleReviews.length ? visibleReviews.slice(0, 4).map((review) => (
-                <SellerProfileReviewCard key={review.id} review={review} locale={locale} />
-              )) : <p className="empty-state-panel">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
+              {latestReview ? (
+                <>
+                  <p className="text-xs font-medium text-[#FDE68A]">{isAr ? "أحدث تقييم" : "Latest review"}</p>
+                  <SellerProfileReviewCard review={latestReview} locale={locale} />
+                  {olderReviews.length ? (
+                    <details className="group min-w-0">
+                      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-[#D1D5DB] hover:border-[#C9A227]/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] [&::-webkit-details-marker]:hidden">
+                        <span className="min-w-0 group-open:hidden">
+                          {isAr ? "عرض التقييمات السابقة" : "Show older reviews"} ({olderReviews.length})
+                        </span>
+                        <span className="hidden min-w-0 group-open:inline">
+                          {isAr ? "إخفاء التقييمات السابقة" : "Hide older reviews"}
+                        </span>
+                        <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+                      </summary>
+                      <div role="region" aria-label={isAr ? "التقييمات السابقة" : "Older reviews"} tabIndex={0}
+                        className="mt-3 max-h-96 min-w-0 space-y-3 overflow-y-auto overscroll-contain rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]">
+                        {olderReviews.map((review) => (
+                          <SellerProfileReviewCard key={review.id} review={review} locale={locale} />
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </>
+              ) : <p className="empty-state-panel">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
             </CardContent>
           </Card>
 
