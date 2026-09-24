@@ -22,6 +22,7 @@ import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-met
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
+import { SellerProfileReviewCard } from "./seller-profile-review-card";
 
 function formatSellerLevelLabel(level: SellerLevel | undefined, isAr: boolean) {
   if (level === "elite") return isAr ? "بائع ألفا النخبة" : "Alpha Elite Seller";
@@ -229,7 +230,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
     return null;
   }
 
-  const visibleReviews = getVisibleSellerReviews(profile.latestReviews as never[]);
+  const visibleReviews = getVisibleSellerReviews(profile.latestReviews);
   const reviewStats = { averageRating: profile.averageRating, reviewCount: profile.totalReviews };
   const paymentMethods = seller.preferredPaymentMethods?.length
     ? seller.preferredPaymentMethods
@@ -579,25 +580,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 </div>
               </div>
               {visibleReviews.length ? visibleReviews.slice(0, 4).map((review) => (
-                <div key={review.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
-                    <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{isOwnerSeller ? <Crown className="h-12 w-12" aria-hidden="true" /> : <RankEmblem rank={profile.sellerLevel} className="!h-20 !w-20 [&>svg]:!h-10 [&>svg]:!w-10" />}</div>
-                      <div>
-                        <p className="font-medium text-white"><bdi dir="auto">{currencyText(seller.sellerName)}</bdi></p>
-                        <p className="text-xs text-[#9CA3AF]">{new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</p>
-                      </div>
-                    </div>
-                    <div className="text-sm text-[#FDE68A]">{Array.from({ length: review.rating }).map((_, index) => <span key={`${review.id}-${index}`}>★</span>)}</div>
-                  </div>
-                  <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{currencyText(review.comment)}</bdi></p>
-                  <div className={`mt-3 flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: <bdi dir="ltr">{currencyText(`${review.tradeAmount} USDT`)}</bdi></span>
-                    <span>{isAr ? "التاريخ" : "Trade date"}: {new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</span>
-                    <bdi dir="ltr">{currencyText(review.network)}</bdi>
-                  </div>
-                  {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]"><bdi dir="auto">{currencyText(review.sellerReply)}</bdi></div> : null}
-                </div>
+                <SellerProfileReviewCard key={review.id} review={review} locale={locale} />
               )) : <p className="empty-state-panel">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
             </CardContent>
           </Card>

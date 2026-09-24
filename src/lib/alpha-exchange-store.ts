@@ -2227,13 +2227,21 @@ export async function getPremiumSellerProfile(input: {
   if (!publicAccount) return null;
   const viewerIsOwner = isPublicOwnerIdentity(db.users.find(user => user.id === input.viewerUserId));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
-  const viewerCanViewPrivateContent = viewerIsOwner;
-  const reviewText = viewerIsOwner ? (value?: string) => value ?? "" : identityTextRedactor(db.users, true);
   const canSeeExactSellerStats = viewerIsSellerOwner || viewerIsOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
   const completedStatuses = new Set<PurchaseRequestStatus>(["completed", "locked", "review_open"]);
   const completedTrades = sellerRequests.filter((request) => completedStatuses.has(request.status) || Boolean(request.completedAt));
+  // Public reviews keep the same AT identity for every viewer. Include saved
+  // buyer names so old reviews/replies stay private after an account name change.
+  const reviewText = identityTextRedactor([
+    ...db.users,
+    ...completedTrades.map((request) => ({
+      ...usersById.get(request.buyerId),
+      id: request.buyerId,
+      fullName: request.buyerName,
+    })),
+  ], true);
   const reviews = completedTrades
     .filter((request) => request.buyerReview && (viewerIsOwner || viewerIsSellerOwner || request.buyerReview.hidden !== true))
     .map((request) => ({
@@ -2243,9 +2251,10 @@ export async function getPremiumSellerProfile(input: {
       comment: reviewText(request.buyerReview!.comment),
       createdAt: request.buyerReview!.createdAt,
       buyerId: request.buyerId,
-      buyerName: accountNameForViewer(usersById.get(request.buyerId) ?? { id: request.buyerId }, db.users.find(user => user.id === input.viewerUserId)),
+      buyerName: publicAccountId(usersById.get(request.buyerId) ?? { id: request.buyerId }),
       verifiedPurchase: true,
-      sellerResponse: request.sellerResponse && !viewerCanViewPrivateContent
+      hidden: request.buyerReview!.hidden === true,
+      sellerResponse: request.sellerResponse
         ? { ...request.sellerResponse, message: reviewText(request.sellerResponse.message) }
         : request.sellerResponse,
     }))

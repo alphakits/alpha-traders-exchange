@@ -132,6 +132,37 @@ describe("account rank consistency and privacy", () => {
       expect(JSON.stringify(publicProfile)).not.toMatch(/Maya|Chen|Amir|Hassan|1234567|9876543|example\.test/i);
     }
   });
+  it("keeps old review authors and saved names private for every public-profile viewer", async () => {
+    const db = seed();
+    const buyer = db.users[2];
+    buyer.fullName = "Current Private Reviewer";
+    const owner = { ...user("review-owner"), fullName: "Public Owner", role: "owner", roles: ["owner", "admin"] } as AlphaExchangeUser;
+    db.users.push(owner);
+    const request = db.purchaseRequests[0];
+    request.buyerName = "Historical Private Reviewer";
+    request.buyerReview = { reviewerUserId: buyer.id, rating: 5, comment: "Historical Private Reviewer had a good trade.", createdAt: now };
+    request.sellerResponse = { responderUserId: request.sellerId, message: "Thanks Historical Private Reviewer and Current Private Reviewer.", createdAt: now };
+    for (const viewerUserId of [undefined, buyer.id, request.sellerId, owner.id]) {
+      const profile = await getPremiumSellerProfile({ sellerId: request.sellerId, viewerUserId, dbInput: db });
+      expect(profile?.latestReviews).toHaveLength(1);
+      expect(profile?.latestReviews[0]).toMatchObject({ buyerName: publicAccountId(buyer), verifiedPurchase: true, hidden: false });
+      expect(JSON.stringify(profile?.latestReviews)).not.toMatch(/Historical|Current|Private|Reviewer/);
+      expect(profile?.latestReviews[0]).not.toHaveProperty("tradeAmount");
+    }
+    // Older reviews can outlive the buyer account; the saved trade ID still gives
+    // the same stable public identity, without falling back to the saved name.
+    db.users = db.users.filter((entry) => entry.id !== buyer.id);
+    const orphaned = await getPremiumSellerProfile({ sellerId: request.sellerId, dbInput: db });
+    expect(orphaned?.latestReviews[0].buyerName).toBe(publicAccountId(buyer));
+    expect(orphaned?.latestReviews[0].comment).not.toContain(request.buyerName);
+
+    request.buyerReview.hidden = true;
+    const hiddenPublic = await getPremiumSellerProfile({ sellerId: request.sellerId, dbInput: db });
+    expect(hiddenPublic?.latestReviews).toHaveLength(0);
+    const hiddenOwner = await getPremiumSellerProfile({ sellerId: request.sellerId, viewerUserId: owner.id, dbInput: db });
+    expect(hiddenOwner?.latestReviews[0].hidden).toBe(true);
+  });
+
   it("counts completed sales without the original listing and keeps private, public and listing ranks consistent", async () => {
     const own = await getAccountProfileData("seller-one");
     expect(own.stats).toMatchObject({ kind: "seller", sellerLevel: "silver", lifetimeCompletedVolumeUsdt: 38_000, nextLevel: "gold", amountToNextLevelUsdt: 12_000, progressToNextLevelPercent: 65.71 });

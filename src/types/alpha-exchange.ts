@@ -324,6 +324,7 @@ export interface SellerProfileReviewEntry {
   buyerId: string;
   buyerName: string;
   verifiedPurchase: boolean;
+  hidden?: boolean;
   sellerResponse?: TradeReviewResponse;
 }
 
