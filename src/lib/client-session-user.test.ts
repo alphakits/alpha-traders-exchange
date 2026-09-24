@@ -69,7 +69,7 @@ describe("toClientSessionUser", () => {
     expect(summary).not.toHaveProperty("verifiedPhone");
     expect(summary).not.toHaveProperty("sellerBankAccounts");
     expect(toAdminUserSummary(user)).toMatchObject({ email: "", whatsappNumber: "" });
-    expect(toAdminUserSummary(user).fullName).toMatch(/^#S-/);
+    expect(toAdminUserSummary(user).fullName).toMatch(/^AT-/);
   });
 
   it("runtime-allowlists admin seller-management records", () => {
@@ -88,7 +88,7 @@ describe("toClientSessionUser", () => {
     const summary = toAdminSellerSummary(user, true) as Record<string, unknown>;
     const serialized = JSON.stringify(summary);
     expect(toAdminSellerSummary(user)).toMatchObject({ email: "", whatsappNumber: "" });
-    expect(toAdminSellerSummary(user).fullName).toMatch(/^#S-/);
+    expect(toAdminSellerSummary(user).fullName).toMatch(/^AT-/);
 
     expect(summary).toMatchObject({
       id: "seller-1",

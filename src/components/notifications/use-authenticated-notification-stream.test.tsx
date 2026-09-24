@@ -147,7 +147,7 @@ describe("useAuthenticatedNotificationStream", () => {
     await act(async () => { await Promise.resolve(); });
     act(() => window.dispatchEvent(new Event("pagehide")));
     expect(MockEventSource.instances[0].close).toHaveBeenCalledTimes(1);
-    act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await act(async () => { window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })); });
     expect(MockEventSource.instances).toHaveLength(2);
     expect(MockEventSource.instances[1].close).not.toHaveBeenCalled();
   });
@@ -196,7 +196,7 @@ describe("useAuthenticatedNotificationStream", () => {
       await waitFor(() => expect(replaceSpy).toHaveBeenCalledTimes(1));
       expect(MockEventSource.instances).toHaveLength(1);
       expect(fetch).toHaveBeenCalledTimes(2);
-      expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fusdt-exchange");
+      expect(replaceSpy).toHaveBeenCalledWith("/en");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }

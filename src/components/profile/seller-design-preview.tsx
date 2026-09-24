@@ -17,7 +17,7 @@ export function SellerDesignPreview({ locale, rank = "bronze", publicView = fals
   const isAr = locale === "ar";
   const profile: PremiumSellerProfileData = {
     sellerId: "sample-seller", sellerLevel: level, nextRank: next, publicVolumeRange: "",
-    profile: { sellerId: "sample-seller", sellerName: owner ? "Alpha Traders" : "AT-SAMPLE", profilePhotoUrl: "", memberSince: "2025-04-01", languages: ["English", "Arabic"], preferredNetworks: ["TRC20"], bio: isAr ? "معاينة تصميم ببيانات توضيحية." : "Design preview with sample data.", onlineStatus: "offline", availabilityStatus: "available", isOwner: owner, isEmailVerified: true },
+    profile: { sellerId: "sample-seller", sellerName: owner ? "Alpha Traders" : "AT-100001", profilePhotoUrl: "", memberSince: "2025-04-01", languages: ["English", "Arabic"], preferredNetworks: ["TRC20"], bio: isAr ? "معاينة تصميم ببيانات توضيحية." : "Design preview with sample data.", onlineStatus: "offline", availabilityStatus: "available", isOwner: owner, isEmailVerified: true },
     trustScore: 96, completedTrades: 28, averageRating: 0, responseTimeMinutes: 4, completionRate: 98,
     repeatBuyersPercent: 30, totalReviews: 0, yearsOnPlatform: 1.5, badges: ["trusted_seller", "fast_responder"], promotionHistory: [], achievements: [], prestigeVolumePublicLabel: "", hallOfFameEligible: false, latestReviews: [], recentActivity: [],
   };
@@ -28,7 +28,7 @@ export function SellerDesignPreview({ locale, rank = "bronze", publicView = fals
     </div>
     {publicView ? <PremiumSellerProfilePage locale={locale} data={{profile, sellerListings: [], similarSellers: []}} /> : <section className="seller-prestige-page section-container pb-8" data-profile-rank={owner ? "owner" : level}>
       <div className="seller-prestige-account-hero seller-rank-profile-shell overflow-hidden border">
-        <PrivateProfileHeader locale={locale} fullName={owner ? "Alex Morgan" : (isAr ? "مايا" : "Maya")} publicId="AT-SAMPLE" publicOwner={owner} sellerRank={level} avatarClassName="seller-rank-avatar-frame" nameClassName="seller-prestige-name" coverActions={<Button size="sm" variant="secondary" disabled>{isAr ? "تحديث الغلاف" : "Update cover"}</Button>} photoActions={<Button size="sm" variant="secondary" disabled>{isAr ? "تغيير الصورة" : "Update photo"}</Button>}>
+        <PrivateProfileHeader locale={locale} fullName={owner ? "Alex Morgan" : (isAr ? "مايا" : "Maya")} publicId="AT-100001" publicOwner={owner} sellerRank={level} avatarClassName="seller-rank-avatar-frame" nameClassName="seller-prestige-name" coverActions={<Button size="sm" variant="secondary" disabled>{isAr ? "تحديث الغلاف" : "Update cover"}</Button>} photoActions={<Button size="sm" variant="secondary" disabled>{isAr ? "تغيير الصورة" : "Update photo"}</Button>}>
           <div className="mt-4 flex flex-wrap gap-2"><RoleBadge locale={locale} variant={owner ? "owner" : "approved_seller"} /><RankBadge rank={level} locale={locale} audience="seller" /></div>
         </PrivateProfileHeader>
         <div className="seller-prestige-account-progress px-5 pb-5 md:px-8">

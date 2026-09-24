@@ -5,6 +5,9 @@ import { Link } from "@/i18n/navigation";
 import { ArrowRight, BadgeCheck, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, Trophy, WalletCards, Zap } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { publicAccountId } from "@/lib/public-account-identity";
+import { normalizePublicAccountId } from "@/lib/format-id";
+import { PublicAccountId } from "@/components/ui/public-account-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { SellerRankIdentity, SellerRankCollection } from "@/components/profile/seller-rank-identity";
 import { rankVisualKey } from "@/lib/rank-identity";
@@ -336,7 +339,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     </div>
                     <div className={isAr ? "text-right" : ""}>
                       <div className={cn("flex items-center gap-2", isAr ? "flex-row-reverse" : "")}>
-                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}><bdi dir="auto">{currencyText(seller.sellerName)}</bdi></h1>
+                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerSeller ? <bdi dir="auto">{currencyText(seller.sellerName)}</bdi> : <PublicAccountId value={publicAccountId({ id: seller.sellerId })} audience="seller" rank={profile.sellerLevel} className="public-account-id--hero" />}</h1>
                         <BadgeCheck className={cn("h-5 w-5", isOwnerSeller ? "text-red-300" : "text-[#C9A227]")} />
                       </div>
                       <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">
@@ -653,7 +656,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <RankEmblem rank={sellerItem.sellerLevel} className="!h-12 !w-12 [&>svg]:!h-6 [&>svg]:!w-6" />
                   <div>
-                    <p className="font-medium text-white"><bdi dir="auto">{currencyText(sellerItem.sellerName)}</bdi></p>
+                    <p className="font-medium text-white">{normalizePublicAccountId(sellerItem.sellerName) ? <PublicAccountId value={sellerItem.sellerName} audience="seller" rank={sellerItem.sellerLevel} /> : <bdi dir="auto">{currencyText(sellerItem.sellerName)}</bdi>}</p>
                   </div>
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>

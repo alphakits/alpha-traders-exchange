@@ -23,6 +23,8 @@ import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-se
 import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { rankSurfaceTone } from "@/lib/rank-identity";
+import { PublicAccountId } from "@/components/ui/public-account-id";
+import { publicAccountId } from "@/lib/public-account-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
@@ -1126,7 +1128,7 @@ type ListingCardProps = {
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
-const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
@@ -1145,7 +1147,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
     <Card
       id={`listing-${listing.id}`}
       className={cn(
-        "group seller-listing-shell border-white/10 bg-[#0B0B0B]/90 transition duration-300",
+        "group seller-listing-shell compact-listing border-white/10 bg-[#0B0B0B]/90 transition duration-300",
         !isOwnerListing && `seller-rank-surface seller-rank-surface--${sellerRankKey} seller-rank-card seller-rank-card--${sellerRankKey}`,
         isOwnerListing && "owner-legendary-surface",
         isOwnerListing
@@ -1160,15 +1162,15 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
       }}
     >
       {isOwnerListing ? (
-        <div className="flex items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
           <Sparkles className="h-3.5 w-3.5 text-red-300" />
           <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-300">{isAr ? "عرض رسمي من Alpha Exchange" : "Official Alpha Exchange Listing"}</span>
           <span className="ms-auto text-[11px] text-red-400/70">{isAr ? "يُباع مباشرةً من مالك المنصة" : "Sold directly by the platform owner"}</span>
         </div>
       ) : null}
-      <CardHeader className="pb-3">
-        <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
-          <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+      <CardHeader className="compact-listing__header">
+        <div className={`compact-listing__identity-row flex items-start justify-between gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+          <div className={`flex min-w-0 items-start gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
             <div className={cn("relative seller-avatar-ring", `seller-avatar-ring--${isOwnerListing ? "legendary" : sellerRankKey}`, isOwnerListing && "after:absolute after:-inset-0.5 after:rounded-full after:border after:border-red-500/60 after:shadow-[0_0_14px_rgba(220,38,38,0.55)]")}>
               {listing.sellerProfile?.profilePhotoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -1183,9 +1185,9 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 </div>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller"))}</CardTitle>
+                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerListing ? currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")) : <PublicAccountId value={publicAccountId({ id: listing.sellerId })} audience="seller" rank={sellerLevel} />}</CardTitle>
                 {isOwnerListing ? <RoleBadge variant="owner" locale={isAr ? "ar" : "en"} /> : null}
               </div>
               {isOwnerListing ? (
@@ -1202,7 +1204,15 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 </span>
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "العرض" : "Listing"} {currencyText(shortListingRef(listing))}</p>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+
+            </div>
+          </div>
+          <span className="compact-listing__availability flex shrink-0 flex-col items-end gap-1.5">
+            <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
+            <ListingCountdownBadge expiresAt={listing.expiresAt} isAr={isAr} />
+          </span>
+        </div>
+              <div className="compact-listing__badges flex flex-wrap items-center gap-1.5">
                 <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
                 <RankBadge rank={sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
                 {isOwnerListing ? (
@@ -1217,44 +1227,37 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                   </span>
                 ) : null}
               </div>
-            </div>
-          </div>
-          <span className="flex flex-col items-end gap-1.5">
-            <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
-            <ListingCountdownBadge expiresAt={listing.expiresAt} isAr={isAr} />
-          </span>
-        </div>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="compact-listing__content">
         <div className={cn(
-          "rounded-2xl border p-4 shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300",
+          "compact-listing__metrics rounded-2xl border shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300",
           isOwnerListing
             ? "border-emerald-500/35 bg-[linear-gradient(135deg,rgba(16,185,129,0.18),rgba(5,5,5,0.88))] group-hover:border-emerald-400/55 group-hover:shadow-[0_18px_42px_rgba(16,185,129,0.25)]"
             : `seller-rank-accent seller-rank-accent--${sellerRankKey}`,
         )}>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.18fr)_auto_minmax(0,1fr)] md:items-stretch">
+          <div className="compact-listing__metrics-grid">
             <div className="seller-asset-usdt-card seller-card-keymetric min-w-0 rounded-xl border p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                {currencyText(isAr ? "USDT المتاح" : "Available USDT")}
-              </p>
-              <div className="seller-asset-usdt-amount-row">
-                <div className="seller-asset-usdt-amount-content">
+              <p className="compact-listing__amount-label text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-300">
                   <span className="seller-asset-usdt-amount-icon inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-200">
                     ₮
                   </span>
+                <span className="min-w-0">{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</span>
+              </p>
+              <div className="seller-asset-usdt-amount-row">
+                <div className="seller-asset-usdt-amount-content">
+
                   <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
                     {moneyText(formattedAvailableAmount)}
                   </p>
+                  <span className="compact-listing__amount-unit currency-usdt">USDT</span>
                 </div>
               </div>
-              <p className="mt-2 text-sm font-medium text-emerald-100"><span className="currency-usdt">USDT</span></p>
+
               <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
                 {isAr ? "جاهز للتداول" : "Ready to trade"}
               </span>
             </div>
-            <div className={cn("mx-auto hidden w-px md:block", `seller-rank-separator seller-rank-separator--${isOwnerListing ? "legendary" : sellerRankKey}`)} />
-            <div className={cn("mx-auto h-px w-full md:hidden", `seller-rank-separator seller-rank-separator--${isOwnerListing ? "legendary" : sellerRankKey}`)} />
             <div className={cn("rounded-xl border p-3 seller-rank-price seller-card-keymetric min-w-0", `seller-rank-price--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
                 {isAr ? "سعر العرض" : "Listing Price"}
@@ -1263,22 +1266,17 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 {moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">{currencyText("ILS / USDT")}</p>
-              <div className="seller-live-market-panel mt-2 rounded-lg border p-2 text-[11px] text-[#CFCFCF]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]">{currencyText("USDT / ILS")}</p>
-                  </div>
-                  <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
-                </div>
-                <p className="mt-2 text-base font-semibold text-white">
-                  {moneyText(marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
-                </p>
-              </div>
+
             </div>
           </div>
+          <div className="seller-live-market-panel compact-listing__market rounded-lg border text-[11px] text-[#CFCFCF]">
+            <span className="text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</span>
+            <span>{currencyText("USDT / ILS")}</span>
+            <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
+            <span className="compact-listing__market-price font-semibold">{moneyText(marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</span>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-center text-xs">
+        <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Star className="h-4 w-4 mx-auto text-[#F4D87A]" />
             <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</p>
@@ -1300,7 +1298,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
           </div>
         </div>
-        <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
+        <div className="compact-listing__details grid gap-2 text-xs text-[#9CA3AF]">
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
             <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(isAr ? presence.labelAr : presence.label)}</span></p>
             <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{currencyText(safeText(listing.network))}</span></p>
@@ -1327,7 +1325,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{currencyText(safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel"))}</span></p>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="compact-listing__actions grid grid-cols-2 gap-2">
           <Link
             href={listing.sellerProfile?.username ? `/exchange/seller/${listing.sellerProfile.username}` : `/usdt-exchange?seller=${encodeURIComponent(listing.sellerId)}`}
             className={cn(
@@ -1383,7 +1381,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             <Button
               type="button"
               variant="secondary"
-              className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 sm:col-span-2"
+              className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 col-span-2"
               disabled={isBuying}
               onClick={() => onOpen(listing, "buyer_offer")}
               aria-label={isAr ? `تقديم عرض سعر إلى ${safeText(listing.sellerDisplayName, "البائع")}` : `Make a price offer to ${safeText(listing.sellerDisplayName, "seller")}`}

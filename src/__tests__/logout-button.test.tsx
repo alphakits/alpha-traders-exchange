@@ -8,7 +8,7 @@ describe("LogoutButton", () => {
     vi.restoreAllMocks();
   });
 
-  it("clears Arabic only after successful logout and immediately opens English login", async () => {
+  it("clears Arabic only after successful logout and immediately opens the public English home", async () => {
     const originalLocation = window.location;
     const replace = vi.fn();
     Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace } });
@@ -21,7 +21,7 @@ describe("LogoutButton", () => {
       expect(document.cookie).toContain(`${LOCALE_CHOICE_COOKIE}=ar`);
       expect(replace).not.toHaveBeenCalled();
       finish({ ok: true } as Response);
-      await waitFor(() => expect(replace).toHaveBeenCalledWith("/en/login"));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/en"));
       expect(document.cookie).not.toContain(`${LOCALE_CHOICE_COOKIE}=ar`);
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
@@ -56,7 +56,7 @@ describe("LogoutButton", () => {
       json: async () => ({ ok: true }),
     } as Response);
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en/login"));
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en"));
 
     Object.defineProperty(window, "location", {
       configurable: true,

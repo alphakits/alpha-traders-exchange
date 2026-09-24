@@ -4,6 +4,7 @@ import { UserPresence } from "@/components/ui/user-presence";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { CommissionAutomationPanel } from "./commission-automation-panel";
+import { PublicAccountId } from "@/components/ui/public-account-id";
 import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-identity";
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
@@ -1751,7 +1752,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     )}
                     <div className="min-w-0 break-words">
                       <p className="text-base font-semibold text-white"><bdi dir="auto">{currencyText(privateAccountName)}</bdi></p>
-                      {!isPublicOwnerIdentity(sessionUser) ? <p className="text-xs text-[#9CA3AF]">{isAr ? "معرّف AT العام" : "Public AT ID"}: <bdi dir="ltr">{sessionUser ? publicAccountId(sessionUser) : "—"}</bdi></p> : null}
+                      {!isPublicOwnerIdentity(sessionUser) ? <p className="text-xs text-[#9CA3AF]">{isAr ? "معرّف AT العام" : "Public AT ID"}: {sessionUser ? <PublicAccountId value={publicAccountId(sessionUser)} audience="seller" rank={sellerOverviewStats.reputation?.level} /> : "—"}</p> : null}
                       <RoleBadge variant={welcomeRole} locale={isAr ? "ar" : "en"} />
                     </div>
                   </div>

@@ -59,11 +59,23 @@ export function formatCommissionId(displayNumber?: unknown, fallbackId?: string 
 }
 
 export function formatSellerId(displayNumber?: unknown, fallbackId?: string | null) {
-  return formatDisplayId("seller", displayNumber, fallbackId);
+  return formatPublicAccountId(displayNumber, fallbackId);
 }
 
 export function formatBuyerId(displayNumber?: unknown, fallbackId?: string | null) {
-  return formatDisplayId("buyer", displayNumber, fallbackId);
+  return formatPublicAccountId(displayNumber, fallbackId);
+}
+
+/** Presentation only: retain the existing number across buyer/seller role changes. */
+export function formatPublicAccountId(displayNumber?: unknown, fallbackId?: string | null) {
+  const resolved = normalizePositiveInteger(displayNumber) ?? stableNumberFromId(fallbackId);
+  return `AT-${String(resolved).padStart(6, "0")}`;
+}
+
+/** Read historical labels without accepting a user-entered name as an identity. */
+export function normalizePublicAccountId(value?: string | null) {
+  const match = /^(?:AT-|#[SB]-)(\d{6,7})$/.exec(value ?? "");
+  return match ? `AT-${match[1]}` : undefined;
 }
 
 export function formatComplianceId(displayNumber?: unknown, fallbackId?: string | null) {

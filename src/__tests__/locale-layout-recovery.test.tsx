@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 const mocks = vi.hoisted(() => ({ getCurrentSessionUser: vi.fn() }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-alpha-page-path": "/en" }) }));
 vi.mock("@/lib/auth", () => ({ getCurrentSessionUser: mocks.getCurrentSessionUser }));
 vi.mock("next/font/google", () => ({ Inter: () => ({ variable: "inter" }), IBM_Plex_Sans_Arabic: () => ({ variable: "arabic" }) }));
 vi.mock("next-intl/server", () => ({ getMessages: async () => ({}) }));

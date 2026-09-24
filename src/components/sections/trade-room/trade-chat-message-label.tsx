@@ -2,6 +2,7 @@ import { Check, CheckCheck, Clock3, Eye } from "lucide-react";
 import { tradeChatRoleLabel, tradeChatStatus, tradeChatStatusLabel } from "@alpha-traders/contracts";
 import { tradeChatSender, type TradeChatContext } from "@/lib/trade-chat-presentation";
 import type { TradeChatMessage } from "@/types/alpha-exchange";
+import { PublicAccountId } from "@/components/ui/public-account-id";
 
 export function TradeChatMessageLabel({ message, context, actorId, locale }: {
   message: TradeChatMessage; context: TradeChatContext; actorId: string; locale: "en" | "ar";
@@ -9,7 +10,7 @@ export function TradeChatMessageLabel({ message, context, actorId, locale }: {
   const sender = tradeChatSender(message, context);
   if (!sender) return <p className="mb-1 text-xs font-semibold text-[#93C5FD]">{locale === "ar" ? "تحديث الصفقة" : "Trade update"}</p>;
   return <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-    {sender.publicId ? <bdi dir="ltr" className="font-semibold text-[#F5D77B]">{sender.publicId}</bdi> : null}
+    {sender.publicId ? <PublicAccountId value={sender.publicId} audience={sender.role === "buyer" ? "buyer" : "seller"} rank={context.listing?.sellerReputation?.level} /> : null}
     <span className="rounded-full border border-white/15 px-1.5 py-0.5 text-[10px] font-medium text-[#D1D5DB]">{tradeChatRoleLabel(sender.role, locale)}</span>
     {message.senderUserId === actorId ? <span className="text-[#9CA3AF]">{locale === "ar" ? "أنت" : "You"}</span> : null}
   </div>;

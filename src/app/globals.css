@@ -2547,3 +2547,111 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   .seller-prestige-medallion::after { animation: none; opacity: .12; }
   .seller-prestige-progress-fill { transition: none; }
 }
+
+/* Public member identity: blue buyers and the seller's existing profile palette. */
+.public-account-id {
+  display: inline-block;
+  max-width: 100%;
+  padding: .2em .55em;
+  border: 1px solid rgba(96, 165, 250, .42);
+  border-radius: .55rem;
+  background: linear-gradient(120deg, #112c50, #0c1a32);
+  color: #bedcff;
+  font-size: .875rem;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: .035em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-text-fill-color: currentColor;
+  box-shadow: inset 0 1px 0 #ffffff0c;
+}
+.public-account-id--seller {
+  color: var(--profile-light);
+  border-color: rgba(var(--profile-rgb), .48);
+  background: linear-gradient(120deg, var(--profile-deep), #0d1017);
+  box-shadow: inset 0 1px 0 rgba(var(--profile-rgb), .15), 0 0 12px rgba(var(--profile-rgb), .07);
+}
+.public-account-id--hero { font-size: clamp(1.15rem, 3vw, 1.75rem); }
+.role-badge.role-badge--approved-seller {
+  color: #fff0a9;
+  border: 1px solid transparent;
+  background: linear-gradient(110deg, #0a3827, #17452d 50%, #383a15) padding-box,
+    linear-gradient(105deg, #44df8d, #b7e879 54%, #ffcf62) border-box;
+  box-shadow: 0 0 10px #68dd8520, inset 0 1px 0 #ffedb330;
+}
+
+/* Compact marketplace cards keep all content and grow naturally for long text. */
+.compact-listing { container-type: inline-size; min-width: 0; }
+.compact-listing .compact-listing__header { padding: .875rem .875rem .625rem; }
+.compact-listing .compact-listing__content { display: grid; gap: .625rem; padding: 0 .875rem .875rem; }
+.compact-listing .compact-listing__identity-row { min-width: 0; }
+.compact-listing .seller-listing-seller-name { min-width: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.compact-listing .seller-listing-seller-subtitle { letter-spacing: .04em; line-height: 1.5; }
+.compact-listing .compact-listing__availability { max-width: 6.5rem; text-align: end; }
+.compact-listing .seller-listing-countdown { flex-wrap: wrap; justify-content: center; white-space: normal; }
+.compact-listing .compact-listing__badges { margin-top: .5rem; }
+.compact-listing .compact-listing__metrics { padding: .5rem; }
+.compact-listing__metrics-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: .5rem; }
+.compact-listing .seller-card-keymetric { min-height: 0; padding: .625rem; justify-content: flex-start; gap: .25rem; }
+.compact-listing .compact-listing__amount-label { display: flex; align-items: center; gap: .3rem; line-height: 1.4; }
+.compact-listing .seller-asset-usdt-amount-icon { flex: 0 0 1rem; width: 1rem; height: 1rem; font-size: .65rem; }
+.compact-listing .seller-asset-usdt-amount-row { min-height: 0; margin-top: .25rem; padding: 0; overflow: visible; }
+.compact-listing .seller-asset-usdt-amount-content { min-width: 0; width: 100%; gap: 0; overflow: visible; }
+.compact-listing .seller-asset-usdt-value {
+  flex: 1 1 auto;
+  max-width: 100%;
+  margin: 0;
+  font-size: clamp(1.25rem, 7cqi, 2.1rem);
+  line-height: 1.2;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.compact-listing .seller-asset-usdt-value--tight { font-size: clamp(1.125rem, 6.2cqi, 1.9rem); }
+.compact-listing .seller-asset-usdt-value--compact { font-size: clamp(1rem, 5.4cqi, 1.65rem); }
+.compact-listing .seller-card-keymetric > .mt-2 { margin-top: .25rem; }
+.compact-listing .seller-asset-usdt-card > span { padding: .2rem .35rem; line-height: 1.4; }
+.compact-listing .seller-price-value { font-size: clamp(1.5rem, 8cqi, 2.3rem); line-height: 1.2; overflow-wrap: anywhere; }
+.compact-listing .compact-listing__market { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin-top: .5rem; padding: .4rem .5rem; }
+.compact-listing__market-price { margin-inline-start: auto; font-size: .875rem; overflow-wrap: anywhere; }
+.compact-listing .compact-listing__stats > div { min-width: 0; padding: .4rem .125rem; }
+.compact-listing .compact-listing__stats p { overflow-wrap: anywhere; line-height: 1.4; }
+.compact-listing .seller-card-info-panel { min-height: 0; padding: .625rem; line-height: 1.5; overflow-wrap: anywhere; }
+.compact-listing .seller-marketplace-action {
+  min-width: 0;
+  min-height: 2.75rem;
+  height: auto;
+  padding: .5rem .625rem;
+  gap: .35rem;
+  border-radius: .75rem;
+  font-size: .8125rem;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.compact-listing .seller-marketplace-action > span { display: flex; flex: 1; min-width: 0; align-items: center; justify-content: space-between; gap: .35rem; }
+.compact-listing .seller-marketplace-action svg { flex-shrink: 0; width: .875rem; height: .875rem; }
+.compact-listing .seller-marketplace-action--offer { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.compact-listing__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (max-width: 260px) {
+  .compact-listing__details { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 260px) {
+  .compact-listing__identity-row { flex-wrap: wrap; }
+  .compact-listing .compact-listing__availability { max-width: none; flex-direction: row; flex-wrap: wrap; align-items: center; }
+}
+
+.compact-listing .compact-listing__amount-label { align-items: flex-start; }
+.compact-listing .compact-listing__amount-label > span:last-child { flex: 1; overflow-wrap: anywhere; }
+.compact-listing .seller-asset-usdt-amount-content { flex-wrap: wrap; align-items: baseline; gap: .15rem .3rem; }
+.compact-listing .seller-asset-usdt-value { flex: 0 1 auto; text-wrap: wrap; font-size: 1.25rem; font-size: clamp(1.25rem, 7cqi, 2.1rem); }
+.compact-listing .seller-asset-usdt-value--tight { font-size: 1.125rem; font-size: clamp(1.125rem, 6.2cqi, 1.9rem); }
+.compact-listing .seller-asset-usdt-value--compact { font-size: 1rem; font-size: clamp(1rem, 5.4cqi, 1.65rem); }
+.compact-listing__amount-unit { font-size: .75rem; line-height: 1.4; }
+.compact-listing .seller-live-market-badge { padding: .1rem .35rem; min-height: 0; line-height: 1.3; }
+.compact-listing .role-badge { max-width: 100%; }
+.compact-listing .role-badge__content { min-width: 0; }
+.compact-listing .role-badge__content > span { overflow-wrap: anywhere; }
+.compact-listing .seller-marketplace-action--offer > span { flex-wrap: wrap; }

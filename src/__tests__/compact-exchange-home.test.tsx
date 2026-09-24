@@ -63,7 +63,14 @@ beforeEach(() => {
     return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(async () => {
+  // Let the focus-restoration listener attach, then cancel its pending timers
+  // before this test's document is disposed.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  fireEvent.pointerDown(document.body);
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("compact Exchange home", () => {
   it.each([390, 1440])("never renders an anonymous buyer workspace at %spx", async width => {
