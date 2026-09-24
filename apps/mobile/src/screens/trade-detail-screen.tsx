@@ -30,7 +30,7 @@ import type {
   MobileTradeStatus,
 } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
-import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, tradeChatRoleLabel, tradeChatStatusLabel, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
   recalculateMobileCardlessAmount,
   completeMobileTrade,
@@ -1084,6 +1084,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
         <View style={styles.section}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeChat")}</Text>
+          {trade.participants ? <View style={styles.messageParticipants}>
+            <Text style={styles.messageIdentity}>{tradeChatRoleLabel("buyer", locale)} · {trade.participants.buyerPublicId}</Text>
+            <Text style={styles.messageIdentity}>{tradeChatRoleLabel("seller", locale)} · {trade.participants.sellerPublicId}</Text>
+          </View> : null}
           <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("chatSafety")}</Text>
           <View style={styles.messageList}>
             {trade.messages.length ? trade.messages.map((message, index) => {
@@ -1101,8 +1105,16 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                   key={`${message.createdAt}-${message.sender}-${index}`}
                   style={[styles.messageBubble, isOwn ? styles.ownMessage : styles.counterpartyMessage]}
                 >
+                  <Text style={[styles.messageIdentity, isRTL && styles.rtlText]}>
+                    {message.senderPublicId ? `${message.senderPublicId} · ` : ""}
+                    {tradeChatRoleLabel(message.participantRole ?? (isOwn ? trade.side : trade.side === "buyer" ? "seller" : "buyer"), locale)}
+                    {isOwn ? (locale === "ar" ? " · أنت" : " · You") : ""}
+                  </Text>
                   <Text style={[styles.messageText, isRTL && styles.rtlText]}>{message.message}</Text>
-                  <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
+                  <View style={styles.messageFooter}>
+                    <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
+                    {message.status ? <Text style={styles.messageTime}>{tradeChatStatusLabel(message.status, locale)}</Text> : null}
+                  </View>
                 </View>
               );
             }) : (
@@ -1218,6 +1230,9 @@ const styles = StyleSheet.create({
   privacyNote: { color: colors.goldMuted, fontSize: typography.caption, textAlign: "center" },
   chatSafety: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   messageList: { gap: spacing.sm },
+  messageParticipants: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  messageIdentity: { color: colors.goldBright, fontSize: typography.caption, fontWeight: "700" },
+  messageFooter: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: spacing.sm },
   messageBubble: { borderRadius: radius.md, gap: spacing.xs, maxWidth: "86%", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   ownMessage: { alignSelf: "flex-end", backgroundColor: "rgba(216, 180, 74, 0.18)", borderColor: colors.borderGold, borderWidth: 1 },
   counterpartyMessage: { alignSelf: "flex-start", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderWidth: 1 },

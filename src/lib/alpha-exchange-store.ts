@@ -11225,7 +11225,7 @@ export async function resolveTradeRoomRequestForNotification(input: {
 export interface TradeRoomData {
   request: PurchaseRequest;
   listing: MarketplaceListing | null;
-  counterpart: { buyerName: string; sellerName: string };
+  counterpart: { buyerName: string; sellerName: string; buyerPublicId?: string; sellerPublicId?: string };
   messages: TradeChatMessage[];
   poke: TradeRoomPokeAvailability;
   deadlineAt: string | null;
@@ -11251,6 +11251,7 @@ export async function getTradeRoomData(input: {
   actorUserId: string;
   actorRole: UserRole;
   markMessagesRead?: boolean;
+  readMessageIds?: readonly string[];
   strongConsistency?: boolean;
   ownerHistory?: boolean;
 }): Promise<TradeRoomData> {
@@ -11311,6 +11312,7 @@ export async function getTradeRoomData(input: {
   const actorIsTradeParticipant = request.buyerId === input.actorUserId || request.sellerId === input.actorUserId;
   if (!input.ownerHistory && input.markMessagesRead !== false && actorIsTradeParticipant) {
     const seenAt = nowIso();
+    const selectedMessageIds = input.readMessageIds ? new Set(input.readMessageIds) : null;
     let committedMessageIds: string[] = [];
     const applyReadReceiptsToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
       const canonicalIndex = snapshot.purchaseRequests.findIndex((candidate) => candidate.id === request.id);
@@ -11322,6 +11324,7 @@ export async function getTradeRoomData(input: {
         : (snapshot.tradeMessages ?? []).filter((message) => message.purchaseRequestId === canonicalRequest.id);
       committedMessageIds = [];
       for (const message of canonicalMessages) {
+        if (selectedMessageIds && !selectedMessageIds.has(message.id)) continue;
         if (message.senderUserId === input.actorUserId) continue;
         const readByUserIds = message.readByUserIds ?? [];
         if (readByUserIds.includes(input.actorUserId)) continue;
@@ -11398,6 +11401,8 @@ export async function getTradeRoomData(input: {
     counterpart: {
       buyerName: accountNameForViewer(buyer ?? { id: request.buyerId, fullName: request.buyerName }, viewer),
       sellerName: accountNameForViewer(seller ?? { id: request.sellerId, role: "approved_seller", fullName: listing?.sellerDisplayName }, viewer),
+      buyerPublicId: publicAccountId(buyer ?? { id: request.buyerId }),
+      sellerPublicId: publicAccountId(seller ?? { id: request.sellerId, role: "approved_seller" }),
     },
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
       { ...message, message: message.credentialKind ? message.message : visibleMessageText(message.message) },

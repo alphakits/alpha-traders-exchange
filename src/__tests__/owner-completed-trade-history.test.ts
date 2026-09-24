@@ -156,7 +156,7 @@ describe("owner completed Trade Room history", () => {
   it("keeps peer identities private and excludes owner history from ordinary room responses", async () => {
     const db = seed();
     const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "seller", actorRole: "owner", markMessagesRead: false, strongConsistency: true });
-    expect(room.counterpart).toEqual({ buyerName: publicAccountId(db.users[1]), sellerName: publicAccountId(db.users[2]) });
+    expect(room.counterpart).toEqual({ buyerName: publicAccountId(db.users[1]), sellerName: publicAccountId(db.users[2]), buyerPublicId: publicAccountId(db.users[1]), sellerPublicId: publicAccountId(db.users[2]) });
     expect(room).not.toHaveProperty("ownerHistory");
     expect(JSON.stringify(room)).not.toMatch(/Amir Hassan|Maya Chen/);
     expect(room.messages).toHaveLength(125);

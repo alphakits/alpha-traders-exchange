@@ -34,7 +34,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
-      markMessagesRead: !ownerHistory,
+      // Fetching a room (including a background refresh) is not a read receipt.
+      markMessagesRead: false,
       strongConsistency: true,
       ownerHistory,
     });

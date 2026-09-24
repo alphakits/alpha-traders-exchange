@@ -6,7 +6,8 @@ import type {
   MobileTradeMessage,
   MobileTradeSummary,
 } from "@alpha-traders/contracts";
-import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
+import { localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
+import { tradeChatPublicId, tradeChatSender, type TradeChatContext } from "@/lib/trade-chat-presentation";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
@@ -49,14 +50,21 @@ export function toMobileTradeMessage(
   message: TradeChatMessage,
   userId: string,
   locale: MobileLocale,
+  context?: TradeChatContext,
 ): MobileTradeMessage {
   const sender = message.kind === "system"
     ? "system"
     : message.senderUserId === userId
       ? "you"
       : "counterparty";
+  const identity = context ? tradeChatSender(message, context) : undefined;
   return {
     sender,
+    ...(context && message.kind !== "system" ? {
+      senderPublicId: identity?.publicId,
+      participantRole: identity?.role,
+      status: tradeChatStatus(message, context.request),
+    } : {}),
     ...(message.credentialKind === "cardless_code" ? { credentialKind: "cardless_code" as const } : {}),
     message: message.kind === "system"
       ? localizeTradeRoomSystemMessage(message.message, locale).text
@@ -154,7 +162,8 @@ export function toMobileTradeDetail(
   return {
     ...toMobileTradeSummary(request, userId),
     ...(!isBuyer && room.sellerCommissionDueCount > 0 ? { sellerCommissionDue: { count: room.sellerCommissionDueCount, amount: room.sellerCommissionDueAmount } } : {}),
-    counterpartyDisplayName: isBuyer ? room.counterpart.sellerName : room.counterpart.buyerName,
+    counterpartyDisplayName: tradeChatPublicId(room, isBuyer ? "seller" : "buyer"),
+    participants: { buyerPublicId: tradeChatPublicId(room, "buyer"), sellerPublicId: tradeChatPublicId(room, "seller") },
     receivingWalletAddress: canExposeBuyerWalletToMobileParticipant(request, userId)
       ? request.buyerReceivingWalletAddress
       : undefined,
@@ -162,7 +171,7 @@ export function toMobileTradeDetail(
       type: entry.type,
       createdAt: entry.createdAt,
     })),
-    messages: room.messages.slice(-100).map((message) => toMobileTradeMessage(message, userId, locale)),
+    messages: room.messages.slice(-100).map((message) => toMobileTradeMessage(message, userId, locale, room)),
     hasBuyerEvidence: Boolean(request.buyerEvidence),
     hasSellerEvidence: Boolean(request.sellerEvidence),
     deadlineAt: room.deadlineAt,
