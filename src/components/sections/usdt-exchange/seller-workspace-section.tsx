@@ -51,7 +51,7 @@ function ListingCreateSection({
   children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 sm:p-4">
+    <section aria-labelledby={id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 alpha-reveal-fade motion-reduce:animate-none sm:p-4">
       <div className="mb-4 flex items-center gap-3">
         <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#D4AF37]">
           {number}
