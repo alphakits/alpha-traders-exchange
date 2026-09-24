@@ -294,8 +294,8 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                               <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
                             </div>
                             <div className="text-sm text-[#D1D5DB]">
-                              <p>{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {currencyText(request.currency)}</p>
+                              <p>{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</p>
                             </div>
                             <p className="text-sm text-[#D1D5DB]">{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                             <p className="text-sm text-[#D1D5DB]">{new Date(request.completedAt ?? request.updatedAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>
@@ -305,8 +305,8 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             <div id={`buyer-trade-details-${request.id}`} className="space-y-3 border-t border-white/10 bg-black/25 px-4 py-4">
                               <div className="grid gap-2 text-sm md:grid-cols-3">
                                 <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
-                                <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
-                                {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر البائع الأصلي" : "Original Seller Price"}: <span className="text-white">₪{toNumber(request.listingPriceAtRequest).toFixed(2)}</span></p> : null}
+                                <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)}</span></p>
+                                {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر البائع الأصلي" : "Original Seller Price"}: <span className="text-white">{currencyText(`₪${toNumber(request.listingPriceAtRequest).toFixed(2)}`)}</span></p> : null}
                                 <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
                                 {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
                               </div>

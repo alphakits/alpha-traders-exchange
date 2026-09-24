@@ -1,7 +1,7 @@
 "use client";
 
 
-import { brandText, currencyText } from "@/components/ui/currency-text";
+import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -1249,7 +1249,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                     ₮
                   </span>
                   <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
-                    {currencyText(formattedAvailableAmount)}
+                    {moneyText(formattedAvailableAmount)}
                   </p>
                 </div>
               </div>
@@ -1266,19 +1266,19 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 {isAr ? "سعر العرض" : "Listing Price"}
               </p>
               <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
-                {toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {moneyText(toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
               </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / <span className="currency-usdt">USDT</span></p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">{currencyText("ILS / USDT")}</p>
               <div className="seller-live-market-panel mt-2 rounded-lg border p-2 text-[11px] text-[#CFCFCF]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</p>
-                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]"><span className="currency-usdt">USDT</span> / ILS</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]">{currencyText("USDT / ILS")}</p>
                   </div>
                   <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
                 </div>
                 <p className="mt-2 text-base font-semibold text-white">
-                  {marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {moneyText(marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}
                 </p>
               </div>
             </div>
@@ -1322,7 +1322,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – {Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></span></p>
+            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
@@ -1399,7 +1399,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                 {isAr ? "قدّم عرض سعر" : "Make an Offer"}
               </span>
               <span className="text-[11px] font-medium text-[#D1D5DB]">
-                {isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower"}
+                {currencyText(isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower")}
               </span>
             </Button>
           ) : null}
@@ -5135,7 +5135,7 @@ export function UsdtExchangePage({
                 <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
                   <div>
                     <p className="font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
-                    <p className="mt-0.5">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> • {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
+                    <p className="mt-0.5">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)} • {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</p>
                   </div>
                   <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{currencyText(tradeStatusLabel(request.status, isAr))}</span>
                 </div>
@@ -5144,7 +5144,7 @@ export function UsdtExchangePage({
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
             <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
-            <p className="mt-3 text-3xl font-semibold text-white">{Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></p>
+            <p className="mt-3 text-3xl font-semibold text-white">{currencyText(`${Math.trunc(buyerOverviewStats.totalUsdtBought).toLocaleString("en-US")} USDT`)}</p>
             <p className="mt-1 text-sm text-[#E5E7EB]">{currencyText(isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange.")}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
@@ -5292,7 +5292,7 @@ export function UsdtExchangePage({
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white"><span className="currency-usdt">USDT</span> / ILS {currencyText(formatIls(marketPricePerUsdt))}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(formatIls(marketPricePerUsdt))}</p>
                 </div>
               </div>
               )}
@@ -5632,7 +5632,7 @@ export function UsdtExchangePage({
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                     <div>
                       <p className="font-medium text-white">{currencyText(shortTradeRef(trade, isAr))}</p>
-                      <p className="mt-0.5">{Math.trunc(toNumber(trade.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span> • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {currencyText(trade.currency)}</p>
+                      <p className="mt-0.5">{currencyText(`${Math.trunc(toNumber(trade.usdtAmount)).toLocaleString("en-US")} USDT`)} • {currencyText(`${toNumber(trade.fiatAmount).toLocaleString("en-IL")} ${trade.currency}`)}</p>
                       <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })}</p>
                     </div>
                   </div>
@@ -5693,10 +5693,10 @@ export function UsdtExchangePage({
                   <option value="response-fast">{isAr ? "الترتيب: أسرع استجابة" : "Sort: Fastest Response Time"}</option>
                   <option value="newest">{isAr ? "الترتيب: الأحدث" : "Sort: Newest Listing"}</option>
                 </select>
-                <Input placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
-                <Input placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
+                <Input className="currency-money" placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
                 <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
                 <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                   {onlineOnlyFilter ? (isAr ? "البائعون المتصلون فقط" : "Online Sellers Only") : (isAr ? "إظهار البائعين المتصلين فقط" : "Show Online Sellers Only")}

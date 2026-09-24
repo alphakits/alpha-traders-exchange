@@ -1091,7 +1091,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" />
                       </div>
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></p></div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{currencyText(`${(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT`)}</p></div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "المشتريات المكتملة" : "Completed purchases"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.completedTrades ?? 0).toLocaleString("en-IL")}</p></div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييمات المكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.reviewsGiven ?? 0).toLocaleString("en-IL")}</p></div>
                       </div>
@@ -1122,7 +1122,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <p className="text-[#9CA3AF]">{isAr ? "إجمالي ما اشتريته" : "Lifetime purchases"}</p>
-                          <p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></p>
+                          <p className="mt-1 font-semibold text-white">{currencyText(`${(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT`)}</p>
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <p className="text-[#9CA3AF]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
