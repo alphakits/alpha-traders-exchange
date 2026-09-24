@@ -26,6 +26,7 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
   const face = request.paymentMethod === "Face-to-Face (Meet in Person)";
   if (!["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)) return null;
   if (![request.sellerId, request.buyerId].includes(actorId)) return null;
+  if (!pending && ["usdt_release_pending", "usdt_sent"].includes(request.status)) return null;
 
   async function submit(action: string) {
     if (disabled || inFlight.current) return;

@@ -42,3 +42,22 @@ describe("mobile trade actions", () => {
     }, "buyer-1").canCancel).toBe(false);
   });
 });
+
+
+it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("offers completion without cancellation or repeated release for %s after delivery", (paymentMethod) => {
+  const actions = toMobileTradeActions({ ...acceptedBankTrade, paymentMethod, status: "usdt_sent" }, "seller-1");
+  expect(actions).toMatchObject({ canCompleteTrade: true, canCancel: false, canDecline: false,
+    canConfirmFunds: false, canBeginRelease: false, canMarkUsdtSent: false, canUploadReleaseEvidence: false });
+});
+
+it("offers only completion for face-to-face after cash receipt", () => {
+  expect(toMobileTradeActions({ ...acceptedBankTrade, paymentMethod: "Face-to-Face (Meet in Person)", status: "funds_received" }, "seller-1"))
+    .toMatchObject({ canCompleteTrade: true, canMarkUsdtSent: false, canCancel: false, canBeginRelease: false });
+});
+
+it("never offers cancellation after a cardless code was exposed, even with a stale accepted status", () => {
+  const request = { ...acceptedBankTrade, paymentMethod: "Cardless ATM Withdrawal",
+    sensitivePaymentKind: "cardless_code" as const, sensitivePaymentSharedAt: "2026-09-24T12:00:00Z" };
+  expect(toMobileTradeActions(request, "buyer-1").canCancel).toBe(false);
+  expect(toMobileTradeActions(request, "seller-1").canCancel).toBe(false);
+});
