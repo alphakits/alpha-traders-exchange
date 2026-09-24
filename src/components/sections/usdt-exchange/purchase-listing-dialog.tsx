@@ -20,7 +20,7 @@ import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
 import { useLiveUserPresence } from "@/lib/user-presence-client";
 import { formatTradeId } from "@/lib/format-id";
 import { cn } from "@/lib/utils";
-import type { AuditAction, MarketplaceListing, PremiumSellerProfileData, PurchaseRequest } from "@/types/alpha-exchange";
+import type { AuditAction, MarketplaceListing, PremiumSellerProfileData, PurchaseRequest, SellerLevel } from "@/types/alpha-exchange";
 
 type Locale = "ar" | "en";
 
