@@ -37,6 +37,33 @@ import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { ListingCreateResult, SellerBankAccount, SellerCommissionStatus, TradeQueueSectionKey } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
+function ListingCreateSection({
+  id,
+  number,
+  title,
+  icon,
+  children,
+}: {
+  id: string;
+  number: number;
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-labelledby={id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 alpha-reveal-fade motion-reduce:animate-none sm:p-4">
+      <div className="mb-4 flex items-center gap-3">
+        <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#D4AF37]">
+          {number}
+        </span>
+        <h4 id={id} className="min-w-0 flex-1 text-base font-semibold leading-6 text-white">{title}</h4>
+        <span aria-hidden="true" className="shrink-0 text-[#D4AF37]">{icon}</span>
+      </div>
+      <div className="min-w-0 space-y-4">{children}</div>
+    </section>
+  );
+}
+
 function formatExactCommissionUsdt(value: number) {
   return `${value.toLocaleString("en-US", {
     minimumFractionDigits: 6,
@@ -1024,13 +1051,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
           ) : null}
 
           <Card id="create-listing" tabIndex={desktopNavigation ? -1 : undefined} className={cn("order-30 border-white/10 bg-[#0B0B0B]/90", desktopNavigation && "scroll-mt-24")}>
-            <CardHeader>
+            <CardHeader className="p-4 sm:p-6">
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
                 {isAr ? "يتم إرسال العرض للمراجعة أولًا قبل نشره في السوق." : "Listings are submitted to owner review before publishing live."}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {listingCreationBlocked ? (
                 <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
                   <p className="font-semibold">{isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked"}</p>
@@ -1066,20 +1093,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
               ) : null}
-              <div className={`mb-4 rounded-2xl border p-4 text-sm text-[#E5E7EB] transition-all duration-200 ${listingCreateGuardCardTone}`}>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
-                <p className={`mt-1 text-xs ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
-                  {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "السوق غير متاح مؤقتاً — يتم استخدام آخر سعر معروف." : "Market temporarily unavailable — using last known price.")}
-                </p>
-                <div className="mt-2 space-y-1">
-                  <p>{currencyText("1 USDT")} = <span className="font-semibold text-white">{currencyText(formatIls(marketPricePerUsdt))}</span></p>
-                  <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(formatIls(maxAllowedListingPrice))}</span></p>
-                  {listingCreateAmount > 0 ? <p>{currencyText(`${Math.trunc(listingCreateAmount).toLocaleString("en-US")} USDT`)} ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
-                </div>
-              </div>
-              <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-available" required>{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</FieldLabel>
+              <form className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)] xl:items-start" onSubmit={handleSellerListingCreateSubmit}>
+                <div className="min-w-0 space-y-4">
+                  <ListingCreateSection id="create-amount-heading" number={1} icon={<Wallet className="h-4 w-4" />} title={isAr ? "الكمية والسعر" : "Amount & price"}>
+                    <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-available" required>{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</FieldLabel>
                   <Input
                     id="create-available"
                     placeholder={isAr ? "مثال: 25,000" : "e.g. 25,000"}
@@ -1090,20 +1109,21 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     }}
                     inputMode="decimal"
                     aria-required
-                    className={`currency-money ${cn("h-11", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}`}
+                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">{isAr ? "يمكن إدخال ما يصل إلى 6 منازل عشرية." : "You can enter up to 6 decimal places."}</p>
                 </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-price" required>{isAr ? "السعر" : "Price"}</FieldLabel>
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-price" required>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</FieldLabel>
                   <Input
                     id="create-price"
+                    inputMode="decimal"
                     placeholder={isAr ? "السعر لكل USDT" : "Price per USDT"}
                     value={listingCreateForm.price}
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
                     aria-required
                     aria-invalid={listingCreatePriceInvalid || undefined}
-                    className={`currency-money ${cn("h-11 transition-all duration-200", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}`}
+                    className={`currency-money ${cn("h-12 text-base transition-all duration-200 md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}`}
                   />
                   <p className={`text-xs transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
@@ -1115,63 +1135,45 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`))}
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-currency" required>{isAr ? "العملة" : "Currency"}</FieldLabel>
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-currency" required>{isAr ? "العملة" : "Currency"}</FieldLabel>
                   <Input
                     id="create-currency"
                     value="ILS"
                     readOnly
                     aria-describedby="create-currency-help"
-                    className="h-11"
+                    className="h-12 text-base md:h-11 md:text-sm"
                   />
                   <p id="create-currency-help" className="text-xs text-[#9CA3AF]">
                     {isAr ? "الأسعار والإجماليات بالشيكل الإسرائيلي (ILS)." : "Prices and totals are in Israeli shekels (ILS)."}
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-network" required>{isAr ? "الشبكة" : "Network"}</FieldLabel>
-                  <select id="create-network" className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-network" required>{isAr ? "الشبكة" : "Network"}</FieldLabel>
+                  <select id="create-network" className="flex h-12 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-base text-white md:h-11 md:text-sm transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                     <option value="TRC20">TRC20</option>
                     <option value="ERC20">ERC20</option>
                     <option value="BEP20">BEP20</option>
                     <option value="SOL">SOL</option>
                   </select>
                 </div>
-                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{isAr ? "طريقة الدفع" : "Payment Method"}</FieldLabel>
-                  <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    {MARKETPLACE_PAYMENT_METHODS.map((method) => {
-                      const selected = listingCreateSelectedMethods.includes(method);
-                      return (
-                        <button
-                          key={`create-method-${method}`}
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => setListingCreateForm((prev) => {
-                            const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS, true);
-                            return syncListingBankSelection({
-                              ...prev,
-                              paymentMethods: nextMethods,
-                              bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
-                            }, sellerBankAccounts);
-                          })}
-                          className={`rounded-xl border p-3 text-start transition-all duration-200 ${
-                            selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                              : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                          }`}
-                        >
-                          <p className="text-sm font-medium text-white">{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`}</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "تحتاج إلى حساب بنكي محفوظ فقط عند اختيار التحويل البنكي. السحب بلا بطاقة واللقاء الشخصي لا يحتاجان إلى حساب بنكي في ملفك." : "A saved bank account is required only for Bank Transfer. Cardless Withdrawal and Face to Face do not require bank details in your profile."}</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>راجع إرشادات أمان الدفع في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
+                    </div>
+              <div className={`rounded-xl border p-3 text-sm text-[#E5E7EB] transition-colors ${listingCreateGuardCardTone}`}>
+                <p className="text-xs font-semibold text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
+                <p className={`mt-1 text-xs ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
+                  {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "السوق غير متاح مؤقتاً — يتم استخدام آخر سعر معروف." : "Market temporarily unavailable — using last known price.")}
+                </p>
+                <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                  <p>{currencyText("1 USDT")} = <span className="font-semibold text-white">{currencyText(formatIls(marketPricePerUsdt))}</span></p>
+                  <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(formatIls(maxAllowedListingPrice))}</span></p>
+                  {listingCreateAmount > 0 ? <p className="sm:col-span-2">{moneyText(listingCreateForm.availableAmount)} {currencyText("USDT")} ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
                 </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-min-trade" required>{isAr ? "أدنى صفقة" : "Minimum Trade"}</FieldLabel>
+              </div>
+                  </ListingCreateSection>
+                  <ListingCreateSection id="create-limits-heading" number={2} icon={<TrendingUp className="h-4 w-4" />} title={isAr ? "حدود الصفقة" : "Trade limits"}>
+                    <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-min-trade" required>{currencyText(isAr ? "أدنى صفقة (USDT)" : "Minimum Trade (USDT)")}</FieldLabel>
                   <Input
                     id="create-min-trade"
                     placeholder={isAr ? "أدنى مبلغ" : "Smallest amount"}
@@ -1179,12 +1181,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: normalizeTradeAmountInput(event.target.value) }))}
                     inputMode="decimal"
                     aria-required
-                    className={`currency-money ${cn("h-11", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}`}
+                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">{isAr ? "أصغر مبلغ صفقة تقبله." : "The smallest trade amount you are willing to accept."}</p>
                 </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-max-trade" required>{isAr ? "أقصى صفقة" : "Maximum Trade"}</FieldLabel>
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-max-trade" required>{currencyText(isAr ? "أقصى صفقة (USDT)" : "Maximum Trade (USDT)")}</FieldLabel>
                   <Input
                     id="create-max-trade"
                     placeholder={isAr ? "أكبر مبلغ" : "Largest amount"}
@@ -1204,47 +1206,84 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     inputMode="decimal"
                     aria-required
                     aria-invalid={listingCreateTradeRangeInvalid || undefined}
-                    className={`currency-money ${cn("h-11", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}`}
+                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">{currencyText(isAr ? "لا يمكن أن يتجاوز مبلغ USDT المعروض." : "Maximum trade cannot exceed your listed USDT amount.")}</p>
                 </div>
-                <div className="space-y-2 md:col-span-2">
-                  <FieldLabel htmlFor="create-description" optional optionalLabel={isAr ? "اختياري" : "optional"}>{isAr ? "وصف البائع" : "Seller Description"}</FieldLabel>
-                  <Textarea id="create-description" className="min-h-[96px]" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                    </div>
+                  </ListingCreateSection>
+                  <ListingCreateSection id="create-payment-heading" number={3} icon={<WalletCards className="h-4 w-4" />} title={isAr ? "طرق الدفع" : "Payment methods"}>
+                <div className="min-w-0 space-y-3">
+                  <FieldLabel className="text-sm normal-case tracking-normal" required>{isAr ? "طريقة الدفع" : "Payment Method"}</FieldLabel>
+                  <div className="mt-3 grid gap-2 2xl:grid-cols-3">
+                    {MARKETPLACE_PAYMENT_METHODS.map((method) => {
+                      const selected = listingCreateSelectedMethods.includes(method);
+                      return (
+                        <button
+                          key={`create-method-${method}`}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => setListingCreateForm((prev) => {
+                            const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS, true);
+                            return syncListingBankSelection({
+                              ...prev,
+                              paymentMethods: nextMethods,
+                              bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                            }, sellerBankAccounts);
+                          })}
+                          className={`min-h-12 min-w-0 rounded-xl border p-3 text-start transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
+                            selected
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15"
+                              : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/45"
+                          }`}
+                        >
+                          <span className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 break-words text-sm font-medium text-white">{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</span>
+                            <span aria-hidden="true" className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", selected ? "border-[#6CAEFF] bg-[#6CAEFF]/20 text-[#93C5FD]" : "border-white/25")}>
+                              {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`}</p>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "تحتاج إلى حساب بنكي محفوظ فقط عند اختيار التحويل البنكي. السحب بلا بطاقة واللقاء الشخصي لا يحتاجان إلى حساب بنكي في ملفك." : "A saved bank account is required only for Bank Transfer. Cardless Withdrawal and Face to Face do not require bank details in your profile."}</p>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>راجع إرشادات أمان الدفع في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
                 {listingCreateRequiresBank ? (
-                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{listingCreateRequiresBankAccount ? (isAr ? "البنوك المدعومة" : "Supported banks") : (isAr ? "بنوك السحب بلا بطاقة" : "Cardless withdrawal banks")}</FieldLabel>
+                <div className="min-w-0 border-t border-white/10 pt-4">
+                  <FieldLabel className="text-sm normal-case tracking-normal" required>{listingCreateRequiresBankAccount ? (isAr ? "البنوك المدعومة" : "Supported banks") : (isAr ? "بنوك السحب بلا بطاقة" : "Cardless withdrawal banks")}</FieldLabel>
                   <p className="mt-1 text-xs text-[#D1D5DB]">{listingCreateRequiresBankAccount
                     ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
                     : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
-                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}>
                     {ISRAELI_BANKS.map((bank) => {
                       const selected = listingCreateSelectedBanks.includes(bank.name);
                       return (
                         <button
                           key={bank.id}
                           type="button"
+                          aria-pressed={selected}
                           onClick={() => setListingCreateForm((prev) => {
                             const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
                             return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
                           })}
-                          className={`rounded-xl border p-3 text-start transition-all duration-200 ${
+                          className={`min-h-12 min-w-0 rounded-xl border p-2.5 text-start transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
                             selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                              : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15"
+                              : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/45"
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/35">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/35">
                               {renderBankLogo(bank)}
                             </span>
-                            <div>
-                              <p className="text-sm font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
-                              <p className="text-[11px] text-[#9CA3AF]">{bank.code}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="break-words text-sm font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
                             </div>
+                            {selected ? <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[#93C5FD]" /> : null}
                           </div>
-                          {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "محدد" : "Selected"}</p> : null}
                         </button>
                       );
                     })}
@@ -1253,8 +1292,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 ) : null}
                 {listingCreateRequiresBankAccount ? (
-                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{isAr ? "حساب البنك لاستلام الدفع" : "Payout bank account"}</FieldLabel>
+                <div className="min-w-0 border-t border-white/10 pt-4">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-bank-account" required>{isAr ? "حساب البنك لاستلام الدفع" : "Payout bank account"}</FieldLabel>
                   {sellerBankAccountsLoading ? (
                     <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
                   ) : sellerBankAccounts.length === 0 ? (
@@ -1264,7 +1303,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   ) : (
                     <>
                       <select
-                        className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
+                        id="create-bank-account"
+                        className="mt-2 flex h-12 w-full min-w-0 rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-base text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] md:h-11 md:text-sm"
                         value={listingCreateForm.bankAccountId}
                         onChange={(event) => setListingCreateForm((prev) => {
                           const bankAccountId = event.target.value;
@@ -1293,34 +1333,74 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   )}
                 </div>
                 ) : null}
-                <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "القيمة الإجمالية المباشرة" : "Live total value"}</p>
-                  <p className="mt-1">{currencyText(`${Math.trunc(listingCreateAmount).toLocaleString("en-US")} USDT`)}</p>
-                  <p className="mt-1">× {currencyText(formatIls(listingCreatePrice || 0))} = <span className="font-semibold text-white">{currencyText(formatIls(listingCreateTotalIls))}</span></p>
+                  </ListingCreateSection>
                 </div>
-                <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#F3F4F6]">
-                  <p className="text-xs uppercase tracking-[0.12em] text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
-                  <p className="mt-1">{brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
-                  <label className="mt-3 inline-flex cursor-pointer items-start gap-2 text-xs text-[#E5E7EB]">
+                <ListingCreateSection id="create-review-heading" number={4} icon={<CheckCircle2 className="h-4 w-4" />} title={isAr ? "المراجعة والإرسال" : "Review & submit"}>
+                <div className="min-w-0 space-y-2">
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-description" optional optionalLabel={isAr ? "اختياري" : "optional"}>{isAr ? "وصف البائع" : "Seller Description"}</FieldLabel>
+                  <Textarea id="create-description" className="min-h-[96px] text-base md:text-sm" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                </div>
+                <div className="min-w-0 rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-sm font-semibold text-white">{isAr ? "ملخص عرضك" : "Your listing"}</p>
+                  <dl className="mt-3 space-y-3 text-sm">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <dt className="text-[#9CA3AF]">{isAr ? "الكمية المتاحة" : "Available"}</dt>
+                      <dd data-testid="create-summary-amount" dir="ltr" className="min-w-0 break-words font-medium">{moneyText(listingCreateForm.availableAmount || "0")} {currencyText("USDT")}</dd>
+                    </div>
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <dt className="text-[#9CA3AF]">{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</dt>
+                      <dd dir="ltr" className="min-w-0 break-words font-medium">{currencyText(formatIls(listingCreatePrice || 0))}</dd>
+                    </div>
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <dt className="text-[#9CA3AF]">{isAr ? "حدود الصفقة" : "Trade range"}</dt>
+                      <dd data-testid="create-summary-range" dir="ltr" className="min-w-0 break-words font-medium">{moneyText(listingCreateForm.minimumTrade || "0")} – {moneyText(listingCreateForm.maximumTrade || listingCreateForm.availableAmount || "0")} {currencyText("USDT")}</dd>
+                    </div>
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <dt className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}</dt>
+                      <dd dir="ltr" className="text-white">{listingCreateForm.network}</dd>
+                    </div>
+                    <div className="space-y-1">
+                      <dt className="text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</dt>
+                      <dd className="break-words text-white">{listingCreateSelectedMethods.length
+                        ? listingCreateSelectedMethods.map((method) => paymentMethodLabel(method, isAr)).join(isAr ? "، " : ", ")
+                        : (isAr ? "اختر طريقة دفع" : "Choose a payment method")}</dd>
+                    </div>
+                    {listingCreateRequiresBank && listingCreateSelectedBanks.length ? (
+                      <div className="space-y-1">
+                        <dt className="text-[#9CA3AF]">{isAr ? "البنوك المحددة" : "Selected banks"}</dt>
+                        <dd className="break-words text-white">{listingCreateSelectedBanks.map((bank) => getIsraeliBankDisplayName(bank, locale)).join(isAr ? "، " : ", ")}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
+                    <p className="text-xs text-[#9CA3AF]">{isAr ? "القيمة الإجمالية للعرض" : "Total listing value"}</p>
+                    <p data-testid="create-summary-total" dir="ltr" className="break-words text-2xl font-semibold">{currencyText(formatIls(listingCreateTotalIls))}</p>
+                    <p className="text-xs text-[#9CA3AF]">{isAr ? "قبل عمولة المنصة على الصفقات المكتملة." : "Before platform commission on completed trades."}</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-3 text-sm text-[#F3F4F6]">
+                  <p className="text-sm font-semibold text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
+                  <p className="mt-2 text-sm leading-6">{brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
+                  <label className="mt-3 flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm text-[#E5E7EB]">
                     <input
                       type="checkbox"
                       checked={listingCommissionAgreement}
                       onChange={(event) => setListingCommissionAgreement(event.target.checked)}
-                      className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
+                      className="mt-0.5 h-5 w-5 shrink-0 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
                     />
                     <span>{brandText(isAr ? "أفهم وأوافق على سياسة عمولة Alpha Traders البالغة 1%." : "I understand and agree to Alpha Traders’ 1% commission policy.")}</span>
                   </label>
                   <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
-                <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-200 ${listingCreateGuardTone}`}>
+                {listingCreatePriceInvalid || listingCreateTradeRangeInvalid || !listingCreateSelectedMethods.length || (listingCreateRequiresBank && !listingCreateSelectedBanks.length) || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId) || listingCreateBankAccountMismatch || !listingCommissionAgreement ? (
+                <div className={`rounded-xl border p-3 transition-colors ${listingCreateGuardTone}`}>
                   <div className="flex items-start gap-2">
-                    {listingCreatePriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-                    <div className="space-y-1 text-sm">
+                    <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="min-w-0 space-y-2 text-sm">
                       <p className="font-medium">
-                        {currencyText(listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active"))}
+                        {currencyText(listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "راجع التفاصيل أدناه قبل الإرسال" : "Check the details below before submitting"))}
                       </p>
-                      <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {currencyText(formatIls(marketPricePerUsdt))} {currencyText(isAr ? "لكل 1 USDT" : "per 1 USDT")}</p>
-                      <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {currencyText(formatIls(maxAllowedListingPrice))}</p>
+                      {!listingCreateSelectedMethods.length ? <p className="text-amber-200">{isAr ? "اختر طريقة دفع واحدة على الأقل." : "Choose at least one payment method."}</p> : null}
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">{currencyText(isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT.")}</p> : null}
                       {listingCreateRequiresBank && !listingCreateSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الإرسال." : "Select one or two supported banks before submitting."}</p> : null}
                       {listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الإرسال." : "Select one payout bank account before submitting."}</p> : null}
@@ -1332,10 +1412,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </p>
                       ) : null}
                       {!listingCommissionAgreement ? <p className="text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة بنسبة 1% قبل النشر." : "You must accept the 1% commission policy before publishing."}</p> : null}
-                      {listingCreateAmount > 0 ? <p>{currencyText(`${Math.trunc(listingCreateAmount).toLocaleString("en-US")} USDT`)} ≈ {currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</p> : null}
                     </div>
                   </div>
                 </div>
+                ) : null}
                 {listingCreateResult ? (
                   <ActionFeedback revealKey={listingCreateResult}
                     id="listing-publish-result"
@@ -1343,13 +1423,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     role={listingCreateResult.tone === "error" ? "alert" : "status"}
                     aria-live={listingCreateResult.tone === "error" ? "assertive" : "polite"}
                     className={cn(
-                      "md:col-span-2 flex items-start justify-between gap-3 rounded-xl border p-4 text-sm shadow-[0_0_0_1px_rgba(255,255,255,0.03)] animate-in fade-in-0 slide-in-from-top-1 duration-300",
+                      "flex min-w-0 items-start justify-between gap-3 rounded-xl border p-4 text-sm shadow-[0_0_0_1px_rgba(255,255,255,0.03)] animate-in fade-in-0 slide-in-from-top-1 duration-300",
                       listingCreateResult.tone === "error"
                         ? "border-red-500/45 bg-red-950/35 text-red-100"
                         : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
                     )}
                   >
-                    <span className="flex items-start gap-2">
+                    <span className="flex min-w-0 items-start gap-2 break-words">
                       {listingCreateResult.tone === "error" ? (
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
                       ) : (
@@ -1370,11 +1450,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </button>
                   </ActionFeedback>
                 ) : null}
-                <div className="md:col-span-2">
-                  <Button type="submit" className="h-11 w-full sm:w-auto" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
-                    {listingActionKey === "create:new" ? (isAr ? "جارٍ النشر..." : "Publishing...") : (isAr ? "إرسال العرض" : "Submit Listing")}
+                <div className="space-y-2">
+                  <Button type="submit" className="min-h-12 w-full whitespace-normal px-4 py-3" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
+                    {listingActionKey === "create:new" ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "إرسال العرض" : "Submit Listing")}
                   </Button>
+                  <p className="text-center text-xs leading-5 text-[#9CA3AF]">{isAr ? "يظهر العرض للمشترين بعد موافقة الإدارة." : "Your listing becomes visible to buyers after owner approval."}</p>
                 </div>
+                </ListingCreateSection>
               </form>
             </CardContent>
           </Card>

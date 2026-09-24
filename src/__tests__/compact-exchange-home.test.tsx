@@ -128,9 +128,11 @@ describe("compact Exchange home", () => {
     expect(document.activeElement?.id).toBe("my-listings-section");
   });
 
-  it("does not offer approved seller management to a suspended account", () => {
+  it("does not offer approved seller management to a suspended account", async () => {
     user = { ...buyer, sellerStatus: "suspended" };
-    render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="seller" />);
+    await act(async () => {
+      render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="seller" />);
+    });
     expect(screen.queryByRole("button", { name: "View and Manage Listings" })).toBeNull();
   });
 

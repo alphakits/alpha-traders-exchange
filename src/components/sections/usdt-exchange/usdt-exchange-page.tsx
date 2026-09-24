@@ -647,13 +647,28 @@ export function normalizeDecimalInput(value: string | number | null | undefined)
 }
 
 export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
+  if (bank.id === "hapoalim") {
+    return (
+      <svg viewBox="0 0 56 56" className="h-8 w-8 shrink-0" aria-hidden="true">
+        <rect x="2" y="2" width="52" height="52" rx="14" fill="#F8FAFC" />
+        <rect x="12" y="12" width="32" height="32" rx="6" transform="rotate(45 28 28)" fill="#ED1C24" />
+      </svg>
+    );
+  }
+  if (bank.id === "mercantile") {
+    return (
+      <svg viewBox="0 0 56 56" className="h-8 w-8 shrink-0" aria-hidden="true">
+        <rect x="2" y="2" width="52" height="52" rx="14" fill="#20B96C" />
+        <text x="28" y="29" textAnchor="middle" fill="white" fontSize="10" fontWeight="900" fontFamily="Arial, sans-serif">מרכנתיל</text>
+        <path d="M12 35 Q28 42 44 35" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
   const wordmark = (() => {
-    if (bank.id === "hapoalim") return { top: "POALIM", bottom: "BANK" };
     if (bank.id === "leumi") return { top: "LEUMI", bottom: "BANK" };
     if (bank.id === "mizrahi-tefahot") return { top: "MIZRAHI", bottom: "TEFAHOT" };
     if (bank.id === "discount") return { top: "DISCOUNT", bottom: "BANK" };
     if (bank.id === "fibi") return { top: "FIBI", bottom: "FIRST INTL" };
-    if (bank.id === "mercantile") return { top: "MERC", bottom: "BANK" };
     if (bank.id === "yahav") return { top: "YAHAV", bottom: "BANK" };
     return { top: "JERUSALEM", bottom: "BANK" };
   })();

@@ -63,8 +63,8 @@ beforeEach(() => {
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-async function openForm(preferredPaymentMethods = ["Bank Transfer"]) {
-  render(<UsdtExchangePage locale="en" initialSessionUser={{ ...seller, preferredPaymentMethods }} workspaceMode="seller" />);
+async function openForm(preferredPaymentMethods = ["Bank Transfer"], locale: "ar" | "en" = "en") {
+  render(<UsdtExchangePage locale={locale} initialSessionUser={{ ...seller, preferredPaymentMethods }} workspaceMode="seller" />);
   await waitFor(() => expect(document.getElementById("create-available")).not.toBeNull());
   await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/alpha-exchange/seller-settings", expect.anything()));
   const form = within(document.getElementById("create-listing")!);
@@ -121,5 +121,50 @@ describe("listing payment-method bank requirements", () => {
     await waitFor(() => expect(submittedListing).toBeDefined());
     expect(submittedListing).toMatchObject({ paymentMethods: ["Cardless ATM Withdrawal"], bankName: "Bank Hapoalim" });
     expect(submittedListing).not.toHaveProperty("bankAccountId");
+  });
+});
+
+describe("create-listing review summary", () => {
+  it.each(["en", "ar"] as const)("keeps exact amounts and commission consent through submission (%s)", async (locale) => {
+    const form = await openForm(["Face-to-Face (Meet in Person)"], locale);
+    const summary = form.getByRole("region", { name: locale === "ar" ? "المراجعة والإرسال" : "Review & submit" });
+    const review = within(summary);
+    const available = document.getElementById("create-available") as HTMLInputElement;
+    const maximum = document.getElementById("create-max-trade") as HTMLInputElement;
+
+    fireEvent.change(available, { target: { value: "1000.123456" } });
+    expect(maximum.value).toBe("1000.123456");
+    fireEvent.change(document.getElementById("create-min-trade")!, { target: { value: "100.125001" } });
+    fireEvent.change(maximum, { target: { value: "500.500001" } });
+    fireEvent.change(document.getElementById("create-network")!, { target: { value: "BEP20" } });
+
+    expect(review.getByTestId("create-summary-amount").textContent).toBe("1,000.123456 USDT");
+    expect(review.getByTestId("create-summary-range").textContent).toBe("100.125001 – 500.500001 USDT");
+    expect(review.getByTestId("create-summary-total").textContent).toBe("₪3,100.38");
+    expect(review.getByText("BEP20")).toBeTruthy();
+    expect(form.queryByText(locale === "ar" ? "حساب البنك لاستلام الدفع" : "Payout bank account")).toBeNull();
+
+    const submit = form.getByRole("button", { name: locale === "ar" ? "إرسال العرض" : "Submit Listing" }) as HTMLButtonElement;
+    const agreement = review.getByRole("checkbox");
+    fireEvent.click(agreement);
+    expect(submit.disabled).toBe(true);
+    expect(submittedListing).toBeUndefined();
+    fireEvent.click(agreement);
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(submittedListing).toBeDefined());
+    expect(submittedListing).toMatchObject({
+      availableAmount: "1000.123456",
+      price: "3.10",
+      currency: "ILS",
+      network: "BEP20",
+      minimumTrade: "100.125001",
+      maximumTrade: "500.500001",
+      paymentMethods: ["Face-to-Face (Meet in Person)"],
+      acceptedCommissionPolicy: true,
+    });
+    expect(submittedListing).not.toHaveProperty("bankAccountId");
+    expect(submittedListing).not.toHaveProperty("bankName");
   });
 });
