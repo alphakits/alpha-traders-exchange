@@ -27,10 +27,9 @@ describe("trade proposal controls", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "accept_counter_offer", proposalId: "offer-2" });
   });
-  it("explains why correction is locked after USDT is sent", () => {
-    render(<TradeTermsPanel request={{ ...base, status: "usdt_sent" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
-    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText((_, element) => element?.tagName === "P" && /USDT release has started/.test(element.textContent ?? ""))).toBeTruthy();
+  it.each(["usdt_release_pending", "usdt_sent"] as const)("hides unavailable amount controls at %s", (status) => {
+    render(<TradeTermsPanel request={{ ...base, status }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
   });
 });
 

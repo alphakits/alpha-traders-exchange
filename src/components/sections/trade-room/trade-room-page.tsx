@@ -478,7 +478,9 @@ function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: b
   }
   if (isCashTrade && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status)) {
     return isSeller
-      ? (isAr ? "أرسل USDT ثم أكد الإرسال" : "Send USDT, then confirm it was sent")
+      ? isFaceToFacePaymentMethod(request.paymentMethod)
+        ? (isAr ? "أرسل USDT ثم أكمل الصفقة" : "Send USDT, then complete the trade")
+        : (isAr ? "أرسل USDT ثم أكد الإرسال" : "Send USDT, then confirm it was sent")
       : (isAr ? "حتى يرسل البائع USDT ويؤكد الإرسال" : "Until the seller sends USDT and confirms it");
   }
   if (request.status === "usdt_sent") {
@@ -816,7 +818,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
       ? {
           isYourTurn: true,
           title: isAr ? "دورك الآن" : "YOUR TURN",
-          detail: isAr ? "ظهر عنوان المحفظة. أرسل USDT ثم أكد الإرسال؛ لا صورة مطلوبة." : "The wallet is revealed. Send USDT, then confirm it was sent; no photo is needed.",
+          detail: isFaceToFacePaymentMethod(request.paymentMethod)
+            ? (isAr ? "ظهر عنوان المحفظة. أرسل كامل USDT ثم حدّد الصفقة كمكتملة؛ لا صورة مطلوبة." : "The wallet is revealed. Send the full USDT amount, then mark the trade completed; no photo is needed.")
+            : (isAr ? "ظهر عنوان المحفظة. أرسل USDT ثم أكد الإرسال؛ لا صورة مطلوبة." : "The wallet is revealed. Send USDT, then confirm it was sent; no photo is needed."),
         }
       : {
           isYourTurn: false,
@@ -3280,7 +3284,7 @@ function TradeRoomPageSession({
                 ) : !hasPendingTradeTerms ? (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
                 ) : null}
-                {(isActorBuyer || isSeller) && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status) ? (
+                {(canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)) ? (
                   <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
                     <Button type="button" variant="secondary" className="min-h-11 w-full"
                       disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || room.hasOpenDispute || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}

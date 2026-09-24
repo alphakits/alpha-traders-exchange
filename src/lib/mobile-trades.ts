@@ -1,3 +1,4 @@
+import { canBuyerCancelTrade, canSellerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
 import { PrivateContactError } from "@/lib/buyer-contact";
 import type {
   MobileApiErrorCode,
@@ -91,9 +92,8 @@ export function toMobileTradeActions(
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   return {
     canAccept: isSeller && request.status === "pending" && request.termsProposal?.status !== "pending",
-    canDecline: isSeller && request.status === "pending",
-    canCancel: isBuyer
-      && (request.status === "pending" || (request.status === "accepted" && !request.buyerEvidence && !request.paymentSentAt)),
+    canDecline: canSellerDeclineTrade(request, userId),
+    canCancel: canBuyerCancelTrade(request, userId) || (request.status !== "pending" && canSellerCancelTrade(request, userId)),
     canViewBankDetails: isBuyer
       && Boolean(request.sellerBankAccountId)
       && isBankTransferPaymentMethod(request.paymentMethod)
@@ -110,6 +110,7 @@ export function toMobileTradeActions(
       && request.status === "funds_received"
       && !isCashTrade,
     canMarkUsdtSent: isSeller
+      && !isSellerTradeCompletionAvailable(request.paymentMethod, request.status)
       && isCashTradeUsdtSentConfirmationAvailable(request.paymentMethod, request.status),
     canUploadReleaseEvidence: isSeller
       && request.status === "usdt_release_pending"
