@@ -9,6 +9,8 @@ import type { MarketplaceListing, SellerLevel } from "@/types/alpha-exchange";
 /** The existing preview route blocks this synthetic review surface in production. */
 export function ListingDesignPreview({ locale }: { locale: "en" | "ar" }) {
   const [feedback, setFeedback] = useState("");
+  const [cardWidth, setCardWidth] = useState(358);
+  const [largeAmount, setLargeAmount] = useState(false);
   const sample = (width: number, rank: SellerLevel, amount: string): MarketplaceListing => ({
     id: `sample-${width}`, sellerId: `sample-seller-${width}`, sellerDisplayName: "AT-100001", displayNumber: 1247, photos: [],
     originalAmount: amount, availableAmount: amount, price: "3.12", currency: "ILS", network: "TRC20",
@@ -25,8 +27,12 @@ export function ListingDesignPreview({ locale }: { locale: "en" | "ar" }) {
     <h1 className="text-xl font-semibold">Listing layout review · sample data</h1>
     <div className="my-4 flex flex-wrap items-center gap-3"><PublicAccountId value="AT-084321" /><RoleBadge variant="buyer" locale={locale} /><PublicAccountId value="AT-027419" audience="seller" rank="gold" /><RoleBadge variant="approved_seller" locale={locale} /></div>
     <p role="status" className="mb-4 text-sm">{feedback || "Preview buttons show feedback only."}</p>
+    <div className="mb-5 flex flex-wrap items-center gap-4">
+      <label>Card width <select className="rounded border bg-slate-900 p-2" value={cardWidth} onChange={e => setCardWidth(Number(e.target.value))}>{[248, 288, 328, 343, 358, 380, 398, 448, 560, 740, 1120].map(width => <option key={width} value={width}>{width}px</option>)}</select></label>
+      <label><input type="checkbox" checked={largeAmount} onChange={e => setLargeAmount(e.target.checked)} /> Very long amount</label>
+    </div>
     <div className="flex flex-wrap items-start gap-6">
-      {([{ width: 288, rank: "bronze", amount: "1250" }, { width: 358, rank: "diamond", amount: "15000" }, { width: 560, rank: "gold", amount: "999999999" }] as const).map(({width, rank, amount}) => <section key={width} style={{ width, maxWidth: "100%" }}>
+      {([{ width: cardWidth, rank: "diamond", amount: largeAmount ? "999999999999" : "15000" }] as const).map(({width, rank, amount}) => <section key={width} style={{ width, maxWidth: "100%" }}>
         <h2 className="mb-3 text-sm">Card width: {width}px</h2>
         <ListingCard listing={sample(width, rank, amount)} isAr={locale === "ar"} marketPricePerUsdt={3.01}
           isOwnerListing={false} isOwnListing={false} isBuying={false}

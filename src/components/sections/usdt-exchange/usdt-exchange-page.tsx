@@ -1241,7 +1241,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                   <span className="seller-asset-usdt-amount-icon inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-200">
                     ₮
                   </span>
-                {currencyText(isAr ? "USDT المتاح" : "Available USDT")}
+                <span className="min-w-0">{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</span>
               </p>
               <div className="seller-asset-usdt-amount-row">
                 <div className="seller-asset-usdt-amount-content">
@@ -1249,9 +1249,10 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                   <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
                     {moneyText(formattedAvailableAmount)}
                   </p>
+                  <span className="compact-listing__amount-unit currency-usdt">USDT</span>
                 </div>
               </div>
-              <p className="mt-2 text-sm font-medium text-emerald-100"><span className="currency-usdt">USDT</span></p>
+
               <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
                 {isAr ? "جاهز للتداول" : "Ready to trade"}

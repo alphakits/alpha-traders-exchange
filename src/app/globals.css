@@ -2598,7 +2598,7 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .seller-price-value { font-size: clamp(1.5rem, 8cqi, 2.3rem); line-height: 1.2; overflow-wrap: anywhere; }
 .compact-listing .compact-listing__market { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; margin-top: .5rem; padding: .4rem .5rem; }
 .compact-listing__market-price { margin-inline-start: auto; font-size: .875rem; overflow-wrap: anywhere; }
-.compact-listing .compact-listing__stats > div { min-width: 0; padding: .5rem .25rem; }
+.compact-listing .compact-listing__stats > div { min-width: 0; padding: .4rem .125rem; }
 .compact-listing .compact-listing__stats p { overflow-wrap: anywhere; line-height: 1.4; }
 .compact-listing .seller-card-info-panel { min-height: 0; padding: .625rem; line-height: 1.5; overflow-wrap: anywhere; }
 .compact-listing .seller-marketplace-action {
@@ -2613,13 +2613,27 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.compact-listing .seller-marketplace-action > span { min-width: 0; gap: .35rem; }
+.compact-listing .seller-marketplace-action > span { display: flex; flex: 1; min-width: 0; align-items: center; justify-content: space-between; gap: .35rem; }
 .compact-listing .seller-marketplace-action svg { flex-shrink: 0; width: .875rem; height: .875rem; }
 .compact-listing .seller-marketplace-action--offer { flex-direction: row; flex-wrap: wrap; align-items: center; }
-@container (min-width: 400px) {
-  .compact-listing__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.compact-listing__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (max-width: 260px) {
+  .compact-listing__details { grid-template-columns: minmax(0, 1fr); }
 }
-@container (max-width: 300px) {
+@container (max-width: 260px) {
   .compact-listing__identity-row { flex-wrap: wrap; }
   .compact-listing .compact-listing__availability { max-width: none; flex-direction: row; flex-wrap: wrap; align-items: center; }
 }
+
+.compact-listing .compact-listing__amount-label { align-items: flex-start; }
+.compact-listing .compact-listing__amount-label > span:last-child { flex: 1; overflow-wrap: anywhere; }
+.compact-listing .seller-asset-usdt-amount-content { flex-wrap: wrap; align-items: baseline; gap: .15rem .3rem; }
+.compact-listing .seller-asset-usdt-value { flex: 0 1 auto; text-wrap: wrap; font-size: 1.25rem; font-size: clamp(1.25rem, 7cqi, 2.1rem); }
+.compact-listing .seller-asset-usdt-value--tight { font-size: 1.125rem; font-size: clamp(1.125rem, 6.2cqi, 1.9rem); }
+.compact-listing .seller-asset-usdt-value--compact { font-size: 1rem; font-size: clamp(1rem, 5.4cqi, 1.65rem); }
+.compact-listing__amount-unit { font-size: .75rem; line-height: 1.4; }
+.compact-listing .seller-live-market-badge { padding: .1rem .35rem; min-height: 0; line-height: 1.3; }
+.compact-listing .role-badge { max-width: 100%; }
+.compact-listing .role-badge__content { min-width: 0; }
+.compact-listing .role-badge__content > span { overflow-wrap: anywhere; }
+.compact-listing .seller-marketplace-action--offer > span { flex-wrap: wrap; }
