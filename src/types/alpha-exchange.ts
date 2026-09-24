@@ -933,6 +933,11 @@ export interface CommissionRecord {
   issueReason?: string;
   rate: number;
   grossAmount: number;
+  /** Seller's own 1% marketplace fee in USDT. */
+  sellerFeeAmount?: number;
+  /** Buyer's 1% fee collected by the seller with the trade payment. */
+  buyerFeeCollectedAmount?: number;
+  /** Total payable to Alpha. Legacy records contain seller-only commission here. */
   commissionAmount: number;
   paymentStatus: CommissionPaymentStatus;
   paymentProvider?: "phantom" | "crypto_wallet" | "qa_reset";
