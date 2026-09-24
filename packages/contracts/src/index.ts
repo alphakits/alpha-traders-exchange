@@ -6,3 +6,4 @@ export * from "./wallet-address";
 export * from "./whatsapp-contact";
 export * from "./cardless-withdrawal";
 export * from "./israeli-banks";
+export * from "./user-presence";

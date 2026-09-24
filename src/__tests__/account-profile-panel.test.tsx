@@ -30,6 +30,8 @@ function stubProfileFetch(fetchMock: (...args: Parameters<typeof fetch>) => unkn
     ? Promise.resolve(new Response(JSON.stringify({ preferences: { inApp: true, email: false } }), { status: 200 }))
     : String(args[0]) === "/api/news/preferences"
       ? Promise.resolve(new Response(JSON.stringify({ available: false, preferences: { inApp: false, email: false }, channels: { inApp: true, email: false } }), { status: 200 }))
+    : String(args[0]).startsWith("/api/alpha-exchange/presence")
+      ? Promise.resolve(new Response(JSON.stringify({ users: {} }), { status: 200 }))
     : fetchMock(...args));
 }
 

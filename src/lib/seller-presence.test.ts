@@ -12,60 +12,23 @@ const NOW = new Date("2026-02-15T10:00:00.000Z").getTime();
 const iso = (msFromNow: number) => new Date(NOW + msFromNow).toISOString();
 
 describe("deriveSellerPresence", () => {
-  it("shows Online for an online seller with a fresh heartbeat", () => {
-    const presence = deriveSellerPresence({ onlineStatus: "online", lastActiveAt: iso(-2 * 60 * 1000) }, NOW);
-    expect(presence.tone).toBe("online");
-    expect(presence.online).toBe(true);
-    expect(presence.label).toBe("Online");
+  it("requires a recent server heartbeat and genuine activity", () => {
+    expect(deriveSellerPresence({ onlineStatus: "online", lastSeenAt: iso(-10_000), lastActiveAt: iso(-60_000) }, NOW).online).toBe(true);
+    expect(deriveSellerPresence({ onlineStatus: "online", lastActiveAt: iso(-120_000) }, NOW).online).toBe(false);
+    expect(deriveSellerPresence({ onlineStatus: "online", lastSeenAt: iso(0), lastActiveAt: iso(-300_000) }, NOW).online).toBe(false);
   });
-
-  it("downgrades a stale online flag to timestamp-driven presence", () => {
-    // online flag set but last heartbeat 40 min ago -> not genuinely online
-    const presence = deriveSellerPresence({ onlineStatus: "online", lastActiveAt: iso(-40 * 60 * 1000) }, NOW);
+  it.each([undefined, null, "invalid", iso(60_000)])("never fabricates activity from %s", lastActiveAt => {
+    expect(deriveSellerPresence({ onlineStatus: "online", lastActiveAt }, NOW).online).toBe(false);
+  });
+  it("shows real elapsed activity while offline", () => {
+    expect(deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-25 * 60_000) }, NOW).label).toBe("Offline · Active 25 min ago");
+    expect(deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-47 * 86_400_000) }, NOW).label).toBe("Offline · Active 47d ago");
+  });
+  it("does not reveal hidden timestamps or presence", () => {
+    const presence = deriveSellerPresence({ onlineStatus: "online", lastActiveAt: iso(0), presenceHidden: true }, NOW);
     expect(presence.online).toBe(false);
-    expect(presence.tone).toBe("recent");
-    expect(presence.label).toBe("Active 40 min ago");
-  });
-
-  it("shows amber Active N min ago within the last hour", () => {
-    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-25 * 60 * 1000) }, NOW);
-    expect(presence.tone).toBe("recent");
-    expect(presence.label).toBe("Active 25 min ago");
-  });
-
-  it("shows Last seen today for earlier the same day", () => {
-    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-5 * 60 * 60 * 1000) }, NOW);
-    expect(presence.tone).toBe("idle");
-    expect(presence.label).toBe("Last seen today");
-  });
-
-  it("shows Last seen yesterday for the previous calendar day", () => {
-    const yesterday = new Date("2026-02-14T20:00:00.000Z").getTime();
-    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: new Date(yesterday).toISOString() }, NOW);
-    expect(presence.tone).toBe("idle");
-    expect(presence.label).toBe("Last seen yesterday");
-  });
-
-  it("uses the Israel calendar day regardless of the server timezone", () => {
-    const now = new Date("2026-08-27T22:30:00.000Z").getTime();
-    const earlierSameIsraelDay = "2026-08-27T21:15:00.000Z";
-    const presence = deriveSellerPresence(
-      { onlineStatus: "offline", lastActiveAt: earlierSameIsraelDay },
-      now,
-    );
-    expect(presence.label).toBe("Last seen today");
-  });
-
-  it("shows Offline for older activity", () => {
-    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-4 * 24 * 60 * 60 * 1000) }, NOW);
-    expect(presence.tone).toBe("idle");
-    expect(presence.label).toBe("Offline");
-  });
-
-  it("shows Offline when there is no activity data (never fabricates)", () => {
-    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: null }, NOW);
-    expect(presence.label).toBe("Offline");
     expect(presence.minutesSinceActive).toBeNull();
+    expect(presence.label).toBe("Activity hidden");
   });
 });
 

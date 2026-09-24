@@ -1,3 +1,5 @@
+import { ProfileLiveRefresh } from "@/components/profile/profile-live-refresh";
+import { UserPresence } from "@/components/ui/user-presence";
 import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
@@ -219,6 +221,7 @@ export default async function PublicUserProfilePage({
 
   return (
     <section className="section-container page-shell">
+      <ProfileLiveRefresh />
       <div className="mx-auto w-full max-w-6xl space-y-6">
         <div className="surface-panel overflow-hidden p-0">
           <div className="relative h-44 border-b border-white/10 bg-gradient-to-r from-[#161005] via-[#221803] to-[#090909] md:h-56">
@@ -287,9 +290,7 @@ export default async function PublicUserProfilePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-xs text-[#D1D5DB]">
                 <p>{isAr ? "عضو منذ" : "Member since"}: <span className="text-white">{new Date(data.profile.memberSince).toLocaleDateString(dateLocale)}</span></p>
-                {data.profile.lastActiveAt ? (
-                  <p className="mt-1">{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{new Date(data.profile.lastActiveAt).toLocaleString(dateLocale)}</span></p>
-                ) : null}
+                <p className="mt-1">{isAr ? "آخر نشاط" : "Last active"}: <UserPresence userId={data.profile.id} initial={data.profile} isAr={isAr} /></p>
               </div>
             </div>
 

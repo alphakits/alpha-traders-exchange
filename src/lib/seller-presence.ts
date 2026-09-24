@@ -1,93 +1,13 @@
-import type { SellerOnlineStatus } from "@/types/alpha-exchange";
-import { israelCalendarDayNumber } from "@/lib/israel-calendar";
-
-// Presence and listing-countdown helpers.
-//
-// Everything here is derived from real, timestamp-driven data (a seller's
-// stored online flag + lastActiveAt, and a listing's expiresAt). Nothing is
-// fabricated: when the source data is missing we degrade to a neutral/offline
-// or hidden state rather than inventing activity.
-
-/** A seller is only treated as "Online" if their online flag is backed by a
- * recent heartbeat. Beyond this window we fall back to timestamp-driven tiers
- * so a stale session never shows a misleading green dot. */
-export const ONLINE_FRESHNESS_MS = 15 * 60 * 1000;
-/** Upper bound for the yellow "Active N min ago" tier. */
+import { deriveUserPresence, PRESENCE_LEASE_MS } from "@alpha-traders/contracts";
+export const ONLINE_FRESHNESS_MS = PRESENCE_LEASE_MS;
 export const RECENTLY_ACTIVE_MS = 60 * 60 * 1000;
-
-export type PresenceTone = "online" | "recent" | "idle";
-
-export interface SellerPresence {
-  /** Styling tone: online (green), recent (amber), idle (gray). */
-  tone: PresenceTone;
-  /** True only when the seller is genuinely online right now. */
-  online: boolean;
-  /** English presence label. */
-  label: string;
-  /** Arabic presence label. */
-  labelAr: string;
-  /** Whole minutes since last activity, or null when unknown. */
-  minutesSinceActive: number | null;
-}
-
+export const deriveSellerPresence = deriveUserPresence;
+export type SellerPresence = ReturnType<typeof deriveSellerPresence>;
+export type PresenceTone = SellerPresence["tone"];
 function parseTimestamp(value: string | null | undefined): number | null {
   if (!value) return null;
   const ms = new Date(value).getTime();
   return Number.isFinite(ms) && ms > 0 ? ms : null;
-}
-
-function calendarDayDifference(fromMs: number, toMs: number): number {
-  const fromDay = israelCalendarDayNumber(fromMs);
-  const toDay = israelCalendarDayNumber(toMs);
-  if (!Number.isFinite(fromDay) || !Number.isFinite(toDay)) return 0;
-  return Math.round(toDay - fromDay);
-}
-
-/**
- * Derive a natural, timestamp-driven presence state for a seller.
- *
- * Tiers:
- *  - green  "Online"                (online flag + fresh heartbeat)
- *  - amber  "Active N min ago"      (last active within the last hour)
- *  - gray   "Last seen today"       (earlier today)
- *  - gray   "Last seen yesterday"   (previous calendar day)
- *  - gray   "Offline"              (older / unknown)
- */
-export function deriveSellerPresence(
-  input: { onlineStatus?: SellerOnlineStatus | null; lastActiveAt?: string | null },
-  now: number = Date.now(),
-): SellerPresence {
-  const lastActiveMs = parseTimestamp(input.lastActiveAt);
-  const elapsed = lastActiveMs === null ? null : Math.max(0, now - lastActiveMs);
-  const minutesSinceActive = elapsed === null ? null : Math.floor(elapsed / 60000);
-
-  const hasFreshHeartbeat = elapsed !== null && elapsed <= ONLINE_FRESHNESS_MS;
-  if (input.onlineStatus === "online" && (hasFreshHeartbeat || lastActiveMs === null)) {
-    return { tone: "online", online: true, label: "Online", labelAr: "متصل الآن", minutesSinceActive };
-  }
-
-  if (elapsed !== null && elapsed <= RECENTLY_ACTIVE_MS) {
-    const minutes = Math.max(1, Math.round(elapsed / 60000));
-    return {
-      tone: "recent",
-      online: false,
-      label: `Active ${minutes} min ago`,
-      labelAr: `نشط قبل ${minutes} دقيقة`,
-      minutesSinceActive,
-    };
-  }
-
-  if (lastActiveMs !== null) {
-    const dayDiff = calendarDayDifference(lastActiveMs, now);
-    if (dayDiff <= 0) {
-      return { tone: "idle", online: false, label: "Last seen today", labelAr: "آخر ظهور اليوم", minutesSinceActive };
-    }
-    if (dayDiff === 1) {
-      return { tone: "idle", online: false, label: "Last seen yesterday", labelAr: "آخر ظهور أمس", minutesSinceActive };
-    }
-  }
-
-  return { tone: "idle", online: false, label: "Offline", labelAr: "غير متصل", minutesSinceActive };
 }
 
 export const COUNTDOWN_HIDE_THRESHOLD_MS = 12 * 60 * 60 * 1000;

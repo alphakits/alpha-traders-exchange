@@ -16,7 +16,8 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { getMarketplacePaymentMethodOptions, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
-import { deriveSellerPresence } from "@/lib/seller-presence";
+import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
+import { useLiveUserPresence } from "@/lib/user-presence-client";
 import { formatTradeId } from "@/lib/format-id";
 import { cn } from "@/lib/utils";
 import type { AuditAction, MarketplaceListing, PremiumSellerProfileData, PurchaseRequest, SellerLevel } from "@/types/alpha-exchange";
@@ -180,10 +181,7 @@ export function PurchaseListingDialog({
     || (priceMode === "buyer_offer" && offerPriceInvalid)
     || (requiresSafetyNotice && !safetyAcknowledged);
 
-  const modalPresence = deriveSellerPresence({
-    onlineStatus: (sellerProfileData?.profile ?? listing.sellerProfile)?.onlineStatus,
-    lastActiveAt: (sellerProfileData?.profile ?? listing.sellerProfile)?.lastActiveAt,
-  });
+  const modalPresence = useLiveUserPresence(listing.sellerId, sellerProfileData?.profile ?? listing.sellerProfile);
   const modalName = sellerProfileData?.profile.sellerName ?? listing.sellerDisplayName;
   const modalLevel = sellerProfileData?.sellerLevel ?? listing.sellerReputation?.level;
   const modalToneKey = listing.sellerProfile?.isOwner ? "legendary" : sellerLevelToneKey(modalLevel);
@@ -234,7 +232,7 @@ export function PurchaseListingDialog({
                         {currencyText(isAr ? modalPresence.labelAr : modalPresence.label)}
                       </span>
                       <span><ShieldCheck className="mr-0.5 inline h-3 w-3 text-[#93C5FD]" />{modalTrust.toFixed(1)}</span>
-                      <span><Zap className="me-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalResponse.toFixed(0)} {isAr ? "دقائق" : "min"}</span>
+                      <span><Zap className="me-0.5 inline h-3 w-3 text-[#F4D87A]" />{formatMeasuredResponseTime(modalResponse, isAr)}</span>
                       <span><HandCoins className="me-0.5 inline h-3 w-3" />{modalCompleted.toLocaleString("en-IL")} {isAr ? "صفقات" : "trades"}</span>
                       <span><Star className="mr-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalRating.toFixed(2)}</span>
                       {isSellerProfileLoading && !sellerProfileData ? <span className="text-[10px] italic text-[#9CA3AF]">{isAr ? "جارٍ التحديث…" : "refreshing…"}</span> : null}

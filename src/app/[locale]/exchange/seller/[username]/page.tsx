@@ -1,3 +1,4 @@
+import { ProfileLiveRefresh } from "@/components/profile/profile-live-refresh";
 import { notFound, redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
@@ -61,11 +62,14 @@ async function SellerProfileRouteContent(
     notFound();
   }
   return (
+    <>
+    <ProfileLiveRefresh />
     <PremiumSellerProfilePage
       locale={locale as "ar" | "en"}
       data={data}
       viewerOwnsProfile={viewer?.id === data.profile.sellerId}
       viewerSignedIn={Boolean(viewer)}
     />
+    </>
   );
 }

@@ -12,8 +12,9 @@ import { RankBadge, RankEmblem, RankRadiance } from "@/components/ui/rank-badge"
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
-import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
-import { deriveSellerPresence } from "@/lib/seller-presence";
+import { getVisibleSellerReviews } from "@/lib/reviews";
+import { UserPresence } from "@/components/ui/user-presence";
+import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
 import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
@@ -226,7 +227,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
   }
 
   const visibleReviews = getVisibleSellerReviews(profile.latestReviews as never[]);
-  const reviewStats = buildSellerReviewStats(visibleReviews as never[]);
+  const reviewStats = { averageRating: profile.averageRating, reviewCount: profile.totalReviews };
   const paymentMethods = seller.preferredPaymentMethods?.length
     ? seller.preferredPaymentMethods
     : Array.from(new Set(data.sellerListings.flatMap(resolveSellerListingPaymentMethods)));
@@ -239,7 +240,6 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
   }, 0);
   const isOwnerSeller = seller.isOwner === true;
   const sellerRankKey = isOwnerSeller ? "legendary" : sellerLevelToneKey(profile.sellerLevel);
-  const presence = deriveSellerPresence({ onlineStatus: seller.onlineStatus, lastActiveAt: seller.lastActiveAt });
   const heroBadgeItems = [
     seller.isFeaturedSeller ? (isAr ? "بائع مميز" : "Featured Seller") : null,
     seller.isFoundingSeller ? (isAr ? "بائع مؤسس" : "Founding Seller") : null,
@@ -263,7 +263,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
     }] : []),
     {
       label: isAr ? "الاستجابة" : "Response Time",
-      value: `${profile.responseTimeMinutes.toFixed(0)} ${isAr ? "دقيقة" : "min"}`,
+      value: formatMeasuredResponseTime(profile.responseTimeMinutes, isAr),
       icon: <Zap className="h-3.5 w-3.5" />,
     },
   ];
@@ -278,7 +278,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
     { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}${isAr ? "٪" : "%"}` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}${isAr ? "٪" : "%"}` },
-    { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: `${profile.responseTimeMinutes.toFixed(0)} ${isAr ? "دقيقة" : "min"}` },
+    { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: formatMeasuredResponseTime(profile.responseTimeMinutes, isAr) },
     { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString(), isUsdt: true },
     { label: isAr ? "سنوات على المنصة" : "Years on platform", value: `${profile.yearsOnPlatform.toFixed(1)}` },
   ];
@@ -332,10 +332,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                           {isOwnerSeller ? <Crown className="h-12 w-12" aria-hidden="true" /> : <RankEmblem rank={profile.sellerLevel} className="!h-20 !w-20 [&>svg]:!h-10 [&>svg]:!w-10" />}
                         </div>
                       )}
-                      <span className={cn("absolute bottom-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-[0_10px_20px_rgba(0,0,0,0.25)]", isAr ? "left-1" : "right-1", presence.tone === "online" ? "bg-emerald-500/90 text-white" : presence.tone === "recent" ? "bg-amber-500/90 text-black" : "bg-white/20 text-white")}>
-                        <span className={cn("h-1.5 w-1.5 rounded-full", presence.tone === "online" ? "bg-white" : presence.tone === "recent" ? "bg-black/70" : "bg-[#D1D5DB]")} />
-                        {currencyText(isAr ? presence.labelAr : presence.label)}
-                      </span>
+                      <UserPresence userId={seller.sellerId} initial={seller} isAr={isAr} compact className={cn("absolute bottom-1 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-semibold", isAr ? "left-1" : "right-1")} />
                     </div>
                     <div className={isAr ? "text-right" : ""}>
                       <div className={cn("flex items-center gap-2", isAr ? "flex-row-reverse" : "")}>
@@ -347,7 +344,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                           {heroRankLabel(profile.sellerLevel, isOwnerSeller, isAr)}
                         </span>
                         <span className="seller-listing-status-separator"> • </span>
-                        <span className="text-[#D1D5DB]">{seller.onlineStatus === "online" ? (isAr ? "متصل" : "ONLINE") : (isAr ? "غير متصل" : "OFFLINE")}</span>
+                        <UserPresence userId={seller.sellerId} initial={seller} isAr={isAr} />
                       </p>
                       <div className={cn("mt-3 flex flex-wrap gap-2", isAr ? "justify-end" : "")}>
                         {isOwnerSeller ? <RoleBadge variant="owner" locale={locale} /> : null}
@@ -443,7 +440,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
-                  <p className="mt-2 font-medium text-white">{profile.responseTimeMinutes.toFixed(0)} {isAr ? "دقيقة" : "min"}</p>
+                  <p className="mt-2 font-medium text-white">{formatMeasuredResponseTime(profile.responseTimeMinutes, isAr)}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "التوفر" : "Availability"}</p>

@@ -1,3 +1,4 @@
+import { deriveUserPresence, formatMeasuredResponseTime } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
@@ -58,18 +59,6 @@ function listingReference(listing: MobileMarketplaceListing) {
   return `#LS-${String(number).padStart(6, "0")}`;
 }
 
-function lastActiveLabel(value: string | undefined, isAr: boolean) {
-  if (!value) return isAr ? "غير متصل" : "Offline";
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return isAr ? "غير متصل" : "Offline";
-  const minutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000));
-  if (minutes < 60) return isAr ? `منذ ${formatCount(minutes)} د` : `${formatCount(minutes)} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return isAr ? `منذ ${formatCount(hours)} س` : `${formatCount(hours)}h ago`;
-  const days = Math.round(hours / 24);
-  return isAr ? `منذ ${formatCount(days)} ي` : `${formatCount(days)}d ago`;
-}
-
 function expiryLabel(expiresAt: string | undefined, now: number, isAr: boolean) {
   if (!expiresAt) return "";
   const remaining = new Date(expiresAt).getTime() - now;
@@ -103,18 +92,16 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
   const isOwner = listing.seller.isOwner;
   const toneKey = isOwner ? "owner" : (listing.seller.level ?? "bronze");
   const tone = RANK_TONES[toneKey];
-  const isOnline = listing.seller.onlineStatus === "online";
   const profilePhotoUrl = safeRemoteImageUrl(listing.seller.profilePhotoUrl);
   const [now, setNow] = useState(() => Date.now());
+  const presence = deriveUserPresence(listing.seller, now);
+  const isOnline = presence.online;
   useEffect(() => {
-    if (!expiryLabel(listing.expiresAt, Date.now(), isAr)) return;
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, [isAr, listing.expiresAt]);
   const countdown = expiryLabel(listing.expiresAt, now, isAr);
-  const responseTime = listing.seller.responseTimeMinutes !== undefined
-    ? `${formatCount(Math.max(0, Math.round(listing.seller.responseTimeMinutes)))} ${t("minutesShort")}`
-    : listing.responseTime;
+  const responseTime = formatMeasuredResponseTime(listing.seller.responseTimeMinutes, isAr);
   const paymentMethods = useMemo(
     () => listing.paymentMethods.map((method) => mobilePaymentMethodLabel(method, locale)),
     [listing.paymentMethods, locale],
@@ -218,7 +205,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
 
         <View style={styles.infoStack}>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Last active", "آخر نشاط")}: <Text style={isOnline ? styles.onlineValue : styles.infoValue}>{isOnline ? t("online") : lastActiveLabel(listing.seller.lastActiveAt, isAr)}</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Last active", "آخر نشاط")}: <Text style={isOnline ? styles.onlineValue : styles.infoValue}>{isAr ? presence.labelAr : presence.label}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Network", "الشبكة")}: <Text style={styles.infoValue}>{listing.network}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{t("payment")}:</Text>
             <View style={[styles.paymentMethods, isRTL && styles.rowReverse]}>

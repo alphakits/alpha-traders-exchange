@@ -1,3 +1,4 @@
+import { recordUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
@@ -8,7 +9,6 @@ vi.mock("@/lib/postgres-runtime", () => ({
 import {
   getMarketplacePulse,
   invalidateAlphaExchangeStoreCache,
-  touchUserPresence,
 } from "@/lib/alpha-exchange-store";
 
 const iso = (msFromNow: number) => new Date(Date.now() + msFromNow).toISOString();
@@ -117,11 +117,13 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
 }
 
 describe("getMarketplacePulse", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+    await endPresenceSession("pulse-test");
+    for (const id of ["seller-online", "buyer-online", "admin-online"]) await recordUserPresence(id, "pulse-test", { clientId: crypto.randomUUID(), sequence: 1, active: true, activity: true });
   });
 
   it("counts only genuinely-online sellers (fresh presence)", async () => {
@@ -170,9 +172,9 @@ describe("getMarketplacePulse", () => {
     expect(serialized).not.toContain("Buyer Name");
   });
 
-  it("touchUserPresence refreshes a stale user so they count as online", async () => {
+  it("an observed activity signal refreshes a stale user so they count as online", async () => {
     invalidateAlphaExchangeStoreCache();
-    await touchUserPresence("buyer-offline");
+    await recordUserPresence("buyer-offline", "pulse-test", { clientId: crypto.randomUUID(), sequence: 1, active: true, activity: true });
     const pulse = await getMarketplacePulse();
     expect(pulse.buyersOnline).toBe(2);
   });

@@ -117,6 +117,8 @@ export interface AlphaExchangeUser {
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
   showTradeStats?: boolean;
@@ -290,6 +292,8 @@ export interface SellerPublicProfile {
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   emailVerified?: boolean;
 }
 
@@ -420,7 +424,7 @@ export interface SellerReputationSnapshot {
 }
 
 export type PublicSellerReputationSnapshot = Omit<SellerReputationSnapshot,
-  "totalUsdtVolume" | "estimatedCommissionPaid" | "revenueGenerated" | "averageTradeSize" | "publicVolumeRange" | "remainingVolumeToNextRank" | "prestigeProgressPercent" | "lifetimeCompletedVolumeUsdt" | "prestigeVolumeUsdt">;
+  "totalUsdtVolume" | "estimatedCommissionPaid" | "revenueGenerated" | "averageTradeSize" | "publicVolumeRange" | "remainingVolumeToNextRank" | "prestigeProgressPercent" | "lifetimeCompletedVolumeUsdt" | "prestigeVolumeUsdt" | "profileViews" | "listingViews" | "monthlyGrowthPercent" | "customerSatisfaction">;
 
 export interface MarketplaceListing {
   id: string;

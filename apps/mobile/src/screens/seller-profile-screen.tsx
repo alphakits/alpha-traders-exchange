@@ -1,3 +1,4 @@
+import { deriveUserPresence, formatMeasuredResponseTime } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { useCallback } from "react";
 import {
@@ -74,6 +75,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
           getMobileSellerProfile(listingId, requestLocale, signal, tokens))
       : getMobileSellerProfile(listingId, locale, signal),
     staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const goBack = useCallback(() => {
@@ -151,8 +153,8 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
               {seller.isEmailVerified ? <Text style={styles.verified}>✓</Text> : null}
             </View>
             <View style={[styles.statusRow, isRTL && styles.rowReverse]}>
-              <View style={[styles.statusDot, seller.onlineStatus === "online" && styles.statusOnline]} />
-              <Text style={styles.statusText}>{seller.onlineStatus === "online" ? t("online") : t("offline")}</Text>
+              <View style={[styles.statusDot, deriveUserPresence(seller).online && styles.statusOnline]} />
+              <Text style={styles.statusText}>{locale === "ar" ? deriveUserPresence(seller).labelAr : deriveUserPresence(seller).label}</Text>
               <Text style={[styles.levelBadge, { borderColor: tone.border, color: tone.accent, backgroundColor: tone.soft }]}>{levelLabel(seller.level, t)}</Text>
             </View>
             <Text style={[styles.memberSince, isRTL && styles.rtlText]}>{t("memberSince")} {joinedYear}</Text>
@@ -162,7 +164,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         <View style={styles.metricsGrid}>
           <Metric isRTL={isRTL} label={t("completedTrades")} value={formatCount(Math.round(finiteMetric(seller.completedTrades)))} />
           <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
-          <Metric isRTL={isRTL} label={t("responseTime")} value={`${Math.round(finiteMetric(seller.responseTimeMinutes))} ${t("minutesShort")}`} />
+          <Metric isRTL={isRTL} label={t("responseTime")} value={formatMeasuredResponseTime(seller.responseTimeMinutes, locale === "ar")} />
           <Metric isRTL={isRTL} label={t("completionRate")} value={`${Math.round(Math.min(100, finiteMetric(seller.completionRate)))}%`} />
           <Metric isRTL={isRTL} label={t("trustScore")} value={String(Math.round(Math.min(100, finiteMetric(seller.trustScore))))} />
         </View>
