@@ -209,7 +209,7 @@ describe("guided cash-trade completion", () => {
       expect(saved.timeline.filter(event => event.type === "usdt_sent")).toHaveLength(1);
     }
     expect(snapshot.commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
-      expect.objectContaining({ sellerId: SELLER_ID, commissionAmount: 2.5, paymentStatus: "pending" }),
+      expect.objectContaining({ sellerId: SELLER_ID, sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, commissionAmount: 5, paymentStatus: "pending" }),
     ]);
     expect(snapshot.marketplaceListings.find(listing => listing.id === listingId)).toMatchObject({ availableAmount: "750", activeTradeRequestId: undefined });
     expect(snapshot.notifications).toEqual(expect.arrayContaining([
@@ -554,7 +554,7 @@ describe("guided cash-trade completion", () => {
       updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "completed" }),
     ]);
     expect(currentSnapshot().commissionRecords).toHaveLength(1);
-    expect(currentSnapshot().commissionRecords[0].commissionAmount).toBe(1.25);
+    expect(currentSnapshot().commissionRecords[0]).toMatchObject({ sellerFeeAmount: 1.25, buyerFeeCollectedAmount: 1.25, commissionAmount: 2.5 });
     expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("875");
   });
 
