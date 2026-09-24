@@ -1,4 +1,11 @@
-import type { SellerReviewRecord } from "@/types/alpha-exchange";
+import { normalizePublicAccountId } from "@/lib/format-id";
+import { publicAccountId } from "@/lib/public-account-identity";
+import type { SellerProfileReviewEntry, SellerReviewRecord } from "@/types/alpha-exchange";
+
+/** Read old public review payloads without ever falling back to a private name. */
+export function publicReviewBuyerId(review: Pick<SellerProfileReviewEntry, "buyerName" | "buyerId">) {
+  return normalizePublicAccountId(review.buyerName) ?? publicAccountId({ id: review.buyerId });
+}
 
 export type SellerReviewStats = {
   reviewCount: number;
@@ -42,7 +49,7 @@ export function createSellerReviewRecord(input: {
   };
 }
 
-export function getVisibleSellerReviews(reviews: SellerReviewRecord[]) {
+export function getVisibleSellerReviews<T extends { hidden?: boolean }>(reviews: T[]): T[] {
   return reviews.filter((review) => !review.hidden);
 }
 

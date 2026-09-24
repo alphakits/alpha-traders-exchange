@@ -13,6 +13,7 @@ import {
 } from "@/lib/mobile-api";
 import type { PremiumSellerProfileData } from "@/types/alpha-exchange";
 import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
+import { getVisibleSellerReviews, publicReviewBuyerId } from "@/lib/reviews";
 
 type RouteContext = {
   params: Promise<{ listingId: string }>;
@@ -57,11 +58,11 @@ function toMobileSellerProfile(
     totalReviews: profile.totalReviews,
     publicVolumeRange: "",
     badges: [...profile.badges],
-    latestReviews: profile.latestReviews.map((review) => ({
+    latestReviews: getVisibleSellerReviews(profile.latestReviews).map((review) => ({
       rating: review.rating,
       comment: review.comment,
       createdAt: review.createdAt,
-      buyerDisplayName: review.buyerName,
+      buyerDisplayName: publicReviewBuyerId(review),
       verifiedPurchase: review.verifiedPurchase,
       ...(review.sellerResponse
         ? {
