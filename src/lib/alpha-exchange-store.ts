@@ -188,7 +188,7 @@ import { isNewListingBroadcastNotification, listingNotificationViewDestination, 
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
-import { calculateFiatAmount, calculateSellerCommissionAmount, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateBuyerCommissionAmount, calculateFiatAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
@@ -1024,6 +1024,10 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     : undefined;
   if (request) {
     if (isQaCommissionModeEnabled()) return 1;
+    // New two-sided trade records store the total payable to Alpha (seller 1%
+    // plus the buyer 1% already collected by the seller). Legacy records must
+    // remain seller-only so an old completed trade is never retroactively charged.
+    if (typeof record.buyerFeeCollectedAmount === "number") return roundUsdt(record.commissionAmount);
     const calculated = calculateSellerCommissionAmount(request.usdtAmount);
     if (calculated !== null) return calculated;
   }
@@ -14289,10 +14293,18 @@ async function updatePurchaseRequestStatusAttempt(
     let commission = db.commissionRecords.find((record) => record.purchaseRequestId === request.id);
     if (!commission) {
       const normalizedGross = toNumber(next.fiatAmount);
+      const sellerFeeAmount = isQaCommissionModeEnabled()
+        ? 0.5
+        : calculateSellerCommissionAmount(next.usdtAmount);
+      const buyerFeeCollectedAmount = isQaCommissionModeEnabled()
+        ? 0.5
+        : calculateBuyerCommissionAmount(next.usdtAmount);
       const commissionAmount = isQaCommissionModeEnabled()
         ? 1
-        : calculateSellerCommissionAmount(next.usdtAmount);
-      if (commissionAmount === null) throw new Error("Unable to calculate seller commission.");
+        : calculateSellerTotalAlphaDue(next.usdtAmount);
+      if (sellerFeeAmount === null || buyerFeeCollectedAmount === null || commissionAmount === null) {
+        throw new Error("Unable to calculate marketplace fees.");
+      }
       commission = {
         id: `commission-${randomUUID()}`,
         source: "trade",
@@ -14303,6 +14315,8 @@ async function updatePurchaseRequestStatusAttempt(
         buyerId: request.buyerId,
         rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
+        sellerFeeAmount,
+        buyerFeeCollectedAmount,
         commissionAmount,
         paymentStatus: "pending",
         dueAt: addDaysIso(now, COMMISSION_GRACE_PERIOD_DAYS),
@@ -14317,13 +14331,13 @@ async function updatePurchaseRequestStatusAttempt(
         type: "commission_recorded",
         actorUserId: input.actorUserId,
         actorRole,
-        message: `Commission created (${commission.commissionAmount.toFixed(2)} USDT).`,
+        message: `Alpha fees created: seller 1% (${sellerFeeAmount.toFixed(2)} USDT) + buyer 1% collected by seller (${buyerFeeCollectedAmount.toFixed(2)} USDT); total due ${commission.commissionAmount.toFixed(2)} USDT.`,
         createdAt: now,
       });
       appendSystemTradeMessage(db, next, {
         senderUserId: input.actorUserId,
         senderRole: actorRole,
-        message: `Commission due was created for the seller (${commission.commissionAmount.toFixed(2)} USDT).`,
+        message: `Total due to Alpha is ${commission.commissionAmount.toFixed(2)} USDT. Your own seller fee is ${sellerFeeAmount.toFixed(2)} USDT (1%); ${buyerFeeCollectedAmount.toFixed(2)} USDT (1%) was paid by the buyer and collected by you for Alpha.`,
         createdAt: now,
       });
       await appendAuditLog(db, {
