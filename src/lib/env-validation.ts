@@ -157,6 +157,16 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   const errors: string[] = [];
   const isProduction = process.env.NODE_ENV === "production";
 
+  const networkMode = process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() || "off";
+  if (!["off", "monitor", "enforce"].includes(networkMode)) {
+    errors.push("ALPHA_NETWORK_ACCESS_MODE must be off, monitor, or enforce.");
+  } else if (networkMode !== "off" && !process.env.PROXYCHECK_API_KEY?.trim()) {
+    errors.push("PROXYCHECK_API_KEY is required when network access checks are enabled.");
+  }
+  if (process.env.NEXT_PUBLIC_PROXYCHECK_API_KEY) {
+    errors.push("SECURITY: PROXYCHECK_API_KEY must be server-only, never NEXT_PUBLIC.");
+  }
+
   for (const envVar of ENV_VARS) {
     const value = process.env[envVar.key];
     if (envVar.required && !value) {
