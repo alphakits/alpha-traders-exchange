@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { identityTextRedactor, publicAccountId, publicAccountName, ownerIdentityText, accountNameForViewer } from "./public-account-identity";
-import { formatBuyerId, formatSellerId } from "./format-id";
+import { formatBuyerId, formatSellerId, formatDisplayId, normalizePublicAccountId } from "./format-id";
 
 describe("AT account identities", () => {
   it("keeps the owner public and resolves members' AT IDs only in an owner view", () => {
@@ -17,6 +17,17 @@ describe("AT account identities", () => {
     expect(publicAccountId({ id: "one", role: "buyer" })).toBe(formatBuyerId(undefined, "one"));
     for (const sellerStatus of ["approved_seller", "suspended"]) expect(publicAccountId({ id: "one", role: "buyer", sellerStatus })).toBe(formatSellerId(undefined, "one"));
     expect(publicAccountId({ id: "one", role: "approved_seller", sellerStatus: "buyer" })).toBe(formatBuyerId(undefined, "one"));
+  });
+  it("retains the number and owner-only historical name resolution when labels change", () => {
+    const buyer = { id: "legacy-buyer", fullName: "Amir Hassan", role: "buyer" };
+    const oldBuyer = formatDisplayId("buyer", undefined, buyer.id);
+    const oldSeller = formatDisplayId("seller", undefined, buyer.id);
+    expect(publicAccountId(buyer)).toBe(oldBuyer.replace("#B-", "AT-"));
+    expect(publicAccountId({ ...buyer, role: "approved_seller" })).toBe(publicAccountId(buyer));
+    expect(identityTextRedactor([buyer])(`${oldBuyer} / ${oldSeller}`)).toBe(`${publicAccountId(buyer)} / ${publicAccountId(buyer)}`);
+    expect(ownerIdentityText([buyer])(`${oldBuyer} / ${oldSeller}`)).toBe("Amir Hassan / Amir Hassan");
+    expect(normalizePublicAccountId("Amir Hassan")).toBeUndefined();
+    expect(normalizePublicAccountId("AT-000001")).toBe("AT-000001");
   });
   it("removes real names, custom aliases and contact information from historical English and Arabic text", () => {
     const users = [{ id: "seller", sellerStatus: "approved_seller", fullName: "Maya Chen", buyerDisplayName: "Maya OTC" }, { id: "buyer", fullName: "أحمد علي" }];

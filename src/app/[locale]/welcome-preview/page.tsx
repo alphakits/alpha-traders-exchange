@@ -1,3 +1,4 @@
+import { ListingDesignPreview } from "@/components/sections/usdt-exchange/listing-design-preview";
 import { SellerWorkspaceDesignPreview } from "@/components/sections/usdt-exchange/seller-workspace-design-preview";
 import { BuyerWorkspaceDesignPreview } from "@/components/sections/usdt-exchange/buyer-workspace-design-preview";
 import { SellerDesignPreview } from "@/components/profile/seller-design-preview";
@@ -26,6 +27,7 @@ export default async function WelcomePreview({ params, searchParams }: { params:
   const locale = (await params).locale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   const view = (await searchParams).view;
+  if (view === "listings") return <ListingDesignPreview locale={locale} />;
   if (view === "seller-workspace") return <SellerWorkspaceDesignPreview locale={locale} />;
   if (view === "buyer-workspace") return <BuyerWorkspaceDesignPreview locale={locale} />;
   if (view === "seller-design" || view === "seller-public") return <SellerDesignPreview locale={locale} rank={(await searchParams).rank} publicView={view === "seller-public"} />;

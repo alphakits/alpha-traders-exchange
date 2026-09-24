@@ -5,6 +5,7 @@ import { currencyText } from "@/components/ui/currency-text";
 import { cn } from "@/lib/utils";
 import { SellerRankIdentity } from "@/components/profile/seller-rank-identity";
 import { RankRadiance } from "@/components/ui/rank-badge";
+import { PublicAccountId } from "@/components/ui/public-account-id";
 
 /** The account holder's private header. Member public profiles use AT identity; the owner is public. */
 export function PrivateProfileHeader({
@@ -72,7 +73,7 @@ export function PrivateProfileHeader({
           </p>
           <div className="mt-3 inline-flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2">
             <span className="text-xs text-[#A6AFBE]">{isAr ? "معرّف AT العام" : "Public AT ID"}</span>
-            <bdi dir="ltr" className="whitespace-nowrap text-sm font-semibold tracking-wide text-[#DCE6F5]">{publicId}</bdi>
+            <PublicAccountId value={publicId} audience={sellerRank ? "seller" : "buyer"} rank={sellerRank} />
           </div>
           </>}
           {children}

@@ -58,7 +58,7 @@ describe("account rank consistency and privacy", () => {
     expect(ownerProfile?.profile).toMatchObject({ fullName: seller.fullName, city: "Haifa", bio: seller.bio, contact: { phone: seller.whatsappNumber, email: seller.email } });
     for (const strongConsistency of [false, true]) {
       const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: owner.id, actorRole: "owner", markMessagesRead: false, strongConsistency });
-      expect(room.counterpart).toEqual({ buyerName: buyer.fullName, sellerName: seller.fullName });
+      expect(room.counterpart).toEqual({ buyerName: buyer.fullName, sellerName: seller.fullName, buyerPublicId: publicAccountId(buyer), sellerPublicId: publicAccountId(seller) });
       expect(room.request.buyerWhatsapp).toBe(buyer.whatsappNumber);
     }
     const ownerHistory = await getMyPurchaseRequests(owner.id, "owner");
@@ -108,7 +108,7 @@ describe("account rank consistency and privacy", () => {
     const listings = await getMarketplaceListings("active");
     expect(listings[0].sellerDisplayName).toBe(publicAccountId(seller));
     const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: seller.id, actorRole: "approved_seller", markMessagesRead: false });
-    expect(room.counterpart).toEqual({ buyerName: publicAccountId(buyer), sellerName: publicAccountId(seller) });
+    expect(room.counterpart).toEqual({ buyerName: publicAccountId(buyer), sellerName: publicAccountId(seller), buyerPublicId: publicAccountId(buyer), sellerPublicId: publicAccountId(seller) });
     const buyerRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: buyer.id, actorRole: "buyer", markMessagesRead: false });
     const mobileSellerRoom = toMobileTradeDetail(room, seller.id, "en");
     const mobileBuyerRoom = toMobileTradeDetail(buyerRoom, buyer.id, "ar");

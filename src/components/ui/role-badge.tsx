@@ -42,7 +42,7 @@ const badgeMeta: Record<
     labelAr: "بائع معتمد",
     icon: ShieldCheck,
     className: "role-badge--approved-seller",
-    iconClassName: "text-[#F0DD95]",
+    iconClassName: "text-[#95FFAD]",
   },
   moderator: {
     label: "Moderator",
@@ -77,6 +77,7 @@ export function RoleBadge({ variant, className, locale = "en" }: RoleBadgeProps)
         <Icon className={cn("h-3.5 w-3.5 shrink-0", meta.iconClassName)} aria-hidden="true" />
         <span>{isAr ? meta.labelAr : meta.label}</span>
         {variant === "owner" ? <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#F87171]" aria-hidden="true" /> : null}
+        {variant === "approved_seller" ? <Sparkles className="h-3 w-3 shrink-0 text-[#FFE481]" aria-hidden="true" /> : null}
         {meta.emblem ? <span className="role-badge__emblem">{meta.emblem}</span> : null}
       </span>
     </span>

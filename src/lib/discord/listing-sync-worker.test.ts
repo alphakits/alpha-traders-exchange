@@ -37,7 +37,7 @@ describe("Discord listing authoritative snapshot", () => {
         buyerDisplayName: "Seller Alpha",
         profilePhotoUrl: "https://cdn.example.com/avatar.png",
         onlineStatus: "online",
-        lastActiveAt: "2026-08-08T00:00:00.000Z",
+        lastActiveAt: "2026-08-08T00:05:00.000Z",
       },
       trust: {
         snapshot: {

@@ -10,6 +10,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { getPremiumSellerProfile, getPublicUserProfileRouteData } from "@/lib/alpha-exchange-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
+import { PublicAccountId } from "@/components/ui/public-account-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
@@ -241,7 +242,7 @@ export default async function PublicUserProfilePage({
 
           <div className="px-6 pb-6 pt-0 md:px-8">
             <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
-              <div className="flex items-end gap-4">
+              <div className="flex min-w-0 flex-wrap items-end gap-4">
                 <div className={isVerifiedSeller ? "profile-seller-frame" : "profile-member-frame"}>
                   {data.profile.profilePhotoUrl ? (
                     <Image src={data.profile.profilePhotoUrl} alt={publicTradingName} width={112} height={112} unoptimized className="h-full w-full rounded-2xl object-cover" />
@@ -249,9 +250,9 @@ export default async function PublicUserProfilePage({
                     <div className="flex h-full w-full items-center justify-center rounded-2xl bg-black/70 text-2xl font-semibold text-[#F4D87A]">{roleBadge === "owner" ? <Crown className="h-12 w-12 text-red-200" aria-hidden="true" /> : <RankEmblem rank={data.reputation?.level ?? data.profile.buyerRank} className="!h-20 !w-20 [&>svg]:!h-10 [&>svg]:!w-10" />}</div>
                   )}
                 </div>
-                <div className="pb-1">
+                <div className="min-w-0 pb-1">
                   <h1 className={roleBadge === "owner" ? "profile-identity-name profile-identity-name--owner" : isVerifiedSeller ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
-                    <bdi dir="auto">{currencyText(publicTradingName)}</bdi>
+                    {roleBadge === "owner" ? <bdi dir="auto">{currencyText(publicTradingName)}</bdi> : <PublicAccountId value={publicTradingName} audience={isVerifiedSeller ? "seller" : "buyer"} rank={data.reputation?.level} className="public-account-id--hero" />}
                   </h1>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <RoleBadge variant={roleBadge} locale={profileLocale} />

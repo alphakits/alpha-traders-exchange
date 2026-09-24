@@ -10874,7 +10874,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   const redacted: PurchaseRequest = {
     ...request,
     sellerBankAccountSnapshot: undefined,
-    buyerName: canViewPrivateContent || request.buyerIsOwner || /^#[SB]-\d{6,}$/.test(request.buyerName) ? request.buyerName : publicAccountName({ id: request.buyerId }),
+    buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
     messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent, canViewConfidentialCredential)),
     buyerEvidence: canViewPrivateContent ? request.buyerEvidence : sanitizeTradeEvidenceForCounterparty(request.buyerEvidence),

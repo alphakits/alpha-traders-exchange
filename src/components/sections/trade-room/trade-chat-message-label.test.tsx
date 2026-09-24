@@ -13,7 +13,7 @@ const message: TradeChatMessage = { id: "message-1", purchaseRequestId: "trade-1
 describe("public trade chat labels", () => {
   it("shows the dashboard AT ID and actual trade side, including a seller who is buying", () => {
     const html = renderToStaticMarkup(<TradeChatMessageLabel message={message} context={context} actorId="buyer-1" locale="en" />);
-    expect(html).toContain("#S-100001");
+    expect(html).toContain("AT-100001");
     expect(html).toContain("Buyer");
     expect(html).toContain("You");
     expect(html).not.toContain("Private");
@@ -22,7 +22,7 @@ describe("public trade chat labels", () => {
   });
   it("never uses a real name from an older cached snapshot as an identity or initial", () => {
     const html = renderToStaticMarkup(<TradeChatMessageLabel message={{ ...message, senderUserId: "seller-1" }} context={{ ...context, counterpart: { sellerName: "Private Seller +972500000000" } }} actorId="buyer-1" locale="ar" />);
-    expect(html).toMatch(/#S-\d{6}/);
+    expect(html).toMatch(/AT-\d{6}/);
     expect(html).toContain("البائع");
     expect(html).not.toMatch(/Private|972500000000/);
   });
