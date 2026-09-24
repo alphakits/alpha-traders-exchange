@@ -2,6 +2,7 @@ import { buildPageMetadata } from "@/lib/seo";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import { toClientSessionUser } from "@/lib/client-session-user";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -23,5 +24,8 @@ export default async function UsdtExchangeRoute({ params }: { params: Promise<{ 
     params,
     getCurrentSessionUser(),
   ]);
+  // Middleware only knows whether a cookie exists. Resolve it on the server
+  // before rendering anything from the exchange, including on native resume.
+  if (!user) redirect("/en");
   return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
 }

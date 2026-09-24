@@ -99,7 +99,7 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
     };
 
     const handleSignedOut = () => {
-      // Logout immediately navigates to the lightweight sign-in page. Notify
+      // Logout immediately navigates to the public homepage. Notify
       // the shell synchronously so it cannot retain the old session's Arabic.
       currentUserIdRef.current = null;
       lastRegistrationRef.current = null;

@@ -5,7 +5,7 @@ import {
   CanonicalSessionProvider,
   CANONICAL_SESSION_READ_TIMEOUT_MS,
   getCanonicalSessionRecoveryDelayMs,
-  getSessionExpiryLoginDestination,
+  getSessionExpiryHomeDestination,
   useCanonicalSession,
 } from "@/components/auth/canonical-session-provider";
 
@@ -290,7 +290,7 @@ describe("CanonicalSessionProvider", () => {
     expect(screen.getByText("ready-seller")).toBeTruthy();
   });
 
-  it("clears a stale bootstrap user and safely routes to sign-in when the canonical session is anonymous", async () => {
+  it("clears a stale bootstrap user and safely routes to the public home when the canonical session is anonymous", async () => {
     document.cookie = "ALPHA_LOCALE_CHOICE=ar; Path=/";
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
@@ -317,7 +317,7 @@ describe("CanonicalSessionProvider", () => {
       );
 
       await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
-      expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fusdt-exchange%3Ftab%3Dsell%23create-listing");
+      expect(replaceSpy).toHaveBeenCalledWith("/en");
       expect(document.cookie).not.toContain("ALPHA_LOCALE_CHOICE=ar");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
@@ -353,12 +353,10 @@ describe("CanonicalSessionProvider", () => {
   });
 
   it("builds a same-origin expiry redirect from the current location only", () => {
-    expect(getSessionExpiryLoginDestination({
+    expect(getSessionExpiryHomeDestination({
       pathname: "/ar/trade-room/trade-1",
-      search: "?action=upload-payment-receipt",
-      hash: "#evidence",
-    })).toBe("/en/login?sessionExpired=1&redirectTo=%2Far%2Ftrade-room%2Ftrade-1%3Faction%3Dupload-payment-receipt%23evidence");
-    expect(getSessionExpiryLoginDestination({ pathname: "/en/login", search: "", hash: "" })).toBeNull();
+    })).toBe("/en");
+    expect(getSessionExpiryHomeDestination({ pathname: "/en/login" })).toBeNull();
   });
 
   it("persists the active route locale for an authenticated session", async () => {

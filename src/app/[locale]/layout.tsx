@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { notFound, unstable_rethrow } from "next/navigation";
+import { notFound, redirect, unstable_rethrow } from "next/navigation";
+import { headers } from "next/headers";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
@@ -12,6 +13,7 @@ import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter
 import { OfflineBanner } from "@/components/pwa/offline-banner";
 import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { ProtectedPageBoundary } from "@/components/auth/protected-page-boundary";
 import { BuyerContactPrompt } from "@/components/auth/buyer-contact-prompt";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
@@ -19,6 +21,7 @@ import { UserActivityTracker } from "@/components/auth/user-activity-tracker";
 import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
 import { SessionUnavailable } from "@/components/auth/session-unavailable";
 import { logEvent } from "@/lib/structured-logging";
+import { APP_PAGE_PATH_HEADER, isProtectedPage } from "@/lib/protected-page";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -81,6 +84,9 @@ export default async function LocaleLayout({
     return <SessionUnavailable locale={appLocale} />;
   }
   const sessionUser = sessionResult.user;
+  if (!sessionUser && isProtectedPage((await headers()).get(APP_PAGE_PATH_HEADER) ?? "")) {
+    redirect("/en");
+  }
 
   return (
     <NextIntlClientProvider messages={messages}>
@@ -97,7 +103,7 @@ export default async function LocaleLayout({
           <UserActivityTracker />
           <BuyerContactPrompt locale={appLocale} />
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
-          <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} />{children}</main>
+          <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} /><ProtectedPageBoundary locale={appLocale}>{children}</ProtectedPageBoundary></main>
           <SiteFooter locale={appLocale} />
           <MobileBottomNavigation locale={appLocale} />
         </CanonicalSessionProvider>
