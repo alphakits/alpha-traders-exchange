@@ -63,6 +63,7 @@ import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
 import { cn } from "@/lib/utils";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
+import { purchaseBlockDestination, readPurchaseResponse } from "@/lib/purchase-response";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { isPayoutBankSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
@@ -794,6 +795,9 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
 function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
   if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
   if (!isAr) return englishMessage;
+  if (code === "PENDING_BUYER_FEEDBACK") return "أكمل تقييم صفقتك السابقة قبل بدء طلب جديد. افتح صفقاتك لإضافة التقييم.";
+  if (code === "SESSION_EXPIRED") return "انتهت جلسة الدخول. سجّل الدخول مجدداً ثم افتح صفقاتك قبل إعادة إرسال الطلب.";
+  if (code === "SERVICE_UNAVAILABLE") return "الخدمة غير متاحة مؤقتاً. تحقق من صفقاتك قبل إعادة إرسال الطلب.";
   if (code === "EMAIL_VERIFICATION_REQUIRED") return "يجب تأكيد البريد الإلكتروني قبل بدء صفقة.";
   if (code === "BUYER_ROLE_REQUIRED") return "يلزم تفعيل دور المشتري لبدء صفقة.";
   if (code === "RATE_LIMITED") return "أرسلت طلبات كثيرة خلال وقت قصير. حاول مرة أخرى بعد قليل.";
@@ -3144,24 +3148,23 @@ export function UsdtExchangePage({
           offeredPrice: purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : undefined,
         }),
       });
+      const payload = await readPurchaseResponse(response);
       if (!response.ok) {
         const requestId = response.headers.get("x-request-id");
         if (requestId) {
           console.warn("[alpha-exchange] purchase request rejected", { requestId, listingId: selectedListing.id });
         }
-        let errorMessage = fallbackMessage;
-        let errorCode = "";
-        let errorDetails: Record<string, unknown> = {};
-        try {
-          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown; details?: unknown };
-          if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
-          else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
-          if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
-          if (payload.details && typeof payload.details === "object") errorDetails = payload.details as Record<string, unknown>;
-        } catch {
-          const fallbackText = (await response.text()).trim();
-          if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
-        }
+        let errorMessage = response.status === 401
+          ? "Your session expired. Sign in again and check your trades before resubmitting."
+          : response.status >= 500
+            ? "The service is temporarily unavailable. Check your trades before resubmitting."
+            : fallbackMessage;
+        let errorCode = response.status === 401 ? "SESSION_EXPIRED" : response.status === 429 ? "RATE_LIMITED" : response.status >= 500 ? "SERVICE_UNAVAILABLE" : "";
+        if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
+        else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
+        if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
+        const errorDetails = payload.details && typeof payload.details === "object" && !Array.isArray(payload.details)
+          ? payload.details as Record<string, unknown> : {};
         const requiresVerification = response.status === 403
           && sessionUser?.emailVerified !== true
           && (
@@ -3175,17 +3178,10 @@ export function UsdtExchangePage({
             prev.map((r) => r.id === blockingId ? { ...r, buyerConfirmationArchivedAt: new Date().toISOString() } : r),
           );
         }
-        if (
-          blockingId
-          && (
-            errorCode === "ACTIVE_TRADE_EXISTS"
-            || errorCode === "PURCHASE_REQUEST_ALREADY_SUBMITTED"
-            || errorCode === "AWAITING_BUYER_CONFIRMATION"
-            || errorCode === "PENDING_BUYER_FEEDBACK"
-          )
-        ) {
+        const blockingDestination = purchaseBlockDestination(errorCode, errorDetails);
+        if (blockingDestination) {
           closeListingModal();
-          router.push(`/trade-room/${blockingId}`);
+          navigateAfterSuccess(router, blockingDestination, purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
           return;
         }
         const commissionActionHref = typeof errorDetails.actionHref === "string" && errorDetails.actionHref.startsWith("/")
@@ -3199,7 +3195,7 @@ export function UsdtExchangePage({
         setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
         return;
       }
-      const data = (await response.json()) as { purchase?: PurchaseRequest; destination?: string };
+      const data = payload as { purchase?: PurchaseRequest; destination?: string };
       if (data.purchase) {
         setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
         setPurchaseSubmitted(true);
@@ -3208,14 +3204,18 @@ export function UsdtExchangePage({
         setStatusMessage(null);
         closeListingModal();
         navigateAfterSuccess(router, data.destination, isAr ? "تم إرسال طلب الشراء بنجاح." : "Purchase request submitted successfully.");
+      } else {
+        setStatusMessage(isAr
+          ? "لم يصل تأكيد الطلب. افتح صفقاتك للتحقق قبل إعادة الإرسال."
+          : "The request confirmation was not received. Check your trades before resubmitting.");
       }
     } catch (error) {
-      const message = isAr
-        ? "تعذر الاتصال بالخادم الآن. تحقق من اتصالك وحاول مرة أخرى."
-        : (error instanceof Error && error.message.trim()
-          ? error.message
-          : "Unable to reach the server right now. Check your connection and try again.");
-      setStatusMessage(message);
+      console.warn("[alpha-exchange] purchase confirmation unavailable", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
+      setStatusMessage(isAr
+        ? "لم نتمكن من تأكيد حالة الطلب. افتح صفقاتك للتحقق قبل إعادة الإرسال."
+        : "We could not confirm the request status. Check your trades before resubmitting.");
     } finally {
       purchaseRequestInFlightRef.current = false;
       setIsSubmittingPurchase(false);
