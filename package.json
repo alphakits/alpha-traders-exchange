@@ -98,6 +98,7 @@
     "uuid": "11.1.1"
   },
   "allowScripts": {
+    "@parcel/watcher@2.5.6": true,
     "esbuild@0.28.1": true,
     "@swc/core@1.15.43": true,
     "unrs-resolver@1.12.2": true

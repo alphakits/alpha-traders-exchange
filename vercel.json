@@ -26,6 +26,5 @@
       "schedule": "* * * * *"
     }
   ],
-  "buildCommand": "node scripts/verify-listing-preview.mjs",
-  "installCommand": "node scripts/prepare-listing-verification.mjs"
+  "buildCommand": "node scripts/verify-listing-preview.mjs"
 }
