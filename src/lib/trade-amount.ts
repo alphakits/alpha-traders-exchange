@@ -57,6 +57,7 @@ export function isTradeAmountLessThan(left: string, right: string) {
 export const MARKETPLACE_BUYER_FEE_RATE = 0.01;
 export const MARKETPLACE_SELLER_FEE_RATE = 0.01;
 export const MARKETPLACE_TOTAL_FEE_RATE = MARKETPLACE_BUYER_FEE_RATE + MARKETPLACE_SELLER_FEE_RATE;
+export const MARKETPLACE_FEE_CUTOVER_VERSION = "buyer_seller_1pct_v1" as const;
 
 function calculateOnePercentUsdtFee(usdtAmount: string) {
   const amountMicrounits = toAmountMicrounits(usdtAmount, false);
