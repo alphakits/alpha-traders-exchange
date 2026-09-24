@@ -6037,7 +6037,6 @@ export function UsdtExchangePage({
           localizedAuditAction={localizedAuditAction}
           paymentMethodEmoji={paymentMethodEmoji}
           paymentMethodLabel={paymentMethodLabel}
-          sellerLevelLabel={sellerLevelLabel}
           sellerLevelToneKey={sellerLevelToneKey}
           tradeStatusLabel={tradeStatusLabel}
         />
