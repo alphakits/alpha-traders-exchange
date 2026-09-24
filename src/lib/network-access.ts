@@ -1,17 +1,18 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { isPublicClientIp, resolveClientIp } from "@/lib/client-ip";
+import { isPublicClientIp, normalizeClientIp, resolveClientIp } from "@/lib/client-ip";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { logEvent } from "@/lib/structured-logging";
 
 type NetworkVerdict = "clear" | "restricted" | "unavailable";
+type NetworkProvider = "proxycheck" | "ipregistry";
 type CachedVerdict = { verdict: NetworkVerdict; expiresAt: number };
 const verdicts = new Map<string, CachedVerdict>();
 const pending = new Map<string, Promise<NetworkVerdict>>();
 const MAX_CACHE_ENTRIES = 2_048;
 const MAX_PENDING_LOOKUPS = 128;
 const LOOKUP_TIMEOUT_MS = 1_500;
-let activeApiKey = "";
+let activeConfiguration = "";
 
 // These are machine endpoints, never interactive account/trade routes. Their
 // own secret/signature checks remain authoritative; no header creates a bypass.
@@ -55,10 +56,33 @@ export function parseNetworkVerdict(payload: unknown, ip: string): NetworkVerdic
   return flags.every((flag) => flag === false) ? "clear" : "unavailable";
 }
 
-async function lookupNetwork(ip: string, apiKey: string): Promise<NetworkVerdict> {
+export function parseIpregistryVerdict(payload: unknown, ip: string): NetworkVerdict {
+  const response = record(payload);
+  if (!response || response.error || typeof response.ip !== "string"
+      || normalizeClientIp(response.ip) !== ip) return "unavailable";
+  const security = record(response.security);
+  if (!security) return "unavailable";
+  const flags = ["is_vpn", "is_proxy", "is_tor", "is_relay"].map((key) => security[key]);
+  if (flags.some((flag) => flag === true)) return "restricted";
+  return flags.every((flag) => flag === false) ? "clear" : "unavailable";
+}
+
+async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkVerdict> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
   try {
+    if (provider === "ipregistry") {
+      const url = new URL(`https://api.ipregistry.co/${encodeURIComponent(ip)}`);
+      url.searchParams.set("fields", "ip,security.is_vpn,security.is_proxy,security.is_tor,security.is_relay");
+      const response = await fetch(url, {
+        headers: { Authorization: `ApiKey ${apiKey}`, Accept: "application/json" },
+        signal: controller.signal,
+        cache: "no-store",
+        redirect: "error",
+      });
+      if (!response.ok) return "unavailable";
+      return parseIpregistryVerdict(await response.json(), ip);
+    }
     const url = new URL("https://proxycheck.io/v3/");
     url.searchParams.set("key", apiKey);
     url.searchParams.set("ver", "24-June-2026");
@@ -82,11 +106,12 @@ async function lookupNetwork(ip: string, apiKey: string): Promise<NetworkVerdict
   }
 }
 
-async function cachedNetworkVerdict(ip: string, apiKey: string): Promise<NetworkVerdict> {
-  if (activeApiKey !== apiKey) {
+async function cachedNetworkVerdict(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkVerdict> {
+  const configuration = `${provider}\0${apiKey}`;
+  if (activeConfiguration !== configuration) {
     verdicts.clear();
     pending.clear();
-    activeApiKey = apiKey;
+    activeConfiguration = configuration;
   }
   const cached = verdicts.get(ip);
   if (cached && cached.expiresAt > Date.now()) return cached.verdict;
@@ -94,9 +119,9 @@ async function cachedNetworkVerdict(ip: string, apiKey: string): Promise<Network
   if (inFlight) return inFlight;
   if (pending.size >= MAX_PENDING_LOOKUPS) return "unavailable";
 
-  const lookup = lookupNetwork(ip, apiKey).then((verdict) => {
+  const lookup = lookupNetwork(ip, apiKey, provider).then((verdict) => {
     // Ignore old requests after a configuration change.
-    if (activeApiKey === apiKey) {
+    if (activeConfiguration === configuration) {
       if (verdicts.size >= MAX_CACHE_ENTRIES) verdicts.delete(verdicts.keys().next().value!);
       verdicts.set(ip, { verdict, expiresAt: Date.now() + (verdict === "unavailable" ? 5_000 : 60_000) });
       if (verdict !== "clear") {
@@ -169,10 +194,12 @@ export async function enforceNetworkAccess(request: NextRequest): Promise<NextRe
   if (Object.hasOwn(MACHINE_METHODS, pathname)
       && MACHINE_METHODS[pathname].includes(request.method.toUpperCase())) return null;
   if (mode !== "monitor" && mode !== "enforce") return networkRejection(request, "unavailable");
-  const apiKey = process.env.PROXYCHECK_API_KEY?.trim();
+  const provider = process.env.ALPHA_NETWORK_ACCESS_PROVIDER?.trim() || "proxycheck";
+  if (provider !== "proxycheck" && provider !== "ipregistry") return networkRejection(request, "unavailable");
+  const apiKey = (provider === "ipregistry" ? process.env.IPREGISTRY_API_KEY : process.env.PROXYCHECK_API_KEY)?.trim();
   const ip = resolveClientIp(request.headers);
   const verdict = apiKey && isPublicClientIp(ip)
-    ? await cachedNetworkVerdict(ip, apiKey) : "unavailable";
+    ? await cachedNetworkVerdict(ip, apiKey, provider) : "unavailable";
   if (mode === "monitor" || verdict === "clear") return null;
   // Enforced mode never silently admits an unchecked connection, including
   // provider outage, quota exhaustion, missing configuration, or invalid IP.

@@ -10,8 +10,17 @@
 | `monitor` | Yes | Coarse verdicts are logged; requests continue through normal authentication. |
 | `enforce` | Yes | Known VPN/proxy/Tor: 403. Unchecked connection: 503. Clear connection: continue through normal authentication. |
 
-Set `PROXYCHECK_API_KEY` as a server-only secret. Enabling checks without it or
-with an invalid mode is a deployment validation error. No client cookie, role,
+Select exactly one service with `ALPHA_NETWORK_ACCESS_PROVIDER`:
+
+| Provider | Server-only secret | Classifications |
+| --- | --- | --- |
+| `proxycheck` (default) | `PROXYCHECK_API_KEY` | Explicit VPN, proxy and Tor flags from v3, pinned to `24-June-2026` |
+| `ipregistry` | `IPREGISTRY_API_KEY` | Explicit VPN, proxy, Tor and private relay flags |
+
+Only the selected service receives IP lookups. There is no automatic provider
+fallback or trial-key sharing. Changing the provider or key invalidates cached
+verdicts. Enabling checks without the selected key, or with an invalid mode or
+provider, is a deployment validation error. No client cookie, role,
 device header, user-agent, IP header from Cloudflare, or test flag disables the
 network check. A network decision does not authorize account or trade access.
 
@@ -21,14 +30,17 @@ DRM system. Existing downloaded pages, media and already-open streams cannot be
 retroactively withdrawn. New server requests are re-evaluated for their current
 IP. An IP change never inherits the previous address's verdict.
 
-Detection uses the explicit `vpn`, `proxy`, and `tor` booleans from proxycheck.io
-v3, pinned to `24-June-2026`. A hosting classification, country, risk score or
+Detection uses explicit boolean classifications. A hosting classification, country, risk score or
 unusual browser alone does not label a person a scammer. Missing fields, failed
 lookups, quota exhaustion, and timeouts are unchecked, never clear.
 
 Only the visitor IP is transmitted to the fixed HTTPS endpoint. No account name,
 email, cookie, identity document, trade details or wallet information is sent.
-Provider positive-detection logging is disabled with `tag=0`; application logs
+Proxycheck positive-detection logging is disabled with `tag=0`. Ipregistry
+receives its key in the Authorization header, never the URL; the response is
+limited to the IP and four classification booleans. Its returned IP must match
+the requested address after IPv6 normalization. Review each service's own
+retention policy separately; `tag=0` does not apply to Ipregistry. Application logs
 contain only coarse verdicts and mode, without the IP or key. Per-instance memory
 holds at most 2,048 verdicts, with 60-second expiry (5 seconds for failures), and
 at most 128 concurrent lookups. Same-IP requests share an in-flight lookup.
@@ -47,10 +59,14 @@ being rejected for a missing browser Origin header.
 
 ## Activation and verification
 
-1. Add the server-only provider credential to Preview and Production through
+1. Complete the selected provider's account and email verification. Add the
+   matching server-only credential and `ALPHA_NETWORK_ACCESS_PROVIDER` to
+   Preview and Production through
    Vercel's secret configuration. Do not put it in a commit, browser variable,
    screenshot, support message or chat. Review the provider's IP processing and
-   retention terms and the site's privacy notice before live checks.
+   retention terms and the site's privacy notice before live checks. Trial
+   credits are for initial validation; they are not unlimited production
+   capacity. Confirm a sustainable quota and quota monitoring before enforcement.
 2. Deploy with `monitor`. Confirm provider responses and plan capacity, IPv4 and
    IPv6, mobile carriers, iPhone Private Relay, and false positives. Confirm live
    signed callbacks and scheduled jobs still authenticate and complete.
@@ -90,4 +106,8 @@ AT IDs and account approvals should not be presented as such a guarantee.
 
 - https://vercel.com/docs/headers/request-headers
 - https://proxycheck.io/api/
+- https://ipregistry.co/docs/authentication
+- https://ipregistry.co/docs/endpoints
+- https://ipregistry.co/docs/filtering
+- https://ipregistry.co/docs/proxy-tor-threat-detection
 - https://vercel.com/docs/vercel-firewall
