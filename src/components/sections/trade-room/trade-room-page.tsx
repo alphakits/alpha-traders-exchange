@@ -3186,7 +3186,8 @@ function TradeRoomPageSession({
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{currencyText(isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  <p>{currencyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  <p className="text-xs text-amber-100">{isAr ? "عمولتك الشخصية هي 1% فقط. إجمالي الدفع الجديد يشمل أيضًا 1% دفعها المشتري لك مع دفعة الصفقة لتحويلها إلى Alpha." : "Your own seller fee is only 1%. For new trades, the total also includes the buyer's 1% that you collected with the trade payment for Alpha."}</p>
                   {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
