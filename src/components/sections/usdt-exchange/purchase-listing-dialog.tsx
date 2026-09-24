@@ -89,7 +89,6 @@ type PurchaseListingDialogProps = {
   localizedAuditAction: (action: AuditAction | string, isAr: boolean) => string;
   paymentMethodEmoji: (method: string) => string;
   paymentMethodLabel: (method: string, isAr?: boolean) => string;
-  sellerLevelLabel: (level?: SellerLevel, isAr?: boolean) => string;
   sellerLevelToneKey: (level?: SellerLevel) => string;
   tradeStatusLabel: (status: PurchaseRequest["status"], isAr?: boolean) => string;
 };
