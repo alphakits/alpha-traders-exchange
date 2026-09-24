@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
-  it("never mounts protected content while unresolved or signed out and replaces the page with home", async () => {
+  it("never mounts protected content while unresolved or signed out and replaces the page with login", async () => {
     let finish!: (value: Response) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve; })));
     renderPage();
@@ -39,7 +39,7 @@ describe("protected page access", () => {
     expect(replace).not.toHaveBeenCalled();
     await act(async () => finish(new Response(JSON.stringify({ user: null }))));
     expect(privateMount).not.toHaveBeenCalled();
-    expect(replace).toHaveBeenCalledWith("/en");
+    expect(replace).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange");
   });
 
   it("removes protected content as soon as logout is confirmed", async () => {
@@ -48,7 +48,7 @@ describe("protected page access", () => {
     expect(screen.getByText("Private trade history")).toBeTruthy();
     await act(async () => window.dispatchEvent(new Event("alpha-auth-signed-out")));
     expect(screen.queryByText("Private trade history")).toBeNull();
-    expect(replace).toHaveBeenCalledWith("/en");
+    expect(replace).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange");
   });
 
   it("does not mount private content or redirect on a session outage", async () => {
@@ -88,7 +88,7 @@ describe("protected page access", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.queryByText("Private trade history")).toBeNull();
     await act(async () => finish(new Response(JSON.stringify({ user: null }))));
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/en"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange"));
     expect(screen.queryByText("Private trade history")).toBeNull();
   });
 
@@ -104,7 +104,7 @@ describe("protected page access", () => {
     await act(async () => {});
     act(() => channel.onmessage?.({ data: "signed-out" }));
     expect(screen.queryByText("Private trade history")).toBeNull();
-    expect(replace).toHaveBeenCalledWith("/en");
+    expect(replace).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange");
     expect(channel.postMessage).not.toHaveBeenCalled();
   });
 

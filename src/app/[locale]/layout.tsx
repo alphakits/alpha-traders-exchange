@@ -21,7 +21,7 @@ import { UserActivityTracker } from "@/components/auth/user-activity-tracker";
 import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
 import { SessionUnavailable } from "@/components/auth/session-unavailable";
 import { logEvent } from "@/lib/structured-logging";
-import { APP_PAGE_PATH_HEADER, isProtectedPage } from "@/lib/protected-page";
+import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -84,8 +84,9 @@ export default async function LocaleLayout({
     return <SessionUnavailable locale={appLocale} />;
   }
   const sessionUser = sessionResult.user;
-  if (!sessionUser && isProtectedPage((await headers()).get(APP_PAGE_PATH_HEADER) ?? "")) {
-    redirect("/en");
+  if (!sessionUser) {
+    const pagePath = (await headers()).get(APP_PAGE_PATH_HEADER) ?? "";
+    if (isProtectedPage(pagePath)) redirect(getSignedOutPageDestination(pagePath));
   }
 
   return (

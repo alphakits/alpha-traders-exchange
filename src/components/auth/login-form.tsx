@@ -16,6 +16,7 @@ import { AppLoginNetwork } from "./app-login-network";
 import styles from "./login-atmosphere.module.css";
 import appStyles from "./app-login-network.module.css";
 import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
+import { isExchangePage } from "@/lib/protected-page";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
@@ -287,7 +288,9 @@ export function LoginForm({
               <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
             </div>
             <p className={`${isNativeApp ? appStyles.intro : ""} mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]`}>
-              {brandText(isNativeApp
+              {brandText(isExchangePage(redirectTo ?? "")
+                ? (isAr ? "سجّل الدخول للوصول إلى Alpha Exchange وتصفّح العروض المتاحة." : "Sign in to access Alpha Exchange and browse available listings.")
+                : isNativeApp
                 ? (isAr ? "ادخل إلى Alpha Academy و Alpha Exchange باستخدام حسابك في Alpha Traders." : "Access Alpha Academy and Alpha Exchange with your Alpha Traders account.")
                 : (isAr ? "أهلًا بعودتك إلى Alpha Traders. سجّل الدخول لمتابعة صفقاتك ودوراتك." : "Welcome back to Alpha Traders. Sign in to your trades and courses."))}
             </p>

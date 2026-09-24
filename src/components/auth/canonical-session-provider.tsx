@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AppLocale } from "@/i18n/routing";
 import { clearClientLocaleChoice } from "@/i18n/locale-preference";
-import { isProtectedPage } from "@/lib/protected-page";
+import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 
 export type CanonicalSessionRefreshResult = "authenticated" | "anonymous" | "unavailable";
 
@@ -31,8 +31,10 @@ export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
   );
 }
 
-export function getSessionExpiryHomeDestination(location: Pick<Location, "pathname">) {
-  return isProtectedPage(location.pathname || "/") ? "/en" : null;
+export function getSessionExpiryDestination(location: Pick<Location, "pathname"> & Partial<Pick<Location, "search" | "hash">>) {
+  return isProtectedPage(location.pathname || "/")
+    ? getSignedOutPageDestination(`${location.pathname}${location.search ?? ""}${location.hash ?? ""}`)
+    : null;
 }
 
 export function CanonicalSessionProvider({
@@ -293,7 +295,7 @@ export function CanonicalSessionProvider({
       return;
     }
     if (isResolving || error || !hadAuthenticatedSessionRef.current || expiryRedirectStartedRef.current) return;
-    const destination = getSessionExpiryHomeDestination(window.location);
+    const destination = getSessionExpiryDestination(window.location);
     if (!destination) return;
     expiryRedirectStartedRef.current = true;
     clearClientLocaleChoice();

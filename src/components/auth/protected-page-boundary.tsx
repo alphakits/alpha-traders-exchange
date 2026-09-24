@@ -3,7 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
-import { isProtectedPage } from "@/lib/protected-page";
+import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 import type { AppLocale } from "@/i18n/routing";
 
 export function ProtectedPageBoundary({ children, locale }: { children: ReactNode; locale: AppLocale }) {
@@ -14,9 +14,9 @@ export function ProtectedPageBoundary({ children, locale }: { children: ReactNod
   useEffect(() => {
     if (protectedPage && !user && !isResolving && !error) {
       // A full replacement also discards stale router data from the old session.
-      window.location.replace("/en");
+      window.location.replace(getSignedOutPageDestination(`${pathname}${window.location.search}${window.location.hash}`));
     }
-  }, [protectedPage, user, isResolving, error]);
+  }, [pathname, protectedPage, user, isResolving, error]);
 
   if (!protectedPage || (user && !isRestoring)) return children;
   // Never mount account components with an anonymous or unresolved principal.

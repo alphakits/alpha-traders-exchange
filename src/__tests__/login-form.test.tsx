@@ -29,6 +29,16 @@ describe("LoginForm", () => {
   });
 
   it.each([
+    ["en", false], ["ar", false], ["en", true], ["ar", true],
+  ] as const)("explains exchange sign-in in %s with native app=%s", (locale, native) => {
+    if (native) window.ReactNativeWebView = { postMessage: vi.fn() };
+    const page = render(<LoginForm locale={locale} redirectTo={`/${locale}/usdt-exchange?mode=buy`} />);
+    expect(page.container.textContent).toContain(locale === "ar"
+      ? "سجّل الدخول للوصول إلى Alpha Exchange وتصفّح العروض المتاحة."
+      : "Sign in to access Alpha Exchange and browse available listings.");
+  });
+
+  it.each([
     ["en", "Password", "Show password"],
     ["ar", "كلمة المرور", "إظهار كلمة المرور"],
   ] as const)("shows the app design with working login controls in %s", (locale, passwordLabel, showLabel) => {
@@ -105,6 +115,7 @@ describe("LoginForm", () => {
 
   it.each([
     [undefined, "/en/usdt-exchange"],
+    ["/ar/usdt-exchange?mode=buy&sort=trust-desc", "/en/usdt-exchange?mode=buy&sort=trust-desc"],
     ["/ar/trade-room/trade-1?tab=messages#latest", "/en/trade-room/trade-1?tab=messages#latest"],
   ])("starts a new login in English while preserving its destination %s", async (redirectTo, expected) => {
     const originalLocation = window.location;

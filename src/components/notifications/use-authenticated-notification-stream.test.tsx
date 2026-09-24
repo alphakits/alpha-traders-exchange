@@ -196,7 +196,7 @@ describe("useAuthenticatedNotificationStream", () => {
       await waitFor(() => expect(replaceSpy).toHaveBeenCalledTimes(1));
       expect(MockEventSource.instances).toHaveLength(1);
       expect(fetch).toHaveBeenCalledTimes(2);
-      expect(replaceSpy).toHaveBeenCalledWith("/en");
+      expect(replaceSpy).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }

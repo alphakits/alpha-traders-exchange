@@ -64,9 +64,10 @@ test.describe("Guest access", () => {
     await expect(page).toHaveURL(/\/en$/);
   });
 
-  test("protected route /en/usdt-exchange redirects to the public home", async ({ page }) => {
+  test("guest Alpha Exchange entry opens login with a clear explanation", async ({ page }) => {
     await page.goto("/en/usdt-exchange");
-    await expect(page).toHaveURL(/\/en$/);
+    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Fusdt-exchange$/);
+    await expect(page.getByText("Sign in to access Alpha Exchange and browse available listings.")).toBeVisible();
   });
 
   test("protected route /en/dashboard redirects to the public home", async ({ page }) => {

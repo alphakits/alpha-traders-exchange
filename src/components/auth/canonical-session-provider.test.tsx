@@ -5,7 +5,7 @@ import {
   CanonicalSessionProvider,
   CANONICAL_SESSION_READ_TIMEOUT_MS,
   getCanonicalSessionRecoveryDelayMs,
-  getSessionExpiryHomeDestination,
+  getSessionExpiryDestination,
   useCanonicalSession,
 } from "@/components/auth/canonical-session-provider";
 
@@ -290,7 +290,7 @@ describe("CanonicalSessionProvider", () => {
     expect(screen.getByText("ready-seller")).toBeTruthy();
   });
 
-  it("clears a stale bootstrap user and safely routes to the public home when the canonical session is anonymous", async () => {
+  it("clears a stale exchange user and routes to login with the original destination", async () => {
     document.cookie = "ALPHA_LOCALE_CHOICE=ar; Path=/";
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
@@ -317,7 +317,7 @@ describe("CanonicalSessionProvider", () => {
       );
 
       await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
-      expect(replaceSpy).toHaveBeenCalledWith("/en");
+      expect(replaceSpy).toHaveBeenCalledWith(`/en/login?redirectTo=${encodeURIComponent("/en/usdt-exchange?tab=sell#create-listing")}`);
       expect(document.cookie).not.toContain("ALPHA_LOCALE_CHOICE=ar");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
@@ -353,10 +353,11 @@ describe("CanonicalSessionProvider", () => {
   });
 
   it("builds a same-origin expiry redirect from the current location only", () => {
-    expect(getSessionExpiryHomeDestination({
+    expect(getSessionExpiryDestination({
       pathname: "/ar/trade-room/trade-1",
     })).toBe("/en");
-    expect(getSessionExpiryHomeDestination({ pathname: "/en/login" })).toBeNull();
+    expect(getSessionExpiryDestination({ pathname: "/en/login" })).toBeNull();
+    expect(getSessionExpiryDestination({ pathname: "/ar/usdt-exchange" })).toBe("/ar/login?redirectTo=%2Far%2Fusdt-exchange");
   });
 
   it("persists the active route locale for an authenticated session", async () => {

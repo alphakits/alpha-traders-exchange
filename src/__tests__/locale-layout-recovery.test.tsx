@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const mocks = vi.hoisted(() => ({ getCurrentSessionUser: vi.fn() }));
-vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-alpha-page-path": "/en" }) }));
+const mocks = vi.hoisted(() => ({ getCurrentSessionUser: vi.fn(), pagePath: "/en" }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-alpha-page-path": mocks.pagePath }) }));
 vi.mock("@/lib/auth", () => ({ getCurrentSessionUser: mocks.getCurrentSessionUser }));
 vi.mock("next/font/google", () => ({ Inter: () => ({ variable: "inter" }), IBM_Plex_Sans_Arabic: () => ({ variable: "arabic" }) }));
 vi.mock("next-intl/server", () => ({ getMessages: async () => ({}) }));
@@ -24,6 +24,7 @@ import LocaleLayout from "@/app/[locale]/layout";
 describe("locale layout during a session-storage outage", () => {
   beforeEach(() => {
     mocks.getCurrentSessionUser.mockReset();
+    mocks.pagePath = "/en";
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
   afterEach(() => vi.restoreAllMocks());
@@ -40,6 +41,14 @@ describe("locale layout during a session-storage outage", () => {
     mocks.getCurrentSessionUser.mockResolvedValue(null);
     const page = await LocaleLayout({ params: Promise.resolve({ locale: "en" }), children: <p>Public home</p> });
     expect(renderToStaticMarkup(page)).toContain("Public home");
+  });
+
+  it.each(["en", "ar"])("redirects an invalid exchange session to %s login before rendering private children", async locale => {
+    mocks.pagePath = `/${locale}/usdt-exchange?mode=buy`;
+    mocks.getCurrentSessionUser.mockResolvedValue(null);
+    await expect(LocaleLayout({ params: Promise.resolve({ locale }), children: <p>Private trade contents</p> })).rejects.toMatchObject({
+      digest: `NEXT_REDIRECT;replace;/${locale}/login?redirectTo=${encodeURIComponent(mocks.pagePath)};307;`,
+    });
   });
 
   it("preserves framework redirects instead of misclassifying them as an outage", async () => {
