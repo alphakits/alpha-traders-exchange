@@ -41,20 +41,23 @@ function ListingCreateSection({
   id,
   number,
   title,
+  icon,
   children,
 }: {
   id: string;
   number: number;
   title: string;
+  icon: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4">
+    <section aria-labelledby={id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 sm:p-4">
       <div className="mb-4 flex items-center gap-3">
         <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#D4AF37]">
           {number}
         </span>
-        <h4 id={id} className="min-w-0 text-base font-semibold leading-6 text-white">{title}</h4>
+        <h4 id={id} className="min-w-0 flex-1 text-base font-semibold leading-6 text-white">{title}</h4>
+        <span aria-hidden="true" className="shrink-0 text-[#D4AF37]">{icon}</span>
       </div>
       <div className="min-w-0 space-y-4">{children}</div>
     </section>
@@ -1092,7 +1095,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               ) : null}
               <form className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)] xl:items-start" onSubmit={handleSellerListingCreateSubmit}>
                 <div className="min-w-0 space-y-4">
-                  <ListingCreateSection id="create-amount-heading" number={1} title={isAr ? "الكمية والسعر" : "Amount & price"}>
+                  <ListingCreateSection id="create-amount-heading" number={1} icon={<Wallet className="h-4 w-4" />} title={isAr ? "الكمية والسعر" : "Amount & price"}>
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-available" required>{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</FieldLabel>
@@ -1167,7 +1170,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
               </div>
                   </ListingCreateSection>
-                  <ListingCreateSection id="create-limits-heading" number={2} title={isAr ? "حدود الصفقة" : "Trade limits"}>
+                  <ListingCreateSection id="create-limits-heading" number={2} icon={<TrendingUp className="h-4 w-4" />} title={isAr ? "حدود الصفقة" : "Trade limits"}>
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-min-trade" required>{currencyText(isAr ? "أدنى صفقة (USDT)" : "Minimum Trade (USDT)")}</FieldLabel>
@@ -1209,7 +1212,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                     </div>
                   </ListingCreateSection>
-                  <ListingCreateSection id="create-payment-heading" number={3} title={isAr ? "طرق الدفع" : "Payment methods"}>
+                  <ListingCreateSection id="create-payment-heading" number={3} icon={<WalletCards className="h-4 w-4" />} title={isAr ? "طرق الدفع" : "Payment methods"}>
                 <div className="min-w-0 space-y-3">
                   <FieldLabel className="text-sm normal-case tracking-normal" required>{isAr ? "طريقة الدفع" : "Payment Method"}</FieldLabel>
                   <div className="mt-3 grid gap-2 2xl:grid-cols-3">
@@ -1228,14 +1231,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                               bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
                             }, sellerBankAccounts);
                           })}
-                          className={`min-h-12 min-w-0 rounded-xl border p-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
+                          className={`min-h-12 min-w-0 rounded-xl border p-3 text-start transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
                             selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 "
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15"
                               : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/45"
                           }`}
                         >
                           <span className="flex items-center justify-between gap-3">
-                            <span className="min-w-0 text-sm font-medium text-white">{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</span>
+                            <span className="min-w-0 break-words text-sm font-medium text-white">{currencyText(paymentMethodEmoji(method))} {currencyText(paymentMethodLabel(method, isAr))}</span>
                             <span aria-hidden="true" className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", selected ? "border-[#6CAEFF] bg-[#6CAEFF]/20 text-[#93C5FD]" : "border-white/25")}>
                               {selected ? <Check className="h-3.5 w-3.5" /> : null}
                             </span>
@@ -1254,7 +1257,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p className="mt-1 text-xs text-[#D1D5DB]">{listingCreateRequiresBankAccount
                     ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
                     : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
-                  <div className="mt-3 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 2xl:grid-cols-3">
+                  <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}>
                     {ISRAELI_BANKS.map((bank) => {
                       const selected = listingCreateSelectedBanks.includes(bank.name);
                       return (
@@ -1266,9 +1269,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
                             return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
                           })}
-                          className={`min-h-12 min-w-0 rounded-xl border p-2.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
+                          className={`min-h-12 min-w-0 rounded-xl border p-2.5 text-start transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
                             selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 "
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15"
                               : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/45"
                           }`}
                         >
@@ -1277,7 +1280,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                               {renderBankLogo(bank)}
                             </span>
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
+                              <p className="break-words text-sm font-medium text-white">{currencyText(getIsraeliBankDisplayName(bank.name, locale))}</p>
                             </div>
                             {selected ? <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-[#93C5FD]" /> : null}
                           </div>
@@ -1332,7 +1335,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 ) : null}
                   </ListingCreateSection>
                 </div>
-                <ListingCreateSection id="create-review-heading" number={4} title={isAr ? "المراجعة والإرسال" : "Review & submit"}>
+                <ListingCreateSection id="create-review-heading" number={4} icon={<CheckCircle2 className="h-4 w-4" />} title={isAr ? "المراجعة والإرسال" : "Review & submit"}>
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-description" optional optionalLabel={isAr ? "اختياري" : "optional"}>{isAr ? "وصف البائع" : "Seller Description"}</FieldLabel>
                   <Textarea id="create-description" className="min-h-[96px] text-base md:text-sm" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
@@ -1426,7 +1429,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
                     )}
                   >
-                    <span className="flex items-start gap-2">
+                    <span className="flex min-w-0 items-start gap-2 break-words">
                       {listingCreateResult.tone === "error" ? (
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
                       ) : (
