@@ -109,6 +109,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerName: "Buyer One",
@@ -140,6 +141,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerName: "spoofed name@example.test",
@@ -182,6 +184,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
@@ -215,6 +218,15 @@ describe("purchase request route", () => {
     expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
   });
 
+  it("requires review of the buyer fee before creating a request from an old client", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: "listing-1", usdtAmount: "500", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE" }),
+    }));
+    expect(response.status).toBe(409);
+    expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
+  });
+
   it("returns the committed purchase request when post-commit email preparation fails", async () => {
     mocks.createPurchaseRequest.mockResolvedValue({
       request: { id: "purchase-1", paymentMethod: "Bank Transfer" },
@@ -224,6 +236,7 @@ describe("purchase request route", () => {
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: "listing-1",
         usdtAmount: "500",
         buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",

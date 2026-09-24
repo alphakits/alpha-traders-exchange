@@ -112,7 +112,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (body?.feePolicyVersion !== "buyer_seller_1pct_v1") return mobileError("APP_UPDATE_REQUIRED", requestId, locale, 426);
+
     const created = await createPurchaseRequest({
+      feePolicyVersion: "buyer_seller_1pct_v1",
       buyerId: auth.user.id,
       listingId,
       usdtAmount,

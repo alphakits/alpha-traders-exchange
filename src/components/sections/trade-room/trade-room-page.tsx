@@ -1,4 +1,5 @@
 "use client";
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
@@ -366,7 +367,9 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       mode: "status",
       nextStatus: "completed",
       command: "complete_trade",
-      confirmationMessage: request.status !== "usdt_sent"
+      confirmationMessage: request.feePolicyVersion === "buyer_seller_1pct_v1"
+        ? `${isAr ? "أؤكد استلام الدفع وإرسال كامل USDT إلى محفظة المشتري الصحيحة. الإكمال نهائي." : "I confirm payment was received and the full USDT amount was sent to the correct buyer wallet. Completion is final."} ${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}`
+        : request.status !== "usdt_sent"
         ? (isAr ? "أؤكد أنني استلمت النقد وأرسلت كامل USDT إلى محفظة المشتري على الشبكة الصحيحة. إكمال الصفقة يفتح التقييم ويسجل عمولة 1% ولا يمكن إلغاؤه. هل تريد الإكمال؟" : "I confirm I received the cash and sent the full USDT amount to the buyer wallet on the correct network. Completing opens feedback and records the 1% commission. This cannot be cancelled. Complete trade?")
         : isAr
         ? "لقد أكدت بالفعل إرسال USDT. سيؤدي هذا الإجراء النهائي إلى إكمال الصفقة وفتح التقييم وتسجيل عمولة 1%. لا يحتاج المشتري إلى تأكيد الاستلام، ولا يمكن التراجع أو الإلغاء بعد ذلك."
@@ -2555,9 +2558,12 @@ function TradeRoomPageSession({
       await handleUploadEvidence(side);
       return;
     }
-    if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
+    if (isSeller && request?.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(primaryAction.nextStatus ?? "")) {
+      const message = `${primaryAction.confirmationMessage ?? ""}\n${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}\n${request.currency} ${request.fiatAmount}`;
+      if (!window.confirm(message)) return;
+    } else if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
-  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError]);
+  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
@@ -2961,7 +2967,7 @@ function TradeRoomPageSession({
   const recordedCashAmount = parseCardlessCashAmount(request.fiatAmount);
   const adjustmentPrice = request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "";
   const adjustmentCashOptions = isCardlessAtmTrade && room.listing
-    ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)))
+    ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)), room.request.feePolicyVersion === "buyer_seller_1pct_v1")
     : [];
   const cardlessAmountEditor = isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
     <div className="space-y-2 text-sm">
@@ -2972,7 +2978,7 @@ function TradeRoomPageSession({
         {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
       </select>}
       <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount.")}</p>
-      <p className="font-semibold text-[#FDE68A]">{currencyText(`${calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—"} USDT`)}</p>
+      <p className="font-semibold text-[#FDE68A]">{currencyText(`${calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice, room.request.feePolicyVersion === "buyer_seller_1pct_v1") ?? "—"} USDT`)}</p>
       <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{currencyText(isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount")}</Button>
     </div>
   ) : null;
@@ -3186,7 +3192,8 @@ function TradeRoomPageSession({
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{currencyText(isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  <p>{currencyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
+                  <p className="text-xs text-amber-100">{request.feePolicyVersion === "buyer_seller_1pct_v1" ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en") : (isAr ? "تظل العمولة الأصلية لهذه الصفقة مستحقة حتى السداد." : "This trade retains its original commission until paid.")}</p>
                   {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
@@ -3311,6 +3318,11 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
                 {actionFeedback}
+                {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="rounded-xl border border-emerald-500/30 p-3 text-sm">
+                  <p>{isSeller
+                    ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en")
+                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount.")}</p>
+                </div> : null}
                 {canRevealBankDetails ? (
                   <div className="important-payment-panel rounded-2xl border p-4">
                     <p className="flex items-center gap-2 text-sm font-semibold text-red-100"><AttentionSiren key={bankDetails ? "revealed" : "locked"} />{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>

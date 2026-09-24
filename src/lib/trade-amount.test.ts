@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateFiatAmount, calculateSellerCommissionAmount, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, normalizeLocalizedDecimalInput, normalizeTradeAmountInput, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateBuyerCommissionAmount, calculateBuyerFiatFee, calculateBuyerFiatTotal, calculateFiatAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, normalizeLocalizedDecimalInput, normalizeTradeAmountInput, subtractTradeAmounts } from "@/lib/trade-amount";
 
 describe("trade amount input", () => {
   it("preserves fractional USDT amounts up to six decimals", () => {
@@ -58,6 +58,31 @@ describe("trade amount input", () => {
     expect(subtractTradeAmounts("0.876544", "0.876544")).toBe("0");
     expect(subtractTradeAmounts("0.1", "0.100001")).toBeNull();
     expect(isTradeAmountLessThan("0.876544", "0.9")).toBe(true);
+  });
+
+  it("calculates separate 1% buyer and seller fees while Alpha receives 2%", () => {
+    expect(calculateBuyerCommissionAmount("1000")).toBe(10);
+    expect(calculateSellerCommissionAmount("1000")).toBe(10);
+    expect(calculateSellerTotalAlphaDue("1000")).toBe(20);
+    expect(calculateBuyerFiatFee("3500.00")).toBe("35.00");
+    expect(calculateBuyerFiatTotal("3500.00")).toBe("3535.00");
+  });
+
+  it.each([
+    ["0.00", "0.00", "0.00"],
+    ["0.49", "0.00", "0.49"],
+    ["0.50", "0.01", "0.51"],
+    ["100", "1.00", "101.00"],
+    ["3500.00", "35.00", "3535.00"],
+    ["1234.56", "12.35", "1246.91"],
+  ])("calculates buyer fiat fee and total for %s", (amount, fee, total) => {
+    expect(calculateBuyerFiatFee(amount)).toBe(fee);
+    expect(calculateBuyerFiatTotal(amount)).toBe(total);
+  });
+
+  it.each(["", "-1", "NaN", "Infinity", "1e3", "3,500", "1.001", " 100", "01"])("rejects invalid buyer fiat amount %s", (amount) => {
+    expect(calculateBuyerFiatFee(amount)).toBeNull();
+    expect(calculateBuyerFiatTotal(amount)).toBeNull();
   });
 
   it("calculates the one-percent seller commission with decimal half-up rounding", () => {

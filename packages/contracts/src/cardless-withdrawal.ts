@@ -1,3 +1,4 @@
+import { calculateTradePaymentTotal } from "./marketplace-fees";
 import { canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount } from "./trade-amount";
 
 export type CardlessVerificationKind = "id_number" | "date_of_birth";
@@ -17,19 +18,22 @@ export function parseCardlessCashAmount(value: unknown) {
 }
 
 /** Divide the bank's cash amount by the agreed price using integer arithmetic. */
-export function calculateCardlessUsdtAmount(cash: unknown, price: string) {
+export function calculateCardlessUsdtAmount(cash: unknown, price: string, includesBuyerFee = false) {
   const amount = parseCardlessCashAmount(cash);
   if (!amount || !/^\d+(?:\.\d{1,2})?$/.test(price)) return null;
   const [whole, fraction = ""] = price.split(".");
   const priceCents = BigInt(whole!) * BigInt(100) + BigInt(fraction.padEnd(2, "0"));
   if (priceCents <= BigInt(0)) return null;
   const cashCents = BigInt(Math.round(Number(amount) * 100));
-  const micros = (cashCents * BigInt(1000000) + priceCents / BigInt(2)) / priceCents;
-  return `${micros / BigInt(1000000)}.${(micros % BigInt(1000000)).toString().padStart(6, "0")}`.replace(/\.?0+$/, "");
+  const feeDenominator = includesBuyerFee ? BigInt(101) : BigInt(100);
+  const divisor = priceCents * feeDenominator;
+  const micros = (cashCents * BigInt(1000000) * BigInt(100) + divisor / BigInt(2)) / divisor;
+  const result = `${micros / BigInt(1000000)}.${(micros % BigInt(1000000)).toString().padStart(6, "0")}`.replace(/\.?0+$/, "");
+  return calculateTradePaymentTotal(result, price, includesBuyerFee) === amount ? result : null;
 }
 
 /** Only offer bank cash amounts whose rounded USDT fits the actual listing limits. */
-export function getCardlessCashAmountOptions(price: string, minimumUsdt: string | number, maximumUsdt: string | number) {
+export function getCardlessCashAmountOptions(price: string, minimumUsdt: string | number, maximumUsdt: string | number, includesBuyerFee = false) {
   const minimum = canonicalizeNonNegativeTradeAmount(minimumUsdt);
   const maximum = canonicalizeTradeAmount(maximumUsdt);
   if (minimum === null || maximum === null) return [];
@@ -42,8 +46,8 @@ export function getCardlessCashAmountOptions(price: string, minimumUsdt: string 
   if (min > max) return [];
   const options: { ilsAmount: string; usdtAmount: string }[] = [];
   for (let cash = 100; cash <= 10000; cash += 100) {
-    const usdtAmount = calculateCardlessUsdtAmount(String(cash), price);
-    if (usdtAmount === null) return [];
+    const usdtAmount = calculateCardlessUsdtAmount(String(cash), price, includesBuyerFee);
+    if (usdtAmount === null) continue;
     const amount = micros(usdtAmount);
     if (amount > BigInt(0) && amount >= min && amount <= max) options.push({ ilsAmount: String(cash), usdtAmount });
   }

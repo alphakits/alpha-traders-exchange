@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount,
+  calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal, getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount,
   type CardlessVerificationKind, type MobileSupportedNetwork,
   getWalletAddressValidationError,
   normalizeLocalizedDecimalInput,
@@ -127,19 +127,15 @@ export function TradeFormScreen({
   const isCardless = paymentMethod === "Cardless ATM Withdrawal";
   const chosenNetwork = receivingNetwork ?? listing?.network ?? "TRC20";
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
-  const listingPriceUsd = listing
-    ? numericValue(priceForUsdInput(canonicalListingPrice(listing.price), listing.currency, usdIlsRate))
-    : 0;
   const canonicalOfferPrice = listing
     ? currencyPriceFromUsdInput(offeredPrice, listing.currency, usdIlsRate)
     : "0.00";
-  const selectedPriceUsd = mode === "offer"
-    ? numericValue(priceForUsdInput(canonicalOfferPrice, listing?.currency, usdIlsRate))
-    : listingPriceUsd;
-  const estimatedTotalUsd = numericValue(amount) * selectedPriceUsd;
   const cardlessPrice = listing ? mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price) : "";
+  const tradeValue = calculateFiatAmount(String(numericValue(amount)), cardlessPrice) ?? "0.00";
+  const buyerFee = calculateTradeBuyerFiatFee(String(numericValue(amount)), cardlessPrice) ?? "0.00";
+  const buyerTotal = calculateTradePaymentTotal(String(numericValue(amount)), cardlessPrice, true) ?? "0.00";
   useEffect(() => {
-    if (isCardless) { const calculated = calculateCardlessUsdtAmount(cashAmount, cardlessPrice); if (calculated) setAmount(calculated); }
+    if (isCardless) { const calculated = calculateCardlessUsdtAmount(cashAmount, cardlessPrice, true); if (calculated) setAmount(calculated); }
   }, [isCardless, cashAmount, cardlessPrice]);
   const offerRangeUsd = listing?.currency === "ILS"
     ? (() => {
@@ -172,7 +168,7 @@ export function TradeFormScreen({
     if (value <= 0 || value < minimum || value > maximum) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
     if (isCardless && (!isCardlessWithdrawalBank(withdrawalBank) || !parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
-      || !validateCardlessIlsAmount(cashAmount, (value * numericValue(mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price))).toFixed(2)))) return false;
+      || !validateCardlessIlsAmount(cashAmount, calculateTradePaymentTotal(String(value), mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price), true) ?? ""))) return false;
     if (mode === "offer") {
       const offerCents = Math.round(numericValue(canonicalOfferPrice) * 100);
       const priceCents = Math.round(numericValue(canonicalListingPrice(listing.price)) * 100);
@@ -197,6 +193,7 @@ export function TradeFormScreen({
     setIsSubmitting(true);
     try {
       const response = await requestWithSession((tokens, requestLocale) => createMobileTrade(tokens, requestLocale, {
+        feePolicyVersion: "buyer_seller_1pct_v1",
         listingId: listing.id,
         usdtAmount: numericValue(amount).toString(),
         receivingWalletAddress: walletAddress.trim(), receivingNetwork: chosenNetwork,
@@ -417,7 +414,7 @@ export function TradeFormScreen({
             <Text style={styles.label}>{locale === "ar" ? "مبلغ السحب بالشيكل: 100–10,000 بمضاعفات 100" : "Withdrawal ILS: 100–10,000 in multiples of 100"}</Text>
             <TextInput accessibilityLabel="Withdrawal amount ILS" placeholder="100–10,000 ILS" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={cashAmount} onChangeText={(value) => {
               setCashAmount(value);
-              const calculated = calculateCardlessUsdtAmount(value, mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price));
+              const calculated = calculateCardlessUsdtAmount(value, mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price), true);
               if (calculated) setAmount(calculated);
             }} style={styles.input} editable={!isSubmitting} />
           </View> : null}
@@ -443,7 +440,10 @@ export function TradeFormScreen({
 
         <View style={styles.totalCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("estimatedTotal")}</Text>
-          <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsd(estimatedTotalUsd)}</Text>
+          <Text style={[styles.total, isRTL && styles.rtlText]}>{formatFinancialNumber(buyerTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {listing?.currency}</Text>
+          <Text style={[styles.fee, isRTL && styles.rtlText]}>
+            {isRTL ? `قيمة الصفقة: ${formatFinancialNumber(tradeValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency} · عمولتك كمشتري (1٪): ${formatFinancialNumber(buyerFee, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency}` : `Trade value: ${formatFinancialNumber(tradeValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency} · Your buyer fee (1%): ${formatFinancialNumber(buyerFee, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency}`}
+          </Text>
           <Text style={[styles.fee, isRTL && styles.rtlText]}>{t("feeIncluded")}</Text>
           <Text style={[styles.hint, isRTL && styles.rtlText]}>{t("serviceFeeNote")}</Text>
         </View>

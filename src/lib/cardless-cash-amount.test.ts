@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, validateCardlessIlsAmount } from "@alpha-traders/contracts";
-import { calculateFiatAmount } from "./trade-amount";
+import { calculateFiatAmount, calculateTradePaymentTotal } from "./trade-amount";
 
 describe("bank cash withdrawal amounts", () => {
+  it("keeps every offered two-sided-fee cash amount exact without exceeding inventory", () => {
+    for (const price of ["0.01", "2.85", "3.03", "3.20", "3.27"]) {
+      const options = getCardlessCashAmountOptions(price, 1, 1000000, true);
+      expect(options).toHaveLength(100);
+      for (const { ilsAmount, usdtAmount } of options) {
+        expect(calculateTradePaymentTotal(usdtAmount, price, true)).toBe(Number(ilsAmount).toFixed(2));
+        expect(Number(usdtAmount)).toBeGreaterThanOrEqual(1);
+        expect(Number(usdtAmount)).toBeLessThanOrEqual(1000000);
+      }
+    }
+  });
+
   it.each(["0", "99", "101", "540", "794", "1729", "10001", "10100", "100.01", "1e3", "-100"])("rejects %s", (value) => expect(parseCardlessCashAmount(value)).toBeNull());
   it("accepts all hundred multiples and localized digits", () => {
     for (let cash = 100; cash <= 10000; cash += 100) expect(parseCardlessCashAmount(String(cash))).toBe(cash.toFixed(2));

@@ -27,19 +27,6 @@ function formatAmountMicrounits(value: bigint) {
   return decimalPart ? `${wholePart}.${decimalPart}` : wholePart.toString();
 }
 
-/** Multiplies a six-decimal USDT amount by a two-decimal unit price, rounded half-up to cents. */
-export function calculateFiatAmount(usdtAmount: string, unitPrice: string) {
-  const canonicalAmount = canonicalizeTradeAmount(usdtAmount);
-  const priceMatch = unitPrice.match(/^(?:0|[1-9]\d*)(?:\.(\d{1,2}))?$/);
-  if (!canonicalAmount || !priceMatch) return null;
-  const [amountWhole, amountDecimal = ""] = canonicalAmount.split(".");
-  const [priceWhole, priceDecimal = ""] = unitPrice.split(".");
-  const amountMicrounits = BigInt(amountWhole) * BigInt(1_000_000) + BigInt(amountDecimal.padEnd(6, "0"));
-  const priceCents = BigInt(priceWhole) * BigInt(100) + BigInt(priceDecimal.padEnd(2, "0"));
-  const fiatCents = (amountMicrounits * priceCents + BigInt(500_000)) / BigInt(1_000_000);
-  return `${fiatCents / BigInt(100)}.${(fiatCents % BigInt(100)).toString().padStart(2, "0")}`;
-}
-
 export function subtractTradeAmounts(availableAmount: string, soldAmount: string) {
   const available = toAmountMicrounits(availableAmount);
   const sold = toAmountMicrounits(soldAmount, false);
@@ -54,7 +41,12 @@ export function isTradeAmountLessThan(left: string, right: string) {
   return leftUnits < rightUnits;
 }
 
-export function calculateSellerCommissionAmount(usdtAmount: string) {
+export const MARKETPLACE_BUYER_FEE_RATE = 0.01;
+export const MARKETPLACE_SELLER_FEE_RATE = 0.01;
+export const MARKETPLACE_TOTAL_FEE_RATE = MARKETPLACE_BUYER_FEE_RATE + MARKETPLACE_SELLER_FEE_RATE;
+export const MARKETPLACE_FEE_CUTOVER_VERSION = "buyer_seller_1pct_v1" as const;
+
+function calculateOnePercentUsdtFee(usdtAmount: string) {
   const amountMicrounits = toAmountMicrounits(usdtAmount, false);
   if (amountMicrounits === null) return null;
   // Every positive completed trade must create a payable obligation. Without
@@ -64,3 +56,21 @@ export function calculateSellerCommissionAmount(usdtAmount: string) {
   const commissionCents = roundedCommissionCents > BigInt(0) ? roundedCommissionCents : BigInt(1);
   return Number(commissionCents) / 100;
 }
+
+export function calculateSellerCommissionAmount(usdtAmount: string) {
+  return calculateOnePercentUsdtFee(usdtAmount);
+}
+
+export function calculateBuyerCommissionAmount(usdtAmount: string) {
+  return calculateOnePercentUsdtFee(usdtAmount);
+}
+
+export function calculateSellerTotalAlphaDue(usdtAmount: string) {
+  const sellerFee = calculateSellerCommissionAmount(usdtAmount);
+  const buyerFeeCollected = calculateBuyerCommissionAmount(usdtAmount);
+  if (sellerFee === null || buyerFeeCollected === null) return null;
+  return Number((sellerFee + buyerFeeCollected).toFixed(2));
+}
+
+
+export { calculateFiatAmount, calculateBuyerFiatFee, calculateBuyerFiatTotal, calculateTradePaymentTotal } from "@alpha-traders/contracts";

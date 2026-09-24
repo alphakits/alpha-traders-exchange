@@ -27,6 +27,7 @@ export function isMobileTradeParticipant(request: PurchaseRequest, userId: strin
 export function toMobileTradeSummary(request: PurchaseRequest, userId: string): MobileTradeSummary {
   const pricePerUsdt = request.pricePerUsdt || request.listingPriceAtRequest || "0";
   return {
+    feePolicyVersion: request.feePolicyVersion,
     termsProposal: request.termsProposal,
     id: request.id,
     displayNumber: request.displayNumber,

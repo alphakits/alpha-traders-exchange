@@ -1059,6 +1059,8 @@ describe("partial listing preservation", () => {
       buyerId: BUYER_ONE_ID,
       paymentStatus: "pending",
       grossAmount: 960,
+      sellerFeeAmount: 3,
+      buyerFeeCollectedAmount: 0,
       commissionAmount: 3,
     });
   });

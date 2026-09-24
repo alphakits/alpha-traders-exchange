@@ -134,7 +134,10 @@ export async function POST(request: NextRequest) {
     }
     const offeredPrice = rawPriceMode === "buyer_offer" ? String(body.offeredPrice ?? "").trim() : undefined;
 
+    if (body?.feePolicyVersion !== "buyer_seller_1pct_v1") return denied("Refresh and review the 1% buyer fee before confirming your trade.", 409, "FEE_POLICY_REVIEW_REQUIRED");
+
     const created = await createPurchaseRequest({
+      feePolicyVersion: "buyer_seller_1pct_v1",
       buyerId: user.id,
       listingId,
       usdtAmount,

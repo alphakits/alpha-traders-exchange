@@ -43,7 +43,7 @@ const sections = {
       id: "fees",
       title: "4. Fees and listing access",
       paragraphs: [
-        "The current platform commission is 1% of completed marketplace trades unless a different fee is clearly shown before the relevant action. Sellers may be prevented from publishing or renewing listings while commission payments are pending. Fees and fee rules may change prospectively after notice on the website.",
+        "For new marketplace trades where the two-sided fee is shown before submission, the buyer pays a 1% platform fee with the selected trade payment and the seller owes a separate 1% seller fee. The seller collects the buyer fee for Alpha Traders and remits the buyer-collected portion together with the seller fee after completion. Legacy trades retain the fee terms shown when they were submitted. Sellers may be prevented from publishing or renewing listings while commission payments are pending. Fees and fee rules may change prospectively after notice on the website.",
       ],
     },
     {

@@ -42,6 +42,8 @@ type PurchaseListingDialogProps = {
   isSellerProfileLoading: boolean;
   selectedAmount: number;
   selectedPrice: number;
+  estimatedTradeValue: number;
+  estimatedBuyerFee: number;
   estimatedTotal: number;
   isOwnerViewer: boolean;
   isOwnerProfileActionLoading: boolean;
@@ -87,7 +89,6 @@ type PurchaseListingDialogProps = {
   localizedAuditAction: (action: AuditAction | string, isAr: boolean) => string;
   paymentMethodEmoji: (method: string) => string;
   paymentMethodLabel: (method: string, isAr?: boolean) => string;
-  sellerLevelLabel: (level?: SellerLevel, isAr?: boolean) => string;
   sellerLevelToneKey: (level?: SellerLevel) => string;
   tradeStatusLabel: (status: PurchaseRequest["status"], isAr?: boolean) => string;
 };
@@ -108,6 +109,8 @@ export function PurchaseListingDialog({
   isSellerProfileLoading,
   selectedAmount,
   selectedPrice,
+  estimatedTradeValue,
+  estimatedBuyerFee,
   estimatedTotal,
   isOwnerViewer,
   isOwnerProfileActionLoading,
@@ -163,7 +166,7 @@ export function PurchaseListingDialog({
   const receivingNetwork = buyerInfo.receivingNetwork ?? listing.network;
   const isCardless = isCardlessAtmPaymentMethod(selectedPaymentMethod);
   const cardlessCashOptions = isCardless
-    ? getCardlessCashAmountOptions((priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2), selectedMinTrade, selectedMaxTrade)
+    ? getCardlessCashAmountOptions((priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2), selectedMinTrade, selectedMaxTrade, true)
     : [];
   const selectedCashOption = cardlessCashOptions.find((option) => Number(option.ilsAmount) === Number(buyerInfo.cardlessIlsAmount));
   const cardlessCashUnavailable = isCardless && Boolean(buyerInfo.cardlessIlsAmount) && !selectedCashOption;
@@ -254,8 +257,9 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                  {isAr ? "دفعة المشتري المقدّرة" : "Estimated buyer payment"}: <span className="text-[#C9A227]">{currencyText(formatIls(estimatedTotal))}</span> · {isAr ? "عمولة المنصة 1% يدفعها البائع بعد اكتمال الصفقة" : "The seller pays the 1% platform commission after completion"}
+                  {isAr ? "قيمة الصفقة" : "Trade value"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTradeValue))}</span> · {isAr ? "عمولتك كمشتري (1%)" : "Your buyer fee (1%)"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedBuyerFee))}</span> · {isAr ? "الإجمالي الذي تدفعه" : "Total you pay"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTotal))}</span>
                 </p>
+                <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "عمولتك 1% ضمن دفعتك للبائع. البائع يدفع 1% من حصته؛ إجمالي عمولة Alpha هو 2%. تستلم كامل كمية USDT المتفق عليها." : "Your 1% fee is included in your payment to the seller. The seller pays their own 1%; Alpha’s total fee is 2%. You receive the full agreed USDT amount."}</p>
               </div>
 
               {isOwnerViewer && sellerProfileData ? (

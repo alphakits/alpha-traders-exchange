@@ -1,4 +1,5 @@
 "use client";
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { UserPresence } from "@/components/ui/user-presence";
 
 
@@ -500,7 +501,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription>
-                {brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid.")}
+                {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid.")}
               </CardDescription>
               <p className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5 text-xs leading-5 text-emerald-100">
                 <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
@@ -558,6 +559,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               )}
               {sellerWorkspaceSummary?.blockedReason ? (
                 <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
+              ) : null}
+              {selectedCommissionPayment?.feePolicyVersion === "buyer_seller_1pct_v1" ? (
+                <div className="space-y-2 rounded-xl border border-emerald-500/30 p-3 text-sm">
+                  <p>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0))}</span></p>
+                  <p>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.buyerFeeCollectedAmount ?? 0))}</span></p>
+                  <p>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</p>
+                </div>
               ) : null}
               {commissionWorkspaceAction.kind === "pay-one" ? (
                 <Button
@@ -1380,7 +1388,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 <div className="rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-3 text-sm text-[#F3F4F6]">
                   <p className="text-sm font-semibold text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
-                  <p className="mt-2 text-sm leading-6">{brandText(isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
+                  <p className="mt-2 text-sm leading-6">{brandText(isAr ? "تخضع الصفقات الجديدة لعمولة 1% على المشتري و1% على البائع. البائع مسؤول عن دفع كامل 2% لألفا ويتحمل أي نقص في حصة المشتري. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "New trades carry 1% buyer + 1% seller fees. The seller must pay Alpha the full 2% and cover any buyer-fee shortfall. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
                   <label className="mt-3 flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm text-[#E5E7EB]">
                     <input
                       type="checkbox"
@@ -1388,7 +1396,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       onChange={(event) => setListingCommissionAgreement(event.target.checked)}
                       className="mt-0.5 h-5 w-5 shrink-0 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
                     />
-                    <span>{brandText(isAr ? "أفهم وأوافق على سياسة عمولة Alpha Traders البالغة 1%." : "I understand and agree to Alpha Traders’ 1% commission policy.")}</span>
+                    <span>{brandText(isAr ? "أفهم أن حصتي 1% وعليّ دفع الحصتين لألفا (2%) وتحمل أي حصة للمشتري لم أحصّلها." : "I understand my own fee is 1% and I must pay Alpha both shares (2%), covering any uncollected buyer share.")}</span>
                   </label>
                   <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
@@ -1411,7 +1419,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             : (isAr ? "حساب استلام الدفعات المحدد لم يعد متاحاً. اختر حساباً بنكياً محفوظاً مرة أخرى." : "Your selected payout bank account is no longer available. Choose a saved bank account again."))}
                         </p>
                       ) : null}
-                      {!listingCommissionAgreement ? <p className="text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة بنسبة 1% قبل النشر." : "You must accept the 1% commission policy before publishing."}</p> : null}
+                      {!listingCommissionAgreement ? <p className="text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة للطرفين قبل النشر." : "Accept the two-sided commission policy before publishing."}</p> : null}
                     </div>
                   </div>
                 </div>

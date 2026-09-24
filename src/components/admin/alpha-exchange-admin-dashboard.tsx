@@ -3075,7 +3075,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                                   <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.07] p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#A58A38]">{t("Commission", "العمولة")}</p>
-                                    <p className="mt-1 text-sm font-semibold text-[#F4D87A]">{currencyText(formatUsdt(record.commissionAmount))}</p>
+                                    <p className="mt-1 text-sm font-semibold text-emerald-300">{currencyText(formatUsdt(record.commissionAmount))}</p>
+                                    {record.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="mt-1 text-xs text-emerald-300">{t("Seller 1%", "البائع 1%")}: {currencyText(formatUsdt(record.sellerFeeAmount ?? 0))} · {t("Buyer 1%", "المشتري 1%")}: {currencyText(formatUsdt(record.buyerFeeCollectedAmount ?? 0))}</p> : null}
                                   </div>
                                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                                     <p className="text-[10px] uppercase tracking-[0.12em] text-[#7F8490]">{t("Exact payment", "الدفع الدقيق")}</p>

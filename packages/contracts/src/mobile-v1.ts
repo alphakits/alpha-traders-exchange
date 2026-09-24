@@ -757,6 +757,9 @@ export type MobileAdminReviewRequest =
 export type MobileCommissionNetwork = "TRC20" | "BEP20";
 
 export interface MobileSellerCommissionRecord {
+    feePolicyVersion?: "buyer_seller_1pct_v1";
+    sellerFeeAmount?: number;
+    buyerFeeCollectedAmount?: number;
   commissionId: string;
   source?: "trade" | "admin_manual";
   issueReason?: string;
@@ -949,6 +952,7 @@ export interface TradeTermsProposal {
 }
 
 export interface MobileTradeSummary {
+  feePolicyVersion?: "buyer_seller_1pct_v1";
   termsProposal?: TradeTermsProposal;
   bankName?: string;
   id: string;
@@ -1026,6 +1030,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
 }
 
 export interface MobileCreateTradeRequest {
+  feePolicyVersion?: "buyer_seller_1pct_v1";
   bankName?: string;
   receivingNetwork?: MobileSupportedNetwork;
   cardlessWithdrawalCode?: string;

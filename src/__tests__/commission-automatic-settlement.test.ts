@@ -159,6 +159,28 @@ describe("automatic commission settlement through the scheduler and receiving-ac
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
   });
 
+  it("does not settle a new-policy 2% obligation when only the seller's 1% arrives", async () => {
+    Object.assign(currentCommission(), { source: "trade", feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5 });
+    await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" });
+    installDepositHistory("2.500001");
+    await runCron();
+    expect(currentCommission()).toMatchObject({ commissionAmount: 5, paymentStatus: "pending" });
+    expect(currentCommission().paidAt).toBeUndefined();
+    expect(await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" })).toMatchObject({ summary: { canCreateListing: false, pendingCommissionCount: 1 } });
+  });
+
+  it("automatically settles both fee components once, only after the combined receipt is verified", async () => {
+    Object.assign(currentCommission(), { source: "trade", feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5 });
+    const before = await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" });
+    expect(before.commissionStatus.payableRecords[0]).toMatchObject({ sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, amountDue: 5 });
+    installDepositHistory(before.commissionStatus.payableAmountDue.toFixed(6));
+    expect((await runCron()).status).toBe(200);
+    expect(currentCommission()).toMatchObject({ sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, commissionAmount: 5, paymentStatus: "paid", paymentVerificationStatus: "verified" });
+    const paidAt = currentCommission().paidAt;
+    expect((await runCron()).status).toBe(200);
+    expect(currentCommission().paidAt).toBe(paidAt);
+  });
+
   it("credits the exact internal Binance deposit without a TxID submission, unlocks the seller and remains idempotent", async () => {
     const before = await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" });
     expect(before.summary).toMatchObject({ pendingCommissionCount: 1, canCreateListing: false });

@@ -188,7 +188,7 @@ import { isNewListingBroadcastNotification, listingNotificationViewDestination, 
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
-import { calculateFiatAmount, calculateSellerCommissionAmount, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateTradePaymentTotal, calculateBuyerCommissionAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
@@ -1024,6 +1024,12 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     : undefined;
   if (request) {
     if (isQaCommissionModeEnabled()) return 1;
+    // The seller owes both shares on new-policy trades even if they failed to
+    // collect the buyer share. Never reduce the debt from a missing/zero split.
+    if (request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION || record.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) {
+      const combined = calculateSellerTotalAlphaDue(request.usdtAmount);
+      if (combined !== null) return combined;
+    }
     const calculated = calculateSellerCommissionAmount(request.usdtAmount);
     if (calculated !== null) return calculated;
   }
@@ -9989,6 +9995,9 @@ export async function getSellerCommissionStatus(
     const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
     return {
       commissionId: record.id,
+      feePolicyVersion: record.feePolicyVersion,
+      sellerFeeAmount: record.sellerFeeAmount,
+      buyerFeeCollectedAmount: record.buyerFeeCollectedAmount,
       source: record.source ?? "trade",
       issueReason: record.issueReason,
       amountDue: getCommissionAmountDueUsdt(db, record),
@@ -10139,14 +10148,14 @@ export async function updateTradeTerms(input: {
         if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.listingPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
         price = Number(raw).toFixed(2);
         if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
-          amount = calculateCardlessUsdtAmount(fiat, price) || "";
+          amount = calculateCardlessUsdtAmount(fiat, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
           if (!amount) throw new TradeBlockedError("trade-terms-invalid", "The withdrawal amount is invalid.", input.requestId);
-        } else fiat = calculateFiatAmount(amount, price) || "";
+        } else fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
       } else {
         amount = raw;
-        fiat = calculateFiatAmount(amount, price) || "";
+        fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
         if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
-          const canonical = calculateCardlessUsdtAmount(request.fiatAmount, price);
+          const canonical = calculateCardlessUsdtAmount(request.fiatAmount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
           if (!canonical || Number(amount) !== Number(canonical)) throw new TradeBlockedError("trade-terms-invalid", "USDT must match the buyer's bank withdrawal at the agreed price. Use Match withdrawal amount.", input.requestId);
           fiat = request.fiatAmount;
         }
@@ -10212,7 +10221,7 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
     }
     const listing = snapshot.marketplaceListings.find((item) => item.id === request.listingId);
     const agreedPrice = request.pricePerUsdt || request.listingPriceAtRequest || listing?.price || "";
-    const amount = calculateCardlessUsdtAmount(cashAmount, agreedPrice);
+    const amount = calculateCardlessUsdtAmount(cashAmount, agreedPrice, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
     if (!amount) throw new Error("The buyer's withdrawal must be 100–10,000 ILS in multiples of 100.");
     if (!listing || listing.activeTradeRequestId !== request.id || Number(amount) > Number(listing.availableAmount)
       || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new Error("The adjusted amount exceeds this listing's available balance or trade limits.");
@@ -10240,6 +10249,7 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
 }
 
 export async function createPurchaseRequest(input: {
+  feePolicyVersion?: "buyer_seller_1pct_v1";
   buyerId: string;
   listingId: string;
   usdtAmount: string;
@@ -10467,7 +10477,7 @@ export async function createPurchaseRequest(input: {
   }
   const canonicalCardlessBanks = requestedCardlessBanks;
   const usdtAmount = requestedUsdtAmount;
-  const fiatAmount = calculateFiatAmount(usdtAmount, pricePerUsdt);
+  const fiatAmount = calculateTradePaymentTotal(usdtAmount, pricePerUsdt, input.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
   if (!fiatAmount) throw new Error("Unable to calculate the trade total.");
   const preparedCardless = isCardlessAtmPaymentMethod(primaryPaymentMethod) ? parseCardlessWithdrawalDetails({
     withdrawalCode: input.cardlessWithdrawalCode,
@@ -10480,6 +10490,7 @@ export async function createPurchaseRequest(input: {
   }
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
+    feePolicyVersion: input.feePolicyVersion,
     id: `purchase-${randomUUID()}`,
     buyerId: input.buyerId,
     listingId: input.listingId,
@@ -14289,10 +14300,19 @@ async function updatePurchaseRequestStatusAttempt(
     let commission = db.commissionRecords.find((record) => record.purchaseRequestId === request.id);
     if (!commission) {
       const normalizedGross = toNumber(next.fiatAmount);
+      const sellerFeeAmount = isQaCommissionModeEnabled()
+        ? (next.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION ? 0.5 : 1)
+        : calculateSellerCommissionAmount(next.usdtAmount);
+      const hasBuyerFee = next.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION;
+      const buyerFeeCollectedAmount = hasBuyerFee
+        ? (isQaCommissionModeEnabled() ? 0.5 : calculateBuyerCommissionAmount(next.usdtAmount))
+        : 0;
       const commissionAmount = isQaCommissionModeEnabled()
         ? 1
-        : calculateSellerCommissionAmount(next.usdtAmount);
-      if (commissionAmount === null) throw new Error("Unable to calculate seller commission.");
+        : hasBuyerFee ? calculateSellerTotalAlphaDue(next.usdtAmount) : sellerFeeAmount;
+      if (sellerFeeAmount === null || buyerFeeCollectedAmount === null || commissionAmount === null) {
+        throw new Error("Unable to calculate marketplace fees.");
+      }
       commission = {
         id: `commission-${randomUUID()}`,
         source: "trade",
@@ -14303,6 +14323,9 @@ async function updatePurchaseRequestStatusAttempt(
         buyerId: request.buyerId,
         rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
+        feePolicyVersion: hasBuyerFee ? MARKETPLACE_FEE_CUTOVER_VERSION : undefined,
+        sellerFeeAmount,
+        buyerFeeCollectedAmount,
         commissionAmount,
         paymentStatus: "pending",
         dueAt: addDaysIso(now, COMMISSION_GRACE_PERIOD_DAYS),
@@ -14317,13 +14340,13 @@ async function updatePurchaseRequestStatusAttempt(
         type: "commission_recorded",
         actorUserId: input.actorUserId,
         actorRole,
-        message: `Commission created (${commission.commissionAmount.toFixed(2)} USDT).`,
+        message: hasBuyerFee ? `Alpha fees created: seller 1% (${sellerFeeAmount.toFixed(2)} USDT) + buyer 1% collected by seller (${buyerFeeCollectedAmount.toFixed(2)} USDT); total due ${commission.commissionAmount.toFixed(2)} USDT.` : `Seller fee (1%): ${sellerFeeAmount.toFixed(2)} USDT.`,
         createdAt: now,
       });
       appendSystemTradeMessage(db, next, {
         senderUserId: input.actorUserId,
         senderRole: actorRole,
-        message: `Commission due was created for the seller (${commission.commissionAmount.toFixed(2)} USDT).`,
+        message: hasBuyerFee ? `Total due to Alpha is ${commission.commissionAmount.toFixed(2)} USDT. Your own seller fee is ${sellerFeeAmount.toFixed(2)} USDT (1%); ${buyerFeeCollectedAmount.toFixed(2)} USDT (1%) is the buyer share included in the agreed payment. You owe the full 2% even if you failed to collect the buyer share; any shortfall is your responsibility.` : `Your seller fee (1%) is ${sellerFeeAmount.toFixed(2)} USDT.`,
         createdAt: now,
       });
       await appendAuditLog(db, {
@@ -14396,7 +14419,9 @@ async function updatePurchaseRequestStatusAttempt(
         userId: request.sellerId,
         category: "trade",
         title: "Commission payment required",
-        message: `Pay ${commission.commissionAmount.toFixed(2)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
+        message: commission.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION
+          ? `Your seller fee (1%): ${commission.sellerFeeAmount?.toFixed(2)} USDT. Buyer share (1%): ${commission.buyerFeeCollectedAmount?.toFixed(2)} USDT. You must cover any uncollected buyer share. Pay both fees: ${commission.commissionAmount.toFixed(2)} USDT base amount. Open payment instructions for the exact transfer amount.`
+          : `Pay ${commission.commissionAmount.toFixed(2)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
         relatedTradeId: next.tradeId,
         relatedRequestId: request.id,
         relatedListingId: request.listingId,

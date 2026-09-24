@@ -1,3 +1,4 @@
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../../src/components/branded-text";
 import { AttentionSiren } from "../../src/components/attention-siren";
 import { useEffect, useState } from "react";
@@ -339,6 +340,11 @@ export default function SellerCommissionsScreen() {
             </Text>
           </View>
 
+          {selectedRecord?.feePolicyVersion === "buyer_seller_1pct_v1" ? <View style={styles.instructionsCard}>
+            <Text style={styles.body}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {selectedRecord.sellerFeeAmount?.toFixed(2)} USDT</Text>
+            <Text style={styles.body}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {selectedRecord.buyerFeeCollectedAmount?.toFixed(2)} USDT</Text>
+            <Text style={styles.body}>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</Text>
+          </View> : null}
           <View style={styles.instructionsCard}>
             <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة على الشبكة المختارة" : "Pay from Binance or another wallet"}</Text>
             <Text style={[styles.instruction, isRTL && styles.rtlText]}>{isAr ? "1. افتح السحب أو الإرسال واختر USDT." : "1. Open Withdraw or Send and choose USDT."}</Text>
