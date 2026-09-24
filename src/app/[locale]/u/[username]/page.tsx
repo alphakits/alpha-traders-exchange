@@ -310,7 +310,7 @@ export default async function PublicUserProfilePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{sellerIdentity?.profile.onlineStatus === "online" ? (isAr ? "متصل" : "Online") : (isAr ? "غير متصل" : "Offline")}</p>
+                <p className="mt-2 text-sm font-semibold text-white"><UserPresence userId={data.profile.id} initial={data.profile} isAr={isAr} compact /></p>
               </div>
             </div>
           </div>
