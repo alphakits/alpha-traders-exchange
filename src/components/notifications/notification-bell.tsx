@@ -445,7 +445,7 @@ function NotificationBellSession({
           : notification.category === "application"
             ? "Review Application"
             : notification.category === "listing"
-              ? "Manage Listing"
+              ? "View listing"
               : "View Details";
     return localizeNotificationActionLabel(label, locale, notification);
   }
@@ -607,7 +607,7 @@ function NotificationBellSession({
                               </Button>
                               {!notification.isRead ? (
                                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                                  {isAr ? "تحديد كمقروء" : "Mark read"}
+                                  {isAr ? "تحديد كمقروء" : "Mark as read"}
                                 </Button>
                               ) : null}
                             </>
@@ -615,7 +615,7 @@ function NotificationBellSession({
                             <>
                               {!notification.isRead ? (
                                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                                  {isAr ? "تحديد كمقروء" : "Mark read"}
+                                  {isAr ? "تحديد كمقروء" : "Mark as read"}
                                 </Button>
                               ) : null}
                             </>

@@ -184,6 +184,7 @@ import {
   sellerListingWorkspaceDestination,
   sellerProfileDestination,
 } from "@/lib/action-destinations";
+import { isNewListingBroadcastNotification, listingNotificationViewDestination, NEW_LISTING_NOTIFICATION_REASON } from "@/lib/listing-notification";
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
@@ -548,7 +549,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
 function resolveNotificationActionLabel(notification: Pick<AlphaExchangeNotification, "title" | "message" | "centerCategory" | "relatedTradeId" | "relatedRequestId">, request?: PurchaseRequest) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
   if (text.includes("seller application")) return "Review Application";
-  if (text.includes("listing")) return "Manage Listing";
+  if (text.includes("listing")) return "View listing";
   if (text.includes("verify") || text.includes("payment sent")) return "Verify Payment";
   if (text.includes("confirm") && text.includes("completed")) return "Confirm Completion";
   if (text.includes("review") || request?.status === "review_open" || request?.status === "completed") return "Leave Review";
@@ -684,14 +685,15 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       || [candidate.fullName, candidate.email, candidate.buyerDisplayName].some(name => name && normalizePublicProfileUsername(name) === username));
     return user ? `${profileRoute[1] ?? ""}/${profileRoute[2]}/${derivePublicProfileUsername(user)}` : "/usdt-exchange";
   };
-  const request = resolveTradeContextForNotification(db, {
+  const isListingBroadcast = isNewListingBroadcastNotification(notification);
+  const request = isListingBroadcast ? undefined : resolveTradeContextForNotification(db, {
     userId: notification.userId,
     relatedRequestId: notification.relatedRequestId,
     relatedTradeId: notification.relatedTradeId,
     relatedListingId: notification.relatedListingId,
   });
-  const relatedRequestId = notification.relatedRequestId ?? request?.id;
-  const relatedTradeId = notification.relatedTradeId ?? request?.tradeId ?? request?.id;
+  const relatedRequestId = isListingBroadcast ? undefined : notification.relatedRequestId ?? request?.id;
+  const relatedTradeId = isListingBroadcast ? undefined : notification.relatedTradeId ?? request?.tradeId ?? request?.id;
   const centerCategory = notification.centerCategory && isNotificationCenterCategory(notification.centerCategory)
     ? notification.centerCategory
     : resolveNotificationCenterCategory(notification);
@@ -718,13 +720,25 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     : explicitCommissionPaymentHref;
   const sellerContext = resolveNotificationSellerContext(db, notification);
   const sellerProfileHref = notification.category === "trust" ? sellerContext?.profileHref : undefined;
-  const relatedHref = commissionPaymentHref
+  let relatedHref = commissionPaymentHref
     ?? (isTradeNotification && request && recipientIsTradeParticipant
       ? requestDetailsHref(request.id)
       : publicHref(notification.relatedHref) ?? sellerProfileHref);
-  const actionHref = commissionPaymentHref ?? (publicHref(notification.actionHref) || relatedHref);
+  let actionHref = commissionPaymentHref ?? (publicHref(notification.actionHref) || relatedHref);
   const listingId = notification.relatedListingId ?? request?.listingId;
   const listing = listingId ? db.marketplaceListings.find((item) => item.id === listingId) : undefined;
+  const recipient = db.users.find((user) => user.id === notification.userId);
+  const recipientCanReviewListings = Boolean(recipient && (hasRole(recipient, "owner") || hasRole(recipient, "admin")));
+  const viewListingOnly = notification.category === "listing" && (
+    isListingBroadcast
+    || (listing?.sellerId !== notification.userId && !recipientCanReviewListings)
+  );
+  if (viewListingOnly) {
+    // Recompute old persisted actions as well as newly published alerts. A
+    // recipient's seller role does not grant management of another seller's listing.
+    relatedHref = listingNotificationViewDestination(notification);
+    actionHref = relatedHref;
+  }
   // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
   const displayLookup = cachedLookup ?? createExchangeDisplayLookup({
     listings: db.marketplaceListings,
@@ -740,7 +754,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       : notification.category === "application"
         ? "Application update"
         : "Alpha Exchange update";
-  const ownerRecipient = db.users.find(user => user.id === notification.userId);
+  const ownerRecipient = recipient;
   const visibleText = isPublicOwnerIdentity(ownerRecipient) ? ownerIdentityText(db.users) : identityTextRedactor([
     ...db.users,
     ...(request ? [{ ...db.users.find(user => user.id === request.buyerId), id: request.buyerId, fullName: request.buyerName }] : []),
@@ -787,9 +801,13 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedSellerUsername: sellerContext?.username ?? (listing ? derivePublicProfileUsername({ id: listing.sellerId }) : undefined),
     relatedHref,
     actionHref,
-    actionLabel: commissionPaymentHref
+    actionLabel: viewListingOnly ? "View listing" : commissionPaymentHref
       ? visibleText(notification.actionLabel?.trim()) || "Pay Commission"
-      : visibleText(notification.actionLabel?.trim()) || (sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)),
+      : visibleText(notification.actionLabel?.trim()) || (
+        notification.category === "listing" && listing?.sellerId === notification.userId
+          ? "Manage Listing"
+          : sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)
+      ),
     reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason ? visibleText(notification.reason) : undefined,
     tradeSnapshot: isTradeNotification && recipientIsTradeParticipant
       ? sanitizeNotificationTradeSnapshot(buildTradeSnapshotForNotification(db, notification.userId, request))
@@ -5033,7 +5051,7 @@ function pushNotification(
   const inAppEnabled = user.notificationPreferences?.inApp !== false || input.forceInApp === true;
   const persistForWhatsApp = Boolean(input.whatsappEvent && isWhatsAppSendingEnabled());
   if (!inAppEnabled && !persistForWhatsApp) return null;
-  const inferredRequest = resolveTradeContextForNotification(db, {
+  const inferredRequest = isNewListingBroadcastNotification(input) ? undefined : resolveTradeContextForNotification(db, {
     userId: input.userId,
     relatedRequestId: input.relatedRequestId,
     relatedTradeId: input.relatedTradeId,
@@ -9809,6 +9827,9 @@ export async function reviewMarketplaceListingByOwner(input: {
         message: `${listing.sellerDisplayName} published ${listingSummary}.`,
         relatedListingId: listing.id,
         relatedHref: listingDestination(listing),
+        actionHref: listingDestination(listing),
+        actionLabel: "View listing",
+        reason: NEW_LISTING_NOTIFICATION_REASON,
       });
     }
   }

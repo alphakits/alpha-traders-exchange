@@ -16,6 +16,14 @@ function notification(overrides: Partial<AlphaExchangeNotification>): AlphaExcha
 }
 
 describe("toMobileNotification destinations", () => {
+  it("keeps a legacy new-listing broadcast out of seller management", () => {
+    expect(toMobileNotification(notification({
+      category: "listing", title: "🟢 New USDT Listing Available",
+      relatedListingId: "listing-public", actionHref: "/dashboard/seller",
+      actionLabel: "Manage Listing",
+    }), "en").destination).toEqual({ screen: "marketplace" });
+  });
+
   it("keeps an explicit admin destination ahead of trade inference", () => {
     const result = toMobileNotification(notification({
       category: "trade",

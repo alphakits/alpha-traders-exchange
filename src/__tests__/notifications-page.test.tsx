@@ -289,6 +289,24 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.queryByText("تحديث على الحساب")).toBeNull();
   });
 
+  it.each(["en", "ar"] as const)("shows view and read actions for a legacy new-listing alert in %s", async (locale) => {
+    const item = notification({
+      id: "new-listing", category: "listing", title: "🟢 New USDT Listing Available",
+      message: "A seller published 700 USDT.", relatedListingId: "listing-public",
+      actionHref: "/dashboard/seller", actionLabel: "Manage Listing",
+      createdAt: "2026-08-27T10:00:00.000Z",
+    });
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(notificationsResponse([item])));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale={locale} userId="user-1" />);
+    const view = await screen.findByRole("button", { name: locale === "ar" ? "عرض الإعلان" : "View listing" });
+    expect(screen.queryByRole("button", { name: /Manage Listing|إدارة العرض/i })).toBeNull();
+    expect(screen.getByRole("button", { name: locale === "ar" ? "تحديد كمقروء" : "Mark as read" })).toBeTruthy();
+    fireEvent.click(view);
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/usdt-exchange#listing-listing-public"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/alpha-exchange/notifications/new-listing", expect.objectContaining({ method: "PATCH" }));
+  });
+
   it("opens the exact action immediately while persisting read state in the background", async () => {
     const item = notification({
       id: "listing-route",

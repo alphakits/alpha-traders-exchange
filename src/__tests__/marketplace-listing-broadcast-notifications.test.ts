@@ -33,14 +33,17 @@ import {
   createMarketplaceListing,
   createPurchaseRequest,
   createSellerApplication,
+  deleteMarketplaceListingForSeller,
   findUserById,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
   markAllNotificationsRead,
   reviewMarketplaceListingByOwner,
+  updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
-import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination } from "@/lib/action-destinations";
+import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination, sellerListingWorkspaceDestination } from "@/lib/action-destinations";
+import { toMobileNotification } from "@/lib/mobile-notifications";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
 import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
 
@@ -611,8 +614,44 @@ describe("marketplace listing publication broadcasts", () => {
     expect(suspendedHits).toHaveLength(0);
     expect(disabledHits).toHaveLength(0);
     expect(creatorHits).toHaveLength(0);
-    expect(buyerHits[0]).toMatchObject({ relatedHref: listingDestination(listing) });
-    expect(dualRoleHits[0]).toMatchObject({ relatedHref: listingDestination(listing) });
+    for (const notice of [buyerHits[0], dualRoleHits[0]]) {
+      expect(notice).toMatchObject({
+        relatedHref: listingDestination(listing),
+        actionHref: listingDestination(listing),
+        actionLabel: "View listing",
+        reason: "new_listing_published",
+      });
+      expect(toMobileNotification(notice, "en").destination).toEqual({ screen: "marketplace" });
+    }
+    expect(creatorNotifications.notifications).toContainEqual(expect.objectContaining({
+      title: "Listing Approved",
+      relatedListingId: listing.id,
+      actionLabel: "Manage Listing",
+      actionHref: sellerListingWorkspaceDestination(listing),
+    }));
+
+    // Old records must be repaired when read, without a database migration.
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    for (const notice of snapshot.notifications.filter((item) => item.title === "🟢 New USDT Listing Available")) {
+      notice.reason = undefined;
+      notice.actionLabel = "Manage Listing";
+      notice.actionHref = "/dashboard/seller#my-listings";
+      notice.relatedHref = sellerListingWorkspaceDestination(listing);
+      notice.relatedRequestId = "old-trade-context";
+    }
+    invalidateAlphaExchangeStoreCache();
+    for (const userId of [BUYER_ID, DUAL_ROLE_BUYER_ID]) {
+      const legacy = (await getNotificationsForUser({ userId })).notifications.find((item) => item.title === "🟢 New USDT Listing Available");
+      expect(legacy).toMatchObject({ actionLabel: "View listing", actionHref: listingDestination(listing), relatedHref: listingDestination(listing) });
+      expect(legacy?.relatedRequestId).toBeUndefined();
+      expect(legacy?.tradeSnapshot).toBeUndefined();
+      await expect(updateMarketplaceListingForSeller({
+        listingId: listing.id, sellerId: userId, actorUserId: userId, status: "paused",
+      })).rejects.toThrow("You can edit only your own listings.");
+      await expect(deleteMarketplaceListingForSeller({
+        listingId: listing.id, sellerId: userId, actorUserId: userId,
+      })).rejects.toThrow("You can remove only your own listings.");
+    }
   });
 
   it("uses the same eligible buyers for email fan-out and does not depend on generic email opt-in", async () => {
