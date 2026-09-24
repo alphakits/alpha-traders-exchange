@@ -1691,7 +1691,7 @@ function buildPublicUserProfileDataForUser(input: {
   const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
 
   const showStats = user.showTradeStats !== false || canBypassVisibility;
-  const showLastActive = user.showLastActive !== false || canBypassVisibility;
+  const presence = visibleUserPresence(user, user, db.users.find(row => row.id === viewerUserId));
   const sellerApprovalVerified = isOwnerApprovedSeller(user);
   const publicTradingName = accountNameForViewer(user, platformOwner ? db.users.find(row => row.id === viewerUserId) : undefined);
   const visibleText = platformOwner ? (value?: string) => value ?? "" : identityTextRedactor(db.users);
@@ -1712,10 +1712,10 @@ function buildPublicUserProfileDataForUser(input: {
         .filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))
         .reduce((total, request) => total + toNumber(request.usdtAmount), 0)).rank,
       memberSince: user.createdAt,
-      lastActiveAt: showLastActive ? user.lastActiveAt ?? null : null,
-      lastSeenAt: showLastActive ? user.lastSeenAt ?? null : null,
-      onlineStatus: showLastActive ? user.onlineStatus : "offline",
-      presenceHidden: !showLastActive,
+      lastActiveAt: presence.lastActiveAt ?? null,
+      lastSeenAt: presence.lastSeenAt ?? null,
+      onlineStatus: presence.onlineStatus ?? "offline",
+      presenceHidden: presence.presenceHidden === true,
       country: visibleText(user.country),
       city: platformOwner || subjectIsOwner ? user.city : "",
       languages: (user.languages ?? []).map((language) => visibleText(language)),
