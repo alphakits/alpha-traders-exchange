@@ -3241,7 +3241,9 @@ export function UsdtExchangePage({
     ? (selectedOfferValidation?.ok ? toNumber(selectedOfferValidation.offeredPrice) : 0)
     : selectedPrice;
   const selectedTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const estimatedTotal = selectedTradeAmount * selectedTradePrice;
+  const estimatedTradeValue = selectedTradeAmount * selectedTradePrice;
+  const estimatedBuyerFee = estimatedTradeValue * 0.01;
+  const estimatedTotal = estimatedTradeValue + estimatedBuyerFee;
 
   const isApprovedSeller = isApprovedSellerSession;
   const isSellerWorkspaceUser = hasSellerWorkspaceAccess;
@@ -5976,6 +5978,8 @@ export function UsdtExchangePage({
           isSellerProfileLoading={isSellerProfileLoading}
           selectedAmount={selectedAmount}
           selectedPrice={selectedPrice}
+          estimatedTradeValue={estimatedTradeValue}
+          estimatedBuyerFee={estimatedBuyerFee}
           estimatedTotal={estimatedTotal}
           isOwnerViewer={isOwnerViewer}
           isOwnerProfileActionLoading={isOwnerProfileActionLoading}
