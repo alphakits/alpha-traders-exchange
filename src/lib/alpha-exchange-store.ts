@@ -1,3 +1,6 @@
+import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
+import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
+import { deriveUserPresence } from "@alpha-traders/contracts";
 import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
@@ -1582,6 +1585,28 @@ function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: Selle
   };
 }
 
+async function withLiveUserPresence(db: AlphaExchangeDb): Promise<AlphaExchangeDb> {
+  try {
+    const presence = await readUserPresence(db.users.map(user => user.id));
+    return { ...db, users: db.users.map(user => ({ ...user,
+      onlineStatus: user.disabled ? "offline" : presence[user.id]?.onlineStatus ?? "offline",
+      lastActiveAt: presence[user.id]?.lastActiveAt ?? undefined,
+      lastSeenAt: presence[user.id]?.lastSeenAt ?? undefined,
+    })) };
+  } catch {
+    // Presence outages cannot block trading or fabricate a green status.
+    return { ...db, users: db.users.map(user => ({ ...user, onlineStatus: "offline", lastActiveAt: undefined, lastSeenAt: undefined })) };
+  }
+}
+
+export async function getVisibleUserPresence(userIds: string[], viewer?: AlphaExchangeUser) {
+  const db = await readDbForAuthUser();
+  const selected = new Set(userIds);
+  const users = db.users.filter(user => selected.has(user.id));
+  const presence = await readUserPresence(users.map(user => user.id));
+  return Object.fromEntries(users.map(user => [user.id, visibleUserPresence(user, presence[user.id], viewer)]));
+}
+
 function buildSellerPublicProfile(user: AlphaExchangeUser, viewer?: AlphaExchangeUser): SellerPublicProfile {
   const ownerView = isPublicOwnerIdentity(viewer);
   const visibleText = ownerView ? (value?: string) => value ?? "" : identityTextRedactor([user], true);
@@ -1611,9 +1636,11 @@ function buildSellerPublicProfile(user: AlphaExchangeUser, viewer?: AlphaExchang
     roles: user.roles ?? [user.role],
     sellerStatus: user.sellerStatus,
     allowDirectMessages: user.allowDirectMessages !== false,
-    onlineStatus: user.onlineStatus,
+    onlineStatus: visibleUserPresence(user, user, viewer).onlineStatus ?? "offline",
     availabilityStatus: user.availabilityStatus,
-    lastActiveAt: user.lastActiveAt,
+    lastActiveAt: visibleUserPresence(user, user, viewer).lastActiveAt ?? undefined,
+    lastSeenAt: visibleUserPresence(user, user, viewer).lastSeenAt ?? undefined,
+    presenceHidden: visibleUserPresence(user, user, viewer).presenceHidden,
     emailVerified: user.emailVerified === true,
   };
 }
@@ -1667,7 +1694,10 @@ function buildPublicUserProfileDataForUser(input: {
         .filter((request) => ["completed", "review_open", "locked"].includes(request.status) || Boolean(request.completedAt))
         .reduce((total, request) => total + toNumber(request.usdtAmount), 0)).rank,
       memberSince: user.createdAt,
-      lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
+      lastActiveAt: showLastActive ? user.lastActiveAt ?? null : null,
+      lastSeenAt: showLastActive ? user.lastSeenAt ?? null : null,
+      onlineStatus: showLastActive ? user.onlineStatus : "offline",
+      presenceHidden: !showLastActive,
       country: visibleText(user.country),
       city: platformOwner || subjectIsOwner ? user.city : "",
       languages: (user.languages ?? []).map((language) => visibleText(language)),
@@ -1712,7 +1742,7 @@ export async function getPublicUserProfileById(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
 }) {
-  const db = await readDb({ bypassCache: true });
+  const db = await withLiveUserPresence(await readDb({ bypassCache: true }));
   const user = db.users.find((row) => row.id === input.userId);
   if (!user) return null;
   return buildPublicUserProfileDataForUser({
@@ -1740,6 +1770,7 @@ function isTrustEligibleSeller(user: AlphaExchangeUser) {
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
+  const measured = (snapshot: SellerReputationSnapshot) => withMeasuredSellerActivity(snapshot, db.purchaseRequests.filter(request => request.sellerId === snapshot.sellerId));
   if (db.trustSnapshots.length) {
     const sellers = new Map(db.users.map(user => [user.id, user]));
     return new Map(db.trustSnapshots.map(entry => {
@@ -1747,7 +1778,7 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
       if (!seller) return [entry.sellerId, entry.snapshot];
       const volume = Math.max(0, entry.snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
       const rank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(volume, seller.sellerPrestigeRank);
-      return [entry.sellerId, { ...entry.snapshot, totalUsdtVolume: volume, level: rank, ...buildPrestigeFieldsForSnapshot({ volumeUsdt: volume, rank, isOverridden: Boolean(seller.sellerRankOverride) }) }];
+      return [entry.sellerId, measured({ ...entry.snapshot, totalUsdtVolume: volume, level: rank, ...buildPrestigeFieldsForSnapshot({ volumeUsdt: volume, rank, isOverridden: Boolean(seller.sellerRankOverride) }) })];
     }));
   }
   const listingsBySeller = new Map<string, MarketplaceListing[]>();
@@ -1792,7 +1823,7 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
       return snapshot;
     });
   const ranked = rankTrustSnapshots(base);
-  return new Map(ranked.map((snapshot) => [snapshot.sellerId, snapshot]));
+  return new Map(ranked.map((snapshot) => [snapshot.sellerId, measured(snapshot)]));
 }
 
 function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string): SellerReputationSnapshot {
@@ -1863,7 +1894,7 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
       isOverridden: Boolean(seller.sellerRankOverride),
     }),
   );
-  return snapshot;
+  return withMeasuredSellerActivity(snapshot, db.purchaseRequests.filter(request => request.sellerId === sellerId));
 }
 
 const LISTING_END_STATUSES = new Set<ListingStatus>(["completed", "cancelled", "closed", "expired"]);
@@ -2142,7 +2173,7 @@ export async function getPublicUserProfileRouteData(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
 }) {
-  const db = await readDb();
+  const db = await withLiveUserPresence(await readDb());
   const normalizedUsername = input.username.trim().toLowerCase();
   const user = db.users.find((row) => matchesPublicProfileUsername({ fullName: row.fullName, email: row.email, id: row.id, publicTradingName: row.buyerDisplayName }, normalizedUsername));
   if (!user) return null;
@@ -2161,7 +2192,7 @@ export async function getPremiumSellerProfile(input: {
   viewerEmail?: string;
   dbInput?: AlphaExchangeDb;
 }): Promise<PremiumSellerProfileData | null> {
-  const db = input.dbInput ?? await readDb();
+  const db = await withLiveUserPresence(input.dbInput ?? await readDb());
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
@@ -2203,15 +2234,7 @@ export async function getPremiumSellerProfile(input: {
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 
   const completionRate = sellerRequests.length ? (completedTrades.length / sellerRequests.length) * 100 : 0;
-  const responseTimes = sellerRequests
-    .map((request) => {
-      const submitted = new Date(request.createdAt).getTime();
-      const accepted = new Date(request.tradeCreatedAt ?? request.updatedAt).getTime();
-      if (!submitted || !accepted || accepted < submitted) return 0;
-      return (accepted - submitted) / 60000;
-    })
-    .filter((value) => value > 0);
-  const responseTimeMinutes = responseTimes.length ? responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length : 0;
+  const responseTimeMinutes = measureSellerActivity(sellerRequests).responseTimeMinutes;
   const completedBuyerCounts = completedTrades.reduce<Record<string, number>>((acc, request) => {
     acc[request.buyerId] = (acc[request.buyerId] ?? 0) + 1;
     return acc;
@@ -2730,7 +2753,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         coverBannerUrl: typeof (user as { coverBannerUrl?: string }).coverBannerUrl === "string" ? (user as { coverBannerUrl: string }).coverBannerUrl.trim() : "",
         onlineStatus: (user as { onlineStatus?: string }).onlineStatus === "online" ? "online" : "offline",
         availabilityStatus: normalizeSellerAvailabilityStatus((user as { availabilityStatus?: string }).availabilityStatus),
-        lastActiveAt: typeof (user as { lastActiveAt?: string }).lastActiveAt === "string" ? (user as { lastActiveAt: string }).lastActiveAt : (typeof user.updatedAt === "string" ? user.updatedAt : undefined),
+        lastActiveAt: typeof (user as { lastActiveAt?: string }).lastActiveAt === "string" ? (user as { lastActiveAt: string }).lastActiveAt : undefined,
         isFeaturedSeller: (user as { isFeaturedSeller?: boolean }).isFeaturedSeller === true,
         isProfileHidden: (user as { isProfileHidden?: boolean }).isProfileHidden === true,
         showTradeStats: (user as { showTradeStats?: boolean }).showTradeStats !== false,
@@ -7204,6 +7227,7 @@ export async function deleteSessionByToken(token: string) {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
   await repository.deleteAuthSession(hashed);
+  await endPresenceSession(hashed).catch(() => undefined);
   const cachedSessions = dbCache?.value.authSessions ?? [];
   syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
 }
@@ -8483,12 +8507,10 @@ export async function getMarketplaceListings(
           && !interactionBlockedSellerIds.has(listing.sellerId));
   const snapshots = computeTrustSnapshotMap(db);
   const sortedListings = qualitySortListings(db, rawListings, snapshots);
-  return enrichListingsWithSellerData(db, sortedListings, snapshots, viewerUserId);
+  return enrichListingsWithSellerData(await withLiveUserPresence(db), sortedListings, snapshots, viewerUserId);
 }
 
 // ── Live marketplace pulse (real, privacy-safe public dashboard) ────────────
-const PULSE_ONLINE_WINDOW_MS = 5 * 60 * 1000;
-const PULSE_PRESENCE_TOUCH_THROTTLE_MS = 60 * 1000;
 
 export type MarketplacePulseActivityType =
   | "new_listing"
@@ -8528,52 +8550,10 @@ const PULSE_ACTIVE_TRADE_STATUSES = new Set<PurchaseRequestStatus>([
   "usdt_sent",
 ]);
 
-function pulseParseMinutes(value: string | number | null | undefined) {
-  const parsed = Number(String(value ?? "").replace(/[^\d.]/g, ""));
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return parsed;
-}
-
 function isFreshTimestamp(value: string | null | undefined, windowMs: number, nowMs: number) {
   if (!value) return false;
   const ms = new Date(value).getTime();
   return Number.isFinite(ms) && ms > 0 && nowMs - ms <= windowMs;
-}
-
-/**
- * Lightweight presence heartbeat for the current authenticated user. Updates
- * lastActiveAt (and onlineStatus) only when it is stale, so counting "online"
- * users reflects real active sessions without a write on every poll.
- */
-export async function touchUserPresence(userId: string): Promise<void> {
-  if (!userId) return;
-  const db = await readDb({ bypassCache: true });
-  let changed = false;
-  const applyPresence = (snapshot: AlphaExchangeDb) => {
-    changed = false;
-    const index = snapshot.users.findIndex((user) => user.id === userId);
-    if (index === -1) return snapshot;
-    const user = snapshot.users[index];
-    // A heartbeat that raced an account disable must not restore the stale
-    // enabled user record or mark a disabled account online.
-    if (user.disabled === true) return snapshot;
-    const nowMs = Date.now();
-    const lastMs = user.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
-    if (Number.isFinite(lastMs) && lastMs > 0 && nowMs - lastMs < PULSE_PRESENCE_TOUCH_THROTTLE_MS && user.onlineStatus === "online") {
-      return snapshot;
-    }
-    const timestamp = nowIso();
-    snapshot.users[index] = { ...user, onlineStatus: "online", lastActiveAt: timestamp, updatedAt: timestamp };
-    changed = true;
-    return snapshot;
-  };
-
-  applyPresence(db);
-  if (!changed) return;
-  await writeDb(db, {
-    selectedTables: USER_PROFILE_TABLES,
-    rebaseOnLatest: applyPresence,
-  });
 }
 
 /**
@@ -8582,7 +8562,7 @@ export async function touchUserPresence(userId: string): Promise<void> {
  * trade details are exposed.
  */
 export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<MarketplacePulseData> {
-  const db = dbInput ?? await readDb();
+  const db = await withLiveUserPresence(dbInput ?? await readDb());
   const nowMs = Date.now();
   const nowIsoValue = nowIso();
 
@@ -8593,7 +8573,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   let sellersOnline = 0;
   let buyersOnline = 0;
   for (const user of db.users) {
-    if (!isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) continue;
+    if (!deriveUserPresence(user, nowMs).online) continue;
     const isApprovedSeller = user.sellerStatus === "approved_seller" && canPublishListings(user);
     if (isApprovedSeller) {
       if (!hiddenOrSuspended.has(user.id)) sellersOnline += 1;
@@ -8652,8 +8632,6 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   const paymentCounts = new Map<string, number>();
   for (const listing of activeListings) {
     totalUsdtAvailable += toNumber(listing.availableAmount);
-    const minutes = pulseParseMinutes(listing.responseTime);
-    if (minutes > 0) responseSamples.push(minutes);
     const network = String(listing.network ?? "");
     if (network) networkCounts.set(network, (networkCounts.get(network) ?? 0) + 1);
     const methods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
@@ -8661,6 +8639,10 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
       const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
       if (normalized) paymentCounts.set(normalized, (paymentCounts.get(normalized) ?? 0) + 1);
     }
+  }
+  for (const sellerId of new Set(activeListings.map(listing => listing.sellerId))) {
+    const minutes = measureSellerActivity(db.purchaseRequests.filter(request => request.sellerId === sellerId)).responseTimeMinutes;
+    if (minutes > 0) responseSamples.push(minutes);
   }
   const averageResponseMinutes = responseSamples.length
     ? Math.max(1, Math.round(responseSamples.reduce((sum, value) => sum + value, 0) / responseSamples.length))
@@ -8698,7 +8680,7 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
   }
   for (const user of db.users) {
     if (user.sellerStatus !== "approved_seller" || !canPublishListings(user) || hiddenOrSuspended.has(user.id)) continue;
-    if (user.onlineStatus === "online" && isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) {
+    if (deriveUserPresence(user, nowMs).online) {
       activity.push({ id: `online-${user.id}`, type: "seller_online", createdAt: user.lastActiveAt ?? nowIsoValue });
     }
   }
@@ -9514,7 +9496,6 @@ export async function updateSellerAvailabilityStatus(input: {
   db.users[index] = {
     ...seller,
     availabilityStatus: input.availabilityStatus,
-    lastActiveAt: nowIso(),
     updatedAt: nowIso(),
   };
   await appendAuditLog(db, {
@@ -12169,6 +12150,8 @@ export interface AccountProfileSummary {
   sellerStatus: SellerStatus;
   memberSince: string;
   lastLogin: string;
+  lastActiveAt?: string;
+  lastSeenAt?: string;
   onlineStatus: SellerOnlineStatus;
   bio: string;
   country: string;
@@ -12244,7 +12227,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   profile: AccountProfileSummary;
   stats: SellerAccountStats | BuyerAccountStats;
 }> {
-  const db = await readDbForAccountProfile(userId);
+  const db = await withLiveUserPresence(await readDbForAccountProfile(userId));
   const user = db.users.find((row) => row.id === userId);
   if (!user) throw new Error("User not found.");
 
@@ -12266,8 +12249,10 @@ export async function getAccountProfileData(userId: string): Promise<{
     role: user.role,
     sellerStatus: user.sellerStatus,
     memberSince: user.createdAt,
-    lastLogin: lastLogin ? new Date(lastLogin).toISOString() : user.updatedAt,
+    lastLogin: lastLogin ? new Date(lastLogin).toISOString() : "",
     onlineStatus: user.onlineStatus,
+    lastActiveAt: user.lastActiveAt,
+    lastSeenAt: user.lastSeenAt,
     bio: user.bio ?? "",
     country: user.country ?? "",
     language: user.languages?.[0] ?? "English",

@@ -84,6 +84,8 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
       onlineStatus: profile?.onlineStatus ?? "offline",
       availabilityStatus: profile?.availabilityStatus ?? "away",
       lastActiveAt: profile?.lastActiveAt,
+      lastSeenAt: profile?.lastSeenAt,
+      presenceHidden: profile?.presenceHidden,
       country: profile?.country,
       level: reputation?.level,
       trustScore: reputation?.trustScore,

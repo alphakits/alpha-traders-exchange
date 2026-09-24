@@ -50,6 +50,8 @@ import {
   getSafeInternalNotificationDestination,
 } from "@/lib/notification-action-destination";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import { useLiveUserPresence, useLivePresenceMap } from "@/lib/user-presence-client";
+import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import { publicAccountName } from "@/lib/public-account-identity";
@@ -1135,10 +1137,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
   const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
-  const presence = deriveSellerPresence({
-    onlineStatus: listing.sellerProfile?.onlineStatus,
-    lastActiveAt: listing.sellerProfile?.lastActiveAt,
-  });
+  const presence = useLiveUserPresence(listing.sellerId, listing.sellerProfile);
   const sellerEmailVerified = listing.sellerProfile?.emailVerified === true;
   const sellerRankBorderColor: Record<string, string> = {
     bronze: "rgba(var(--rank-bronze-rgb),0.62)",
@@ -1298,7 +1297,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
             <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
-            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(isAr ? `${parseMinutes(listing.responseTime) || 5} دقائق` : safeText(listing.responseTime, "5 min"))}</p>
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{currencyText(formatMeasuredResponseTime(listing.sellerReputation?.responseTimeMinutes, isAr))}</p>
             <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
           </div>
           <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
@@ -1309,7 +1308,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
         </div>
         <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(presence.online ? (isAr ? presence.labelAr : presence.label) : formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt, isAr))}</span></p>
+            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{currencyText(isAr ? presence.labelAr : presence.label)}</span></p>
             <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{currencyText(safeText(listing.network))}</span></p>
             <div>
               <p>{isAr ? "الدفع" : "Payment"}:</p>
@@ -2900,6 +2899,7 @@ export function UsdtExchangePage({
     },
   ], [isAr]);
 
+  const livePresence = useLivePresenceMap(listings.map(listing => listing.sellerId));
   const filteredListings = useMemo(() => {
     const filtered = listings.filter((listing) => {
       const price = toNumber(listing.price);
@@ -2918,7 +2918,7 @@ export function UsdtExchangePage({
       const minPricePass = !minPrice || price >= minPrice;
       const maxPricePass = !maxPrice || price <= maxPrice;
       const trustPass = !trustScoreThreshold || (listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
-      const onlinePass = !onlineOnlyFilter || listing.sellerProfile?.onlineStatus === "online";
+      const onlinePass = !onlineOnlyFilter || deriveSellerPresence(livePresence[listing.sellerId] ?? listing.sellerProfile ?? {}).online;
       return networkPass && currencyPass && paymentMethodPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
     });
 
@@ -2947,7 +2947,7 @@ export function UsdtExchangePage({
       sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
     return sorted;
-  }, [listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
+  }, [livePresence, listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
 
   useEffect(() => {
     if (!isMobileViewport) return;
@@ -3631,16 +3631,16 @@ export function UsdtExchangePage({
     const uniqueSellers = new Set(sourceListings.map((listing) => listing.sellerId));
     const onlineSellers = new Set(
       sourceListings
-        .filter((listing) => listing.sellerProfile?.onlineStatus === "online")
+        .filter((listing) => deriveSellerPresence(livePresence[listing.sellerId] ?? listing.sellerProfile ?? {}).online)
         .map((listing) => listing.sellerId),
     );
     const totalUsdtAvailable = sourceListings.reduce((sum, listing) => sum + toNumber(listing.availableAmount), 0);
     const responseMinutes = sourceListings
-      .map((listing) => parseMinutes(listing.responseTime))
+      .map((listing) => listing.sellerReputation?.responseTimeMinutes ?? 0)
       .filter((value) => value > 0);
     const averageResponseMinutes = responseMinutes.length
       ? Math.max(1, Math.round(responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length))
-      : 5;
+      : 0;
     const networkCounts = sourceListings.reduce<Record<string, number>>((acc, listing) => {
       const key = safeText(listing.network, "TRC20");
       acc[key] = (acc[key] ?? 0) + 1;
@@ -3674,7 +3674,7 @@ export function UsdtExchangePage({
       topPaymentMethod,
       newestSellers,
     };
-  }, [filteredListings, isAr, listings]);
+  }, [filteredListings, isAr, listings, livePresence]);
 
   const [greetingLabel, setGreetingLabel] = useState(isAr ? "مرحباً" : "Welcome");
   useEffect(() => {
@@ -6007,7 +6007,7 @@ export function UsdtExchangePage({
           { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
           { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
           { value: `${Math.trunc(marketplacePulse.totalUsdtAvailable).toLocaleString("en-US")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
-          { value: isAr ? `${marketplacePulse.averageResponseMinutes} دقائق` : `${marketplacePulse.averageResponseMinutes} min`, labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
+          { value: formatMeasuredResponseTime(marketplacePulse.averageResponseMinutes, isAr), labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
         ].map((item) => {
           const Icon = item.icon;
           return (

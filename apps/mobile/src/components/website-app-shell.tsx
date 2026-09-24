@@ -402,6 +402,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     });
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       setIsPrivacyMasked(state !== "active");
+      webViewRef.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent("alpha-native-app-state", { detail: { active: ${state === "active"} } })); true;`);
       if (state !== "active") return;
       const session = activeSessionRef.current;
       if (session) ensurePushRegistration(session.userId, session.locale, true);

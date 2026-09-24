@@ -15,6 +15,7 @@ import { CanonicalSessionProvider } from "@/components/auth/canonical-session-pr
 import { BuyerContactPrompt } from "@/components/auth/buyer-contact-prompt";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
+import { UserActivityTracker } from "@/components/auth/user-activity-tracker";
 import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
 import { SessionUnavailable } from "@/components/auth/session-unavailable";
 import { logEvent } from "@/lib/structured-logging";
@@ -93,6 +94,7 @@ export default async function LocaleLayout({
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
           <NativeAppBridge locale={appLocale} />
+          <UserActivityTracker />
           <BuyerContactPrompt locale={appLocale} />
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
           <main className="min-h-[calc(100vh-9rem)]"><RouteActionFeedback locale={appLocale} />{children}</main>

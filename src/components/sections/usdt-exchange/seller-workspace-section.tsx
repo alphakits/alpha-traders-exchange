@@ -1,4 +1,5 @@
 "use client";
+import { UserPresence } from "@/components/ui/user-presence";
 
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
@@ -352,7 +353,6 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     shortListingRef,
     shortTradeRef,
     getTradeQueuePresentation,
-    formatRelativeMinutesLabel,
     sellerLevelLabel,
     sellerBadgeLabel,
     requiresBankSelection,
@@ -450,7 +450,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               { label: isAr ? "التقييم" : "Rating", value: (sellerOverviewStats.reputation?.rating ?? 0).toFixed(2), icon: Star },
               { label: isAr ? "حجم التداول الكلي" : "Lifetime Volume", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
               { label: isAr ? "متوسط وقت الاستجابة" : "Average Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
-              { label: isAr ? "مشاهدات الملف" : "Profile Views", value: (sellerOverviewStats.reputation?.profileViews ?? 0).toLocaleString("en-IL"), icon: Users },
+              { label: isAr ? "مشاهدات الملف" : "Profile Views", value: isAr ? "غير متوفر" : "Not available", icon: Users },
             ].map((stat) => (
               <Card key={stat.label} className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader className="pb-1.5">
@@ -1764,8 +1764,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p>{currencyText(isAr ? "إجمالي حجم USDT" : "Total USDT Volume")}: <span className="text-white"><bdi dir="ltr">{Math.trunc(sellerOverviewStats.totalUsdtSold).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi></span></p>
                   <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.activeListings}</bdi></span></p>
                   <p>{isAr ? "متوسط وقت الاستجابة" : "Average Response Time"}: <span className="text-white">{currencyText(sellerOverviewStats.averageResponseTime)}</span></p>
-                  <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{sessionUser?.onlineStatus === "online" ? (isAr ? "متصل" : "Online") : (isAr ? "غير متصل" : "Offline")}</span></p>
-                  <p>{isAr ? "آخر نشاط" : "Last Active"}: <span className="text-white">{currencyText(formatRelativeMinutesLabel(sessionUser?.lastActiveAt, isAr))}</span></p>
+                  <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{sessionUser && <UserPresence userId={sessionUser.id} initial={sessionUser} isAr={isAr} compact />}</span></p>
+                  <p>{isAr ? "آخر نشاط" : "Last Active"}: <span className="text-white">{sessionUser && <UserPresence userId={sessionUser.id} initial={sessionUser} isAr={isAr} />}</span></p>
                   <p>{isAr ? "نبذة" : "Bio"}: <span className="text-white"><bdi dir="auto">{currencyText(safeText(sessionUser?.bio, isAr ? "بائع USDT محترف على Alpha Exchange." : "Professional USDT seller on Alpha Exchange."))}</bdi></span></p>
                   <p>{isAr ? "خبرة التداول" : "Trading Experience"}: <span className="text-white"><bdi dir="auto">{currencyText(safeText(sessionUser?.tradingExperience, isAr ? "خبرة احترافية في التداول" : "Professional trading experience"))}</bdi></span></p>
                   <p>{isAr ? "ساعات العمل" : "Working Hours"}: <span className="text-white"><bdi dir="auto">{currencyText(safeText(sessionUser?.workingHours, isAr ? "الأحد-الخميس، 09:00-21:00" : "Sun-Thu, 09:00-21:00"))}</bdi></span></p>

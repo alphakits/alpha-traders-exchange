@@ -1,4 +1,5 @@
 "use client";
+import { useLiveUserPresence } from "@/lib/user-presence-client";
 
 import { requiresBuyerContact } from "@/lib/buyer-contact";
 
@@ -41,6 +42,8 @@ type AccountProfilePayload = {
     onboardingCompletedAt?: string;
     memberSince: string;
     lastLogin: string;
+    lastActiveAt?: string;
+    lastSeenAt?: string;
     onlineStatus: "online" | "offline";
     bio: string;
     country: string;
@@ -345,6 +348,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const canonicalSessionError = canonicalSession?.error ?? false;
   const refreshCanonicalSession = canonicalSession?.refresh;
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
+  const presence = useLiveUserPresence(payload?.profile.id, payload?.profile);
   const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
   const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -763,7 +767,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     );
   }
 
-  const onlineNow = payload.profile.onlineStatus === "online";
+  const onlineNow = presence.online;
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
   const statusCopy = payload.accountStatuses.map((status) => accountStatusLabel(status, isAr)).join(" • ");
@@ -918,8 +922,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                 <p className="mt-1 text-xs text-[#AAB3C2]">{brandText(isAr ? "الهوية موثقة عبر Alpha Traders" : "Identity anchored to Alpha Traders account history")}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "آخر دخول" : "Last login"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.lastLogin).toLocaleString(dateLocale)}</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "آخر نشاط" : "Last active"}</p>
+                <p className="mt-2 text-sm font-medium text-white">{isAr ? presence.labelAr : presence.label}</p>
                 <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "نشاط حساب حديث" : "Recent account activity signal"}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">

@@ -1,4 +1,5 @@
 "use client";
+import { UserPresence } from "@/components/ui/user-presence";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -25,10 +26,6 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
   const sellerLevelLabel = useCallback((value: string) => {
     if (!isArabic) return value;
     return ({ bronze: "برونزي", silver: "فضي", gold: "ذهبي", diamond: "ماسي", elite: "نخبة" } as Record<string, string>)[value] ?? value;
-  }, [isArabic]);
-  const sellerStatusLabel = useCallback((value: string) => {
-    if (!isArabic) return value;
-    return ({ online: "متصل", offline: "غير متصل", away: "غير متاح مؤقتًا" } as Record<string, string>)[value] ?? value;
   }, [isArabic]);
   const listingPaymentMethodsLabel = useCallback((listing: MarketplaceListing) => {
     const labels = marketplacePaymentMethodLabelsForLocale(listing.paymentMethods, listing.paymentMethod, locale);
@@ -135,7 +132,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
                   <div className="space-y-2 text-sm text-[#D1D5DB]">
                     <p className="text-base font-semibold text-white">{listing.sellerDisplayName}</p>
                     <p className="inline-flex items-center gap-2"><Star className="h-4 w-4 text-[#C9A227]" /> {t("Seller Rating:", "تقييم البائع:")} <span className="text-white">{listing.sellerReputation?.rating.toFixed(2) ?? "—"}</span></p>
-                    <p>{t("Seller Trust Score:", "درجة ثقة البائع:")} <span className="text-white">{Math.round(listing.sellerReputation?.customerSatisfaction ?? 0)}%</span></p>
+                    <p>{t("Seller Trust Score:", "درجة ثقة البائع:")} <span className="text-white">{Math.round(listing.sellerReputation?.trustScore ?? 0)}%</span></p>
                     <p>{t("Seller Level:", "رتبة البائع:")} <span className="text-white capitalize">{sellerLevelLabel(listing.sellerReputation?.level ?? "bronze")}</span></p>
                     <p>{t("Lifetime Completed Trades:", "إجمالي الصفقات المكتملة:")} <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString(isArabic ? "ar-IL" : "en-IL")}</span></p>
                     <p>{t("Amount:", "الكمية:")} <bdi dir="ltr" className="text-white">{listing.availableAmount}</bdi></p>
@@ -179,7 +176,7 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
               <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
                 <p>{t("Seller:", "البائع:")} <span className="text-white">{sellerHistory.listing?.sellerDisplayName ?? "—"}</span></p>
                 <p>{t("Member Since:", "عضو منذ:")} <span className="text-white">{sellerHistory.listing?.sellerProfile?.memberSince ? new Date(sellerHistory.listing.sellerProfile.memberSince).getFullYear() : "—"}</span></p>
-                <p>{t("Online Status:", "حالة الاتصال:")} <span className="text-white">{sellerStatusLabel(sellerHistory.listing?.sellerProfile?.onlineStatus ?? "offline")}</span></p>
+                <p>{t("Online Status:", "حالة الاتصال:")} <span className="text-white">{sellerHistory.listing && <UserPresence userId={sellerHistory.listing.sellerId} initial={sellerHistory.listing.sellerProfile} isAr={isArabic} />}</span></p>
                 <p>{t("Languages:", "اللغات:")} <bdi dir="auto" className="text-white">{sellerHistory.listing?.sellerProfile?.languages.map((language) => spokenLanguageLabelForLocale(language, locale)).join(isArabic ? "، " : ", ") || "—"}</bdi></p>
                 <p>{t("Total Listings:", "إجمالي العروض:")} <span className="text-white">{sellerHistory.sellerListings.length}</span></p>
                 <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{sellerHistory.completedTrades}</span></p>

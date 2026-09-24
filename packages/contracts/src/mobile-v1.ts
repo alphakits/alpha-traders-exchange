@@ -181,12 +181,15 @@ export interface MobileAccountProfile {
   role: MobileUserRole;
   sellerStatus: MobileSellerStatus;
   onlineStatus: "online" | "offline";
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   bio: string;
   country: string;
   language: string;
   whatsappNumber: string;
   memberSince: string;
   lastLogin: string;
+  lastActiveAt?: string;
   showTradeStats: boolean;
   showLastActive: boolean;
   allowDirectMessages: boolean;
@@ -541,6 +544,8 @@ export interface MobileMarketplaceListing {
     isFeaturedSeller: boolean;
     emailVerified: boolean;
     onlineStatus: "online" | "offline";
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
     availabilityStatus: "available" | "away" | "vacation";
     lastActiveAt?: string;
     country?: string;
@@ -853,6 +858,7 @@ export interface MobileSellerProfileReview {
 }
 
 export interface MobileSellerProfile {
+  lastActiveAt?: string;
   listingId: string;
   displayName: string;
   isCurrentUser: boolean;
@@ -862,6 +868,8 @@ export interface MobileSellerProfile {
   languages: string[];
   country: string;
   onlineStatus: "online" | "offline";
+  lastSeenAt?: string;
+  presenceHidden?: boolean;
   availabilityStatus: "available" | "away" | "vacation";
   isEmailVerified: boolean;
   isOwner: boolean;

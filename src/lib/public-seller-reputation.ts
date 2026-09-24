@@ -4,7 +4,7 @@ import type { SellerReputationSnapshot, PublicSellerReputationSnapshot, SellerAc
 // those totals can be reconstructed. Keep the internal trust snapshot intact.
 export function publicSellerReputation(snapshot: SellerReputationSnapshot): PublicSellerReputationSnapshot {
   const result = { ...snapshot } as Partial<SellerReputationSnapshot>;
-  for (const key of ["totalUsdtVolume", "estimatedCommissionPaid", "revenueGenerated", "averageTradeSize", "publicVolumeRange", "remainingVolumeToNextRank", "prestigeProgressPercent", "lifetimeCompletedVolumeUsdt", "prestigeVolumeUsdt"] as const) delete result[key];
+  for (const key of ["totalUsdtVolume", "estimatedCommissionPaid", "revenueGenerated", "averageTradeSize", "publicVolumeRange", "remainingVolumeToNextRank", "prestigeProgressPercent", "lifetimeCompletedVolumeUsdt", "prestigeVolumeUsdt", "profileViews", "listingViews", "monthlyGrowthPercent", "customerSatisfaction"] as const) delete result[key];
   return result as PublicSellerReputationSnapshot;
 }
 

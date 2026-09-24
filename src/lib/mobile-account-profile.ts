@@ -27,6 +27,8 @@ export function toMobileAccountProfile(profile: AccountProfileSummary): MobileAc
     whatsappNumber: profile.whatsappNumber,
     memberSince: profile.memberSince,
     lastLogin: profile.lastLogin,
+    lastActiveAt: profile.lastActiveAt,
+    lastSeenAt: profile.lastSeenAt,
     showTradeStats: profile.showTradeStats,
     showLastActive: profile.showLastActive,
     allowDirectMessages: profile.allowDirectMessages,
