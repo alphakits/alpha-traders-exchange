@@ -25,7 +25,7 @@ function Harness({ locale = "en", selectedMinTrade = 10, selectedMaxTrade = 1000
       setOfferedPrice(value);
       setBuyerInfo((current) => ({ ...current, usdtAmount: calculateCardlessUsdtAmount(current.cardlessIlsAmount ?? "", value) ?? "" }));
     }} onSafetyAcknowledgedChange={noop} onGoToVerification={noop}
-    onOwnerSellerProfileState={noop} onOwnerSuspendSeller={noop} formatIls={(value) => String(value)} localizedAuditAction={String} paymentMethodEmoji={() => ""} paymentMethodLabel={String} sellerLevelLabel={() => "Bronze"} sellerLevelToneKey={() => "bronze"} tradeStatusLabel={String} />;
+    onOwnerSellerProfileState={noop} onOwnerSuspendSeller={noop} formatIls={(value) => String(value)} localizedAuditAction={String} paymentMethodEmoji={() => ""} paymentMethodLabel={String} sellerLevelToneKey={() => "bronze"} tradeStatusLabel={String} />;
 }
 const preparedBankCode = { cardlessBankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationValue: "1995-08-25" };
 afterEach(cleanup);
