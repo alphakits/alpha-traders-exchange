@@ -188,7 +188,7 @@ import { isNewListingBroadcastNotification, listingNotificationViewDestination, 
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
-import { calculateBuyerCommissionAmount, calculateFiatAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateBuyerCommissionAmount, calculateFiatAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
@@ -14315,6 +14315,7 @@ async function updatePurchaseRequestStatusAttempt(
         buyerId: request.buyerId,
         rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
+        feePolicyVersion: MARKETPLACE_FEE_CUTOVER_VERSION,
         sellerFeeAmount,
         buyerFeeCollectedAmount,
         commissionAmount,
