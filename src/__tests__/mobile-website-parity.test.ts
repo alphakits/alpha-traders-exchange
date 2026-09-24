@@ -61,7 +61,7 @@ describe("mobile website parity", () => {
     expect(nativeNotifications).toContain("ExecutionEnvironment.StoreClient");
     expect(navigation).toContain('https://www.alphatraders.co.il');
     expect(mobilePackage).toContain('"react-native-webview": "13.16.1"');
-    expect(mobilePackage).toContain('"expo-notifications": "~57.0.20"');
+    expect(mobilePackage).toContain('"expo-notifications": "~57.0.21"');
     expect(mobilePackage).toContain('"expo-store-review": "~57.0.3"');
     expect(mobileConfig).toContain('"icon": "../../public/images/brand/alpha-traders-app-icon-1024.png"');
     expect(mobileConfig).toContain('"foregroundImage": "../../public/images/brand/alpha-traders-app-icon-maskable-1024.png"');

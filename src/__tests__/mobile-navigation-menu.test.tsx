@@ -6,7 +6,8 @@ describe("MobileNavigationMenu", () => {
   it("closes immediately after a navigation item is selected", () => {
     render(
       <MobileNavigationMenu label="Open menu">
-        <a href="https://example.com/academy">Academy</a>
+        {/* jsdom cannot navigate documents; this fixture tests menu dismissal. */}
+        <a href="https://example.com/academy" onClick={(event) => event.preventDefault()}>Academy</a>
       </MobileNavigationMenu>,
     );
 
