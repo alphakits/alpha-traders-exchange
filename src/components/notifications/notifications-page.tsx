@@ -433,7 +433,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
     const label = notification.category === "application"
       ? "Review Application"
       : notification.category === "listing"
-        ? "Manage Listing"
+        ? "View listing"
         : "View Details";
     return localizeNotificationActionLabel(label, locale, notification);
   }

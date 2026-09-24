@@ -18,6 +18,50 @@ afterEach(() => {
 });
 
 describe("Notification bell conversation navigation", () => {
+  it.each([
+    ["buyer-1", "en", "View listing", "Mark as read"],
+    ["seller-1", "en", "View listing", "Mark as read"],
+    ["buyer-1", "ar", "عرض الإعلان", "تحديد كمقروء"],
+    ["seller-1", "ar", "عرض الإعلان", "تحديد كمقروء"],
+  ] as const)("gives %s safe new-listing actions in %s", async (userId, locale, viewLabel, readLabel) => {
+    const notice = {
+      id: "new-listing", userId, category: "listing",
+      title: "🟢 New USDT Listing Available", message: "A seller published 700 USDT.",
+      relatedListingId: "listing-public", actionHref: "/dashboard/seller", actionLabel: "Manage Listing",
+      isRead: false, state: "unread", createdAt: new Date().toISOString(),
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ notifications: [notice], unreadCount: 1 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationBell locale={locale} />);
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "الإشعارات" : "Notifications" }));
+    const view = await screen.findByRole("button", { name: viewLabel });
+    expect(screen.getByRole("button", { name: readLabel })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Manage Listing|إدارة العرض/i })).toBeNull();
+    fireEvent.click(view);
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/usdt-exchange#listing-listing-public"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/alpha-exchange/notifications/new-listing", expect.objectContaining({
+      method: "PATCH", body: JSON.stringify({ isRead: true }),
+    }));
+  });
+
+  it("marks a listing alert read without opening a page", async () => {
+    const notice = {
+      id: "listing-read", userId: "buyer-1", category: "listing",
+      title: "🟢 New USDT Listing Available", message: "A seller published 700 USDT.",
+      relatedListingId: "listing-public", isRead: false, createdAt: new Date().toISOString(),
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ notifications: [notice], unreadCount: 1 }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationBell locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mark as read" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/alpha-exchange/notifications/listing-read", expect.objectContaining({
+      method: "PATCH", body: JSON.stringify({ isRead: true }),
+    })));
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "View listing" })).toBeNull();
+  });
+
   it("opens a legacy lifecycle notice without a trade snapshot and preserves its request ID", async () => {
     const notification = {
       id: "legacy-1", userId: "buyer-1", category: "trade", reason: "trade_completed",

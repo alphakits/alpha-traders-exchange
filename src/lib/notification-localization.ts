@@ -1,4 +1,5 @@
 import type { AppLocale } from "@/i18n/routing";
+import { isNewListingBroadcastNotification } from "@/lib/listing-notification";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification } from "@/types/alpha-exchange";
 
 const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
@@ -103,6 +104,7 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
   "open seller listings": "فتح عروض البائع",
   "view seller insights": "عرض إحصاءات البائع",
   "manage listing": "إدارة العرض",
+  "view listing": "عرض الإعلان",
   "review listing": "مراجعة العرض",
   "pay commission": "دفع العمولة",
   "review commission": "مراجعة العمولة",
@@ -721,14 +723,15 @@ export function localizeActivityCopy(entry: AlphaExchangeActivityLogEntry, local
 export function localizeNotificationActionLabel(
   label: string | null | undefined,
   locale: AppLocale,
-  notification: Pick<AlphaExchangeNotification, "category">,
+  notification: Pick<AlphaExchangeNotification, "category"> & Partial<Pick<AlphaExchangeNotification, "title" | "reason">>,
 ) {
+  if (isNewListingBroadcastNotification(notification)) return locale === "ar" ? "عرض الإعلان" : "View listing";
   const normalized = label?.trim();
   if (locale !== "ar") return normalized || "Open";
   if (normalized && containsArabicText(normalized)) return normalized;
   if (normalized && ARABIC_ACTION_BY_ENGLISH[normalized.toLowerCase()]) return ARABIC_ACTION_BY_ENGLISH[normalized.toLowerCase()];
   if (notification.category === "trade") return "متابعة الصفقة";
-  if (notification.category === "listing") return "إدارة العرض";
+  if (notification.category === "listing") return "عرض الإعلان";
   if (notification.category === "application") return "مراجعة الطلب";
   return "عرض التفاصيل";
 }

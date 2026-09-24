@@ -1,5 +1,15 @@
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { APP_DESTINATION_ORIGIN, parseInternalAppUrl } from "@/lib/internal-app-url";
+import { isNewListingBroadcastNotification, listingNotificationViewDestination } from "@/lib/listing-notification";
+
+type NotificationDestination = Pick<AlphaExchangeNotification, "actionHref" | "relatedHref">
+  & Partial<Pick<AlphaExchangeNotification, "category" | "reason" | "title" | "relatedListingId">>;
+
+function newListingDestination(notification: NotificationDestination) {
+  return isNewListingBroadcastNotification(notification)
+    ? listingNotificationViewDestination(notification)
+    : null;
+}
 
 const NOTIFICATION_DESTINATION_ORIGIN = APP_DESTINATION_ORIGIN;
 
@@ -17,9 +27,9 @@ function safeInternalNotificationHref(href: string | null | undefined) {
  * application router.
  */
 export function getSafeInternalNotificationDestination(
-  notification: Pick<AlphaExchangeNotification, "actionHref" | "relatedHref">,
+  notification: NotificationDestination,
 ) {
-  return safeInternalNotificationHref(notification.actionHref)
+  return newListingDestination(notification) ?? safeInternalNotificationHref(notification.actionHref)
     ?? safeInternalNotificationHref(notification.relatedHref);
 }
 
@@ -29,8 +39,10 @@ export function getSafeInternalNotificationDestination(
  * trade for context without authorizing the admin to enter that Trade Room.
  */
 export function getExplicitNonTradeRoomNotificationDestination(
-  notification: Pick<AlphaExchangeNotification, "actionHref" | "relatedHref">,
+  notification: NotificationDestination,
 ) {
+  const listingDestination = newListingDestination(notification);
+  if (listingDestination) return listingDestination;
   for (const candidate of [notification.actionHref, notification.relatedHref]) {
     const href = safeInternalNotificationHref(candidate);
     if (!href) continue;
