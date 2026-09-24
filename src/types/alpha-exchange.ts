@@ -933,6 +933,8 @@ export interface CommissionRecord {
   issueReason?: string;
   rate: number;
   grossAmount: number;
+  /** Identifies trades created under the explicit buyer+seller fee schedule. */
+  feePolicyVersion?: "buyer_seller_1pct_v1";
   /** Seller's own 1% marketplace fee in USDT. */
   sellerFeeAmount?: number;
   /** Buyer's 1% fee collected by the seller with the trade payment. */
