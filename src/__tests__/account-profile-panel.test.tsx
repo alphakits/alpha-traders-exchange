@@ -1,5 +1,5 @@
 import { publicAccountId } from "@/lib/public-account-identity";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
@@ -362,11 +362,11 @@ describe("AccountProfilePanel", () => {
       );
 
       await waitFor(() => expect(screen.getByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeTruthy());
-      window.dispatchEvent(new Event("alpha-auth-changed"));
+      await act(async () => { window.dispatchEvent(new Event("alpha-auth-changed")); });
 
       await waitFor(() => expect(screen.getByText("Your session has expired. Please sign in again.")).toBeTruthy());
       expect(screen.queryByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeNull();
-      expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fprofile");
+      expect(replaceSpy).toHaveBeenCalledWith("/en");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }

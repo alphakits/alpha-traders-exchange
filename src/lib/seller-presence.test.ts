@@ -20,16 +20,22 @@ describe("deriveSellerPresence", () => {
   it.each([undefined, null, "invalid", iso(60_000)])("never fabricates activity from %s", lastActiveAt => {
     const presence = deriveSellerPresence({ onlineStatus: "online", lastActiveAt }, NOW);
     expect(presence.online).toBe(false);
-    expect(presence.label).toBe("Activity unavailable");
-    expect(presence.compactLabel).toBe("Status unknown");
-    expect(presence.compactLabelAr).toBe("الحالة غير معروفة");
-  });
-  it("does not call an account offline before its first recorded activity", () => {
-    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: null, lastSeenAt: null }, NOW);
-    expect(presence.label).not.toContain("Offline");
-    expect(presence.label).toBe("No activity recorded yet");
+    expect(presence.label).toBe("Offline");
+    expect(presence.compactLabel).toBe("Offline");
+    expect(presence.compactLabelAr).toBe("غير متصل");
     expect(presence.minutesSinceActive).toBeNull();
-    expect(presence.compactLabel).toBe("Status unknown");
+  });
+  it("shows Offline without inventing a last-active time before the first activity", () => {
+    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: null, lastSeenAt: null }, NOW);
+    expect(presence.label).toBe("Offline");
+    expect(presence.labelAr).toBe("غير متصل");
+    expect(presence.minutesSinceActive).toBeNull();
+    expect(presence.compactLabel).toBe("Offline");
+  });
+  it("honors Offline even when a recent activity timestamp is present", () => {
+    const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(0), lastSeenAt: iso(0) }, NOW);
+    expect(presence.online).toBe(false);
+    expect(presence.compactLabel).toBe("Offline");
   });
   it("shows real elapsed activity while offline", () => {
     expect(deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-25 * 60_000) }, NOW).label).toBe("Offline · Active 25 min ago");

@@ -8,6 +8,9 @@ vi.mock("@/lib/postgres-runtime", () => ({
 
 import {
   getMarketplacePulse,
+  getAccountProfileData,
+  getPublicUserProfileById,
+  getVisibleUserPresence,
   invalidateAlphaExchangeStoreCache,
 } from "@/lib/alpha-exchange-store";
 
@@ -177,5 +180,32 @@ describe("getMarketplacePulse", () => {
     await recordUserPresence("buyer-offline", "pulse-test", { clientId: crypto.randomUUID(), sequence: 1, active: true, activity: true });
     const pulse = await getMarketplacePulse();
     expect(pulse.buyersOnline).toBe(2);
+  });
+
+  it.each(["buyer-online", "seller-online"])("keeps %s activity consistent across private and public profiles and polling", async userId => {
+    const observed = (await getVisibleUserPresence([userId]))[userId];
+    expect(observed.onlineStatus).toBe("online");
+    expect(observed.lastActiveAt).toBeTruthy();
+    const privateProfile = await getAccountProfileData(userId);
+    const publicProfile = await getPublicUserProfileById({ userId });
+    for (const profile of [privateProfile.profile, publicProfile?.profile]) {
+      expect(profile).toMatchObject({ onlineStatus: "online", lastActiveAt: observed.lastActiveAt, lastSeenAt: observed.lastSeenAt });
+    }
+    await endPresenceSession("pulse-test");
+    const offline = (await getVisibleUserPresence([userId]))[userId];
+    expect(offline).toMatchObject({ onlineStatus: "offline", lastActiveAt: observed.lastActiveAt });
+    expect((await getAccountProfileData(userId)).profile).toMatchObject({ onlineStatus: "offline", lastActiveAt: observed.lastActiveAt });
+    expect((await getPublicUserProfileById({ userId }))?.profile).toMatchObject({ onlineStatus: "offline", lastActiveAt: observed.lastActiveAt });
+  });
+
+  it.each(["buyer-online", "seller-online"])("keeps blocked %s presence hidden on the initial profile and subsequent polling", async userId => {
+    const db = globalThis.__alphaExchangeMemorySnapshot!;
+    const subject = db.users.find(row => row.id === userId)!;
+    const viewer = db.users.find(row => row.id === "buyer-offline")!;
+    subject.blockedUserIds = [viewer.id];
+    invalidateAlphaExchangeStoreCache();
+    expect((await getPublicUserProfileById({ userId, viewerUserId: viewer.id }))?.profile).toMatchObject({ presenceHidden: true, lastActiveAt: null, lastSeenAt: null, onlineStatus: "offline" });
+    expect((await getVisibleUserPresence([userId], viewer))[userId]).toMatchObject({ presenceHidden: true, lastActiveAt: null, lastSeenAt: null, onlineStatus: "offline" });
+    expect((await getAccountProfileData(userId)).profile.onlineStatus).toBe("online");
   });
 });
