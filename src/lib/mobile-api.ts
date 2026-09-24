@@ -7,6 +7,7 @@ import type {
 } from "@alpha-traders/contracts";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { resolveMobileVersionPolicy } from "@/lib/mobile-version-policy";
+import { networkAccessMessages } from "@/lib/network-access";
 
 export const MOBILE_RESPONSE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
@@ -25,6 +26,7 @@ const APP_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,49}$/;
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = {
+  ...networkAccessMessages,
   CARDLESS_DETAILS_REQUIRED: {
     ar: "أدخل رمز السحب ورقم الهوية أو تاريخ الميلاد المطلوب من البنك. إذا لم تظهر الخانة الثانية، افتح نفس الصفقة عبر موقع alphatraders.co.il.",
     en: "Enter the withdrawal code and the ID number or date of birth required by the bank. If the second field is missing, open the same trade at alphatraders.co.il.",
