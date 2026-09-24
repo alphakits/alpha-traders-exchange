@@ -938,7 +938,7 @@ export interface CommissionRecord {
   feePolicyVersion?: "buyer_seller_1pct_v1";
   /** Seller's own 1% marketplace fee in USDT. */
   sellerFeeAmount?: number;
-  /** Buyer's 1% fee collected by the seller with the trade payment. */
+  /** Buyer's 1% share due to Alpha through the seller; seller covers any collection shortfall. */
   buyerFeeCollectedAmount?: number;
   /** Total payable to Alpha. Legacy records contain seller-only commission here. */
   commissionAmount: number;

@@ -1,3 +1,4 @@
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
@@ -379,7 +380,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   function confirmStatus(status: MobileTradeStatus, message: string, safetyAcknowledged = false, destructive = false) {
     if (busyAction) return;
-    Alert.alert(t("actionConfirmation"), message, [
+    const feeNotice = query.data?.trade.side === "seller" && query.data.trade.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received", "completed"].includes(status)
+      ? `\n${sellerFeeResponsibilityNotice(locale)}\n${query.data.trade.currency} ${query.data.trade.fiatAmount}` : "";
+    Alert.alert(t("actionConfirmation"), message + feeNotice, [
       { text: t("cancel"), style: "cancel" },
       {
         text: t("confirm"),
@@ -437,7 +440,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   function confirmCashTradeCompletion() {
     if (busyAction) return;
-    const message = query.data?.trade.status === "usdt_sent" ? t("cashUsdtCompletionConfirmation") : locale === "ar"
+    const message = query.data?.trade.feePolicyVersion === "buyer_seller_1pct_v1"
+      ? `${locale === "ar" ? "أؤكد استلام الدفع وإرسال كامل USDT للمشتري. الإكمال نهائي." : "I confirm payment was received and the full USDT amount was sent to the buyer. Completion is final."} ${sellerFeeResponsibilityNotice(locale)}`
+      : query.data?.trade.status === "usdt_sent" ? t("cashUsdtCompletionConfirmation") : locale === "ar"
       ? "أؤكد استلام الدفعة وإرسال كامل USDT إلى محفظة المشتري الصحيحة. إكمال الصفقة يفتح التقييم ويسجل عمولة 1%. لا يلزم انتظار المشتري ولا يمكن إلغاء الصفقة بعدها."
       : "I confirm payment was received and the full USDT amount was sent to the correct buyer wallet. Completing opens feedback and records the 1% commission. No buyer wait is required and the trade cannot be cancelled afterward.";
     Alert.alert(t("sentUsdtComplete"), message, [
@@ -771,7 +776,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
         <View style={styles.summaryCard}>
           {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={{ color: "#34d399", marginBottom: 8 }}>{trade.side === "seller"
-            ? (isRTL ? "عمولتك كبائع 1% فقط. دفعة المشتري تشمل عمولته 1% لصالح Alpha؛ تحوّل الحصتين معًا بعد الإنهاء." : "Your seller fee is only 1%. The buyer payment includes their 1% fee for Alpha; forward both fees after completion.")
+            ? sellerFeeResponsibilityNotice(locale)
             : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />

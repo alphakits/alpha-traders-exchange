@@ -159,6 +159,16 @@ describe("automatic commission settlement through the scheduler and receiving-ac
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
   });
 
+  it("does not settle a new-policy 2% obligation when only the seller's 1% arrives", async () => {
+    Object.assign(currentCommission(), { source: "trade", feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5 });
+    await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" });
+    installDepositHistory("2.500001");
+    await runCron();
+    expect(currentCommission()).toMatchObject({ commissionAmount: 5, paymentStatus: "pending" });
+    expect(currentCommission().paidAt).toBeUndefined();
+    expect(await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" })).toMatchObject({ summary: { canCreateListing: false, pendingCommissionCount: 1 } });
+  });
+
   it("automatically settles both fee components once, only after the combined receipt is verified", async () => {
     Object.assign(currentCommission(), { source: "trade", feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5 });
     const before = await getSellerListingWorkspaceData({ sellerId: SELLER_ID, status: "all" });

@@ -4,7 +4,7 @@ Scope: PR #263, `feat/buyer-seller-1pct-fees`.
 
 ## Agreed behavior
 
-New trades after rollout: buyer pays 1% through the selected trade payment method to the seller. Seller pays their own 1%, and forwards both components to Alpha. Buyer receives the full agreed USDT amount. Both parties see the fee disclosure; seller and owner see separate components. This is payment detection, not an automatic withdrawal from customer accounts.
+New trades after rollout: buyer pays 1% through the selected trade payment method to the seller. Seller pays their own 1%, and owes both components (2%) to Alpha. If the seller accepts a buyer payment that omits the buyer share, the seller covers that shortfall. Acceptance, receipt confirmation, completion, and payment screens disclose this responsibility. Buyer receives the full agreed USDT amount. Both parties see the fee disclosure; seller and owner see separate components. This is payment detection, not an automatic withdrawal from customer accounts.
 
 A request's `buyer_seller_1pct_v1` policy is frozen when it is created after the buyer reviews the disclosure. Existing requests, including still-open trades, retain seller-only fees. Existing paid/pending commission records are not migrated or retrospectively increased.
 
@@ -25,12 +25,12 @@ A request's `buyer_seller_1pct_v1` policy is frozen when it is created after the
 - Focused fee/trade/receipt/API suite: 10 files, 223 tests passed.
 - Native TypeScript check passed.
 - ESLint passed.
-- Production Next build passed during this work; final-tree build is recorded in the PR follow-up.
+- Production Next build passed for d7d97f1. The subsequent seller-shortfall clarification passed web/native TypeScript, ESLint, and 267 focused payment/trade/UI tests.
 - Tests include legacy completions, all three payment methods, exact ATM totals, new-policy request creation, rejecting an underfunded ATM request, simultaneous completion, and combined-fee receipt verification without double settlement.
 
 ## Release gates
 
-Keep this change in draft until the exact preview commit passes the hosted checks and browser walkthrough. The native build must be coordinated with the API acknowledgment requirement: publishing the server alone would require installed older native clients to update before starting another trade. Do not silently start charging old clients that did not display the fee.
+Keep this change in draft until the exact preview commit passes the hosted checks and browser walkthrough. GitHub run 36073119742 did not start its quality job because the account is locked due to a billing issue; this was confirmed in the public Actions annotation. Its mobile/desktop browser job was skipped. Re-running without resolving billing will not repair this external blocker. The native build must be coordinated with the API acknowledgment requirement: publishing the server alone would require installed older native clients to update before starting another trade. Do not silently start charging old clients that did not display the fee.
 
 Production receipt discovery observed at 2026-09-24 23:25 UTC: TRC20 and Binance history scans complete; Binance covers an unsupported BEP20 explorer plan. No new payment was verified in the observed runs. A base-amount-only unmatched deposit was reported. Do not mark it paid, change matching safeguards, or request a second payment without reviewing its original payment record.
 

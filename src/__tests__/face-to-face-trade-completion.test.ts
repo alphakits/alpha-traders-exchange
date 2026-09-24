@@ -18,6 +18,7 @@ import {
   forceCloseTradeByOwner,
   unlockTradeReviewByAdmin,
   getTradeRoomData,
+  getSellerCommissionStatus,
   invalidateAlphaExchangeStoreCache,
   submitBuyerTradeReview,
   submitSellerBuyerReview,
@@ -196,6 +197,12 @@ describe("guided cash-trade completion", () => {
     expect(currentSnapshot().commissionRecords.filter(record => record.purchaseRequestId === requestId)).toEqual([
       expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 2.5, buyerFeeCollectedAmount: 2.5, commissionAmount: 5, paymentStatus: "pending" }),
     ]);
+    // Failure to collect the buyer share must not reduce the seller's debt.
+    const commission = currentSnapshot().commissionRecords[0];
+    commission.buyerFeeCollectedAmount = 0;
+    commission.commissionAmount = 2.5;
+    invalidateAlphaExchangeStoreCache();
+    expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: 5, status: "pending" });
   });
 
   it.each([

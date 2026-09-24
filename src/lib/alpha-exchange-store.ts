@@ -1024,11 +1024,11 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     : undefined;
   if (request) {
     if (isQaCommissionModeEnabled()) return 1;
-    // New two-sided trade records store the total payable to Alpha (seller 1%
-    // plus the buyer 1% already collected by the seller). Legacy records must
-    // remain seller-only so an old completed trade is never retroactively charged.
-    if (record.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION && typeof record.buyerFeeCollectedAmount === "number") {
-      return roundUsdt(record.commissionAmount);
+    // The seller owes both shares on new-policy trades even if they failed to
+    // collect the buyer share. Never reduce the debt from a missing/zero split.
+    if (request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION || record.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) {
+      const combined = calculateSellerTotalAlphaDue(request.usdtAmount);
+      if (combined !== null) return combined;
     }
     const calculated = calculateSellerCommissionAmount(request.usdtAmount);
     if (calculated !== null) return calculated;
@@ -14346,7 +14346,7 @@ async function updatePurchaseRequestStatusAttempt(
       appendSystemTradeMessage(db, next, {
         senderUserId: input.actorUserId,
         senderRole: actorRole,
-        message: hasBuyerFee ? `Total due to Alpha is ${commission.commissionAmount.toFixed(2)} USDT. Your own seller fee is ${sellerFeeAmount.toFixed(2)} USDT (1%); ${buyerFeeCollectedAmount.toFixed(2)} USDT (1%) is included in the buyer payment you confirmed receiving, for onward payment to Alpha.` : `Your seller fee (1%) is ${sellerFeeAmount.toFixed(2)} USDT.`,
+        message: hasBuyerFee ? `Total due to Alpha is ${commission.commissionAmount.toFixed(2)} USDT. Your own seller fee is ${sellerFeeAmount.toFixed(2)} USDT (1%); ${buyerFeeCollectedAmount.toFixed(2)} USDT (1%) is the buyer share included in the agreed payment. You owe the full 2% even if you failed to collect the buyer share; any shortfall is your responsibility.` : `Your seller fee (1%) is ${sellerFeeAmount.toFixed(2)} USDT.`,
         createdAt: now,
       });
       await appendAuditLog(db, {
@@ -14420,7 +14420,7 @@ async function updatePurchaseRequestStatusAttempt(
         category: "trade",
         title: "Commission payment required",
         message: commission.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION
-          ? `Your seller fee (1%): ${commission.sellerFeeAmount?.toFixed(2)} USDT. Buyer fee collected for Alpha (1%): ${commission.buyerFeeCollectedAmount?.toFixed(2)} USDT. Forward both fees: ${commission.commissionAmount.toFixed(2)} USDT base amount. Open payment instructions for the exact transfer amount.`
+          ? `Your seller fee (1%): ${commission.sellerFeeAmount?.toFixed(2)} USDT. Buyer share (1%): ${commission.buyerFeeCollectedAmount?.toFixed(2)} USDT. You must cover any uncollected buyer share. Pay both fees: ${commission.commissionAmount.toFixed(2)} USDT base amount. Open payment instructions for the exact transfer amount.`
           : `Pay ${commission.commissionAmount.toFixed(2)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
         relatedTradeId: next.tradeId,
         relatedRequestId: request.id,

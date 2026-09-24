@@ -1,4 +1,5 @@
 "use client";
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
@@ -4733,6 +4734,8 @@ export function UsdtExchangePage({
     const actionKey = `${requestId}:${nextStatus}`;
     if (requestActionKey) return;
     const targetRequest = myRequests.find((request) => request.id === requestId);
+    if (targetRequest?.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(nextStatus)
+      && !window.confirm(`${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}\n${targetRequest.currency} ${targetRequest.fiatAmount}`)) return;
     const isPriceOffer = targetRequest?.priceMode === "buyer_offer";
     setRequestActionKey(actionKey);
     const safetyAcknowledged = options?.safetyAcknowledged === true;
