@@ -55,7 +55,7 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
         : !canCorrect && !counter ? <p className="text-xs text-[#D1D5DB]">{isAr ? "اقبل الطلب أولاً، ثم يمكنك اقتراح تصحيح المبلغ للمشتري." : "Accept the request first, then propose an amount correction for the buyer."}</p> : null}
     </>}
     {pending ? <>
-      <p dir="ltr" className="break-words">{currencyText(proposal.usdtAmount)} <span className="currency-usdt">USDT</span> · {currencyText(request.currency)} {currencyText(proposal.fiatAmount)} · {currencyText(proposal.pricePerUsdt)} / <span className="currency-usdt">USDT</span></p>
+      <p dir="ltr" className="break-words">{currencyText(`${proposal.usdtAmount} USDT · ${request.currency} ${proposal.fiatAmount} · ${proposal.pricePerUsdt} ${request.currency} / USDT`)}</p>
       <p className="text-sm">{isAr ? "راجع الكمية والسعر والإجمالي بدقة. لا تتغير الشروط إلا بعد موافقة المشتري." : "Review the exact amount, price and total. Terms change only after the buyer accepts."}</p>
       <div className="flex flex-wrap gap-2">
         {seller ? <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</Button> : <>
@@ -66,7 +66,7 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
     </> : editing && seller && (counter || canCorrect) ? <div id="trade-amount-editor" className="space-y-3">
       {!counter && amountEditor ? amountEditor : <>
       <label className="block text-sm">{currencyText(counter ? (isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount"))}
-        <Input dir="ltr" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled || busy} placeholder={counter ? request.pricePerUsdt : request.usdtAmount} className="mt-2 text-left" />
+        <Input dir="ltr" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled || busy} placeholder={counter ? request.pricePerUsdt : request.usdtAmount} className="currency-money mt-2 text-left" />
       </label>
       <p className="text-sm">{currencyText(isAr ? "سيصل الاقتراح للمشتري للموافقة. لا ترسل المال أو USDT أثناء انتظار الرد." : "The buyer will receive this proposal. Wait for their response before sending money or USDT.")}</p>
       {counter && face && !request.sellerSafetyAcknowledged ? <label className="flex gap-2 text-sm"><input type="checkbox" checked={safety} onChange={(event) => setSafety(event.target.checked)} />{currencyText(isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT.")}</label> : null}

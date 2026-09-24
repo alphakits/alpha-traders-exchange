@@ -492,7 +492,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   {profile.amountToNextRankUsdt !== undefined ? (
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "المتبقي إلى الترقية" : "Remaining volume"}</p>
-                    <p className="mt-1 font-semibold text-white"><bdi dir="ltr">{profile.amountToNextRankUsdt.toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></bdi></p>
+                    <p className="mt-1 font-semibold text-white"><bdi dir="ltr">{currencyText(`${profile.amountToNextRankUsdt.toLocaleString("en-IL")} USDT`)}</bdi></p>
                   </div>
                   ) : null}
                 </div>
@@ -514,7 +514,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</p>
-                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? <bdi dir="ltr">{availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} <span className="currency-usdt">USDT</span></bdi> : (isAr ? "غير متاح" : "Not available")}</p>
+                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? <bdi dir="ltr">{currencyText(`${availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT`)}</bdi> : (isAr ? "غير متاح" : "Not available")}</p>
                   </div>
                 </div>
                 <OwnerPrivateContact contact={seller.contact} locale={locale} />
@@ -589,7 +589,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                   </div>
                   <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{currencyText(review.comment)}</bdi></p>
                   <div className={`mt-3 flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: <bdi dir="ltr">{currencyText(review.tradeAmount)} <span className="currency-usdt">USDT</span></bdi></span>
+                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: <bdi dir="ltr">{currencyText(`${review.tradeAmount} USDT`)}</bdi></span>
                     <span>{isAr ? "التاريخ" : "Trade date"}: {new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</span>
                     <bdi dir="ltr">{currencyText(review.network)}</bdi>
                   </div>
@@ -609,8 +609,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                 <div key={listing.id} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div>
-                      <p className="text-lg font-semibold text-white"><bdi dir="ltr">{currencyText(listing.price)} ILS / <span className="currency-usdt">USDT</span></bdi></p>
-                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{currencyText(listing.availableAmount)} <span className="currency-usdt">USDT</span></bdi></p>
+                      <p className="text-lg font-semibold text-white"><bdi dir="ltr">{currencyText(`${listing.price} ILS / USDT`)}</bdi></p>
+                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>
                     </div>
                     <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]"><bdi dir="ltr">{currencyText(listing.network)}</bdi></span>
                   </div>

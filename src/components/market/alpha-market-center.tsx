@@ -134,7 +134,7 @@ export function AlphaMarketCenterView({
             </div>
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]"><span className="currency-usdt">USDT</span> / ILS</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText("USDT / ILS")}</p>
                 <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{currencyText(formatPrice(heroPair.price, heroPair.key))}</bdi></p>
                 <div className={`mt-3 inline-flex items-center gap-1.5 text-sm ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                   <ArrowUpRight className={`h-4 w-4 ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "" : "rotate-90"}`} />

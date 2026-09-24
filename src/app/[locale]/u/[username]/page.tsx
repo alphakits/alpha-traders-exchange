@@ -372,7 +372,7 @@ export default async function PublicUserProfilePage({
                   </div>
                   <p className="mt-2 text-xs text-[#E5E7EB]">
                     {sellerIdentity.nextRank
-                      ? <><bdi dir="ltr">{sellerIdentity.amountToNextRankUsdt.toLocaleString("en-IL")} <span className="currency-usdt">USDT</span></bdi> {isAr ? "للمستوى التالي" : "to the next tier"}</>
+                      ? <><bdi dir="ltr">{currencyText(`${sellerIdentity.amountToNextRankUsdt.toLocaleString("en-IL")} USDT`)}</bdi> {isAr ? "للمستوى التالي" : "to the next tier"}</>
                       : isAr
                         ? "تم الوصول لأعلى مستوى."
                         : "Highest tier achieved."}

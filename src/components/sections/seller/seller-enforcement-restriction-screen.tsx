@@ -1,3 +1,4 @@
+import { currencyText } from "@/components/ui/currency-text";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { buttonVariants } from "@/components/ui/button";
@@ -47,7 +48,7 @@ export function SellerEnforcementRestrictionScreen({
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                 <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "رسوم الاسترداد" : "Marketplace Recovery Fee"}</p>
-                <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{activeRecord.feeAmount.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {activeRecord.feeCurrency}</p>
+                <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{currencyText(`${activeRecord.feeAmount.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${activeRecord.feeCurrency}`)}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                 <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "موعد الاستحقاق" : "Due Date"}</p>

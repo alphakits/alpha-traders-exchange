@@ -3,6 +3,7 @@
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
 
+import { formatMoneyNumber } from "@/lib/accent-text";
 import { currencyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
@@ -2946,12 +2947,12 @@ function TradeRoomPageSession({
     <div className="space-y-2 text-sm">
       <p>{currencyText(isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${adjustmentPrice} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${adjustmentPrice} per USDT`)}</p>
       <label className="block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
-      {recordedCashAmount ? <Input id="adjust-withdrawal-ils" dir="ltr" readOnly value={recordedCashAmount} /> : <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy || room.hasOpenDispute} className="min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
+      {recordedCashAmount ? <Input className="currency-money" id="adjust-withdrawal-ils" dir="ltr" readOnly value={recordedCashAmount} /> : <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy || room.hasOpenDispute} className="currency-money min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
         <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
-        {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>₪{option.ilsAmount} · {option.usdtAmount} USDT</option>)}
+        {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
       </select>}
       <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount.")}</p>
-      <p className="font-semibold text-[#FDE68A]">{currencyText(calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—")} <span className="currency-usdt">USDT</span></p>
+      <p className="font-semibold text-[#FDE68A]">{currencyText(`${calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice) ?? "—"} USDT`)}</p>
       <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{currencyText(isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount")}</Button>
     </div>
   ) : null;
@@ -2974,7 +2975,7 @@ function TradeRoomPageSession({
                 <p>{isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{currencyText(counterpartName)}</span></p>
                 <p>{isAr ? "حسابك" : "Your account"}: {currencyText(publicAccountName(actor))}</p>
                 <p>{isAr ? "طريقة الدفع" : "Payment Method"}: {currencyText(requestPaymentMethodLabel)}</p>
-                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / <span className="currency-usdt">USDT</span></bdi></p>
+                <p>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}: <bdi dir="ltr">{currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)} / <span className="currency-usdt">USDT</span></bdi></p>
                 {request.bankName ? <p>{isAr ? "البنوك المعتمدة" : "Supported Banks"}: {currencyText(requestBankNamesLabel)}</p> : null}
                 {request.closedAt ? <p className="text-red-300">{isAr ? "سبب إغلاق الصفقة" : "Close reason"}: {currencyText(request.closeReason ?? (isAr ? "غير محدد" : "Not specified"))}</p> : null}
                 <UserSafetyActions context="trade" locale={locale} targetUserId={isSeller ? request.buyerId : request.sellerId} viewerSignedIn />
@@ -2991,7 +2992,7 @@ function TradeRoomPageSession({
             {!showSuccessScreen ? <Button type="button" variant="secondary" size="sm" onClick={() => chatSectionRef.current && revealTradeRoomDeepLinkTarget(chatSectionRef.current)}><MessageCircle className="h-4 w-4" />{isAr ? "الدردشة" : "Chat"}</Button> : null}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
-            <p><bdi dir="ltr" className="font-semibold text-white">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi> · <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {currencyText(request.currency)}</bdi></p>
+            <p><bdi dir="ltr" className="font-semibold text-white">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</bdi> · <bdi dir="ltr">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</bdi></p>
             <p className="text-xs text-[#9CA3AF]">{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
           </div>
           <div className="flex items-center gap-2">
@@ -3725,7 +3726,7 @@ function TradeRoomPageSession({
                     <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {currencyText(tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{currencyText(request.sellerId === actor.id ? room?.counterpart.sellerName || publicAccountName(actor) : counterpartName)}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{currencyText(request.buyerId === actor.id ? room?.counterpart.buyerName || publicAccountName(actor) : counterpartName)}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} <span className="currency-usdt">USDT</span></bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>
                   </div>

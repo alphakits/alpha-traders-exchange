@@ -1,4 +1,6 @@
 "use client";
+
+import { currencyText } from "@/components/ui/currency-text";
 import { UserPresence } from "@/components/ui/user-presence";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -135,8 +137,8 @@ export function OwnerPendingListingsDashboard({ locale = "en" }: { locale?: "ar"
                     <p>{t("Seller Trust Score:", "درجة ثقة البائع:")} <span className="text-white">{Math.round(listing.sellerReputation?.trustScore ?? 0)}%</span></p>
                     <p>{t("Seller Level:", "رتبة البائع:")} <span className="text-white capitalize">{sellerLevelLabel(listing.sellerReputation?.level ?? "bronze")}</span></p>
                     <p>{t("Lifetime Completed Trades:", "إجمالي الصفقات المكتملة:")} <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString(isArabic ? "ar-IL" : "en-IL")}</span></p>
-                    <p>{t("Amount:", "الكمية:")} <bdi dir="ltr" className="text-white">{listing.availableAmount}</bdi></p>
-                    <p>{t("Price:", "السعر:")} <bdi dir="ltr" className="text-white">{listing.price}</bdi></p>
+                    <p>{t("Amount:", "الكمية:")} <bdi dir="ltr" className="text-white">{currencyText(`${listing.availableAmount} USDT`)}</bdi></p>
+                    <p>{t("Price:", "السعر:")} <bdi dir="ltr" className="text-white">{currencyText(`${listing.price} ${listing.currency}`)}</bdi></p>
                     <p>{t("Currency:", "العملة:")} <bdi dir="ltr" className="text-white">{listing.currency || "ILS"}</bdi></p>
                     <p>{t("Network:", "الشبكة:")} <bdi dir="ltr" className="text-white">{listing.network}</bdi></p>
                     <p>{t("Payment Methods:", "طرق الدفع:")} <bdi dir="auto" className="text-white">{listingPaymentMethodsLabel(listing)}</bdi></p>
