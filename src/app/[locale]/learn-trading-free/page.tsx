@@ -45,6 +45,15 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <h2 className="text-xl font-semibold">{isAr?"مجاني لا يعني وعودًا بالربح":"Free does not mean promises of profit"}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"الهدف هو التعليم المنظم. التداول ينطوي على مخاطر ولا توجد دورة تستطيع ضمان الأرباح. ركّز على التعلم وإدارة المخاطر والتطبيق المنضبط." : "The goal is structured education. Trading involves risk and no course can guarantee profits. Focus on learning, risk management and disciplined practice."}</p>
       </div>
+      <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
+        <h2 className="text-xl font-semibold">{isAr ? "كيف تبدأ؟" : "How to get started"}</h2>
+        <ol className="mt-4 space-y-3 text-sm leading-7 text-[#D1D5DB]">
+          <li>{isAr ? "1. استكشف المراحل والمواضيع في هذه الصفحة." : "1. Review the stages and topics on this page."}</li>
+          <li>{isAr ? "2. أنشئ حسابًا باستخدام بريدك الإلكتروني أو سجّل الدخول." : "2. Create an account with your email or sign in."}</li>
+          <li>{isAr ? "3. أكد بريدك الإلكتروني للدخول إلى الدروس وحفظ تقدمك." : "3. Verify your email to access lessons and save progress."}</li>
+          <li>{isAr ? "4. تابع التعلم بالترتيب وركز على إدارة المخاطر قبل التطبيق." : "4. Follow the learning path in order and prioritize risk management before execution."}</li>
+        </ol>
+      </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة" : "Frequently asked questions"}</h2>
         <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>

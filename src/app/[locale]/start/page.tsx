@@ -51,6 +51,27 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
           <Link href="/buy-usdt-israel" className={buttonVariants({ variant: "secondary", className: "mt-5" })}>{isAr ? "دليل USDT / ILS" : "USDT / ILS Guide"}</Link>
         </div>
       </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        {[
+          {
+            title: isAr ? "تعليم واضح قبل التطبيق" : "Education before execution",
+            text: isAr ? "ابدأ بالمفاهيم وإدارة المخاطر والانضباط قبل الانتقال إلى أي تطبيق عملي." : "Start with concepts, risk management and discipline before moving into practical execution.",
+          },
+          {
+            title: isAr ? "سوق P2P بمراحل واضحة" : "Structured P2P workflow",
+            text: isAr ? "استكشف كيف تعمل العروض والبائعون المعتمدون وغرفة التداول قبل فتح أي طلب." : "Understand listings, approved sellers and the Trade Room flow before opening a request.",
+          },
+          {
+            title: isAr ? "الوصول حسب الحساب" : "Account-based access",
+            text: isAr ? "المحتوى العام قابل للاكتشاف، بينما الميزات الفعلية تبقى خلف تسجيل الدخول والتحقق والصلاحيات." : "Public information is discoverable while actual features remain behind sign-in, verification and permissions.",
+          },
+        ].map((item) => (
+          <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5">
+            <h2 className="font-semibold text-white">{item.title}</h2>
+            <p className="mt-2 text-sm leading-7 text-[#D1D5DB]">{item.text}</p>
+          </div>
+        ))}
+      </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة البداية" : "Getting started FAQ"}</h2>
         <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
