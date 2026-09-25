@@ -1,6 +1,7 @@
 import { Link } from "@/i18n/navigation";
 import { buildPageMetadata, buildCourseSchema, buildFaqSchema, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
+import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -27,9 +28,18 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
     { question: "Does the course guarantee trading profits?", answer: "No. The content is educational only. Trading involves risk and profits are never guaranteed." },
   ];
   const faqSchema = buildFaqSchema({ locale: isAr ? "ar" : "en", path: "/learn-trading-free", faqs });
+  const breadcrumbSchema = buildBreadcrumbSchema({
+    locale: isAr ? "ar" : "en",
+    items: [
+      { name: isAr ? "الرئيسية" : "Home", path: "" },
+      { name: isAr ? "ابدأ" : "Start", path: "/start" },
+      { name: isAr ? "تعلم التداول مجانًا" : "Learn Trading for Free", path: "/learn-trading-free" },
+    ],
+  });
   return <section className="section-container page-shell">
     <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(schema)}} />
     <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(faqSchema)}} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(breadcrumbSchema)}} />
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="space-y-4">
         <p className="section-label">{isAr?"Alpha Traders Academy · مجاني":"Alpha Traders Academy · Free"}</p>
