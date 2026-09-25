@@ -43,6 +43,8 @@ Useful public discovery pages:
 - Free trading course: https://www.alphatraders.co.il/en/learn-trading-free
 - Arabic free trading course: https://www.alphatraders.co.il/ar/learn-trading-free
 - Buy/sell USDT in Israel: https://www.alphatraders.co.il/en/buy-usdt-israel
+- P2P USDT Israel: https://www.alphatraders.co.il/en/p2p-usdt-israel
+- USDT/ILS: https://www.alphatraders.co.il/en/usdt-ils
 - Arabic USDT/ILS guide: https://www.alphatraders.co.il/ar/buy-usdt-israel
 
 ## Authoritative pages
