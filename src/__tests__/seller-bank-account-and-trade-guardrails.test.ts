@@ -689,7 +689,8 @@ describe("seller bank accounts and trade guardrails", () => {
       actorUserId: BUYER_ID,
       actorRole: "buyer",
       nextStatus: "cancelled",
-    })).resolves.toMatchObject({ request: { status: "cancelled" } });
+    })).rejects.toMatchObject({ code: "buyer-cancellation-locked" });
+    await expect(updatePurchaseRequestStatus({ requestId: "req-cancel-after-bank-details", actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "cancelled" })).resolves.toMatchObject({ request: { status: "cancelled" } });
 
     currentSnapshot().purchaseRequests.push({
       id: "req-cancel-evidence-accepted",

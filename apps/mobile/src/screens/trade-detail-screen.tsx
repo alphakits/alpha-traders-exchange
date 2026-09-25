@@ -927,7 +927,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {trade.hasBuyerEvidence ? t("receiptUploaded") : t("uploadPaymentReceipt")}
             </GoldButton>
           ) : null}
-          {trade.side === "seller" && isCardlessAtm && ["payment_sent", "funds_received"].includes(trade.status) ? <GoldButton disabled={actionsDisabled} loading={busyAction === "adjust-amount"} onPress={() => void recalculateCardlessAmount()}>{locale === "ar" ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</GoldButton> : null}
+          {trade.side === "seller" && isCardlessAtm && trade.status === "accepted" && trade.actions.canCancel ? <GoldButton disabled={actionsDisabled} loading={busyAction === "adjust-amount"} onPress={() => void recalculateCardlessAmount()}>{locale === "ar" ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</GoldButton> : null}
           {actions.canConfirmFunds ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", cashTradeKind ? (isCardlessAtm ? t("atmCashReceivedConfirmation") : t("cashReceivedConfirmation")) : t("fundsConfirmation"))}>
               {cashTradeKind ? (isCardlessAtm ? t("collectedAtmCash") : t("receivedCash")) : t("confirmFunds")}

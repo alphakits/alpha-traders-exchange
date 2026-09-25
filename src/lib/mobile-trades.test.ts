@@ -24,12 +24,12 @@ describe("mobile trade actions", () => {
     expect(toMobileTradeActions(request, "buyer-1").canCompleteTrade).toBe(false);
     expect(toMobileTradeActions(request, "outsider").canCompleteTrade).toBe(false);
   });
-  it("keeps cancellation available after bank details are viewed but not after payment starts", () => {
+  it("locks buyer cancellation after bank details are viewed and after payment starts", () => {
     expect(toMobileTradeActions({
       ...acceptedBankTrade,
       sensitivePaymentSharedAt: "2026-09-19T10:00:00.000Z",
       sensitivePaymentKind: "bank_details",
-    }, "buyer-1").canCancel).toBe(true);
+    }, "buyer-1").canCancel).toBe(false);
 
     expect(toMobileTradeActions({
       ...acceptedBankTrade,

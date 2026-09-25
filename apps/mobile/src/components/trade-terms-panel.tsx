@@ -15,8 +15,9 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
   const counter = trade.status === "pending" && trade.priceMode === "buyer_offer";
   const proposal = trade.termsProposal;
   const pending = proposal?.status === "pending";
+  const paymentLocked = !["pending", "accepted"].includes(trade.status) || (seller && !trade.actions.canCancel);
   const face = trade.paymentMethod === "Face-to-Face (Meet in Person)";
-  if ((!seller || (!counter && !["accepted", "payment_sent", "funds_received"].includes(trade.status))) && !pending) return null;
+  if ((!seller || (!counter && (trade.status !== "accepted" || paymentLocked))) && !pending) return null;
   async function submit(action: string) {
     if (disabled || inFlight.current) return;
     inFlight.current = true;
@@ -28,7 +29,7 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
       <Text style={{ color: "white", writingDirection: "ltr" }}>{proposal.usdtAmount} USDT · {trade.currency} {proposal.fiatAmount} · {proposal.pricePerUsdt} / USDT</Text>
       <Text style={{ color: "white" }}>{isAr ? "راجع الشروط الدقيقة قبل الموافقة." : "Review the exact terms before accepting."}</Text>
       {seller ? <GoldButton disabled={disabled} onPress={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</GoldButton> : <>
-        <GoldButton disabled={disabled} onPress={() => void submit(proposal.kind === "counter_offer" ? "accept_counter_offer" : "accept_amount")}>{isAr ? "موافقة على الشروط" : "Accept these terms"}</GoldButton>
+        <GoldButton disabled={disabled || paymentLocked} onPress={() => void submit(proposal.kind === "counter_offer" ? "accept_counter_offer" : "accept_amount")}>{isAr ? "موافقة على الشروط" : "Accept these terms"}</GoldButton>
         <GoldButton disabled={disabled} variant="outline" onPress={() => void submit("decline_terms")}>{isAr ? "رفض الاقتراح" : "Decline proposal"}</GoldButton>
       </>}
     </> : <>

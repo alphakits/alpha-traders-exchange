@@ -15,6 +15,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { publishTradeHeaderActivity, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
+import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 import { TradeTermsPanel } from "./trade-terms-panel";
 import { TradeChatMessageLabel, TradeChatMessageStatus } from "./trade-chat-message-label";
 import { tradeChatPublicId } from "@/lib/trade-chat-presentation";
@@ -2025,8 +2026,8 @@ function TradeRoomPageSession({
   const handleRevealBankDetails = useCallback(async () => {
     if (!bankDetailsRequestId || bankDetailsBusy) return;
     const confirmed = window.confirm(isAr
-      ? "اعرض تفاصيل الحساب فقط عندما تكون مستعداً للتحقق منها. عرضها لا يؤكد الدفع؛ يبقى الإلغاء متاحاً حتى ترسل الدفعة أو إثباتها. هل تريد المتابعة؟"
-      : "Reveal the account details only when you are ready to verify them. Viewing them does not confirm payment; cancellation remains available until payment or evidence is submitted. Continue?");
+      ? "بعد إظهار تفاصيل البنك لن يمكنك إلغاء الصفقة. يمكن للبائع إلغاؤها فقط ما دام الدفع لم يبدأ. هل تريد المتابعة؟"
+      : "Revealing bank details locks your cancellation option. Only the seller can cancel while payment has not started. Continue?");
     if (!confirmed) return;
     setBankDetailsBusy(true);
     setBankDetailsError(null);
@@ -2986,7 +2987,7 @@ function TradeRoomPageSession({
   const adjustmentCashOptions = isCardlessAtmTrade && room.listing
     ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)), room.request.feePolicyVersion === "buyer_seller_1pct_v1")
     : [];
-  const cardlessAmountEditor = isSeller && isCardlessAtmTrade && ["payment_sent", "funds_received"].includes(request.status) ? (
+  const cardlessAmountEditor = isSeller && isCardlessAtmTrade && request.status === "accepted" && !hasIrreversibleRequestProgress(request) ? (
     <div className="space-y-2 text-sm">
       <p>{currencyText(isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${adjustmentPrice} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${adjustmentPrice} per USDT`)}</p>
       <label className="block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
@@ -3301,32 +3302,6 @@ function TradeRoomPageSession({
                 ) : !hasPendingTradeTerms ? (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
                 ) : null}
-                {(canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)) ? (
-                  <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
-                    <Button type="button" variant="secondary" className="min-h-11 w-full"
-                      disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || room.hasOpenDispute || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
-                      aria-describedby="trade-cancel-help"
-                      onClick={() => void (isSeller && request.status === "pending" ? handleDeclineTrade() : handleCancelTrade())}>
-                      {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
-                    </Button>
-                    <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
-                      {currencyText(room.hasOpenDispute
-                        ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
-                        : request.status === "pending"
-                        ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
-                        : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
-                          ? (isAr ? "يمكن لأي طرف الإلغاء قبل إرسال أو استلام المال أو النقد أو USDT، وقبل مشاركة رمز السحب أو إثبات الدفع." : "Either participant can cancel before money, cash or USDT is sent or received, and before withdrawal details or payment evidence are shared.")
-                          : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem."))}
-                    </p>
-                  </div>
-                ) : null}
-                {!hasPendingTradeTerms ? tradeTerms : null}
-
-                {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" && !hasPendingTradeTerms ? (
-                  <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
-                    verificationKind={cardlessVerificationKind} verificationValue={cardlessVerificationValue}
-                    onCodeChange={setCardlessCode} onKindChange={setCardlessVerificationKind} onValueChange={setCardlessVerificationValue} />
-                ) : null}
                 {primaryAction?.mode === "upload" ? (
                   <div className="space-y-2" data-testid="trade-evidence-picker">
                     <Input ref={primaryAction.uploadSide === "buyer" ? buyerEvidenceInputRef : sellerEvidenceInputRef} type="file" tabIndex={-1} accept=".png,.jpg,.jpeg,.webp,.pdf" className="sr-only"
@@ -3338,12 +3313,6 @@ function TradeRoomPageSession({
                     </Button>
                   </div>
                 ) : null}
-                {actionFeedback}
-                {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="rounded-xl border border-emerald-500/30 p-3 text-sm">
-                  <p>{isSeller
-                    ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en")
-                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount.")}</p>
-                </div> : null}
                 {canRevealBankDetails ? (
                   <div className="important-payment-panel rounded-2xl border p-4">
                     <p className="flex items-center gap-2 text-sm font-semibold text-red-100"><AttentionSiren key={bankDetails ? "revealed" : "locked"} />{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>
@@ -3360,7 +3329,7 @@ function TradeRoomPageSession({
                       </div>
                     ) : (
                       <div className="mt-2 space-y-3 text-sm text-[#D1D5DB]">
-                        <p>{isAr ? "اعرض التفاصيل للتحقق من الحساب. يبقى الإلغاء متاحاً حتى ترسل الدفعة أو إثباتها." : "Reveal the details to verify the account. Cancellation remains available until you submit payment or payment evidence."}</p>
+                        <p>{isAr ? "بعد إظهار التفاصيل لا يمكنك الإلغاء. يمكن للبائع الإلغاء قبل بدء الدفع فقط." : "After revealing bank details, you cannot cancel. Only the seller can cancel before payment starts."}</p>
                         <Button type="button" onClick={() => void handleRevealBankDetails()}>
                           {isAr ? "إظهار تفاصيل البنك" : "Reveal Bank Details"}
                         </Button>
@@ -3375,6 +3344,38 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
+                {(canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)) ? (
+                  <div data-testid="trade-cancel-action" className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <Button type="button" variant="secondary" className="min-h-11 w-full"
+                      disabled={(!canBuyerCancelTrade(request, actor.id) && !canSellerCancelTrade(request, actor.id)) || room.hasOpenDispute || cancelBusy || actionBusy || Boolean(evidenceBusy) || adjustingAmount}
+                      aria-describedby="trade-cancel-help"
+                      onClick={() => void (isSeller && request.status === "pending" ? handleDeclineTrade() : handleCancelTrade())}>
+                      {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
+                    </Button>
+                    <p id="trade-cancel-help" className="text-xs text-[#9CA3AF]">
+                      {currencyText(room.hasOpenDispute
+                        ? (isAr ? "الإلغاء مقفل أثناء مراجعة النزاع." : "Cancellation is locked while the dispute is under review.")
+                        : request.status === "pending"
+                        ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
+                        : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
+                          ? (isAr ? "الإلغاء متاح قبل بدء الدفع. بعد إظهار تفاصيل البنك يمكن للبائع فقط إلغاء الصفقة غير المدفوعة." : "Cancel only before payment starts. After bank details are revealed, only the seller can cancel the unpaid trade.")
+                          : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem."))}
+                    </p>
+                  </div>
+                ) : null}
+                {!hasPendingTradeTerms ? tradeTerms : null}
+
+                {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" && !hasPendingTradeTerms ? (
+                  <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
+                    verificationKind={cardlessVerificationKind} verificationValue={cardlessVerificationValue}
+                    onCodeChange={setCardlessCode} onKindChange={setCardlessVerificationKind} onValueChange={setCardlessVerificationValue} />
+                ) : null}
+                {actionFeedback}
+                {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="rounded-xl border border-emerald-500/30 p-3 text-sm">
+                  <p>{isSeller
+                    ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en")
+                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount.")}</p>
+                </div> : null}
                 {sellerWalletAddress ? (
                   <div className="rounded-2xl border-2 border-[#C9A227]/65 bg-gradient-to-br from-[#C9A227]/20 via-black/70 to-[#6CAEFF]/10 p-4 shadow-[0_0_28px_rgba(201,162,39,0.18)]">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
