@@ -123,21 +123,6 @@ type AdminPayload = {
     activeCases: Array<MarketplaceEnforcementRecord & { sellerName: string; sellerEmail: string }>;
     recentActivity: Array<AdminEnforcementAuditEntry & { sellerName: string; actorName: string }>;
   };
-  presenceAnalytics?: {
-    onlineNow: number;
-    activeToday: number;
-    activeLast7Days: number;
-    activeLast30Days: number;
-    onlineUserIds: string[];
-    activeTodayUserIds: string[];
-  };
-  trafficAnalytics?: {
-    visitorsToday: number; sessionsToday: number; pageViewsToday: number;
-    webToday: number; iosToday: number; androidToday: number;
-    mobileToday: number; desktopToday: number;
-    topPages: Array<{ path: string; views: number }>;
-    sources: Array<{ source: string; sessions: number }>;
-  };
   complianceSettings?: {
     recoveryWallet: {
       network: SupportedNetwork;
@@ -3681,13 +3666,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                           {[
-                            { label: t("Online Now", "متصلون الآن"), value: data.presenceAnalytics?.onlineNow ?? 0 },
-                            { label: t("Visitors Today", "زوار اليوم"), value: data.trafficAnalytics?.visitorsToday ?? 0 },
-                            { label: t("Sessions Today", "جلسات اليوم"), value: data.trafficAnalytics?.sessionsToday ?? 0 },
-                            { label: t("Page Views Today", "مشاهدات الصفحات اليوم"), value: data.trafficAnalytics?.pageViewsToday ?? 0 },
-                            { label: t("Active Users Today", "المستخدمون النشطون اليوم"), value: data.presenceAnalytics?.activeToday ?? 0 },
-                            { label: t("Active Last 7 Days", "نشطون خلال 7 أيام"), value: data.presenceAnalytics?.activeLast7Days ?? 0 },
-                            { label: t("Active Last 30 Days", "نشطون خلال 30 يومًا"), value: data.presenceAnalytics?.activeLast30Days ?? 0 },
                             { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
                             { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
@@ -3706,12 +3684,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           ))}
                         </CardContent>
                       </Card>
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <Card className="border-white/10 bg-[#0B0B0B]/90"><CardHeader><CardTitle>{t("Platform & Device Traffic","المنصة والأجهزة")}</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">{[
-                          ["Web",data.trafficAnalytics?.webToday??0],["iOS",data.trafficAnalytics?.iosToday??0],["Android",data.trafficAnalytics?.androidToday??0],["Mobile",data.trafficAnalytics?.mobileToday??0],["Desktop",data.trafficAnalytics?.desktopToday??0]
-                        ].map(([label,value])=><div key={String(label)} className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{currencyText(String(label))}</p><p className="mt-1 text-xl font-semibold text-white">{currencyText(String(value))}</p></div>)}</CardContent></Card>
-                        <Card className="border-white/10 bg-[#0B0B0B]/90"><CardHeader><CardTitle>{t("Top Pages Today","أكثر الصفحات زيارة اليوم")}</CardTitle></CardHeader><CardContent className="space-y-2">{(data.trafficAnalytics?.topPages??[]).map(row=><div key={row.path} className="flex justify-between gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm"><span className="truncate text-[#D1D5DB]">{currencyText(row.path)}</span><span className="font-semibold text-white">{row.views}</span></div>)}{!(data.trafficAnalytics?.topPages?.length)?<p className="text-sm text-[#9CA3AF]">{t("Traffic will appear as real visits are recorded.","ستظهر الزيارات عند تسجيل زيارات حقيقية.")}</p>:null}</CardContent></Card>
-                      </div>
                     </div>
                   ) : null}
 
