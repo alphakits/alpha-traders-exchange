@@ -101,8 +101,16 @@ function assertUnchanged(snapshot: AlphaExchangeDb, checkout: CommissionCheckout
     if (record.paymentSignature || record.paymentVerificationStatus === "pending_verification") fail("payment_in_progress");
   }
 }
+function paidThroughAnotherFlow(snapshot: AlphaExchangeDb, checkout: CommissionCheckout) {
+  return checkout.commissions.every((expected) => snapshot.commissionRecords.some((record) => (
+    record.id === expected.id && record.sellerId === checkout.sellerId && record.paymentStatus === "paid"
+  )));
+}
 export function pendingCommissionCheckouts(snapshot: AlphaExchangeDb) {
-  return getCommissionCheckouts(snapshot).filter((checkout) => !settled(snapshot, checkout.id));
+  // A fully settled legacy/owner payment must not block later genuine dues.
+  // Its old amount remains permanently reserved; no receipt is invented.
+  return getCommissionCheckouts(snapshot).filter((checkout) => !settled(snapshot, checkout.id)
+    && !paidThroughAnotherFlow(snapshot, checkout));
 }
 function reservedReceipts(snapshot: AlphaExchangeDb) {
   const used = new Set(snapshot.commissionRecords.map((record) => checkoutReceiptKey(record.paymentSignature ?? "")).filter(Boolean));
@@ -182,6 +190,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         // The legacy allocator already respects this permanent reservation list.
         const leader = records[0];
         leader.paymentReservedExpectedAmounts = [...(leader.paymentReservedExpectedAmounts ?? []), expectedMicros / 1e6];
+        leader.updatedAt = new Date(Math.max(now(), (Date.parse(leader.updatedAt ?? "") || 0) + 1)).toISOString();
         snapshot.auditLogs.unshift({ id: `${id}:issued`, action: "commission_recorded", actorUserId: input.sellerId,
           targetUserId: input.sellerId, createdAt: checkout.createdAt,
           details: "Seller created an automatic commission checkout before payment. No payment has been received or credited.",
@@ -193,14 +202,16 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
     async state(sellerId: string) {
       const snapshot = await ports.read(); authorize(snapshot, sellerId);
       const all = getCommissionCheckouts(snapshot).filter((checkout) => checkout.sellerId === sellerId);
-      const active = all.find((checkout) => !settled(snapshot, checkout.id));
+      const active = pendingCommissionCheckouts(snapshot).find((checkout) => checkout.sellerId === sellerId);
       const last = all.find((checkout) => settled(snapshot, checkout.id));
-      let status: "ready" | "waiting" | "paid" | "changed" = active ? "waiting" : last ? "paid" : "ready";
+      let status: "ready" | "waiting" | "paid" | "changed" = active ? "waiting" : last || all.some((checkout) => paidThroughAnotherFlow(snapshot, checkout)) ? "paid" : "ready";
       if (active) { try { assertUnchanged(snapshot, active); } catch { status = "changed"; } }
       const outstanding = snapshot.commissionRecords.filter((record) => record.sellerId === sellerId && record.paymentStatus !== "paid");
       if (!active && outstanding.length) status = "ready";
+      const outstandingMicros = outstanding.reduce((sum, record) => sum + BigInt(checkoutMicros(record.commissionAmount)), BigInt(0));
+      if (outstandingMicros > BigInt(Number.MAX_SAFE_INTEGER)) fail("invalid_amount");
       return { status, checkout: active ?? null, lastPaidCheckout: last ?? null, pendingCount: outstanding.length,
-        totalDueUsdt: outstanding.reduce((sum, record) => sum + checkoutMicros(record.commissionAmount), 0) / 1e6 };
+        totalDueUsdt: Number(outstandingMicros) / 1e6 };
     },
     async reconcile(input: { deposits: readonly CheckoutDeposit[]; deadline: number; limit?: number }) {
       const summary = { checked: 0, verified: 0, pending: 0, review: 0, errors: 0, budgetExhausted: false };
