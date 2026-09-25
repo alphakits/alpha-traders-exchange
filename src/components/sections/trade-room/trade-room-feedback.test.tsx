@@ -314,8 +314,7 @@ describe("visible buyer cancellation", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
     await screen.findByTestId("trade-details");
-    if (status === "review_open" || status === "cancelled") expect(screen.queryByTestId("trade-cancel-action")).toBeNull();
-    else expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
   });
 });
 
@@ -390,8 +389,8 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
   it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("locks seller cancellation at %s", async (status) => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, status)))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
-    const cancel = await screen.findByRole("button", { name: "Cancel Trade" });
-    expect((cancel as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByTestId("trade-details");
+    expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
   });
 });
 
@@ -414,7 +413,9 @@ it.each([
   const current = { ...base, ...overrides, request: { ...base.request, ...overrides.request } };
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
-  expect((await screen.findByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
+  await screen.findByTestId("trade-details");
+  if (overrides.hasOpenDispute) expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(true);
+  else expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
 });
 
 it("keeps the recorded cardless cash fixed and recalculates only once", async () => {

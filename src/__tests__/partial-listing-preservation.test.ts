@@ -702,7 +702,7 @@ describe("partial listing preservation", () => {
         bankName: "Bank Hapoalim",
         actorUserId: BUYER_THREE_ID,
       }),
-    ).rejects.toThrow("Requested amount exceeds the remaining listing quantity.");
+    ).rejects.toMatchObject({ code: "listing-amount-unavailable" });
 
     await completeTrade({
       listingId: listing.id,
@@ -860,8 +860,8 @@ describe("partial listing preservation", () => {
       }),
     ]));
 
-    expect((await getMarketplaceListings()).some((listing) => listing.id === sellerOneListing.id)).toBe(false);
-    expect((await getMarketplaceListings("active")).some((listing) => listing.id === sellerOneListing.id)).toBe(false);
+    expect((await getMarketplaceListings()).find((listing) => listing.id === sellerOneListing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
+    expect((await getMarketplaceListings("active")).find((listing) => listing.id === sellerOneListing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
     await expect(createPurchaseRequest({
       buyerId: BUYER_TWO_ID,
       listingId: sellerOneListing.id,
@@ -1675,7 +1675,7 @@ describe("partial listing preservation", () => {
     expect(activeBuyerTrades).toHaveLength(1);
   });
 
-  it("never leaves a new pending request behind when request creation races listing acceptance", async () => {
+  it("allows a new pending request while another acceptance leaves capacity", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -1720,7 +1720,7 @@ describe("partial listing preservation", () => {
 
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     expect(snapshot.purchaseRequests.find((request) => request.id === first.request.id)?.status).toBe("accepted");
-    expect(snapshot.purchaseRequests.filter((request) => request.listingId === listing.id && request.status === "pending")).toHaveLength(0);
+    expect(snapshot.purchaseRequests.filter((request) => request.listingId === listing.id && request.status === "pending")).toHaveLength(1);
     expect(snapshot.marketplaceListings.find((candidate) => candidate.id === listing.id)).toMatchObject({
       status: "matched",
       activeTradeRequestId: first.request.id,

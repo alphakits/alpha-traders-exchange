@@ -232,11 +232,11 @@ describe("listing accountability: reason + audit + reliability", () => {
       responseTime: "5 min",
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
-    })).rejects.toThrow(/locked until every pending commission is paid/i);
+    })).rejects.toThrow(/new requests are blocked until all outstanding commission is verified as paid/i);
     expect(canonical.marketplaceListings).toHaveLength(0);
   });
 
-  it("immediately hides a seller's public listing after a cross-instance commission assignment", async () => {
+  it("keeps a seller's listing visible with a canonical commission block after a cross-instance assignment", async () => {
     const listing = await createApprovedListing("1000", "3.60");
     const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 
@@ -259,10 +259,10 @@ describe("listing accountability: reason + audit + reliability", () => {
       updatedAt: now,
     });
 
-    expect((await getMarketplaceListings("active")).some((item) => item.id === listing.id)).toBe(false);
+    expect((await getMarketplaceListings("active")).find((item) => item.id === listing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
   });
 
-  it("immediately hides charged listings on the public seller profile too", async () => {
+  it("shows the commission block on visible public seller profile listings too", async () => {
     const listing = await createApprovedListing("1000", "3.60");
     const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 
@@ -289,7 +289,7 @@ describe("listing accountability: reason + audit + reliability", () => {
       viewerRole: "buyer",
     });
     expect(routeData).not.toBeNull();
-    expect(routeData?.sellerListings.some((item) => item.id === listing.id)).toBe(false);
+    expect(routeData?.sellerListings.find((item) => item.id === listing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
   });
 
   it("records reason + before/after when a listing price is edited", async () => {

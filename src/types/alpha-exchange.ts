@@ -455,6 +455,8 @@ export interface MarketplaceListing {
   status: ListingStatus;
   approvalStatus?: ListingApprovalStatus;
   activeTradeRequestId?: string;
+  sellerActiveTradeCount?: number;
+  newRequestBlockReason?: "commission_due" | "trade_limit" | "inventory_reserved";
   lockedAt?: string;
   ownerReviewReason?: string;
   ownerReviewedAt?: string;

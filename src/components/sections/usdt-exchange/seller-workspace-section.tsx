@@ -501,7 +501,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription>
-                {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid.")}
+                {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. أي عمولة غير مدفوعة تمنع البيع والشراء وطلبات الصفقات الجديدة حتى التحقق من السداد. تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Any unpaid commission blocks new buying, selling, and trade requests until payment is verified. Listings stay visible and existing trades can finish.")}
               </CardDescription>
               <p className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5 text-xs leading-5 text-emerald-100">
                 <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
@@ -557,6 +557,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
               )}
+              <p className="rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{isAr ? "يمكنك إدارة 3 صفقات نشطة كحد أقصى. أي عمولة غير مدفوعة توقف الطلبات الجديدة حتى التحقق من سدادها؛ تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية. عمولة الصفقات الجديدة 2%: 1% منك و1% من المشتري." : "Maximum 3 active trades. Any unpaid commission blocks new requests until payment is verified. Listings stay visible and existing trades can finish. New trades owe 2% total: your 1% plus the buyer’s 1%."}</p>
               {sellerWorkspaceSummary?.blockedReason ? (
                 <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
               ) : null}

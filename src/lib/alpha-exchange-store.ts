@@ -1,3 +1,4 @@
+import { calculateUsdtForPaymentTotal } from "@alpha-traders/contracts";
 import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { deriveUserPresence } from "@alpha-traders/contracts";
@@ -1306,7 +1307,7 @@ function isListingLocked(status: ListingStatus) {
 }
 
 function canListingReceiveRequests(listing: MarketplaceListing) {
-  return listing.status === "active" && toNumber(listing.availableAmount) > 0;
+  return (listing.status === "active" || isListingLocked(listing.status)) && toNumber(listing.availableAmount) > 0;
 }
 
 function isListingPendingApproval(listing: MarketplaceListing) {
@@ -1333,6 +1334,39 @@ function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
     || request.status === "usdt_release_pending"
     || request.status === "usdt_sent"
   )).length;
+}
+
+const MAX_SELLER_ACTIVE_TRADES = 3;
+
+/** Unsettled inventory stays on the listing; active requests reserve their amount. */
+function listingUnreservedAmount(db: AlphaExchangeDb, listing: MarketplaceListing, excludingRequestId?: string) {
+  let remaining = listing.availableAmount;
+  for (const request of db.purchaseRequests) {
+    if (request.listingId === listing.id && request.id !== excludingRequestId && isRequestStatusLockingListing(request.status)) {
+      remaining = subtractTradeAmounts(remaining, request.usdtAmount) ?? "0";
+    }
+  }
+  return remaining;
+}
+
+function assertSellerTradeCapacity(db: AlphaExchangeDb, listing: MarketplaceListing, amount: string, requestId?: string) {
+  const activeCount = db.purchaseRequests.filter(request => request.sellerId === listing.sellerId
+    && request.id !== requestId && isRequestStatusLockingListing(request.status)).length;
+  if (activeCount >= MAX_SELLER_ACTIVE_TRADES) throw new TradeBlockedError("SELLER_TRADE_LIMIT", "This seller has 3 active trades. Wait for a trade to finish.", requestId);
+  if (isTradeAmountLessThan(listingUnreservedAmount(db, listing, requestId), amount) !== false) {
+    throw new TradeBlockedError("listing-amount-unavailable", "This amount is reserved by other active trades. Choose an available amount.", requestId);
+  }
+}
+
+/** Keep the legacy pointer as a representative, never as the concurrency limit. */
+function synchronizeListingTradeLock(db: AlphaExchangeDb, listing: MarketplaceListing | undefined) {
+  if (!listing) return;
+  const active = db.purchaseRequests.filter(request => request.listingId === listing.id && isRequestStatusLockingListing(request.status));
+  if (active.length) {
+    listing.activeTradeRequestId = active[0].id;
+    listing.status = active.some(request => request.status !== "accepted") ? "in_trade" : "matched";
+    listing.lockedAt ??= active[0].updatedAt;
+  }
 }
 
 function getSellerPendingCommissionCount(db: AlphaExchangeDb, sellerId: string) {
@@ -1450,7 +1484,7 @@ function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
   }
   const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
   if (pendingCommissionCount > 0) {
-    return "Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.";
+    return "Your listings stay visible, but new requests are blocked until all outstanding commission is verified as paid. Continue and complete your existing trades. Maximum: 3 active trades.";
   }
   const openListingCount = getSellerOpenListingCount(db, sellerId);
   if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
@@ -2111,6 +2145,7 @@ function enrichListingsWithSellerData(
   listings: MarketplaceListing[],
   snapshots = computeTrustSnapshotMap(db),
   viewerUserId?: string,
+  publicAvailability = false,
 ) {
   const viewer = db.users.find(user => user.id === viewerUserId);
   const visibleText = isPublicOwnerIdentity(viewer) ? (value?: string) => value ?? "" : identityTextRedactor([...db.users, ...listings.map(listing => ({ role: "approved_seller", ...db.users.find(user => user.id === listing.sellerId), id: listing.sellerId, fullName: listing.sellerDisplayName }))], true);
@@ -2119,6 +2154,11 @@ function enrichListingsWithSellerData(
     const seller = usersById.get(listing.sellerId);
     const publicListing: MarketplaceListing = {
       ...listing,
+      availableAmount: publicAvailability ? listingUnreservedAmount(db, listing) : listing.availableAmount,
+      sellerActiveTradeCount: getSellerOpenTradeCount(db, listing.sellerId),
+      newRequestBlockReason: getSellerPendingCommissionCount(db, listing.sellerId) > 0 ? "commission_due"
+        : getSellerOpenTradeCount(db, listing.sellerId) >= MAX_SELLER_ACTIVE_TRADES ? "trade_limit"
+        : isTradeAmountLessThan(listingUnreservedAmount(db, listing), listing.minimumTrade) === true ? "inventory_reserved" : undefined,
       sellerDisplayName: publicAccountName({ id: listing.sellerId, role: "approved_seller" }),
       notes: visibleText(listing.notes),
       sellerDescription: visibleText(listing.sellerDescription),
@@ -8485,16 +8525,13 @@ export async function getMarketplaceListings(
     .map((record) => record.sellerId);
   // Public listing visibility is a financial authorization decision. Read
   // only the authoritative unpaid-seller IDs on every public request so a
-  // commission issued on another instance hides listings immediately, while
+  // commission issued on another instance blocks new requests immediately, while
   // avoiding a full multi-table snapshot load on this high-traffic route.
   const requiresCanonicalCommissionLocks = isPublicFeed
     && (!dbInput || options?.requireCanonicalCommissionLocks === true);
-  const sellersBlockedByCommission = new Set(
-    requiresCanonicalCommissionLocks
-      ? canonicalCommissionBlockedSellerIds
-        ?? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
-      : cachedCommissionBlockedSellerIds,
-  );
+  const sellersBlockedByCommission = new Set(requiresCanonicalCommissionLocks
+    ? canonicalCommissionBlockedSellerIds ?? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
+    : cachedCommissionBlockedSellerIds);
   const sellersBlockedByEnforcement = new Set(
     getMarketplaceEnforcementRecords(db)
       .filter((record) => record.status === "active")
@@ -8520,7 +8557,7 @@ export async function getMarketplaceListings(
           if (!canListingReceiveRequests(listing)) return false;
           if (hiddenSellerIds.has(listing.sellerId)) return false;
           if (interactionBlockedSellerIds.has(listing.sellerId)) return false;
-          if (sellersBlockedByCommission.has(listing.sellerId)) return false;
+
           if (sellersBlockedByEnforcement.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
           if (!seller || seller.disabled === true || !canPublishListings(seller)) return false;
@@ -8540,7 +8577,11 @@ export async function getMarketplaceListings(
           && !interactionBlockedSellerIds.has(listing.sellerId));
   const snapshots = computeTrustSnapshotMap(db);
   const sortedListings = qualitySortListings(db, rawListings, snapshots);
-  return enrichListingsWithSellerData(await withLiveUserPresence(db), sortedListings, snapshots, viewerUserId);
+  return enrichListingsWithSellerData(await withLiveUserPresence(db), sortedListings, snapshots, viewerUserId, isPublicFeed).map(listing => ({
+    ...listing,
+    newRequestBlockReason: sellersBlockedByCommission.has(listing.sellerId) ? "commission_due" as const
+      : listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason,
+  }));
 }
 
 // ── Live marketplace pulse (real, privacy-safe public dashboard) ────────────
@@ -9210,7 +9251,7 @@ export async function updateMarketplaceListingForSeller(input: {
     throw new Error("Only active listings can be paused.");
   }
   if (input.status === "active" && getSellerPendingCommissionCount(db, input.sellerId) > 0) {
-    throw new Error("Your listings remain hidden until every pending commission is paid.");
+    throw new Error("Listing activation and renewal are restricted until every pending commission is paid. Existing listings stay visible and existing trades can finish.");
   }
   const shouldResubmitForApproval = current.status === "draft" && (
     current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
@@ -9438,7 +9479,7 @@ export async function renewMarketplaceListing(input: {
   if (input.sellerId) {
     const pendingCommissionCount = getSellerPendingCommissionCount(db, input.sellerId);
     if (pendingCommissionCount > 0) {
-      throw new Error("Your listings remain hidden until every pending commission is paid.");
+      throw new Error("Listing activation and renewal are restricted until every pending commission is paid. Existing listings stay visible and existing trades can finish.");
     }
   }
   if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");
@@ -10110,7 +10151,7 @@ export async function getWorkspaceBootstrapData(input: {
 /** Seller proposals never silently change the buyer's agreed financial terms. */
 export async function updateTradeTerms(input: {
   requestId: string; actorUserId: string;
-  action: "counter_offer" | "propose_amount" | "accept_amount" | "decline_terms" | "withdraw_terms";
+  action: "counter_offer" | "propose_amount" | "propose_ils_amount" | "accept_amount" | "decline_terms" | "withdraw_terms";
   value?: string; proposalId?: string; expectedUpdatedAt?: string; safetyAcknowledged?: boolean;
 }) {
   let committed: PurchaseRequest | undefined;
@@ -10120,7 +10161,7 @@ export async function updateTradeTerms(input: {
     if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new TradeBlockedError("trade-terms-invalid", "Resolve the dispute before changing trade terms.", input.requestId);
     const seller = request.sellerId === input.actorUserId;
     const proposal = request.termsProposal;
-    const creating = input.action === "counter_offer" || input.action === "propose_amount";
+    const creating = input.action === "counter_offer" || input.action === "propose_amount" || input.action === "propose_ils_amount";
     if (!creating && proposal && proposal.id === input.proposalId && proposal.status !== "pending") {
       const expected = input.action === "accept_amount" ? "accepted" : input.action === "withdraw_terms" ? "withdrawn" : "declined";
       if (proposal.status === expected && (input.action === "withdraw_terms" ? seller : !seller)) { committed = request; return snapshot; }
@@ -10135,8 +10176,8 @@ export async function updateTradeTerms(input: {
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
       if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["accepted", "payment_sent", "funds_received"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
-      if (listing.activeTradeRequestId && listing.activeTradeRequestId !== request.id) throw new TradeBlockedError("trade-terms-invalid", "The listing already has an active trade.", input.requestId);
-      if (!counter && listing.activeTradeRequestId !== request.id) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
+
+      if (!counter && !isRequestStatusLockingListing(request.status)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
       const raw = canonicalizeTradeAmount(input.value) || "";
       if (!(counter ? /^\d{1,7}(?:\.\d{1,2})?$/ : /^\d{1,9}(?:\.\d{1,6})?$/).test(raw) || Number(raw) <= 0) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid positive amount.", input.requestId);
@@ -10152,7 +10193,9 @@ export async function updateTradeTerms(input: {
           if (!amount) throw new TradeBlockedError("trade-terms-invalid", "The withdrawal amount is invalid.", input.requestId);
         } else fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
       } else {
-        amount = raw;
+        if (input.action === "propose_ils_amount" && request.currency !== "ILS") throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
+        amount = input.action === "propose_ils_amount" ? calculateUsdtForPaymentTotal(raw, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "" : raw;
+        if (!amount) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid ILS total with at most two decimal places.", input.requestId);
         fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
         if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
           const canonical = calculateCardlessUsdtAmount(request.fiatAmount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
@@ -10160,7 +10203,7 @@ export async function updateTradeTerms(input: {
           fiat = request.fiatAmount;
         }
       }
-      if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listing.availableAmount) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
+      if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
       message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
@@ -10170,7 +10213,7 @@ export async function updateTradeTerms(input: {
       if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["accepted", "payment_sent", "funds_received"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
       if (input.action === "accept_amount") {
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
-        if (listing.activeTradeRequestId !== request.id || Number(proposal.usdtAmount) > Number(listing.availableAmount) || Number(proposal.usdtAmount) < Number(listing.minimumTrade) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
+        if (!isRequestStatusLockingListing(request.status) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < Number(listing.minimumTrade) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         request.usdtAmount = proposal.usdtAmount;
         request.fiatAmount = proposal.fiatAmount;
         proposal.status = "accepted";
@@ -10223,7 +10266,7 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
     const agreedPrice = request.pricePerUsdt || request.listingPriceAtRequest || listing?.price || "";
     const amount = calculateCardlessUsdtAmount(cashAmount, agreedPrice, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
     if (!amount) throw new Error("The buyer's withdrawal must be 100–10,000 ILS in multiples of 100.");
-    if (!listing || listing.activeTradeRequestId !== request.id || Number(amount) > Number(listing.availableAmount)
+    if (!listing || !isRequestStatusLockingListing(request.status) || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id))
       || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new Error("The adjusted amount exceeds this listing's available balance or trade limits.");
     if (request.usdtAmount !== amount || Number(request.fiatAmount) !== Number(cashAmount) || !request.pricePerUsdt) {
       request.usdtAmount = amount;
@@ -10431,8 +10474,9 @@ export async function createPurchaseRequest(input: {
   const requestedAmount = toNumber(requestedUsdtAmount);
   const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
   const maximumTrade = toNumber(listing.maximumTrade) || toNumber(listing.availableAmount);
-  const remainingAmount = toNumber(listing.availableAmount);
+  const remainingAmount = toNumber(listingUnreservedAmount(db, listing));
   if (!requestedUsdtAmount || requestedAmount <= 0) throw new Error("Trade amount must be a valid positive USDT amount with no more than six decimal places.");
+  assertSellerTradeCapacity(db, listing, requestedUsdtAmount);
   if (requestedAmount < minimumTrade) throw new Error(`Minimum trade for this listing is ${listing.minimumTrade} USDT.`);
   if (requestedAmount > remainingAmount) throw new Error("Requested amount exceeds the remaining listing quantity.");
   if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
@@ -10689,7 +10733,8 @@ export async function createPurchaseRequest(input: {
           { guard: "canonical-listing-open-at-commit", listingId: input.listingId },
         );
       }
-      const canonicalAvailableAmount = toNumber(canonicalListing.availableAmount);
+      assertSellerTradeCapacity(snapshot, canonicalListing, requestedUsdtAmount);
+      const canonicalAvailableAmount = toNumber(listingUnreservedAmount(snapshot, canonicalListing));
       const canonicalMinimumTrade = Math.max(0, toNumber(canonicalListing.minimumTrade));
       const canonicalMaximumTrade = toNumber(canonicalListing.maximumTrade) || canonicalAvailableAmount;
       if (
@@ -11721,6 +11766,7 @@ async function closePurchaseRequestManuallyAttempt(
   }
 
   db.purchaseRequests[requestIndex] = next;
+  synchronizeListingTradeLock(db, listing);
   await appendAuditLog(db, {
     action: "trade_closed_manually",
     actorUserId: input.actorUserId,
@@ -12692,6 +12738,7 @@ async function uploadTradeEvidenceAttempt(
     });
   }
   db.purchaseRequests[requestIndex] = nextRequest;
+  synchronizeListingTradeLock(db, evidenceListing);
 
   await appendAuditLog(db, {
     action: existing ? "trade_evidence_replaced" : "trade_evidence_uploaded",
@@ -13702,20 +13749,12 @@ async function updatePurchaseRequestStatusAttempt(
         nextStatus: input.nextStatus,
       });
     }
-    if (listing.activeTradeRequestId && listing.activeTradeRequestId !== request.id) {
-      throw new TradeBlockedError("listing-already-matched", "This listing already has another buyer in progress.", request.id, {
-        guard: "listing-active-trade-slot",
-        listingId: listing.id,
-        listingActiveTradeRequestId: listing.activeTradeRequestId,
-        thisRequestId: request.id,
-        nextStatus: input.nextStatus,
-      });
-    }
+    assertSellerTradeCapacity(db, listing, request.usdtAmount, request.id);
     // Allow acceptance if: listing is active, OR listing is locked by this request (re-entry after crash),
     // OR listing is expired/paused but this request was already pending against it (expired after request was submitted).
     const listingIsOpenForAccept =
       listing.status === "active" ||
-      (listing.activeTradeRequestId === request.id && isListingLocked(listing.status)) ||
+      isListingLocked(listing.status) ||
       (listing.status === "expired" && !listing.activeTradeRequestId);
     if (!listingIsOpenForAccept) {
       logLocalMarketplaceDiagnostic("error", "[trade-accept-guard] listing-not-open", {
@@ -13891,35 +13930,6 @@ async function updatePurchaseRequestStatusAttempt(
           : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
       createdAt: now,
     });
-    for (let siblingIndex = 0; siblingIndex < db.purchaseRequests.length; siblingIndex += 1) {
-      const sibling = db.purchaseRequests[siblingIndex];
-      if (sibling.id === request.id || sibling.listingId !== request.listingId || sibling.status !== "pending") continue;
-      const declinedSibling: PurchaseRequest = {
-        ...sibling,
-        status: "declined",
-        updatedAt: now,
-        timeline: [...(sibling.timeline ?? [])],
-      };
-      appendTradeTimelineEntry(declinedSibling, {
-        type: declinedSibling.priceMode === "buyer_offer" ? "price_offer_declined" : "request_declined",
-        actorUserId: input.actorUserId,
-        actorRole,
-        message: "Seller matched another buyer for this listing",
-        createdAt: now,
-      });
-      db.purchaseRequests[siblingIndex] = declinedSibling;
-      additionallyDeclinedRequests.push(declinedSibling);
-      pushNotification(db, {
-        userId: sibling.buyerId,
-        category: "trade",
-        title: "Listing unavailable",
-        message: `Request ${sibling.id} was declined because the listing matched another buyer.`,
-        relatedTradeId: sibling.tradeId,
-        relatedListingId: sibling.listingId,
-        relatedHref: requestDetailsHref(sibling.id),
-        whatsappEvent: "request_declined",
-      });
-    }
     await appendListingStateAudit(db, {
       action: "listing_matched",
       actorUserId: input.actorUserId,
@@ -14501,6 +14511,7 @@ async function updatePurchaseRequestStatusAttempt(
   if (["declined", "cancelled"].includes(next.status) && next.termsProposal?.status === "pending") next.termsProposal = { ...next.termsProposal, status: "withdrawn", resolvedAt: now };
   next.inactivityWarningSentAt = undefined;
   db.purchaseRequests[requestIndex] = next;
+  synchronizeListingTradeLock(db, listing);
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation status-after", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
@@ -14550,7 +14561,7 @@ async function updatePurchaseRequestStatusAttempt(
       // cross-instance advisory lock. Reject only relevant stale state here,
       // then rerun the whole business transition from the canonical snapshot.
       // This prevents Accept-vs-Cancel races, duplicate lifecycle effects, and
-      // accepting two buyers for one listing while preserving unrelated writes.
+      // exceeding seller capacity or reserved inventory while preserving unrelated writes.
       validateLatestBeforeCommit: (canonicalSnapshot) => {
         if (isAdminCompletion) assertTradeAdmin(canonicalSnapshot, input.actorUserId, input.completionReason ?? "");
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
@@ -14583,6 +14594,7 @@ async function updatePurchaseRequestStatusAttempt(
         }
 
         if (input.nextStatus === "accepted") {
+          if (canonicalListing) assertSellerTradeCapacity(canonicalSnapshot, canonicalListing, canonicalRequest.usdtAmount, canonicalRequest.id);
           const canonicalPendingCommissionCount = getSellerPendingCommissionCount(canonicalSnapshot, request.sellerId);
           const canonicalPendingSiblingIds = canonicalSnapshot.purchaseRequests
             .filter((candidate) => candidate.id !== request.id && candidate.listingId === request.listingId && candidate.status === "pending")
@@ -18118,6 +18130,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, input.reason);
   }
   db.purchaseRequests[index] = next;
+  synchronizeListingTradeLock(db, listing);
   await appendAuditLog(db, {
     action: "admin_override",
     actorUserId: input.actorUserId,

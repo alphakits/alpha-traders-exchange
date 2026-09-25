@@ -252,7 +252,7 @@ describe("AlphaExchangeRepository", () => {
       if (queryText.includes("count(*)::text")) return Promise.resolve({ rows: [{ count: "1" }] });
       if (queryText.includes("with candidate_seller_ids as materialized")) {
         expect(values).toEqual(["buyer-1"]);
-        expect(queryText).toContain("where status = 'active'");
+        expect(queryText).toContain("where status in ('active', 'matched', 'in_trade')");
         expect(queryText).toContain("request.seller_id in (select seller_id from candidate_seller_ids)");
         expect(queryText).toContain("commission.seller_id in (select seller_id from candidate_seller_ids)");
         expect(queryText).toContain("commission.payment_status <> 'paid'");

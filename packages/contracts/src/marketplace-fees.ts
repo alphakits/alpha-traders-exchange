@@ -65,3 +65,16 @@ export function sellerFeeResponsibilityNotice(locale: string) {
     ? "عليك تحويل 2% إجمالاً إلى Alpha: 1% عمولتك و1% حصة المشتري ضمن دفعته. حصّل إجمالي الدفع الظاهر كاملاً قبل تأكيد الاستلام وإرسال USDT. إذا قبلت مبلغاً ناقصاً، تتحمّل حصة المشتري الناقصة من مالك؛ ويبقى كامل الـ2% مستحقاً حتى التحقق من السداد. يخص ذلك الصفقات الجديدة فقط."
     : "You must pay Alpha 2% in total: your own 1% plus the buyer’s 1%, included in their payment. Collect the full displayed total before confirming receipt and sending USDT. If you accept less, you cover the missing buyer fee yourself; the full 2% remains due until payment is verified. This applies only to new-policy trades.";
 }
+
+/** Inverse of the inclusive payment total, retaining six-decimal USDT precision. */
+export function calculateUsdtForPaymentTotal(total: string, price: string, includesBuyerFee = false) {
+  if (!/^\d{1,12}(?:\.\d{1,2})?$/.test(total) || !/^\d{1,7}(?:\.\d{1,2})?$/.test(price)) return null;
+  const cents = (value: string) => { const [whole, fraction = ""] = value.split("."); return BigInt(whole!) * BigInt(100) + BigInt(fraction.padEnd(2, "0")); };
+  const totalCents = cents(total), priceCents = cents(price);
+  if (totalCents <= BigInt(0) || priceCents <= BigInt(0)) return null;
+  const divisor = priceCents * (includesBuyerFee ? BigInt(101) : BigInt(100));
+  const micros = (totalCents * BigInt(100_000_000) + divisor / BigInt(2)) / divisor;
+  const amount = `${micros / BigInt(1_000_000)}.${(micros % BigInt(1_000_000)).toString().padStart(6, "0")}`;
+  const canonical = canonicalizeTradeAmount(amount);
+  return canonical && calculateTradePaymentTotal(canonical, price, includesBuyerFee) === `${totalCents / BigInt(100)}.${(totalCents % BigInt(100)).toString().padStart(2, "0")}` ? canonical : null;
+}
