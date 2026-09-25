@@ -8,6 +8,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes = [
     "",
     "/about-founder",
+    "/learn-trading-free",
+    "/buy-usdt-israel",
     "/founder",
     "/community",
     "/contact",
