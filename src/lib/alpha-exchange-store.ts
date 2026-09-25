@@ -1,6 +1,7 @@
 import { calculateUsdtForPaymentTotal } from "@alpha-traders/contracts";
 import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession, readOwnerPresenceAnalytics } from "@/lib/user-presence-store";
+import { readOwnerTrafficAnalytics } from "@/lib/traffic-analytics-store";
 import { deriveUserPresence } from "@alpha-traders/contracts";
 import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
@@ -18664,7 +18665,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
 
-  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement, presenceAnalytics] = await Promise.all([
+  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement, presenceAnalytics, trafficAnalytics] = await Promise.all([
     getAlphaExchangeSummaryForAdmin(db),
     getAllSellerApplicationsForAdmin(db),
     getApprovedSellersForAdmin(db, viewerUserId),
@@ -18678,6 +18679,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     getListingReliabilityForAdmin(db),
     getMarketplaceEnforcementDashboardData(db),
     readOwnerPresenceAnalytics(),
+    readOwnerTrafficAnalytics(),
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
@@ -18707,6 +18709,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     enforcement,
     complianceSettings,
     presenceAnalytics,
+    trafficAnalytics,
   };
 }
 
