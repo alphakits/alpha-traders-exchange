@@ -96,7 +96,7 @@ export function buildSiteIdentitySchemas() {
       "@type": "Organization",
       "@id": organizationId,
       name: BRAND_NAME,
-      alternateName: BRAND_PRIMARY_NAME,
+      alternateName: [BRAND_PRIMARY_NAME, "Alpha Traders Academy & Exchange", "Alpha Exchange"],
       url: siteUrl,
       logo: {
         "@type": "ImageObject",
@@ -105,7 +105,7 @@ export function buildSiteIdentitySchemas() {
         height: 512,
       },
       description:
-        "Trading education and a structured peer-to-peer USDT marketplace workflow with manually approved sellers.",
+        "Alpha Traders Academy & Exchange provides free structured trading education and a peer-to-peer USDT/ILS marketplace workflow with manually approved sellers.",
       email: BRAND_SUPPORT_EMAIL,
       sameAs: [...BRAND_OFFICIAL_SOCIALS],
       contactPoint: {
@@ -121,7 +121,7 @@ export function buildSiteIdentitySchemas() {
       "@type": "WebSite",
       "@id": websiteId,
       name: BRAND_NAME,
-      alternateName: BRAND_PRIMARY_NAME,
+      alternateName: [BRAND_PRIMARY_NAME, "Alpha Traders Academy & Exchange"],
       url: siteUrl,
       inLanguage: ["en", "ar"],
       publisher: { "@id": organizationId },
