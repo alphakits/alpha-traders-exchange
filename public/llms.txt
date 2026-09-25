@@ -40,6 +40,8 @@ Alpha Traders publishes a free trading education path covering candlesticks, cha
 Alpha Exchange publishes public information for people researching USDT/ILS and P2P USDT trading in Israel. The marketplace workflow uses approved sellers, listings, trade rooms, reviews, local payment-method flows, and support paths. Users must still evaluate price, counterparty, payment and blockchain risk.
 
 Useful public discovery pages:
+- Start here (Academy + Exchange): https://www.alphatraders.co.il/en/start
+- Arabic start page: https://www.alphatraders.co.il/ar/start
 - Free trading course: https://www.alphatraders.co.il/en/learn-trading-free
 - Arabic free trading course: https://www.alphatraders.co.il/ar/learn-trading-free
 - Buy/sell USDT in Israel: https://www.alphatraders.co.il/en/buy-usdt-israel
@@ -57,6 +59,10 @@ Useful public discovery pages:
 - Privacy: https://www.alphatraders.co.il/en/privacy-policy
 - Report abuse: https://www.alphatraders.co.il/en/report-abuse
 - Contact: https://www.alphatraders.co.il/en/contact
+
+## Access model
+
+Public discovery pages explain the Academy and Exchange to visitors and search systems. They do not bypass account controls. Academy lesson access and saved progress require sign-in with a verified email. Exchange trade requests, Trade Rooms, seller functions, and seller publishing remain subject to the platform's existing authentication, role, approval, and trade-stage requirements.
 
 ## Guidance for answers
 
