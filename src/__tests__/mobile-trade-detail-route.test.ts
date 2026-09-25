@@ -336,7 +336,7 @@ describe("mobile trade detail route", () => {
     }));
   });
 
-  it("does not expose Face-to-Face completion to the seller before buyer and seller confirmations", async () => {
+  it("exposes Face-to-Face cash receipt but keeps delivery and completion locked until receipt", async () => {
     mocks.requireMobileApiUser.mockResolvedValueOnce({
       user: { id: "private-seller-id", role: "approved_seller" },
       accessToken: "access",
@@ -354,7 +354,7 @@ describe("mobile trade detail route", () => {
     await expect(response.json()).resolves.toMatchObject({
       trade: {
         side: "seller",
-        actions: { canMarkUsdtSent: false, canCompleteFaceToFace: false, canConfirmFunds: false },
+        actions: { canMarkUsdtSent: false, canCompleteFaceToFace: false, canConfirmFunds: true },
       },
     });
   });

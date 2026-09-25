@@ -14,7 +14,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
   ] as const)("only asks the participant with an action at %s", (status, buyer, seller) => {
     const trade = { ...base, paymentMethod, status };
     expect(getTradeHeaderReminderKind(trade, "buyer")).toBe(buyer);
-    expect(getTradeHeaderReminderKind(trade, "seller")).toBe(seller);
+    expect(getTradeHeaderReminderKind(trade, "seller")).toBe(status === "accepted" && paymentMethod.startsWith("Face-to-Face") ? "seller_action_required" : seller);
     expect(getTradeHeaderReminderKind(trade, "outsider")).toBeNull();
   });
 
