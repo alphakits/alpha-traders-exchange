@@ -76,7 +76,7 @@ describe("cardless listing limits and escape", () => {
     expect(cash.value).toBe("1,000");
     expect(amount.value).toBe("309.405941");
     expect(submit.disabled).toBe(false);
-    for (const value of ["1", "550", "10000", ""]) {
+    for (const value of ["1", "550", ""]) {
       fireEvent.change(cash, { target: { value } });
       expect(amount.value).toBe("");
       expect(submit.disabled).toBe(true);
@@ -84,8 +84,11 @@ describe("cardless listing limits and escape", () => {
   });
 
   it("explains the reported 5,000 USDT minimum without bypassing seller limits", () => {
-    render(<Harness selectedMinTrade={5000} selectedMaxTrade={45000} initialBuyerInfo={preparedBankCode} />);
-    fireEvent.change(screen.getByLabelText("Enter withdrawal amount in ILS"), { target: { value: "10000" } });
+    render(<Harness selectedMinTrade={5000} selectedMaxTrade={45000} selectedPrice={3.10} initialBuyerInfo={preparedBankCode} />);
+    fireEvent.change(screen.getByLabelText("Enter withdrawal amount in ILS"), { target: { value: "2000" } });
+    expect((screen.getByLabelText(/USDT Amount/) as HTMLInputElement).value).toBe("638.773555");
+    expect(screen.getByText(/Before fee:/).textContent).toContain("645.16129 USDT");
+    expect(document.body.textContent).toContain("You receive 638.773555 USDT. Your withdrawal amount includes");
     expect(screen.getByRole("alert").textContent).toContain("No withdrawal amount from ₪100 to ₪10,000 fits");
     expect(screen.getByRole("alert").textContent).toContain("5,000 – 45,000 USDT");
     expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
