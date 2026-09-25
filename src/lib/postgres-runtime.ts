@@ -1,5 +1,6 @@
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool } from "pg";
+import { installPostgresTimeoutGuard } from "@/lib/postgres-timeout-guard";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -108,6 +109,7 @@ export function getRuntimePostgresPool() {
       query_timeout: 12_000,
     });
 
+    pool.on("connect", installPostgresTimeoutGuard);
     attachDatabasePool(pool);
 
     // Surface misconfigured connection strings early in production logs.
