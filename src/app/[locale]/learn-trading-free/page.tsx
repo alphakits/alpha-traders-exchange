@@ -28,7 +28,8 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
   ];
   const faqSchema = buildFaqSchema({ locale: isAr ? "ar" : "en", path: "/learn-trading-free", faqs });
   return <section className="section-container page-shell">
-    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(schema)}} />\n    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(faqSchema)}} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(schema)}} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(faqSchema)}} />
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="space-y-4">
         <p className="section-label">{isAr?"Alpha Traders Academy · مجاني":"Alpha Traders Academy · Free"}</p>
@@ -36,7 +37,11 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <p className="page-subtitle">{isAr?"مسار Alpha Traders التعليمي مجاني ومصمم لبناء الأساس قبل الانتقال إلى التطبيق: افهم السوق أولًا، ثم تعلّم إدارة المخاطر والانضباط." : "Alpha Traders Academy is free and designed to build the foundation before execution: understand the market first, then develop risk management and discipline."}</p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">{topics.map((topic,i)=><div key={topic} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">{isAr?`المرحلة ${i+1}`:`Stage ${i+1}`}</p><h2 className="mt-2 font-semibold">{topic}</h2></div>)}</div>
-      <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">\n        <h2 className="text-xl font-semibold">{isAr?"لمن صُمم هذا المسار؟":"Who is this learning path for?"}</h2>\n        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"صُمم للمبتدئين والمتداولين الذين يريدون مراجعة الأساسيات ضمن مسار واضح باللغة العربية أو الإنجليزية. يمكنك استكشاف محتوى الدورة علنًا، لكن الدخول إلى الدروس وحفظ التقدم يتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا.":"It is designed for beginners and traders who want to rebuild their foundations through a clear Arabic or English learning path. You can discover the course publicly, while lesson access and saved progress require an account with a verified email."}</p>\n      </div>\n      <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
+      <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
+        <h2 className="text-xl font-semibold">{isAr?"لمن صُمم هذا المسار؟":"Who is this learning path for?"}</h2>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"صُمم للمبتدئين والمتداولين الذين يريدون مراجعة الأساسيات ضمن مسار واضح باللغة العربية أو الإنجليزية. يمكنك استكشاف محتوى الدورة علنًا، لكن الدخول إلى الدروس وحفظ التقدم يتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا.":"It is designed for beginners and traders who want to rebuild their foundations through a clear Arabic or English learning path. You can discover the course publicly, while lesson access and saved progress require an account with a verified email."}</p>
+      </div>
+      <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
         <h2 className="text-xl font-semibold">{isAr?"مجاني لا يعني وعودًا بالربح":"Free does not mean promises of profit"}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"الهدف هو التعليم المنظم. التداول ينطوي على مخاطر ولا توجد دورة تستطيع ضمان الأرباح. ركّز على التعلم وإدارة المخاطر والتطبيق المنضبط." : "The goal is structured education. Trading involves risk and no course can guarantee profits. Focus on learning, risk management and disciplined practice."}</p>
       </div>
