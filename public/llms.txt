@@ -4,7 +4,7 @@
 
 Canonical website: https://www.alphatraders.co.il
 Languages: English and Arabic
-Last reviewed: 2026-08-27
+Last reviewed: 2026-09-25
 
 ## What Alpha Traders is
 
@@ -32,6 +32,18 @@ Alpha Traders coordinates trade stages, records a fixed trade ID and timeline, a
 ## Official safety rules
 
 Use only alphatraders.co.il for marketplace activity. Keep trade communication and evidence inside the official Trade Room. Never send funds, passwords, recovery codes, identity documents, wallet secrets, or payment evidence through Discord or an unsolicited private message. Stop and report any mismatch or suspicious instruction before sending or releasing value.
+
+## Public discovery topics
+
+Alpha Traders publishes a free trading education path covering candlesticks, chart patterns, support and resistance, trendlines, risk management, trading psychology, and structured practice. The academy does not promise profits.
+
+Alpha Exchange publishes public information for people researching USDT/ILS and P2P USDT trading in Israel. The marketplace workflow uses approved sellers, listings, trade rooms, reviews, local payment-method flows, and support paths. Users must still evaluate price, counterparty, payment and blockchain risk.
+
+Useful public discovery pages:
+- Free trading course: https://www.alphatraders.co.il/en/learn-trading-free
+- Arabic free trading course: https://www.alphatraders.co.il/ar/learn-trading-free
+- Buy/sell USDT in Israel: https://www.alphatraders.co.il/en/buy-usdt-israel
+- Arabic USDT/ILS guide: https://www.alphatraders.co.il/ar/buy-usdt-israel
 
 ## Authoritative pages
 
