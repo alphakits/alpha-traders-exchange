@@ -18648,6 +18648,7 @@ export async function recalculateAllTrustByAdmin(input: { actorUserId: string; r
   };
 }
 
+import { readOwnerPresenceAnalytics } from "@/lib/user-presence-store";
 export async function getAdminPrepDashboardData(viewerUserId?: string) {
   // Financial records shown immediately after an admin mutation must come
   // from canonical persistence. A cached snapshot from another warm instance
@@ -18664,7 +18665,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
 
-  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement] = await Promise.all([
+  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement, presenceAnalytics] = await Promise.all([
     getAlphaExchangeSummaryForAdmin(db),
     getAllSellerApplicationsForAdmin(db),
     getApprovedSellersForAdmin(db, viewerUserId),
@@ -18677,6 +18678,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     getOwnerPrivateBetaDashboardData(db),
     getListingReliabilityForAdmin(db),
     getMarketplaceEnforcementDashboardData(db),
+    readOwnerPresenceAnalytics(),
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
@@ -18705,6 +18707,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     listingReliability,
     enforcement,
     complianceSettings,
+    presenceAnalytics,
   };
 }
 
