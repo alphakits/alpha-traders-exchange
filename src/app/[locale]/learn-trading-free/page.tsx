@@ -31,7 +31,7 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"الهدف هو التعليم المنظم. التداول ينطوي على مخاطر ولا توجد دورة تستطيع ضمان الأرباح. ركّز على التعلم وإدارة المخاطر والتطبيق المنضبط." : "The goal is structured education. Trading involves risk and no course can guarantee profits. Focus on learning, risk management and disciplined practice."}</p>
       </div>
       <div className="flex flex-wrap gap-3">
-        <Link href="/academy" className={buttonVariants()}>{isAr?"ابدأ الدورة المجانية":"Start the Free Course"}</Link>
+        <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants()}>{isAr?"ابدأ الدورة المجانية":"Start the Free Course"}</Link>
         <Link href="/about-founder" className={buttonVariants({variant:"secondary"})}>{isAr?"عن المؤسس والمنهج":"Founder & Method"}</Link>
         <Link href="/buy-usdt-israel" className={buttonVariants({variant:"secondary"})}>{isAr?"استكشف Alpha Exchange":"Explore Alpha Exchange"}</Link>
       </div>
