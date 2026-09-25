@@ -8,9 +8,11 @@ import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit
 import { createCommissionBatchWorkflow, getPendingCommissionBatches, getCommissionBatchReceiptReservations } from "./commission-batch-workflow";
 import { verifyCommissionBatchTronReceipt } from "./commission-batch-tron-verifier";
 
+function object(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
 // Existing snapshot transaction uses pg_advisory_xact_lock(61422917), shared
-// with the legacy single-commission settlement path. Never move network IO
-// inside that lock and never replace users, sessions, listings or trade stages.
+// with legacy single-commission settlement. Network IO must stay outside it.
 export async function getCommissionBatchRuntime() {
   if (process.env.ALPHA_EXCHANGE_COMMISSION_BATCH_V1 === "1") {
     const pool = getRuntimePostgresPool();
@@ -44,8 +46,6 @@ export async function getCommissionBatchRuntime() {
       const destination = resolveCommissionWalletForNetwork(receipt.network);
       if (!destination.available) return { verified: false, code: "destination_unavailable" };
       if (receipt.signature.startsWith("binance-deposit:")) {
-        // Exact actual received amount is re-read from the receiving account.
-        // The ±1 policy is only applied after this independent receipt proof.
         const result = await verifyBinanceInternalCommissionDeposit({ signature: receipt.signature,
           network: receipt.network, recipient: destination.walletAddress,
           amount: receipt.amountMicros / 1e6, earliestTimestamp });
@@ -72,12 +72,27 @@ export async function getCommissionBatchRuntime() {
     },
     async ownerState() {
       const snapshot = await repository.loadSnapshot();
-      return { batches: getPendingCommissionBatches(snapshot),
+      const names = new Map(snapshot.users.map((user) => [user.id, user.fullName]));
+      const attempts = snapshot.auditLogs.filter((entry) => object(entry.newValue)?.kind === "commission_batch_receipt_attempt_v1");
+      const settled = snapshot.auditLogs.filter((entry) => object(entry.newValue)?.kind === "commission_batch_receipt_settled_v1");
+      return { checkedAt: new Date().toISOString(), batches: getPendingCommissionBatches(snapshot).map((batch) => ({
+          ...batch, sellerName: names.get(batch.sellerId) ?? batch.sellerId,
+          lastAttemptCode: object(attempts.find((entry) => object(entry.newValue)?.batchId === batch.id)?.newValue)?.code ?? null,
+        })),
         commissions: snapshot.commissionRecords.filter((record) => record.paymentStatus !== "paid").map((record) => ({
           id: record.id, displayNumber: record.displayNumber, sellerId: record.sellerId,
+          sellerName: names.get(record.sellerId) ?? record.sellerId,
           commissionAmount: record.commissionAmount, paymentStatus: record.paymentStatus,
           hasPaymentInProgress: Boolean(record.paymentSignature || record.paymentVerificationStatus === "pending_verification"),
-        })) };
+        })),
+        settlements: settled.slice(0, 100).map((entry) => {
+          const data = object(entry.newValue);
+          const plan = object(data?.plan);
+          return { id: entry.id, sellerName: names.get(entry.targetUserId ?? "") ?? entry.targetUserId,
+            createdAt: entry.createdAt, expectedMicros: plan?.expectedMicros, receivedMicros: plan?.receivedMicros,
+            waivedMicros: plan?.waivedMicros, excessMicros: plan?.excessMicros };
+        }),
+      };
     },
   };
 }
