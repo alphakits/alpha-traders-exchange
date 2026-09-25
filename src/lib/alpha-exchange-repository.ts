@@ -2268,7 +2268,7 @@ export class AlphaExchangeRepository {
       const source = getLatestAvailableFallbackSnapshot();
       const candidateSellerIds = new Set(
         source.marketplaceListings
-          .filter((listing) => listing.status === "active")
+          .filter((listing) => ["active", "matched", "in_trade"].includes(listing.status))
           .map((listing) => listing.sellerId),
       );
       const relevantUserIds = new Set(candidateSellerIds);
@@ -2297,7 +2297,7 @@ export class AlphaExchangeRepository {
       `with candidate_seller_ids as materialized (
          select distinct seller_id
          from alpha_exchange.listings
-         where status = 'active'
+         where status in ('active', 'matched', 'in_trade')
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
@@ -4029,7 +4029,7 @@ export class AlphaExchangeRepository {
         record.sellerId === delta.newListing.sellerId
         && record.paymentStatus !== "paid"
       ))) {
-        throw new Error("Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.");
+        throw new Error("Your listings stay visible, but new marketplace trading is locked until every pending commission is paid. Existing trades can finish.");
       }
       current.marketplaceListings.push(delta.newListing);
       if (delta.newAuditLogs.length) current.auditLogs.unshift(...delta.newAuditLogs);
@@ -4082,7 +4082,7 @@ export class AlphaExchangeRepository {
         [delta.newListing.sellerId],
       );
       if (blockingCommission.rows.length > 0) {
-        throw new Error("Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.");
+        throw new Error("Your listings stay visible, but new marketplace trading is locked until every pending commission is paid. Existing trades can finish.");
       }
       perf?.step("commission_lock_check");
 

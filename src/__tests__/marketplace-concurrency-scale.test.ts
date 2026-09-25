@@ -250,7 +250,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
     }
   }, 30_000);
 
-  it("commits one winner when ten buyers race to have their request accepted", async () => {
+  it("commits at most three active trades when ten buyers race for acceptance", async () => {
     const listing = await createApprovedListing(SELLER_IDS[0]!, 0);
     const submissions = await Promise.all(
       BUYER_IDS.map((buyerId, index) => submitPurchase(listing.id, buyerId, index)),
@@ -273,8 +273,9 @@ describe("marketplace concurrency at ten-seller scale", () => {
     const committedListing = snapshot.marketplaceListings.find((candidate) => candidate.id === listing.id);
 
     expect(requests).toHaveLength(10);
-    expect(accepted).toHaveLength(1);
-    expect(declined).toHaveLength(9);
+    expect(accepted).toHaveLength(3);
+    expect(declined).toHaveLength(0);
+    expect(requests.filter(request => request.status === "pending")).toHaveLength(7);
     expect(committedListing).toMatchObject({
       status: "matched",
       activeTradeRequestId: accepted[0]?.id,

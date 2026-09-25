@@ -19,6 +19,7 @@ import {
   unlockTradeReviewByAdmin,
   getTradeRoomData,
   getSellerCommissionStatus,
+  getMarketplaceListings,
   invalidateAlphaExchangeStoreCache,
   submitBuyerTradeReview,
   submitSellerBuyerReview,
@@ -184,6 +185,53 @@ describe("guided cash-trade completion", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("keeps three shared-listing trades safe and visible while unpaid fees block every new acceptance", async () => {
+    const { listingId } = seedTrade({ status: "pending", amount: "100" });
+    const db = currentSnapshot();
+    const template = db.purchaseRequests[0];
+    template.feePolicyVersion = "buyer_seller_1pct_v1";
+    for (let index = 1; index < 4; index++) {
+      const buyerId = `capacity-buyer-${index}`;
+      db.users.push(createUser(buyerId, "buyer"));
+      db.purchaseRequests.push({ ...structuredClone(template), id: `capacity-${index}`, tradeId: `capacity-trade-${index}`, buyerId });
+    }
+    const ids = db.purchaseRequests.map(request => request.id);
+    await Promise.all(ids.slice(0, 3).map(requestId => updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })));
+    await expect(updatePurchaseRequestStatus({ requestId: ids[3], actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "SELLER_TRADE_LIMIT" });
+    let cards = await getMarketplaceListings("active", currentSnapshot());
+    expect(cards.find(card => card.id === listingId)).toMatchObject({ sellerActiveTradeCount: 3, availableAmount: "700", newRequestBlockReason: "trade_limit" });
+    for (const requestId of ids.slice(0, 3)) {
+      const request = currentSnapshot().purchaseRequests.find(item => item.id === requestId)!;
+      await updatePurchaseRequestStatus({ requestId, actorUserId: request.buyerId, actorRole: "buyer", nextStatus: "payment_sent" });
+      await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" });
+      await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+      await expect(updatePurchaseRequestStatus({ requestId: ids[3], actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "commission-due" });
+      cards = await getMarketplaceListings("active", currentSnapshot());
+      expect(cards.find(card => card.id === listingId)?.newRequestBlockReason).toBe("commission_due");
+    }
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toMatchObject({ availableAmount: "700", status: "active", activeTradeRequestId: undefined });
+    expect(currentSnapshot().commissionRecords).toHaveLength(3);
+    expect(currentSnapshot().commissionRecords.every(record => record.commissionAmount === 2)).toBe(true);
+  });
+
+  it.each([FACE_TO_FACE, "Bank Transfer"])("requires buyer approval for an inclusive ILS correction in %s", async paymentMethod => {
+    seedTrade({ paymentMethod, status: "funds_received" });
+    const original = currentSnapshot().purchaseRequests[0];
+    original.feePolicyVersion = "buyer_seller_1pct_v1";
+    const proposed = await updateTradeTerms({ requestId: original.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "404", expectedUpdatedAt: original.updatedAt });
+    expect(proposed.usdtAmount).toBe("250");
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "125", fiatAmount: "404.00", status: "pending" });
+    const accepted = await updateTradeTerms({ requestId: original.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
+    expect(accepted).toMatchObject({ usdtAmount: "125", fiatAmount: "404.00", feePolicyVersion: "buyer_seller_1pct_v1" });
+  });
+
+  it("refuses a correction that consumes another active trade's reserved inventory", async () => {
+    const { listingId } = seedTrade({ status: "funds_received", amount: "200" });
+    const original = currentSnapshot().purchaseRequests[0];
+    currentSnapshot().purchaseRequests.push({ ...structuredClone(original), id: "reserved-other", buyerId: OUTSIDER_ID, listingId, usdtAmount: "700" });
+    await expect(updateTradeTerms({ requestId: original.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "1280", expectedUpdatedAt: original.updatedAt })).rejects.toMatchObject({ code: "trade-terms-invalid" });
   });
 
   it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("settles an acknowledged two-sided fee exactly once for %s", async (paymentMethod) => {

@@ -74,7 +74,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const rawBody = body as Record<string, unknown>;
     const action = String(rawBody.action ?? "").trim();
-    if (["counter_offer", "propose_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
+    if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
       const updated = await updateTradeTerms({ requestId: requestId, actorUserId: user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(rawBody?.value ?? ""), proposalId: String(rawBody?.proposalId ?? ""), expectedUpdatedAt: String(rawBody?.expectedUpdatedAt ?? ""), safetyAcknowledged: rawBody?.safetyAcknowledged === true });
       return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role) }, { headers: PRIVATE_NO_STORE_HEADERS });
     }

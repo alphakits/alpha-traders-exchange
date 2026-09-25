@@ -61,3 +61,15 @@ it("does not submit a correction while another trade mutation owns the lock", ()
   fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it("submits an ILS total correction for buyer approval", async () => {
+  const fetch = vi.fn().mockResolvedValue(Response.json({ request: base }));
+  vi.stubGlobal("fetch", fetch);
+  render(<TradeTermsPanel request={{ ...base, status: "accepted", priceMode: "listing_price" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Adjustment unit" }), { target: { value: "ILS" } });
+  fireEvent.change(screen.getByLabelText("Correct total ILS payment (including buyer fee if applicable)"), { target: { value: "404" } });
+  fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "propose_ils_amount", value: "404" });
+});

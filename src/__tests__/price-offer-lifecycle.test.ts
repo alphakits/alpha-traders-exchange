@@ -333,7 +333,7 @@ describe("negotiated marketplace price offers", () => {
     });
   });
 
-  it("allows only one concurrent seller acceptance and declines the competing offer", async () => {
+  it("accepts two concurrent offers when seller capacity and inventory permit", async () => {
     const listing = await createLiveListing();
     const [first, second] = await Promise.all([
       submitOffer(listing.id, BUYER_ONE_ID, "3.05"),
@@ -347,8 +347,8 @@ describe("negotiated marketplace price offers", () => {
 
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     const offers = snapshot.purchaseRequests.filter((request) => request.listingId === listing.id);
-    expect(offers.filter((request) => request.status === "accepted")).toHaveLength(1);
-    expect(offers.filter((request) => request.status === "declined")).toHaveLength(1);
+    expect(offers.filter((request) => request.status === "accepted")).toHaveLength(2);
+    expect(offers.filter((request) => request.status === "declined")).toHaveLength(0);
     expect(snapshot.marketplaceListings.find((item) => item.id === listing.id)?.activeTradeRequestId)
       .toBe(offers.find((request) => request.status === "accepted")?.id);
   });
