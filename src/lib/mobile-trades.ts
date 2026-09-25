@@ -65,7 +65,9 @@ export function toMobileTradeMessage(
     sender,
     ...(context && message.kind !== "system" ? {
       senderPublicId: identity?.publicId,
-      participantRole: identity?.role,
+      // Keep older installed clients compatible with their role-label map.
+      participantRole: identity?.role === "owner" ? "support" : identity?.role,
+      isOwnerMessage: identity?.role === "owner",
       status: tradeChatStatus(message, context.request),
     } : {}),
     ...(message.credentialKind === "cardless_code" ? { credentialKind: "cardless_code" as const } : {}),

@@ -21,8 +21,9 @@ export function tradeChatPublicId(context: TradeChatContext, side: "buyer" | "se
   return publicAccountId({ id: side === "buyer" ? context.request.buyerId : context.request.sellerId, role: side === "buyer" ? "buyer" : "approved_seller" });
 }
 
-export function tradeChatSender(message: Pick<TradeChatMessage, "senderUserId" | "kind">, context: TradeChatContext): { role: TradeChatParticipantRole; publicId?: string } | undefined {
+export function tradeChatSender(message: Pick<TradeChatMessage, "senderUserId" | "kind"> & Partial<Pick<TradeChatMessage, "senderRole">>, context: TradeChatContext): { role: TradeChatParticipantRole; publicId?: string } | undefined {
   if (message.kind === "system") return undefined;
+  if (message.senderRole === "owner") return { role: "owner" };
   const role = message.senderUserId === context.request.buyerId ? "buyer"
     : message.senderUserId === context.request.sellerId ? "seller" : "support";
   return { role, publicId: role === "support" ? undefined : tradeChatPublicId(context, role) };

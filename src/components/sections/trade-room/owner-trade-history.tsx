@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileClock, MessageCircle, ShieldCheck } from "lucide-react";
 import { localizeCardlessWithdrawalMessage } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,25 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
     return () => { active = false; window.clearTimeout(timeout); controller.abort(); };
   }, [attempt, isAr, requestId]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    let busy = false;
+    const timer = window.setInterval(async () => {
+      if (busy || document.visibilityState === "hidden") return;
+      busy = true;
+      try {
+        const response = await fetch(`/api/alpha-exchange/purchase-requests/${encodeURIComponent(requestId)}/messages`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (Array.isArray(payload.messages) && payload.trade?.id === requestId) {
+          setRoom((current) => current ? { ...current, request: payload.trade, messages: payload.messages } : current);
+        }
+      } catch { /* Keep the last confirmed history during a temporary disconnect. */ }
+      finally { busy = false; }
+    }, 8000);
+    return () => { window.clearInterval(timer); controller.abort(); };
+  }, [requestId]);
+
   return (
     <main dir={isAr ? "rtl" : "ltr"} lang={locale} className="min-h-screen bg-[#050505] px-3 py-5 text-white sm:px-5">
       <div className="mx-auto max-w-6xl space-y-4">
@@ -76,6 +95,11 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
 }
 
 export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | "en"; room: OwnerTradeHistoryData; onUpdated?: () => void }) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const sendLock = useRef(false);
+  const sendAttempt = useRef<{ message: string; id: string } | null>(null);
+  const [sendError, setSendError] = useState("");
   const isAr = locale === "ar";
   const t = (en: string, ar: string) => isAr ? ar : en;
   const request = room.request;
@@ -151,7 +175,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
           const body = protectedDetails ? t("Protected withdrawal details were shared during this trade.", "تمت مشاركة بيانات سحب محمية خلال هذه الصفقة.")
             : message.credentialKind === "cardless_code" ? localizeCardlessWithdrawalMessage(message.message, locale)
             : message.kind === "system" ? localizeTradeRoomSystemMessage(message.message, locale).text : message.message;
-          return <li key={message.id} className={`rounded-xl border p-3 text-sm ${message.kind === "system" ? "border-blue-400/20 bg-blue-400/5" : message.senderUserId === request.sellerId ? "border-[#C9A227]/25 bg-[#C9A227]/5" : "border-white/10 bg-white/[0.02]"}`}>
+          return <li key={message.id} className={`rounded-xl border p-3 text-sm ${message.kind === "system" ? "border-blue-400/20 bg-blue-400/5" : message.senderRole === "owner" ? "border-red-400/50 bg-red-950/40 text-red-100" : message.senderUserId === request.sellerId ? "border-[#C9A227]/25 bg-[#C9A227]/5" : "border-white/10 bg-white/[0.02]"}`}>
             <p className="text-xs font-medium text-[#D1D5DB]">{message.kind === "system" ? t("System", "النظام") : currencyText(actorLabel(message.senderUserId, message.senderRole))}</p>
             {body ? <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{currencyText(body)}</p> : null}
             {message.imageUrl ? <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center break-all text-[#FDE68A] underline underline-offset-4">{currencyText(message.imageName || t("Open attachment", "فتح المرفق"))}</a> : null}
@@ -159,6 +183,29 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
             {message.deletedAt ? <p className="mt-1 text-xs text-amber-200">{t("Deleted", "تم الحذف")} · {date(message.deletedAt)}</p> : null}
           </li>;
         })}</ol> : <p className="mt-4 text-sm text-[#9CA3AF]">{t("No chat messages were recorded for this trade.", "لا توجد رسائل محفوظة لهذه الصفقة.")}</p>}
+        {onUpdated && !request.closedAt && !["cancelled", "declined", "completed", "locked", "review_open"].includes(request.status) ? <form className="mt-4 space-y-3 rounded-xl border border-red-400/40 bg-red-950/20 p-3" onSubmit={async (event) => {
+          event.preventDefault();
+          if (sendLock.current || !draft.trim()) return;
+          sendLock.current = true;
+          const message = draft.trim();
+          if (sendAttempt.current?.message !== message) sendAttempt.current = { message, id: crypto.randomUUID() };
+          setSending(true); setSendError("");
+          try {
+            const response = await fetch(`/api/alpha-exchange/purchase-requests/${encodeURIComponent(request.id)}/messages`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message, clientMessageId: sendAttempt.current.id }),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || t("Message could not be sent.", "تعذر إرسال الرسالة."));
+            setDraft(""); sendAttempt.current = null; onUpdated();
+          } catch (error) { setSendError(error instanceof Error ? error.message : t("Message could not be sent.", "تعذر إرسال الرسالة.")); }
+          finally { sendLock.current = false; setSending(false); }
+        }}>
+          <label htmlFor="owner-chat-message" className="flex items-center gap-2 text-sm font-bold text-red-200"><ShieldCheck className="h-4 w-4" />{t("Owner message · visible to buyer and seller", "رسالة المالك · تظهر للمشتري والبائع")}</label>
+          <textarea id="owner-chat-message" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={sending} maxLength={1200} className="min-h-24 w-full rounded-lg border border-red-400/30 bg-black/40 p-3 text-sm text-white" />
+          {sendError ? <p role="alert" className="text-sm text-red-200">{sendError}</p> : null}
+          <Button type="submit" disabled={sending || !draft.trim()} className="bg-red-700 text-white hover:bg-red-600">{sending ? t("Sending…", "جارٍ الإرسال…") : t("Send as Owner", "إرسال باسم المالك")}</Button>
+        </form> : null}
       </section>
 
       <section id="history-timeline" className={panelClass} aria-labelledby="history-timeline-heading">

@@ -102,6 +102,7 @@ function seedDb(requests = [trade("trade-1")]): AlphaExchangeDb & { __runtimeVer
       user(SELLER_ID, "approved_seller"),
       user(OUTSIDER_ID, "buyer"),
       user(ADMIN_ID, "admin"),
+      user("owner-1", "owner"),
     ],
     sellerApplications: [],
     marketplaceListings: [],
@@ -140,6 +141,21 @@ describe("Trade Room participant communication", () => {
     mocks.publishRealtimeEvent.mockReset();
     mocks.checkSharedRateLimit.mockReset();
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
+  });
+
+  it("lets the canonical owner address both participants without changing trade terms or status", async () => {
+    const before = { ...snapshot().purchaseRequests[0] };
+    const input = { purchaseRequestId: "trade-1", actorUserId: "owner-1", message: "Please confirm the next step here.", clientMessageId: "abcdefabcdefabcdefabcdefabcdefab" };
+    const result = await postTradeRoomMessage(input);
+    expect(result.message.senderRole).toBe("owner");
+    expect(result.message.senderUserId).toBe("owner-1");
+    expect(snapshot().notifications.map(n => n.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+    const after = snapshot().purchaseRequests[0];
+    expect(after.status).toBe(before.status);
+    expect(after.usdtAmount).toBe(before.usdtAmount);
+
+    expect((await postTradeRoomMessage(input)).created).toBe(false);
+    expect(snapshot().notifications).toHaveLength(2);
   });
 
   it("persists a Buyer message with one generic, recipient-only Seller notification", async () => {

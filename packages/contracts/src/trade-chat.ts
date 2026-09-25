@@ -1,5 +1,5 @@
 export type TradeChatStatus = "sending" | "sent" | "delivered" | "seen" | "deleted";
-export type TradeChatParticipantRole = "buyer" | "seller" | "support";
+export type TradeChatParticipantRole = "buyer" | "seller" | "support" | "owner";
 
 export function tradeChatStatus(message: {
   id: string;
@@ -31,5 +31,5 @@ export function tradeChatStatusLabel(status: TradeChatStatus, locale: "en" | "ar
 }
 
 export function tradeChatRoleLabel(role: TradeChatParticipantRole, locale: "en" | "ar") {
-  return { buyer: { en: "Buyer", ar: "المشتري" }, seller: { en: "Seller", ar: "البائع" }, support: { en: "Support", ar: "الدعم" } }[role][locale];
+  return { owner: { en: "Owner", ar: "المالك" }, buyer: { en: "Buyer", ar: "المشتري" }, seller: { en: "Seller", ar: "البائع" }, support: { en: "Support", ar: "الدعم" } }[role][locale];
 }

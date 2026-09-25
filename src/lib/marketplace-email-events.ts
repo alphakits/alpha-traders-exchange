@@ -313,7 +313,7 @@ export async function prepareTradeRoomConversationEmail(input: {
   request: Pick<PurchaseRequest, "id" | "tradeId">;
   recipientUserId: string;
   senderUserId: string;
-  senderRole: "buyer" | "seller";
+  senderRole: "buyer" | "seller" | "owner";
   idempotencyKey: string;
 }) {
   // All recipient identity and routing are resolved server-side. The caller

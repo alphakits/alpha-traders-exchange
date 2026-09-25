@@ -11868,7 +11868,13 @@ export async function postTradeRoomMessage(input: {
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
   if (requestIndex === -1) throw new Error("Trade not found.");
   const request = db.purchaseRequests[requestIndex];
-  assertTradeRoomParticipant(request, input.actorUserId);
+  const messageSide = (snapshot: AlphaExchangeDb, trade: PurchaseRequest): TradeRoomParticipantSide | "owner" => {
+    if (trade.buyerId === input.actorUserId || trade.sellerId === input.actorUserId) return assertTradeRoomParticipant(trade, input.actorUserId);
+    const actor = snapshot.users.find((user) => user.id === input.actorUserId);
+    if (isPublicOwnerIdentity(actor)) return "owner";
+    return assertTradeRoomParticipant(trade, input.actorUserId);
+  };
+  messageSide(db, request);
 
   const message = input.message.trim();
   if (message.length > 1200) throw new Error("Message is too long.");
@@ -11894,9 +11900,10 @@ export async function postTradeRoomMessage(input: {
   type CommittedTradeRoomMessage = {
     message: TradeChatMessage;
     recipientUserId: string;
-    participantSide: TradeRoomParticipantSide;
+    participantSide: TradeRoomParticipantSide | "owner";
     trade: { id: string; tradeId?: string };
     notificationPublication: DeferredNotificationPublication | null;
+    ownerNotificationPublication?: DeferredNotificationPublication | null;
     created: boolean;
   };
   let committed: CommittedTradeRoomMessage | null = null;
@@ -11905,7 +11912,7 @@ export async function postTradeRoomMessage(input: {
     const canonicalRequestIndex = snapshot.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
     if (canonicalRequestIndex === -1) throw new Error("Trade not found.");
     const canonicalRequest = snapshot.purchaseRequests[canonicalRequestIndex];
-    const canonicalParticipantSide = assertTradeRoomParticipant(canonicalRequest, input.actorUserId);
+    const canonicalParticipantSide = messageSide(snapshot, canonicalRequest);
     const canonicalRecipientUserId = canonicalParticipantSide === "buyer" ? canonicalRequest.sellerId : canonicalRequest.buyerId;
     const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
     if (existingMessage) {
@@ -11961,7 +11968,7 @@ export async function postTradeRoomMessage(input: {
       purchaseRequestId: canonicalRequest.id,
       kind: "user",
       senderUserId: input.actorUserId,
-      senderRole: canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
+      senderRole: canonicalParticipantSide === "owner" ? "owner" : canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
       message,
       payloadHash,
       createdAt,
@@ -11993,7 +12000,18 @@ export async function postTradeRoomMessage(input: {
       forceInApp: true,
       deferRealtime: true,
     });
+    const ownerNotificationPublication = canonicalParticipantSide === "owner" ? pushNotification(snapshot, {
+      userId: canonicalRequest.sellerId,
+      category: "trade", title: "Owner message in Trade Room",
+      message: "The owner sent a message in your active trade.",
+      relatedRequestId: canonicalRequest.id, relatedTradeId: canonicalRequest.tradeId,
+      relatedListingId: canonicalRequest.listingId,
+      relatedHref: `${requestDetailsHref(canonicalRequest.id)}#chat`,
+      actionLabel: "Open Trade Room", actionHref: `${requestDetailsHref(canonicalRequest.id)}#chat`,
+      reason: "trade_room_message", forceInApp: true, deferRealtime: true,
+    }) : null;
     committed = {
+      ownerNotificationPublication,
       message: nextMessage,
       recipientUserId: canonicalRecipientUserId,
       participantSide: canonicalParticipantSide,
@@ -12029,6 +12047,7 @@ export async function postTradeRoomMessage(input: {
       },
     });
     publishNotificationPublication(committedResult.notificationPublication);
+    publishNotificationPublication(committedResult.ownerNotificationPublication ?? null);
   }
   const sseMs = Date.now() - sseStartedAt;
   return {
