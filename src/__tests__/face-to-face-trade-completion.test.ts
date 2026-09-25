@@ -187,6 +187,19 @@ describe("guided cash-trade completion", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it("lets the face-to-face seller confirm cash directly after acceptance, once", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "funds_received" as const };
+    const results = await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(results.filter(result => result.statusChanged)).toHaveLength(1);
+    expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)).toMatchObject({ status: "funds_received", fundsReceivedAt: expect.any(String) });
+  });
+
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal"])("does not skip buyer payment in %s", async paymentMethod => {
+    const { requestId } = seedTrade({ status: "accepted", paymentMethod });
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" })).rejects.toMatchObject({ code: "invalid-status-transition" });
+  });
+
   it("keeps three shared-listing trades safe and visible while unpaid fees block every new acceptance", async () => {
     const { listingId } = seedTrade({ status: "pending", amount: "100" });
     const db = currentSnapshot();

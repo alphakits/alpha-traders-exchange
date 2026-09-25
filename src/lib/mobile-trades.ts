@@ -13,6 +13,7 @@ import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
+  isFaceToFacePaymentMethod,
   isCashTradeCompletionAvailable,
   isSellerTradeCompletionAvailable,
   isCashTradePaymentMethod,
@@ -105,7 +106,7 @@ export function toMobileTradeActions(
       && request.status === "accepted"
       && !isCashTrade,
     canConfirmFunds: isSeller
-      && request.status === "payment_sent",
+      && (request.status === "payment_sent" || (request.status === "accepted" && isFaceToFacePaymentMethod(request.paymentMethod))),
     canBeginRelease: isSeller
       && request.status === "funds_received"
       && !isCashTrade,

@@ -342,7 +342,7 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
-  if (isCashTrade && request.status === "payment_sent" && isSeller) {
+  if (isCashTrade && (request.status === "payment_sent" || (!isAtm && request.status === "accepted")) && isSeller) {
     return {
       label: isAtm
         ? (isAr ? "استلمت النقد من الصراف" : "I Collected the ATM Cash")
@@ -466,7 +466,7 @@ function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: b
   const isAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   if (isCashTrade && request.status === "accepted") {
     return isSeller
-      ? (isAr ? "حتى يؤكد المشتري تسليم النقد أو الرمز" : "Until the buyer confirms the cash or code")
+      ? (isAtm ? (isAr ? "حتى يؤكد المشتري إرسال الرمز" : "Until the buyer confirms the code") : (isAr ? "استلم النقد ثم أكد الاستلام" : "Receive the cash, then confirm receipt"))
       : isAtm
         ? (isAr ? "أرسل الرمز ثم أكد فورًا" : "Send the code, then confirm now")
         : (isAr ? "سلّم النقد ثم أكد فورًا" : "Hand over cash, then confirm now");
@@ -542,11 +542,11 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
       ? {
           icon: isAtm ? "🏧" : "💵",
           title: isAtm ? (isAr ? "صفقة سحب دون بطاقة" : "Cardless ATM Trade") : (isAr ? "صفقة لقاء شخصي" : "Face-to-Face Trade"),
-          headline: isAr ? "بانتظار تأكيد المشتري" : "Waiting for Buyer Confirmation",
+          headline: isAtm ? (isAr ? "بانتظار تأكيد المشتري" : "Waiting for Buyer Confirmation") : (isAr ? "أكد استلام النقد" : "Confirm Cash Receipt"),
           detail: isAtm
             ? (isAr ? "على المشتري إرسال رمز السحب ثم الضغط على زر التأكيد. لا يلزم رفع صورة." : "The buyer must send the withdrawal code, then tap confirmation. No photo is required.")
-            : (isAr ? "على المشتري تسليم النقد ثم الضغط على زر التأكيد. لا يلزم رفع صورة." : "The buyer must hand over the cash, then tap confirmation. No photo is required."),
-          yourAction: isAr ? "انتظر تأكيد المشتري" : "Wait for buyer confirmation",
+            : (isAr ? "بعد استلام النقد من المشتري يمكنك تأكيد الاستلام مباشرة. لا يلزم رفع صورة." : "After receiving the buyer’s cash, you can confirm receipt directly. No photo is required."),
+          yourAction: isAtm ? (isAr ? "انتظر تأكيد المشتري" : "Wait for buyer confirmation") : (isAr ? "استلمت النقد" : "I Received the Cash"),
           counterpartyAction: isAtm ? (isAr ? "إرسال رمز السحب وتأكيده" : "Send and confirm the withdrawal code") : (isAr ? "تسليم النقد وتأكيده" : "Hand over and confirm the cash"),
           tradeStatus: currentStatus,
         }
@@ -790,9 +790,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
   if (isCashTrade && request.status === "accepted") {
     return isSeller
       ? {
-          isYourTurn: false,
-          title: isAr ? "بانتظار المشتري" : "WAITING FOR BUYER",
-          detail: isAtm ? (isAr ? "المشتري سيرسل رمز السحب ثم يؤكده." : "Buyer will send and confirm the withdrawal code.") : (isAr ? "المشتري سيسلّم النقد ثم يؤكده." : "Buyer will hand over and confirm the cash."),
+          isYourTurn: !isAtm,
+          title: isAtm ? (isAr ? "بانتظار المشتري" : "WAITING FOR BUYER") : (isAr ? "دورك الآن" : "YOUR TURN"),
+          detail: isAtm ? (isAr ? "المشتري سيرسل رمز السحب ثم يؤكده." : "Buyer will send and confirm the withdrawal code.") : (isAr ? "أكد الاستلام بعد استلام النقد فعلياً من المشتري." : "Confirm receipt after physically receiving the buyer’s cash."),
         }
       : {
           isYourTurn: true,

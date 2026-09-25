@@ -514,7 +514,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
   if (request.status === "accepted") {
     if (cashTrade) {
       return recipientIsSeller
-        ? (cardlessAtm ? "Wait for buyer to send the withdrawal code" : "Wait for buyer to hand over the cash")
+        ? (cardlessAtm ? "Wait for buyer to send the withdrawal code" : "Confirm receipt after the buyer hands over the cash")
         : (cardlessAtm ? "Send the withdrawal code and confirm it" : "Hand over the cash and confirm it");
     }
     return recipientIsSeller ? "Wait for buyer payment proof" : "Upload payment proof and mark Payment Sent";
@@ -13695,7 +13695,8 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (!isCompletionOverride && !isCashUsdtSentConfirmation && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
+  const isSellerFaceCashReceipt = isSeller && isFaceToFaceTrade && currentStatus === "accepted" && input.nextStatus === "funds_received";
+  if (!isCompletionOverride && !isCashUsdtSentConfirmation && !isSellerFaceCashReceipt && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
     throw new TradeBlockedError("invalid-status-transition", `Invalid status transition from ${currentStatus} to ${input.nextStatus}.`, request.id, {
       guard: "allowed-by-status",
       currentStatus,

@@ -124,7 +124,7 @@ describe("Trade Room client stability helpers", () => {
       nextStatus: "payment_sent",
     });
     expect(buyerAction).not.toHaveProperty("requiresEvidenceSide");
-    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toBeNull();
+    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toMatchObject({ nextStatus: "funds_received", label: "استلمت النقد" });
     expect(getPrimaryAction({ ...acceptedFaceToFace, status: "payment_sent" }, "seller-1", true, true)).toMatchObject({
       label: "استلمت النقد",
       nextStatus: "funds_received",
