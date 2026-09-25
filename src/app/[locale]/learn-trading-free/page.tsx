@@ -1,5 +1,5 @@
 import { Link } from "@/i18n/navigation";
-import { buildPageMetadata, buildCourseSchema, serializeJsonLd } from "@/lib/seo";
+import { buildPageMetadata, buildCourseSchema, buildFaqSchema, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -17,8 +17,18 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
   const { locale } = await params; const isAr = locale === "ar";
   const topics = isAr ? ["أساسيات الشموع وحركة السعر","النماذج الفنية","الدعم والمقاومة","الترندلاين وبنية السوق","إدارة المخاطر والانضباط","علم نفس التداول والتطبيق العملي"] : ["Candlestick and price-action foundations","Chart patterns","Support and resistance","Trendlines and market structure","Risk management and discipline","Trading psychology and practical application"];
   const schema=buildCourseSchema({title:isAr?"دورة Alpha Traders المجانية لتعلم التداول":"Alpha Traders Free Trading Course",description:isAr?"مسار مجاني ومنظم لتعلم أساسيات التداول وإدارة المخاطر.":"A free, structured path for learning trading foundations and risk management.",locale:isAr?"ar":"en"});
+  const faqs = isAr ? [
+    { question: "هل دورة Alpha Traders مجانية؟", answer: "نعم. مسار تعلم التداول المعروض هنا مجاني، ويتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا للدخول إلى الدروس وحفظ التقدم." },
+    { question: "هل الدورة مناسبة للمبتدئين؟", answer: "نعم. يبدأ المسار بالأساسيات ثم ينتقل إلى بنية السوق وإدارة المخاطر وعلم نفس التداول والتطبيق العملي." },
+    { question: "هل تضمن الدورة أرباحًا من التداول؟", answer: "لا. المحتوى تعليمي فقط، والتداول ينطوي على مخاطر ولا توجد أرباح مضمونة." },
+  ] : [
+    { question: "Is the Alpha Traders course free?", answer: "Yes. The trading education path shown here is free. An account with a verified email is required to access lessons and save progress." },
+    { question: "Is the course suitable for beginners?", answer: "Yes. The path starts with foundations and progresses through market structure, risk management, trading psychology and practical application." },
+    { question: "Does the course guarantee trading profits?", answer: "No. The content is educational only. Trading involves risk and profits are never guaranteed." },
+  ];
+  const faqSchema = buildFaqSchema({ locale: isAr ? "ar" : "en", path: "/learn-trading-free", faqs });
   return <section className="section-container page-shell">
-    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(schema)}} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(schema)}} />\n    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(faqSchema)}} />
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="space-y-4">
         <p className="section-label">{isAr?"Alpha Traders Academy · مجاني":"Alpha Traders Academy · Free"}</p>
@@ -29,6 +39,10 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">\n        <h2 className="text-xl font-semibold">{isAr?"لمن صُمم هذا المسار؟":"Who is this learning path for?"}</h2>\n        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"صُمم للمبتدئين والمتداولين الذين يريدون مراجعة الأساسيات ضمن مسار واضح باللغة العربية أو الإنجليزية. يمكنك استكشاف محتوى الدورة علنًا، لكن الدخول إلى الدروس وحفظ التقدم يتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا.":"It is designed for beginners and traders who want to rebuild their foundations through a clear Arabic or English learning path. You can discover the course publicly, while lesson access and saved progress require an account with a verified email."}</p>\n      </div>\n      <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
         <h2 className="text-xl font-semibold">{isAr?"مجاني لا يعني وعودًا بالربح":"Free does not mean promises of profit"}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"الهدف هو التعليم المنظم. التداول ينطوي على مخاطر ولا توجد دورة تستطيع ضمان الأرباح. ركّز على التعلم وإدارة المخاطر والتطبيق المنضبط." : "The goal is structured education. Trading involves risk and no course can guarantee profits. Focus on learning, risk management and disciplined practice."}</p>
+      </div>
+      <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
+        <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة" : "Frequently asked questions"}</h2>
+        <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
       </div>
       <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "الدورة مجانية. يلزم إنشاء حساب ببريد إلكتروني وتأكيده للدخول إلى الدروس وحفظ تقدّمك. لديك حساب؟ سجّل الدخول للمتابعة." : "The course is free. Create an account and verify your email to access lessons and save your progress. Already have an account? Sign in to continue."}</p>
       <div className="flex flex-wrap gap-3">
