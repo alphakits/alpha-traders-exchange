@@ -59,7 +59,7 @@ describe("Notification bell conversation navigation", () => {
       method: "PATCH", body: JSON.stringify({ isRead: true }),
     })));
     expect(navigation.push).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "View listing" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "View listing" })).toBeNull());
   });
 
   it("opens a legacy lifecycle notice without a trade snapshot and preserves its request ID", async () => {

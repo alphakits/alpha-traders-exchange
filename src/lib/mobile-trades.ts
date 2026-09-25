@@ -106,7 +106,8 @@ export function toMobileTradeActions(
       && request.status === "accepted"
       && !isCashTrade,
     canConfirmFunds: isSeller
-      && (request.status === "payment_sent" || (request.status === "accepted" && isFaceToFacePaymentMethod(request.paymentMethod))),
+      && !context.hasOpenDispute && request.termsProposal?.status !== "pending"
+      && (request.status === "payment_sent" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "accepted")),
     canBeginRelease: isSeller
       && request.status === "funds_received"
       && !isCashTrade,

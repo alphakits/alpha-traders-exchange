@@ -1,5 +1,5 @@
 "use client";
-import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation } from "@alpha-traders/contracts";
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
@@ -342,7 +342,7 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
-  if (isCashTrade && (request.status === "payment_sent" || (!isAtm && request.status === "accepted")) && isSeller) {
+  if (isCashTrade && isSeller && (request.status === "payment_sent" || (!isAtm && request.status === "accepted"))) {
     return {
       label: isAtm
         ? (isAr ? "استلمت النقد من الصراف" : "I Collected the ATM Cash")
@@ -462,11 +462,12 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
 }
 
 function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: boolean, isOverdue: boolean) {
+  if (isSeller && isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "accepted") return isAr ? "استلم إجمالي النقد ثم أكد الاستلام" : "Receive the full cash total, then confirm receipt";
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   const isAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   if (isCashTrade && request.status === "accepted") {
     return isSeller
-      ? (isAtm ? (isAr ? "حتى يؤكد المشتري إرسال الرمز" : "Until the buyer confirms the code") : (isAr ? "استلم النقد ثم أكد الاستلام" : "Receive the cash, then confirm receipt"))
+      ? (isAr ? "حتى يؤكد المشتري تسليم النقد أو الرمز" : "Until the buyer confirms the cash or code")
       : isAtm
         ? (isAr ? "أرسل الرمز ثم أكد فورًا" : "Send the code, then confirm now")
         : (isAr ? "سلّم النقد ثم أكد فورًا" : "Hand over cash, then confirm now");
@@ -537,16 +538,23 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   const isAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   const currentStatus = tradeStatusLabel(request.status, isAr, isOverdue, isCashTrade);
+  if (isSeller && !isAtm && isCashTrade && request.status === "accepted") return {
+    icon: "💵", title: isAr ? "الإجراء المطلوب الآن" : "Action Required Now",
+    headline: isAr ? "استلم النقد ثم أكد" : "Receive the Cash, Then Confirm",
+    detail: isAr ? "يمكنك تأكيد استلام كامل النقد دون انتظار زر المشتري. بعد التأكيد تظهر محفظته لإرسال USDT." : "You can confirm full cash receipt without waiting for the buyer's button. Confirmation reveals their wallet for USDT delivery.",
+    yourAction: primaryAction?.label ?? (isAr ? "استلمت النقد" : "I Received the Cash"),
+    counterpartyAction: isAr ? "المشتري يسلّم إجمالي النقد" : "Buyer hands over the full cash total", tradeStatus: currentStatus,
+  };
   if (isCashTrade && request.status === "accepted") {
     return isSeller
       ? {
           icon: isAtm ? "🏧" : "💵",
           title: isAtm ? (isAr ? "صفقة سحب دون بطاقة" : "Cardless ATM Trade") : (isAr ? "صفقة لقاء شخصي" : "Face-to-Face Trade"),
-          headline: isAtm ? (isAr ? "بانتظار تأكيد المشتري" : "Waiting for Buyer Confirmation") : (isAr ? "أكد استلام النقد" : "Confirm Cash Receipt"),
+          headline: isAr ? "بانتظار تأكيد المشتري" : "Waiting for Buyer Confirmation",
           detail: isAtm
             ? (isAr ? "على المشتري إرسال رمز السحب ثم الضغط على زر التأكيد. لا يلزم رفع صورة." : "The buyer must send the withdrawal code, then tap confirmation. No photo is required.")
-            : (isAr ? "بعد استلام النقد من المشتري يمكنك تأكيد الاستلام مباشرة. لا يلزم رفع صورة." : "After receiving the buyer’s cash, you can confirm receipt directly. No photo is required."),
-          yourAction: isAtm ? (isAr ? "انتظر تأكيد المشتري" : "Wait for buyer confirmation") : (isAr ? "استلمت النقد" : "I Received the Cash"),
+            : (isAr ? "على المشتري تسليم النقد ثم الضغط على زر التأكيد. لا يلزم رفع صورة." : "The buyer must hand over the cash, then tap confirmation. No photo is required."),
+          yourAction: isAr ? "انتظر تأكيد المشتري" : "Wait for buyer confirmation",
           counterpartyAction: isAtm ? (isAr ? "إرسال رمز السحب وتأكيده" : "Send and confirm the withdrawal code") : (isAr ? "تسليم النقد وتأكيده" : "Hand over and confirm the cash"),
           tradeStatus: currentStatus,
         }
@@ -770,6 +778,10 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
 }
 
 function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean) {
+  if (isSeller && isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "accepted") return {
+    isYourTurn: true, title: isAr ? "دورك الآن" : "YOUR TURN",
+    detail: isAr ? "استلم كامل النقد ثم أكد الاستلام. لا يلزم انتظار تأكيد المشتري." : "Receive the full cash total, then confirm receipt. No need to wait for buyer confirmation.",
+  };
   if (request.status === "declined" || request.status === "cancelled") {
     return {
       isYourTurn: false,
@@ -790,9 +802,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
   if (isCashTrade && request.status === "accepted") {
     return isSeller
       ? {
-          isYourTurn: !isAtm,
-          title: isAtm ? (isAr ? "بانتظار المشتري" : "WAITING FOR BUYER") : (isAr ? "دورك الآن" : "YOUR TURN"),
-          detail: isAtm ? (isAr ? "المشتري سيرسل رمز السحب ثم يؤكده." : "Buyer will send and confirm the withdrawal code.") : (isAr ? "أكد الاستلام بعد استلام النقد فعلياً من المشتري." : "Confirm receipt after physically receiving the buyer’s cash."),
+          isYourTurn: false,
+          title: isAr ? "بانتظار المشتري" : "WAITING FOR BUYER",
+          detail: isAtm ? (isAr ? "المشتري سيرسل رمز السحب ثم يؤكده." : "Buyer will send and confirm the withdrawal code.") : (isAr ? "المشتري سيسلّم النقد ثم يؤكده." : "Buyer will hand over and confirm the cash."),
         }
       : {
           isYourTurn: true,
@@ -2563,7 +2575,8 @@ function TradeRoomPageSession({
       return;
     }
     if (isSeller && request?.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received"].includes(primaryAction.nextStatus ?? "")) {
-      const message = `${primaryAction.confirmationMessage ?? ""}\n${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}\n${request.currency} ${request.fiatAmount}`;
+      const receipt = primaryAction.nextStatus === "funds_received" ? tradePaymentReceiptConfirmation(isAr ? "ar" : "en", request.currency, request.fiatAmount, true) : primaryAction.confirmationMessage ?? "";
+      const message = `${receipt}\n${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}`;
       if (!window.confirm(message)) return;
     } else if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
@@ -3017,6 +3030,10 @@ function TradeRoomPageSession({
     <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
+          <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+            <p>{isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
+            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p>{isAr ? "يشمل عمولة المشتري 1% بالفعل — لا تضفها مرة ثانية. ادفع الإجمالي بنفس وسيلة دفع الصفقة. على البائع التحقق من استلامه كاملاً قبل إرسال USDT." : "Already includes the buyer’s 1% fee — do not add it again. Pay the total through this trade’s payment method. The seller must verify full receipt before sending USDT."}</p> : null}
+          </div>
           <div className="flex items-center justify-between gap-3">
             <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
             {!showSuccessScreen ? <Button type="button" variant="secondary" size="sm" onClick={() => chatSectionRef.current && revealTradeRoomDeepLinkTarget(chatSectionRef.current)}><MessageCircle className="h-4 w-4" />{isAr ? "الدردشة" : "Chat"}</Button> : null}
@@ -3641,10 +3658,10 @@ function TradeRoomPageSession({
                     <>
                       <p className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-100">
                         {currencyText(isFaceToFaceTrade
-                          ? (isAr ? "💵 يؤكد المشتري تسليم النقد ← يؤكد البائع الاستلام ← يرسل USDT إلى المحفظة الظاهرة ← ✅ يكمل الصفقة." : "💵 Buyer confirms cash → Seller confirms receipt → Seller sends USDT to the revealed wallet → ✅ Complete trade.")
+                          ? (isAr ? "💵 يسلّم المشتري إجمالي النقد ← يؤكد البائع استلامه دون انتظار زر المشتري ← يرسل USDT إلى المحفظة الظاهرة ← ✅ يكمل الصفقة." : "💵 Buyer hands over the full cash total → Seller confirms receipt without waiting for the buyer’s button → Seller sends USDT to the revealed wallet → ✅ Complete trade.")
                           : isAr
                           ? "1) يؤكد المشتري النقد أو الرمز. 2) يؤكد البائع استلام النقد. 3) تظهر المحفظة. 4) يؤكد البائع إرسال USDT. 5) يحدد البائع الصفقة كمكتملة."
-                          : "1) Buyer confirms the cash or code. 2) Seller confirms cash received. 3) Wallet is revealed. 4) Seller confirms USDT sent. 5) Seller marks the trade completed.")}
+                          : "1) Buyer confirms the withdrawal code. 2) Seller confirms full cash receipt. 3) Wallet is revealed. 4) Seller confirms USDT sent. 5) Seller marks the trade completed.")}
                       </p>
                       <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-amber-100">
                         {isAr

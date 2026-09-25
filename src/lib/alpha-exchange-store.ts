@@ -514,7 +514,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
   if (request.status === "accepted") {
     if (cashTrade) {
       return recipientIsSeller
-        ? (cardlessAtm ? "Wait for buyer to send the withdrawal code" : "Confirm receipt after the buyer hands over the cash")
+        ? (cardlessAtm ? "Wait for buyer to send the withdrawal code" : "Wait for buyer to hand over the cash")
         : (cardlessAtm ? "Send the withdrawal code and confirm it" : "Hand over the cash and confirm it");
     }
     return recipientIsSeller ? "Wait for buyer payment proof" : "Upload payment proof and mark Payment Sent";
@@ -13653,7 +13653,7 @@ async function updatePurchaseRequestStatusAttempt(
     : [];
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
-    accepted: ["payment_sent", "cancelled"],
+    accepted: isFaceToFaceTrade && isSeller ? ["payment_sent", "funds_received", "cancelled"] : ["payment_sent", "cancelled"],
     payment_sent: ["funds_received"],
     funds_received: ["usdt_release_pending"],
     usdt_release_pending: ["usdt_sent"],
@@ -13695,8 +13695,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  const isSellerFaceCashReceipt = isSeller && isFaceToFaceTrade && currentStatus === "accepted" && input.nextStatus === "funds_received";
-  if (!isCompletionOverride && !isCashUsdtSentConfirmation && !isSellerFaceCashReceipt && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
+  if (!isCompletionOverride && !isCashUsdtSentConfirmation && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
     throw new TradeBlockedError("invalid-status-transition", `Invalid status transition from ${currentStatus} to ${input.nextStatus}.`, request.id, {
       guard: "allowed-by-status",
       currentStatus,
@@ -13923,7 +13922,7 @@ async function updatePurchaseRequestStatusAttempt(
       senderUserId: input.actorUserId,
       senderRole: actorRole,
       message: isFaceToFaceTrade
-        ? "Seller accepted the Face-to-Face trade. Buyer confirms handing over the cash. Seller confirms receiving it, sends the full USDT amount to the revealed wallet, then marks the trade completed. No buyer wait or photo is required."
+        ? "Seller accepted the Face-to-Face trade. Buyer hands over the full cash total. Seller can confirm receipt without waiting for the buyer button, then sends the full USDT amount to the revealed wallet and completes the trade. No photo is required."
         : isAtmTrade
           ? preparedCredential ? "Seller accepted the Cardless ATM trade. The prepared withdrawal details are now available. Collect the ATM cash and confirm receipt to reveal the buyer wallet." : "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isPriceOffer
@@ -14101,6 +14100,7 @@ async function updatePurchaseRequestStatusAttempt(
   } else if (input.nextStatus === "funds_received") {
     next.status = "funds_received";
     next.fundsReceivedAt = now;
+    if (isFaceToFaceTrade && currentStatus === "accepted") next.paymentSentAt ??= now;
     if (isAtmTrade) {
       const redactCredential = (message: TradeChatMessage): TradeChatMessage => message.credentialKind === "cardless_code"
         ? { ...message, message: "Cardless withdrawal code redeemed", confidential: true, payloadHash: undefined }

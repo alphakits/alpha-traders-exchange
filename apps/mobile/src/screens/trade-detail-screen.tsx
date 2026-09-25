@@ -1,4 +1,4 @@
-import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
@@ -81,7 +81,7 @@ function stageInstruction(
     if (status === "pending") return t("waitingForSeller");
     if (status === "accepted") {
       if (side === "buyer") return cashTradeKind === "cardless_atm" ? t("cashBuyerSendCodeNext") : t("cashBuyerHandOverNext");
-      return cashTradeKind === "cardless_atm" ? t("cashSellerWaitCode") : t("cashSellerWaitHandover");
+      return cashTradeKind === "cardless_atm" ? t("cashSellerWaitCode") : t("cashSellerConfirmReceiptNext");
     }
     if (status === "payment_sent") {
       if (side === "seller") return cashTradeKind === "cardless_atm" ? t("cashSellerCollectAtmNext") : t("cashSellerConfirmReceiptNext");
@@ -382,7 +382,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     if (busyAction) return;
     const feeNotice = query.data?.trade.side === "seller" && query.data.trade.feePolicyVersion === "buyer_seller_1pct_v1" && ["accepted", "funds_received", "completed"].includes(status)
       ? `\n${sellerFeeResponsibilityNotice(locale)}\n${query.data.trade.currency} ${query.data.trade.fiatAmount}` : "";
-    Alert.alert(t("actionConfirmation"), message + feeNotice, [
+    const receiptMessage = status === "funds_received" && query.data ? tradePaymentReceiptConfirmation(locale, query.data.trade.currency, query.data.trade.fiatAmount, query.data.trade.feePolicyVersion === "buyer_seller_1pct_v1") : message;
+    Alert.alert(t("actionConfirmation"), receiptMessage + feeNotice, [
       { text: t("cancel"), style: "cancel" },
       {
         text: t("confirm"),
@@ -780,7 +781,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
             : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
-          <DetailRow isRTL={isRTL} label={t("tradeValue")} value={formatCurrencyAmountAsUsd(trade.fiatAmount, trade.currency, usdIlsRate)} />
+          <DetailRow isRTL={isRTL} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
           {isCardlessAtm && trade.bankName ? <DetailRow isRTL={isRTL} label={locale === "ar" ? "بنك السحب" : "Withdrawal bank"} value={trade.bankName} /> : null}
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
