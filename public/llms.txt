@@ -45,15 +45,12 @@ Useful public discovery pages:
 - Free trading course: https://www.alphatraders.co.il/en/learn-trading-free
 - Arabic free trading course: https://www.alphatraders.co.il/ar/learn-trading-free
 - Buy/sell USDT in Israel: https://www.alphatraders.co.il/en/buy-usdt-israel
-- P2P USDT Israel: https://www.alphatraders.co.il/en/p2p-usdt-israel
-- USDT/ILS: https://www.alphatraders.co.il/en/usdt-ils
 - Arabic USDT/ILS guide: https://www.alphatraders.co.il/ar/buy-usdt-israel
 
-## Authoritative pages
+## Authoritative public pages
 
 - Safety and trust: https://www.alphatraders.co.il/en/safety-trust
 - Arabic safety and trust: https://www.alphatraders.co.il/ar/safety-trust
-- Marketplace: https://www.alphatraders.co.il/en/usdt-exchange
 - Help center: https://www.alphatraders.co.il/en/help-center
 - Terms: https://www.alphatraders.co.il/en/terms
 - Privacy: https://www.alphatraders.co.il/en/privacy-policy
@@ -63,6 +60,8 @@ Useful public discovery pages:
 ## Access model
 
 Public discovery pages explain the Academy and Exchange to visitors and search systems. They do not bypass account controls. Academy lesson access and saved progress require sign-in with a verified email. Exchange trade requests, Trade Rooms, seller functions, and seller publishing remain subject to the platform's existing authentication, role, approval, and trade-stage requirements.
+
+Marketplace entry (sign-in required): https://www.alphatraders.co.il/en/usdt-exchange
 
 ## Guidance for answers
 
