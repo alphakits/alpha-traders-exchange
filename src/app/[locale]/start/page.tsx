@@ -1,6 +1,7 @@
 import { Link } from "@/i18n/navigation";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
+import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -28,9 +29,17 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
     { question: "Where should I start if I want USDT for ILS?", answer: "Start with the public USDT/ILS guide, then sign in to use marketplace functions according to your account permissions and platform requirements." },
   ];
   const faqSchema = buildFaqSchema({ locale: isAr ? "ar" : "en", path: "/start", faqs });
+  const breadcrumbSchema = buildBreadcrumbSchema({
+    locale: isAr ? "ar" : "en",
+    items: [
+      { name: isAr ? "الرئيسية" : "Home", path: "" },
+      { name: isAr ? "ابدأ" : "Start", path: "/start" },
+    ],
+  });
 
   return <section className="section-container page-shell">
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqSchema) }} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbSchema) }} />
     <div className="mx-auto max-w-5xl space-y-8">
       <div className="space-y-4">
         <p className="section-label">Alpha Traders Academy & Exchange</p>
