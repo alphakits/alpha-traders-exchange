@@ -37,7 +37,7 @@ export default async function BuyUsdtIsraelPage({ params }: { params: Promise<{ 
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "تعرض Alpha Exchange الرسوم المطبقة داخل مسار الصفقة قبل الإكمال. راجع دائمًا السعر والمبلغ وطريقة الدفع والشبكة قبل إرسال أي قيمة." : "Alpha Exchange shows applicable fees in the trade flow before completion. Always review the price, amount, payment method and blockchain network before sending value."}</p>
       </div>
       <div className="flex flex-wrap gap-3">
-        <Link href="/login?redirectTo=/en/usdt-exchange" className={buttonVariants()}>{isAr ? "ابدأ عبر Alpha Exchange" : "Start with Alpha Exchange"}</Link>
+        <Link href="/usdt-exchange" className={buttonVariants()}>{isAr ? "ابدأ عبر Alpha Exchange" : "Start with Alpha Exchange"}</Link>
         <Link href="/safety-trust" className={buttonVariants({variant:"secondary"})}>{isAr ? "الأمان والثقة" : "Safety & Trust"}</Link>
         <Link href="/learn-trading-free" className={buttonVariants({variant:"secondary"})}>{isAr ? "تعلم التداول مجانًا" : "Learn Trading for Free"}</Link>
       </div>
