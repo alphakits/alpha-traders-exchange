@@ -78,3 +78,11 @@ export function calculateUsdtForPaymentTotal(total: string, price: string, inclu
   const canonical = canonicalizeTradeAmount(amount);
   return canonical && calculateTradePaymentTotal(canonical, price, includesBuyerFee) === `${totalCents / BigInt(100)}.${(totalCents % BigInt(100)).toString().padStart(2, "0")}` ? canonical : null;
 }
+
+/** Receipt attestation uses the agreed inclusive total; never adds the buyer fee twice. */
+export function tradePaymentReceiptConfirmation(locale: string, currency: string, total: string, includesBuyerFee: boolean) {
+  const formatted = Number(total).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return locale === "ar"
+    ? `أؤكد أنني استلمت كامل المبلغ ${currency} ${formatted}${includesBuyerFee ? "، شاملاً عمولة المشتري 1%" : ""}. لا تؤكد إذا كان المبلغ ناقصاً. بعد التأكيد تتابع الصفقة إلى إرسال USDT.`
+    : `I confirm I received the full ${currency} ${formatted}${includesBuyerFee ? ", including the buyer’s 1% fee" : ""}. Do not confirm a short payment. Confirming advances the trade to USDT delivery.`;
+}

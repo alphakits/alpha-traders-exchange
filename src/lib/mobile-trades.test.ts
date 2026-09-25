@@ -61,3 +61,11 @@ it("never offers cancellation after a cardless code was exposed, even with a sta
   expect(toMobileTradeActions(request, "buyer-1").canCancel).toBe(false);
   expect(toMobileTradeActions(request, "seller-1").canCancel).toBe(false);
 });
+
+ it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("exposes direct receipt only to the face-to-face seller for %s", paymentMethod => {
+   const request = { ...acceptedBankTrade, paymentMethod };
+   expect(toMobileTradeActions(request, "seller-1").canConfirmFunds).toBe(paymentMethod.startsWith("Face-to-Face"));
+   expect(toMobileTradeActions(request, "buyer-1").canConfirmFunds).toBe(false);
+   expect(toMobileTradeActions(request, "outsider").canConfirmFunds).toBe(false);
+   expect(toMobileTradeActions(request, "seller-1", { canOpenDispute: false, hasOpenDispute: true }).canConfirmFunds).toBe(false);
+ });

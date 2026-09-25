@@ -436,3 +436,26 @@ it("keeps the recorded cardless cash fixed and recalculates only once", async ()
   await act(async () => response.resolve(Response.json({ request: { ...current.request, usdtAmount: "125" } })));
   expect(await screen.findByText((_, element) => element?.textContent === "Amount confirmed: 125 USDT for ILS 400.00." && !Array.from(element.children).some(child => child.textContent === "Amount confirmed: 125 USDT for ILS 400.00."))).toBeTruthy();
 });
+
+it.each([
+  ["Face-to-Face (Meet in Person)", "accepted", "I Received the Cash"],
+  ["Cardless ATM Withdrawal", "payment_sent", "I Collected the ATM Cash"],
+  ["Bank Transfer", "payment_sent", "Confirm Money Received"],
+] as const)("requires full inclusive payment confirmation for %s", async (method, status, button) => {
+  const base = room(method, status);
+  const current = { ...base, request: { ...base.request, fiatAmount: "3232.00", usdtAmount: "1000", pricePerUsdt: "3.20", feePolicyVersion: "buyer_seller_1pct_v1" } };
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => Promise.resolve(init?.method === "PATCH" ? Response.json({ request: { ...current.request, status: "funds_received" } }) : Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.mocked(window.confirm).mockReturnValue(false);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  const confirm = await screen.findByRole("button", { name: button });
+  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("ILS 3,232.00");
+  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("Already includes the buyer’s 1% fee");
+  fireEvent.click(confirm);
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("I confirm I received the full ILS 3,232.00, including the buyer’s 1% fee"));
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  vi.mocked(window.confirm).mockReturnValue(true);
+  fireEvent.click(confirm);
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1));
+  expect(JSON.parse(String(fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1]?.body))).toMatchObject({ status: "funds_received" });
+});

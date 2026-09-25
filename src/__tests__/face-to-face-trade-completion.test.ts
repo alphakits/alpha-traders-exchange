@@ -187,6 +187,36 @@ describe("guided cash-trade completion", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it("lets the face-to-face seller confirm full cash directly, reveal the wallet, and complete exactly once", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    const original = currentSnapshot().purchaseRequests[0];
+    original.feePolicyVersion = "buyer_seller_1pct_v1";
+    original.fiatAmount = "808.00";
+    original.buyerReceivingWalletAddress = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
+    const seller = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    expect(sanitizePurchaseRequestForActor(original, SELLER_ID, "approved_seller").buyerReceivingWalletAddress).toBeUndefined();
+    await Promise.all([
+      updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" }),
+      updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" }),
+    ]);
+    const received = currentSnapshot().purchaseRequests[0];
+    expect(received).toMatchObject({ status: "funds_received", fiatAmount: "808.00", usdtAmount: "250" });
+    expect(received.paymentSentAt).toBeTruthy();
+    expect(received.timeline.filter(event => event.type === "seller_confirmed_funds")).toHaveLength(1);
+    expect(sanitizePurchaseRequestForActor(received, SELLER_ID, "approved_seller").buyerReceivingWalletAddress).toBe(original.buyerReceivingWalletAddress);
+    await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "cancelled" })).rejects.toThrow();
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("review_open");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().commissionRecords[0].commissionAmount).toBe(5);
+  });
+
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal"])("does not skip the buyer payment stage for %s", async paymentMethod => {
+    const { requestId } = seedTrade({ paymentMethod, status: "accepted" });
+    await expect(updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" })).rejects.toMatchObject({ code: "invalid-status-transition" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("accepted");
+  });
+
   it("keeps three shared-listing trades safe and visible while unpaid fees block every new acceptance", async () => {
     const { listingId } = seedTrade({ status: "pending", amount: "100" });
     const db = currentSnapshot();

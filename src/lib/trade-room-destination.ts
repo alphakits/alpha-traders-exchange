@@ -1,5 +1,5 @@
 import type { PurchaseRequest } from "@/types/alpha-exchange";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isCashTradePaymentMethod, isFaceToFacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 export type TradeRoomActionTarget =
   | "accept-trade"
@@ -31,7 +31,7 @@ function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: str
   if (request.status === "accepted" && isBuyerActor(request, actorUserId)) {
     return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-cash-payment" : "upload-payment-receipt";
   }
-  if (request.status === "payment_sent" && isSellerActor(request, actorUserId)) {
+  if (isSellerActor(request, actorUserId) && (request.status === "payment_sent" || (request.status === "accepted" && isFaceToFacePaymentMethod(request.paymentMethod)))) {
     return "confirm-money-received";
   }
   if (request.status === "funds_received" && isSellerActor(request, actorUserId)) {

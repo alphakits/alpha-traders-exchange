@@ -1,5 +1,5 @@
 import type { AlphaExchangeTradeReminder, PurchaseRequest } from "@/types/alpha-exchange";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isCashTradePaymentMethod, isFaceToFacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 /** Only navigation state is shared with the header; never wallet or payment details. */
 export type TradeHeaderActivity = Pick<PurchaseRequest,
@@ -20,6 +20,7 @@ export function getTradeHeaderReminderKind(trade: TradeHeaderActivity, actorId: 
   }
   if (isBuyer && (trade.status === "accepted" || trade.status === "usdt_sent")) return "buyer_action_required";
   if (isSeller && (["pending", "payment_sent", "funds_received", "usdt_release_pending"].includes(trade.status)
+    || (trade.status === "accepted" && isFaceToFacePaymentMethod(trade.paymentMethod))
     || (trade.status === "usdt_sent" && isCashTradePaymentMethod(trade.paymentMethod)))) return "seller_action_required";
   return null;
 }
