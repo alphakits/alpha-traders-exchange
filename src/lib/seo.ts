@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { AppLocale } from "@/i18n/routing";
 import { getSiteUrl } from "@/lib/site-url";
+import { isPrivateSearchPath } from "@/lib/seo-indexing";
 import {
   BRAND_NAME,
   BRAND_OFFICIAL_SOCIALS,
@@ -30,6 +31,15 @@ export function buildPageMetadata({
   return {
     title,
     description,
+    // Supplemental indexing directives, never a replacement for account controls.
+    ...(isPrivateSearchPath(path) ? {
+      robots: {
+        index: false,
+        follow: false,
+        nocache: true,
+        googleBot: { index: false, follow: false, noimageindex: true, nosnippet: true },
+      },
+    } : {}),
     alternates: {
       canonical,
       languages: {
