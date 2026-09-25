@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { PRESENCE_IDLE_MS, PRESENCE_LEASE_MS, type PresenceUpdate, type UserPresenceData } from "@alpha-traders/contracts";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import { OWNER_ANALYTICS_TIME_ZONE, ownerAnalyticsDateKey } from "@/lib/owner-analytics-reporting";
 import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 
 export const PRESENCE_SCHEMA_SQL = `create table if not exists alpha_exchange.user_presence (
@@ -134,19 +135,27 @@ export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalyti
           where active
             and last_seen_at > now() - ($1::bigint * interval '1 millisecond')
             and last_active_at > now() - ($2::bigint * interval '1 millisecond')
+            and exists (select 1 from alpha_exchange.sessions s
+              where s.token_hash = p.session_key and s.user_id = p.user_id and s.expires_at > now())
+            and exists (select 1 from alpha_exchange.users u
+              where u.id = p.user_id and coalesce(u.payload->>'disabled', 'false') <> 'true')
         ) as online_now,
-        count(distinct user_id) filter (where last_active_at >= date_trunc('day', now())) as active_today,
+        count(distinct user_id) filter (where last_active_at >= date_trunc('day', now(), '${OWNER_ANALYTICS_TIME_ZONE}')) as active_today,
         count(distinct user_id) filter (where last_active_at >= now() - interval '7 days') as active_7d,
         count(distinct user_id) filter (where last_active_at >= now() - interval '30 days') as active_30d,
         coalesce(array_agg(distinct user_id) filter (
           where active
             and last_seen_at > now() - ($1::bigint * interval '1 millisecond')
             and last_active_at > now() - ($2::bigint * interval '1 millisecond')
+            and exists (select 1 from alpha_exchange.sessions s
+              where s.token_hash = p.session_key and s.user_id = p.user_id and s.expires_at > now())
+            and exists (select 1 from alpha_exchange.users u
+              where u.id = p.user_id and coalesce(u.payload->>'disabled', 'false') <> 'true')
         ), array[]::text[]) as online_user_ids,
         coalesce(array_agg(distinct user_id) filter (
-          where last_active_at >= date_trunc('day', now())
+          where last_active_at >= date_trunc('day', now(), '${OWNER_ANALYTICS_TIME_ZONE}')
         ), array[]::text[]) as active_today_user_ids
-       from alpha_exchange.user_presence`,
+       from alpha_exchange.user_presence p`,
       [PRESENCE_LEASE_MS, PRESENCE_IDLE_MS],
     );
     const row = rows[0];
@@ -161,8 +170,7 @@ export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalyti
   }
 
   const now = Date.now();
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const todayKey = ownerAnalyticsDateKey(new Date(now));
   const online = new Set<string>();
   const today = new Set<string>();
   const d7 = new Set<string>();
@@ -171,7 +179,7 @@ export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalyti
     const activeAt = Date.parse(row.lastActiveAt ?? "");
     const seenAt = Date.parse(row.lastSeenAt ?? "");
     if (!Number.isFinite(activeAt)) continue;
-    if (activeAt >= startOfToday.getTime()) today.add(row.userId);
+    if (ownerAnalyticsDateKey(new Date(activeAt)) === todayKey) today.add(row.userId);
     if (activeAt >= now - 7 * 86_400_000) d7.add(row.userId);
     if (activeAt >= now - 30 * 86_400_000) d30.add(row.userId);
     if (row.active && Number.isFinite(seenAt) && now - seenAt < PRESENCE_LEASE_MS && now - activeAt < PRESENCE_IDLE_MS) online.add(row.userId);
