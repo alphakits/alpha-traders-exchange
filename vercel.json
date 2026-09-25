@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "node scripts/check-commission-batch-release.mjs && npm run build",
   "fluid": true,
   "regions": ["dub1"],
   "crons": [
