@@ -1,6 +1,6 @@
-import type { Client } from "pg";
+import type { PoolClient } from "pg";
 
-const guarded = new WeakSet<Client>();
+const guarded = new WeakSet<PoolClient>();
 type Callback = (...args: unknown[]) => unknown;
 
 function isReadTimeout(error: unknown): boolean {
@@ -18,8 +18,11 @@ function isReadTimeout(error: unknown): boolean {
  * A COMMIT timeout still has an unknown outcome and must not become a retry.
  * Server SQL errors (including 57014) keep normal transaction rollback behavior.
  */
-export function installPostgresTimeoutGuard(client: Client): void {
-  if (guarded.has(client)) return;
+export function installPostgresTimeoutGuard(client: PoolClient): void {
+  // PoolClient declarations omit end(); verify the actual driver capability.
+  // Do not assume a custom pool implementation exposes a shutdown method.
+  if (guarded.has(client) || !("end" in client) || typeof client.end !== "function") return;
+  const end = client.end;
   guarded.add(client);
   const original = client.query;
   let closing = false;
@@ -30,7 +33,7 @@ export function installPostgresTimeoutGuard(client: Client): void {
     try {
       // Public pg API: end() destroys the stream when a query is still active.
       // Never wait for shutdown before returning the original timeout error.
-      void Promise.resolve(client.end()).catch(() => undefined);
+      void Promise.resolve(Reflect.apply(end, client, [])).catch(() => undefined);
     } catch {
       // Preserve the original query error, not a secondary shutdown failure.
     }
@@ -62,5 +65,5 @@ export function installPostgresTimeoutGuard(client: Client): void {
       return result.catch((error: unknown) => { retire(error); throw error; });
     }
     return result;
-  } as Client["query"];
+  } as PoolClient["query"];
 }
