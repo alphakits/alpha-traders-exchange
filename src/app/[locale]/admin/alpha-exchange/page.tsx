@@ -3,6 +3,7 @@ import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
+import { OwnerLiveAnalyticsPanel } from "@/components/admin/owner-live-analytics-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -57,5 +58,8 @@ export default async function AlphaExchangeAdminPage({
     redirect(`/${locale}/usdt-exchange`);
   }
 
-  return <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} isOwner={hasRole(user, "owner")} />;
+  return <>
+    {hasRole(user, "owner") ? <OwnerLiveAnalyticsPanel locale={locale === "ar" ? "ar" : "en"} /> : null}
+    <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} isOwner={hasRole(user, "owner")} />
+  </>;
 }
