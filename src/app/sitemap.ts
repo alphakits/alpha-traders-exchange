@@ -10,6 +10,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/about-founder",
     "/learn-trading-free",
     "/buy-usdt-israel",
+    "/p2p-usdt-israel",
+    "/usdt-ils",
     "/founder",
     "/community",
     "/contact",
