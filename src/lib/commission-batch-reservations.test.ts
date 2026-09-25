@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
