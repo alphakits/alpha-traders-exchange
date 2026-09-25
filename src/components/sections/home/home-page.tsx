@@ -86,7 +86,7 @@ export async function HomePage({
               </h1>
               <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{currencyText(t("subheadline"))}</p>
               <div className={`alpha-reveal-fade alpha-delay-2 mt-8 flex flex-wrap gap-3 ${isRtl ? "md:justify-end" : "md:justify-start"}`}>
-                <Link href={academyHref} className={cn(buttonVariants(), "gap-2")}>
+                <Link href="/learn-trading-free" className={cn(buttonVariants(), "gap-2")}>
                     {currencyText(t("startLearning"))}
                     {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                   </Link>
@@ -101,7 +101,7 @@ export async function HomePage({
                   <span>{currencyText(t("watchIntro"))}</span>
                 </Link>
                 <Link
-                  href="/usdt-exchange"
+                  href="/buy-usdt-israel"
                   className="group relative inline-flex h-11 items-center justify-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-6 text-sm font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
                 >
                   <span className="relative z-10">{currencyText(t("exploreExchange"))}</span>
