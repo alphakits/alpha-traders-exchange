@@ -5,6 +5,7 @@ import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { resolveCommissionWalletForNetwork } from "@/lib/commission-config";
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
+import { logEvent } from "@/lib/structured-logging";
 import { createCommissionBatchWorkflow, getPendingCommissionBatches, getCommissionBatchReceiptReservations } from "./commission-batch-workflow";
 import { verifyCommissionBatchTronReceipt } from "./commission-batch-tron-verifier";
 
@@ -24,6 +25,10 @@ export async function getCommissionBatchRuntime() {
       AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'alpha_exchange.audit_logs'::regclass
         AND tgname = 'reserve_approved_commission_batch_receipt' AND tgenabled = 'O') AS ready`);
     if (guard.rows[0]?.ready !== true) throw new Error("Apply and verify the commission receipt-reservation migration before enabling batches");
+    // Evidence of actual runtime enablement, not merely a build-time flag.
+    // Do not include secrets, account identities, addresses or receipt bodies.
+    logEvent("info", { event: "commission_batch_runtime_ready", outcome: "success",
+      metadata: { enabled: true, receiptReservationGuards: true, toleranceUsdt: 1, attributionRequired: true } });
   }
   const repository = await getAlphaExchangeRepository();
   const workflow = createCommissionBatchWorkflow({
