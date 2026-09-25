@@ -35,6 +35,7 @@ export function buildPageMetadata({
       languages: {
         ar: `${siteUrl}/ar${path}`,
         en: `${siteUrl}/en${path}`,
+        "x-default": `${siteUrl}/en${path}`,
       },
     },
     openGraph: {
