@@ -1,6 +1,7 @@
 import { Link } from "@/i18n/navigation";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
+import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -30,11 +31,20 @@ export default async function BuyUsdtIsraelPage({ params }: { params: Promise<{ 
     { question: "Does Approved Seller status make a trade risk-free?", answer: "No. Marketplace approval does not guarantee future seller behavior or a risk-free trade. Review price, ratings, trust signals and the trade flow before proceeding." },
   ];
   const faqSchema = buildFaqSchema({ locale: isAr ? "ar" : "en", path: "/buy-usdt-israel", faqs });
+  const breadcrumbSchema = buildBreadcrumbSchema({
+    locale: isAr ? "ar" : "en",
+    items: [
+      { name: isAr ? "الرئيسية" : "Home", path: "" },
+      { name: isAr ? "ابدأ" : "Start", path: "/start" },
+      { name: isAr ? "شراء وبيع USDT في إسرائيل" : "Buy & Sell USDT in Israel", path: "/buy-usdt-israel" },
+    ],
+  });
   const points = isAr
     ? ["قارن عروض USDT والأسعار قبل فتح الطلب.", "تعامل مع بائعين تمت الموافقة على وصولهم للسوق.", "استخدم مسار صفقة منظم ومحادثة داخل غرفة التداول.", "طرق الدفع المتاحة تعتمد على العرض وقد تشمل التحويل البنكي والسحب بدون بطاقة واللقاء المباشر.", "راجع التقييمات وإشارات الثقة قبل المتابعة."]
     : ["Compare available USDT listings and prices before opening a request.", "Trade with sellers whose marketplace access has been approved.", "Use a structured trade flow with communication inside the Trade Room.", "Available methods depend on each listing and may include bank transfer, cardless cash withdrawal and face-to-face.", "Review seller ratings and public trust signals before continuing."];
   return <section className="section-container page-shell">
     <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(faqSchema)}} />
+    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(breadcrumbSchema)}} />
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="space-y-4">
         <p className="section-label">Alpha Exchange · USDT / ILS · Israel</p>
