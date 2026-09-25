@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CheckCircle2, CircleDot, Radar, ScanLine, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +56,10 @@ export function CommissionAutomationPanel({
         </div>
       </div>
 
+      <Link href={`/${isAr ? "ar" : "en"}/seller/commission-checkout`} className="mt-4 block rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-200">
+        {isAr ? "دفع جميع العمولات تلقائيًا — دون موافقة المالك" : "Pay all commissions automatically — no owner approval"}
+      </Link>
+      <p className="mt-2 text-xs leading-5 text-slate-300">{isAr ? "للتحويلات الجديدة: أنشئ تعليمات الدفع أولًا واختر مبلغًا ضمن فرق 1 USDT. إذا أرسلت دفعتك بالفعل، لا تُعد إرسالها." : "For new transfers: prepare payment instructions first and choose an amount within 1 USDT of the total. If you already sent a payment, do not send it again."}</p>
       <p className="mt-4 text-sm font-medium text-white">{isAr ? "أرسل الدفعة، واترك التأكيد علينا." : "Send once. We handle confirmation."}</p>
       <ol aria-label={isAr ? "كيف يعمل التأكيد التلقائي" : "How automatic confirmation works"} className="mt-3 grid grid-cols-3 gap-2">
         {[
