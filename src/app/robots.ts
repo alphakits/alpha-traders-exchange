@@ -35,7 +35,7 @@ export default function robots(): MetadataRoute.Robots {
       { userAgent: "*", allow: "/", disallow: PRIVATE_PATHS },
       {
         userAgent: "OAI-SearchBot",
-        allow: ["/", "/llms.txt", "/.well-known/security.txt"],
+        allow: ["/", "/en/start", "/ar/start", "/en/learn-trading-free", "/ar/learn-trading-free", "/en/buy-usdt-israel", "/ar/buy-usdt-israel", "/llms.txt", "/sitemap.xml", "/.well-known/security.txt"],
         disallow: PRIVATE_PATHS,
       },
     ],
