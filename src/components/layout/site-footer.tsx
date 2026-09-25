@@ -84,6 +84,7 @@ const COMPANY_SECTION: FooterSection = {
   en: "Company",
   ar: "الشركة",
   items: [
+    { href: "/start", en: "Start Here", ar: "ابدأ من هنا", icon: ExternalLink },
     { href: "/about-founder", en: "About Alpha Traders", ar: "عن Alpha Traders", icon: ExternalLink },
     { href: "/founder", en: "Founder", ar: "المؤسس", icon: UserCircle2 },
     { href: "/contact", en: "Contact", ar: "تواصل معنا", icon: Mail },
