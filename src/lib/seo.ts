@@ -129,6 +129,32 @@ export function buildSiteIdentitySchemas() {
   ];
 }
 
+
+export function buildFaqSchema({
+  locale,
+  path,
+  faqs,
+}: {
+  locale: AppLocale;
+  path: string;
+  faqs: Array<{ question: string; answer: string }>;
+}) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${siteUrl}/${locale}${path}#faq`,
+    inLanguage: locale,
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
+  };
+}
+
 export function buildTrustFaqSchema(locale: AppLocale) {
   return {
     "@context": "https://schema.org",
