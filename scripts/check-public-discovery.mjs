@@ -12,7 +12,7 @@ import ts from "typescript";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const read = (path) => fs.readFileSync(root + path, "utf8");
 const site = "https://www.alphatraders.co.il";
-const jsx = (type, props) => ({ type, props: props ?? {} });
+const jsx = (type, props) => typeof type === "function" ? type(props ?? {}) : ({ type, props: props ?? {} });
 function load(path, dependencies = {}) {
   const output = ts.transpileModule(read(path), {
     fileName: path, reportDiagnostics: true,
@@ -39,6 +39,7 @@ const seo = load("src/lib/seo.ts", {
   "@/lib/public-trust": { getPublicTrustFaqs: () => [] },
 });
 const breadcrumb = load("src/lib/seo-breadcrumb.ts");
+const navigation = load("src/components/seo/public-discovery-breadcrumbs.tsx", { "next/link": { default: "test-link" } });
 const robots = load("src/app/robots.ts", { "@/lib/seo-indexing": indexing }).default();
 const sitemap = load("src/app/sitemap.ts").default();
 const pages = ["start", "learn-trading-free", "buy-usdt-israel"];
@@ -46,6 +47,7 @@ const variants = ["en", "ar"];
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/lib/seo": seo,
   "@/lib/seo-breadcrumb": breadcrumb,
+  "@/components/seo/public-discovery-breadcrumbs": navigation,
   "@/i18n/navigation": { Link: "test-link" },
   "@/components/ui/button": { buttonVariants: () => "test-button" },
 });
@@ -159,4 +161,69 @@ test("production build retains the owner gate and requires discovery tests", () 
   const { scripts } = JSON.parse(read("package.json"));
   assert.match(scripts.build, /npm run test:seo-discovery && npm run test:owner-analytics && node scripts\/build-production\.mjs/);
   assert.equal(scripts["test:seo-discovery"], "node scripts/check-public-discovery.mjs");
+});
+
+for (const locale of variants) {
+  for (const name of pages) {
+    test(`${locale}/${name}: visible breadcrumb navigation matches structured data`, async () => {
+      const view = await page(name).default({ params: Promise.resolve({ locale }) });
+      const trails = walk(view, (node) => node.type === "nav" && node.props["aria-label"] === (locale === "ar" ? "مسار التصفح" : "Breadcrumb"));
+      assert.equal(trails.length, 1);
+      assert.equal(trails[0].props.dir, locale === "ar" ? "rtl" : "ltr");
+      const schema = walk(view, (node) => node.type === "script")
+        .map((node) => JSON.parse(node.props.dangerouslySetInnerHTML.__html))
+        .find((item) => item["@type"] === "BreadcrumbList");
+      const links = walk(trails[0], (node) => node.type === "test-link");
+      assert.equal(links.length, schema.itemListElement.length - 1);
+      links.forEach((link, index) => {
+        assert.equal(link.props.href, schema.itemListElement[index].item);
+        assert.equal(visibleText(link), schema.itemListElement[index].name);
+        const url = new URL(link.props.href);
+        assert.equal(url.origin, site);
+        assert.equal(indexing.isPrivateSearchPath(url.pathname), false);
+        assert.ok(sitemap.some((entry) => entry.url === url.href));
+      });
+      const current = walk(trails[0], (node) => node.props?.["aria-current"] === "page");
+      assert.equal(current.length, 1);
+      assert.equal(visibleText(current[0]), schema.itemListElement.at(-1).name);
+      assert.equal(current[0].props.href, undefined);
+    });
+  }
+  for (const alias of ["usdt-ils", "p2p-usdt-israel"]) {
+    test(`${locale}/${alias}: existing legacy redirect keeps the canonical public destination`, async () => {
+      const legacy = load(`src/app/[locale]/${alias}/page.tsx`, {
+        "next/navigation": { permanentRedirect: (destination) => { throw Object.assign(new Error("redirect fixture"), { destination }); } },
+      });
+      await assert.rejects(legacy.default({ params: Promise.resolve({ locale }) }), (error) => error.destination === `${"/" + locale}/buy-usdt-israel`);
+      assert.equal(sitemap.some((entry) => entry.url === `${site}/${locale}/${alias}`), false);
+    });
+  }
+}
+test("empty breadcrumb input does not render an empty landmark", () => {
+  assert.equal(navigation.PublicDiscoveryBreadcrumbs({ locale: "en", items: [] }), null);
+});
+test("start title leaves the shared brand suffix to the root template", async () => {
+  assert.match(read("src/lib/site-metadata.ts"), /template: `%s \| \$\{BRAND_NAME\}`/);
+  for (const locale of variants) {
+    const metadata = await page("start").generateMetadata({ params: Promise.resolve({ locale }) });
+    assert.equal(typeof metadata.title, "string");
+    assert.equal(metadata.title.includes("Alpha Traders"), false);
+    assert.equal(/[\u0600-\u06ff]/u.test(metadata.title), locale === "ar");
+  }
+});
+test("AI public directory lists canonical sitemap pages; account entry stays separate", () => {
+  const text = read("public/llms.txt");
+  const directory = text.split("Useful public discovery pages:\n")[1]?.split("## Access model")[0];
+  assert.ok(directory);
+  const urls = directory.match(/https:\/\/www\.alphatraders\.co\.il\/[^\s]+/g) ?? [];
+  assert.ok(urls.length >= 10);
+  assert.equal(urls.length, new Set(urls).size);
+  for (const url of urls) {
+    assert.ok(sitemap.some((entry) => entry.url === url), url);
+    assert.equal(indexing.isPrivateSearchPath(new URL(url).pathname), false);
+  }
+  for (const locale of variants) for (const name of pages) assert.ok(urls.includes(`${site}/${locale}/${name}`));
+  assert.doesNotMatch(directory, /\/usdt-ils\b|\/p2p-usdt-israel\b|\/usdt-exchange\b/);
+  assert.match(text.split("## Access model")[1] ?? "", /Marketplace entry \(sign-in required\): https:\/\/www\.alphatraders\.co\.il\/en\/usdt-exchange/);
+  assert.match(text, /sign-in with a verified email/);
 });

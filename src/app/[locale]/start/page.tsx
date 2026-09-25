@@ -2,13 +2,14 @@ import { Link } from "@/i18n/navigation";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
 import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
+import { PublicDiscoveryBreadcrumbs } from "@/components/seo/public-discovery-breadcrumbs";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const isAr = locale === "ar";
   return buildPageMetadata({
     locale: isAr ? "ar" : "en",
-    title: isAr ? "Alpha Traders Academy & Exchange | دليل التعلم وUSDT" : "Alpha Traders Academy & Exchange | Trading & USDT Guide",
+    title: isAr ? "دليل تعلم التداول وUSDT" : "Trading Education & USDT Guide",
     description: isAr
       ? "ابدأ من هنا لاستكشاف تعليم التداول المجاني وسوق USDT/ILS العام في Alpha Traders، ثم سجّل الدخول للمتابعة ضمن صلاحيات حسابك."
       : "Start here to discover Alpha Traders free trading education and the public USDT/ILS marketplace guide, then sign in to continue through your account permissions.",
@@ -41,6 +42,7 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqSchema) }} />
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbSchema) }} />
     <div className="mx-auto max-w-5xl space-y-8">
+      <PublicDiscoveryBreadcrumbs locale={isAr ? "ar" : "en"} items={breadcrumbSchema.itemListElement} />
       <div className="space-y-4">
         <p className="section-label">Alpha Traders Academy & Exchange</p>
         <h1 className="page-title">{isAr ? "ابدأ من المسار المناسب لك" : "Start with the right Alpha Traders path"}</h1>

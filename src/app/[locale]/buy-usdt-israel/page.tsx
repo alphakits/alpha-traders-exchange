@@ -2,6 +2,7 @@ import { Link } from "@/i18n/navigation";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
 import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
+import { PublicDiscoveryBreadcrumbs } from "@/components/seo/public-discovery-breadcrumbs";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -46,6 +47,7 @@ export default async function BuyUsdtIsraelPage({ params }: { params: Promise<{ 
     <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(faqSchema)}} />
     <script type="application/ld+json" dangerouslySetInnerHTML={{__html:serializeJsonLd(breadcrumbSchema)}} />
     <div className="mx-auto max-w-4xl space-y-8">
+      <PublicDiscoveryBreadcrumbs locale={isAr ? "ar" : "en"} items={breadcrumbSchema.itemListElement} />
       <div className="space-y-4">
         <p className="section-label">Alpha Exchange · USDT / ILS · Israel</p>
         <h1 className="page-title">{isAr ? "شراء وبيع USDT في إسرائيل بالشيكل" : "Buy and Sell USDT in Israel with ILS"}</h1>
