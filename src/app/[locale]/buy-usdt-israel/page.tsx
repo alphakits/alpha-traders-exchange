@@ -53,6 +53,15 @@ export default async function BuyUsdtIsraelPage({ params }: { params: Promise<{ 
         <h2 className="text-xl font-semibold">{isAr ? "الرسوم والشفافية" : "Fees and transparency"}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "تعرض Alpha Exchange الرسوم المطبقة داخل مسار الصفقة قبل الإكمال. راجع دائمًا السعر والمبلغ وطريقة الدفع والشبكة قبل إرسال أي قيمة." : "Alpha Exchange shows applicable fees in the trade flow before completion. Always review the price, amount, payment method and blockchain network before sending value."}</p>
       </div>
+      <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
+        <h2 className="text-xl font-semibold">{isAr ? "قبل فتح طلب USDT" : "Before opening a USDT request"}</h2>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(isAr
+            ? ["قارن السعر وكمية USDT المتاحة.", "راجع تقييمات البائع وإشارات الثقة.", "تأكد من طريقة الدفع والشروط قبل المتابعة.", "تحقق من شبكة المحفظة والعنوان والمبلغ قبل إرسال USDT أو تحريره."]
+            : ["Compare the price and available USDT amount.", "Review seller ratings and public trust signals.", "Confirm the payment method and terms before proceeding.", "Verify the wallet network, address and amount before sending or releasing USDT."]
+          ).map((item) => <p key={item} className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm leading-6 text-[#D1D5DB]">{item}</p>)}
+        </div>
+      </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة عن USDT / ILS" : "USDT / ILS frequently asked questions"}</h2>
         <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
