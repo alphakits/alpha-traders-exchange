@@ -63,6 +63,35 @@ describe("prepared cardless purchase form", () => {
 
 
 describe("cardless listing limits and escape", () => {
+  it("accepts typed cash, normalizes Arabic digits and blocks incomplete or incompatible amounts", () => {
+    render(<Harness initialBuyerInfo={preparedBankCode} />);
+    const cash = screen.getByLabelText("Enter withdrawal amount in ILS") as HTMLInputElement;
+    const amount = screen.getByLabelText(/USDT Amount/) as HTMLInputElement;
+    const submit = screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement;
+    fireEvent.change(cash, { target: { value: "٥٠٠" } });
+    expect(cash.value).toBe("500");
+    expect(amount.value).toBe("154.70297");
+    expect(submit.disabled).toBe(false);
+    fireEvent.change(cash, { target: { value: "1,000" } });
+    expect(cash.value).toBe("1,000");
+    expect(amount.value).toBe("309.405941");
+    expect(submit.disabled).toBe(false);
+    for (const value of ["1", "550", "10000", ""]) {
+      fireEvent.change(cash, { target: { value } });
+      expect(amount.value).toBe("");
+      expect(submit.disabled).toBe(true);
+    }
+  });
+
+  it("explains the reported 5,000 USDT minimum without bypassing seller limits", () => {
+    render(<Harness selectedMinTrade={5000} selectedMaxTrade={45000} initialBuyerInfo={preparedBankCode} />);
+    fireEvent.change(screen.getByLabelText("Enter withdrawal amount in ILS"), { target: { value: "10000" } });
+    expect(screen.getByRole("alert").textContent).toContain("No withdrawal amount from ₪100 to ₪10,000 fits");
+    expect(screen.getByRole("alert").textContent).toContain("5,000 – 45,000 USDT");
+    expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Quick Buy" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("offers only compatible cash amounts for the reported 600–660 listing", () => {
     render(<Harness selectedMinTrade={600} selectedMaxTrade={660} selectedPrice={3.03} initialBuyerInfo={preparedBankCode} />);
     const cash = screen.getByLabelText("Withdrawal code amount in ILS") as HTMLSelectElement;
