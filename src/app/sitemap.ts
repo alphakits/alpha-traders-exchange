@@ -7,7 +7,7 @@ const locales = ["ar", "en"] as const;
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes = [
     "",
-    "/about-founder",
+    "/about-founder",\n    "/start",
     "/learn-trading-free",
     "/buy-usdt-israel",
     "/founder",
