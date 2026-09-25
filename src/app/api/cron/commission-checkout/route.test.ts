@@ -1,0 +1,15 @@
+import { beforeEach, afterEach, it, expect, vi } from "vitest";
+import { NextRequest } from "next/server";
+const mocks = vi.hoisted(() => ({ runtime: vi.fn(), scan: vi.fn(), log: vi.fn() }));
+vi.mock("@/lib/commission-checkout-runtime", () => ({ getCommissionCheckoutRuntime: mocks.runtime }));
+vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.log }));
+import { GET } from "./route";
+const secret = "test-only-scheduler-key-at-least-thirty-two";
+const request = (authorization = `Bearer ${secret}`) => new NextRequest("https://www.alphatraders.co.il/api/cron/commission-checkout", { headers: { authorization } });
+beforeEach(() => { vi.stubEnv("CRON_SECRET", secret); vi.clearAllMocks(); mocks.runtime.mockResolvedValue({ scan: mocks.scan }); mocks.scan.mockResolvedValue({ complete: true, errors: 0, enabled: true, pendingCheckouts: 0, verified: 0 }); });
+afterEach(() => vi.unstubAllEnvs());
+it("unauthenticated caller cannot scan private deposits", async () => { expect((await GET(request(""))).status).toBe(401); expect(mocks.runtime).not.toHaveBeenCalled(); });
+it("missing scheduler secret refuses operation", async () => { vi.stubEnv("CRON_SECRET", ""); expect((await GET(request())).status).toBe(503); expect(mocks.scan).not.toHaveBeenCalled(); });
+it("authorized scheduler runs bounded processing with no owner approval", async () => { const response = await GET(request()); expect(response.status).toBe(200); expect(mocks.scan).toHaveBeenCalledOnce(); expect(mocks.log).toHaveBeenCalledWith("info", expect.objectContaining({ metadata: expect.objectContaining({ ownerApprovalRequired: false }) })); });
+it("incomplete provider history stays explicit", async () => { mocks.scan.mockResolvedValue({ complete: false, errors: 0 }); expect((await GET(request())).status).toBe(503); });
+it("database/provider exceptions do not leak private account information", async () => { mocks.runtime.mockRejectedValue(Error("private api-key value")); const response = await GET(request()); expect(response.status).toBe(503); expect(JSON.stringify(await response.json())).not.toContain("api-key"); });
