@@ -11,7 +11,7 @@ export function TradeChatMessageLabel({ message, context, actorId, locale }: {
   if (!sender) return <p className="mb-1 text-xs font-semibold text-[#93C5FD]">{locale === "ar" ? "تحديث الصفقة" : "Trade update"}</p>;
   return <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
     {sender.publicId ? <PublicAccountId value={sender.publicId} audience={sender.role === "buyer" ? "buyer" : "seller"} rank={context.listing?.sellerReputation?.level} /> : null}
-    <span className="rounded-full border border-white/15 px-1.5 py-0.5 text-[10px] font-medium text-[#D1D5DB]">{tradeChatRoleLabel(sender.role, locale)}</span>
+    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${sender.role === "owner" ? "border-red-400/60 bg-red-600/25 text-red-200" : "border-white/15 text-[#D1D5DB]"}`}>{tradeChatRoleLabel(sender.role, locale)}</span>
     {message.senderUserId === actorId ? <span className="text-[#9CA3AF]">{locale === "ar" ? "أنت" : "You"}</span> : null}
   </div>;
 }

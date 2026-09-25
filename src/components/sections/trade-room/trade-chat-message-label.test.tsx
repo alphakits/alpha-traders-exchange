@@ -11,6 +11,12 @@ const context = { request: { buyerId: "buyer-1", sellerId: "seller-1" }, counter
 const message: TradeChatMessage = { id: "message-1", purchaseRequestId: "trade-1", kind: "user", senderUserId: "buyer-1", senderRole: "approved_seller", message: "Hello", createdAt: "2026-09-24T12:00:00Z", readByUserIds: ["buyer-1"] };
 
 describe("public trade chat labels", () => {
+  it("shows the verified owner with a red Owner badge", () => {
+    const html = renderToStaticMarkup(<TradeChatMessageLabel message={{ ...message, senderUserId: "owner-1", senderRole: "owner" }} context={context} actorId="buyer-1" locale="en" />);
+    expect(html).toContain("Owner");
+    expect(html).toContain("bg-red-600/25");
+    expect(html).not.toContain("Support");
+  });
   it("shows the dashboard AT ID and actual trade side, including a seller who is buying", () => {
     const html = renderToStaticMarkup(<TradeChatMessageLabel message={message} context={context} actorId="buyer-1" locale="en" />);
     expect(html).toContain("AT-100001");

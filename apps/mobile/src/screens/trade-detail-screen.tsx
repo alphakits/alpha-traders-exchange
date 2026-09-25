@@ -1112,11 +1112,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               return (
                 <View
                   key={`${message.createdAt}-${message.sender}-${index}`}
-                  style={[styles.messageBubble, isOwn ? styles.ownMessage : styles.counterpartyMessage]}
+                  style={[styles.messageBubble, isOwn ? styles.ownMessage : styles.counterpartyMessage, message.isOwnerMessage && { borderColor: "#f87171", backgroundColor: "#450a0a", borderWidth: 1 }]}
                 >
-                  <Text style={[styles.messageIdentity, isRTL && styles.rtlText]}>
+                  <Text style={[styles.messageIdentity, isRTL && styles.rtlText, message.isOwnerMessage && { color: "#fecaca" }]}>
                     {message.senderPublicId ? `${message.senderPublicId} · ` : ""}
-                    {tradeChatRoleLabel(message.participantRole ?? (isOwn ? trade.side : trade.side === "buyer" ? "seller" : "buyer"), locale)}
+                    {tradeChatRoleLabel(message.isOwnerMessage ? "owner" : message.participantRole ?? (isOwn ? trade.side : trade.side === "buyer" ? "seller" : "buyer"), locale)}
                     {isOwn ? (locale === "ar" ? " · أنت" : " · You") : ""}
                   </Text>
                   <Text style={[styles.messageText, isRTL && styles.rtlText]}>{message.message}</Text>

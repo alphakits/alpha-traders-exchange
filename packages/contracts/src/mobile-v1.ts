@@ -976,6 +976,7 @@ export interface MobileTradeMessage {
   sender: "you" | "counterparty" | "system";
   senderPublicId?: string;
   participantRole?: import("./trade-chat").TradeChatParticipantRole;
+  isOwnerMessage?: boolean;
   status?: import("./trade-chat").TradeChatStatus;
   message: string;
   createdAt: string;

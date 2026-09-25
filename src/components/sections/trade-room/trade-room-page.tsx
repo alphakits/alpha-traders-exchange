@@ -3805,6 +3805,8 @@ function TradeRoomPageSession({
                           className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
                             message.kind === "system"
                               ? "mx-auto border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#D1D5DB]"
+                              : message.senderRole === "owner"
+                                ? "border border-red-400/50 bg-red-950/40 text-red-100"
                               : ownMessage
                                 ? "ml-auto border border-[#C9A227]/40 bg-[#C9A227]/15 text-white"
                                 : "border border-white/10 bg-black/40 text-[#E5E7EB]"
