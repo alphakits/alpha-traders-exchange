@@ -50,7 +50,9 @@ const MARKETPLACE_SECTION: FooterSection = {
   en: "Marketplace",
   ar: "السوق",
   items: [
-    { href: "/usdt-exchange?mode=buy#marketplace-sellers", en: "Buy USDT", ar: "شراء USDT", icon: Store },
+    { href: "/buy-usdt-israel", en: "Buy USDT in Israel", ar: "شراء USDT في إسرائيل", icon: Store },
+    { href: "/usdt-ils", en: "USDT / ILS Guide", ar: "دليل USDT / ILS", icon: FileText },
+    { href: "/usdt-exchange?mode=buy#marketplace-sellers", en: "Browse USDT Listings", ar: "تصفح عروض USDT", icon: Store },
     { href: "/usdt-exchange?mode=sell#create-listing", en: "Sell USDT", ar: "بيع USDT", icon: Store },
     { href: "/usdt-exchange?approved=1&sort=trust-desc#marketplace-sellers", en: "Approved Sellers", ar: "البائعون المعتمدون", icon: ShieldCheck },
     { href: "/usdt-exchange?sort=trust-desc", en: "Seller Rankings", ar: "ترتيب البائعين", icon: Activity },
@@ -66,6 +68,7 @@ const LEARN_SECTION: FooterSection = {
   en: "Academy",
   ar: "الأكاديمية",
   items: [
+    { href: "/learn-trading-free", en: "Learn Trading for Free", ar: "تعلم التداول مجانًا", icon: GraduationCap },
     { href: "/academy#courses-overview", en: "Trading Courses", ar: "دورات التداول", icon: GraduationCap },
     { href: "/lessons#beginner-guides", en: "Beginner Guides", ar: "أدلة المبتدئين", icon: FileText },
     { href: "/lessons#advanced-strategies", en: "Advanced Strategies", ar: "استراتيجيات متقدمة", icon: Activity },
