@@ -6,7 +6,7 @@ import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-conta
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
-import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
+import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
 import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
@@ -10162,6 +10162,7 @@ export async function updateTradeTerms(input: {
     const seller = request.sellerId === input.actorUserId;
     const proposal = request.termsProposal;
     const creating = input.action === "counter_offer" || input.action === "propose_amount" || input.action === "propose_ils_amount";
+    if ((creating || input.action === "accept_amount") && hasIrreversibleTradeProgress(snapshot, request)) throw new TradeBlockedError("trade-terms-invalid", "Payment has started. Trade amounts and price are locked at this stage.", input.requestId);
     if (!creating && proposal && proposal.id === input.proposalId && proposal.status !== "pending") {
       const expected = input.action === "accept_amount" ? "accepted" : input.action === "withdraw_terms" ? "withdrawn" : "declined";
       if (proposal.status === expected && (input.action === "withdraw_terms" ? seller : !seller)) { committed = request; return snapshot; }
@@ -10175,7 +10176,7 @@ export async function updateTradeTerms(input: {
       if (!seller) throw new TradeBlockedError("trade-terms-invalid", "Only the seller can propose new terms.", input.requestId);
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
-      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["accepted", "payment_sent", "funds_received"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
+      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : request.status !== "accepted") throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
 
       if (!counter && !isRequestStatusLockingListing(request.status)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
@@ -10247,14 +10248,9 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
     if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
     if (request.termsProposal?.status === "pending") throw new Error("Respond to the pending proposal first.");
-    if (!isCardlessAtmPaymentMethod(request.paymentMethod) || !["payment_sent", "funds_received"].includes(request.status)) throw new Error("Adjust the amount after accepting and before confirming USDT sent.");
+    if (!isCardlessAtmPaymentMethod(request.paymentMethod) || request.status !== "accepted" || hasIrreversibleTradeProgress(snapshot, request)) throw new Error("Payment has started or the trade is not accepted. Amounts can only be adjusted before payment.");
     if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new Error("Resolve the open dispute before adjusting the amount.");
-    const credential = request.messages?.find((item) => item.credentialKind === "cardless_code");
     let cashAmount = request.fiatAmount;
-    if (request.status === "payment_sent" && credential) {
-      const payload = decryptCardlessCredential(credential.message, request.id, credential.id);
-      try { cashAmount = JSON.parse(payload ?? "{}")?.ilsAmount ?? request.fiatAmount; } catch { throw new Error("Withdrawal details unavailable."); }
-    }
     if (input.ilsAmount) {
       const provided = validateCardlessIlsAmount(input.ilsAmount, input.ilsAmount);
       if (!provided) throw new Error("Withdrawal must be 100–10,000 ILS in multiples of 100.");
@@ -13532,6 +13528,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
+  if (isBuyer && input.nextStatus === "cancelled" && hasRevealedBankDetails(request)) throw new TradeBlockedError("buyer-cancellation-locked", "Bank details have been revealed. Only the seller can cancel while the trade is unpaid.", request.id);
   if (isBuyer && !acceptingCounter && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
     throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can only set cancelled, payment_sent, or completed.", request.id, {
       guard: "buyer-next-status-allowlist",
@@ -14577,6 +14574,7 @@ async function updatePurchaseRequestStatusAttempt(
         ))) {
           throw new ConcurrentTradeMutationError();
         }
+        if (isBuyer && input.nextStatus === "cancelled" && hasRevealedBankDetails(canonicalRequest)) throw new ConcurrentTradeMutationError();
         if ((input.nextStatus === "cancelled" || input.nextStatus === "declined") && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)) {
           throw new ConcurrentTradeMutationError();
         }

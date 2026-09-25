@@ -27,7 +27,7 @@ describe("trade proposal controls", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "accept_counter_offer", proposalId: "offer-2" });
   });
-  it.each(["usdt_release_pending", "usdt_sent"] as const)("hides unavailable amount controls at %s", (status) => {
+  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("hides unavailable amount controls at %s", (status) => {
     render(<TradeTermsPanel request={{ ...base, status }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
   });

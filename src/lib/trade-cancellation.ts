@@ -18,3 +18,9 @@ export function hasIrreversibleRequestProgress(request: PurchaseRequest) {
     || (request.status === "accepted" && request.messages?.some((message) => message.credentialKind === "cardless_code")),
   );
 }
+
+/** Bank disclosure locks buyer cancellation, but does not prove payment. */
+export function hasRevealedBankDetails(request: PurchaseRequest) {
+  return Boolean((request.sensitivePaymentKind === "bank_details" && request.sensitivePaymentSharedAt)
+    || request.timeline?.some(event => event.type === "bank_details_revealed"));
+}

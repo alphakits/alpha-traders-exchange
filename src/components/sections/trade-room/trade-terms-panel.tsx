@@ -1,5 +1,6 @@
 "use client";
 
+import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useRef, useState, type ReactNode } from "react";
@@ -21,13 +22,14 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
   const inFlight = useRef(false);
   const seller = request.sellerId === actorId;
   const counter = request.status === "pending" && request.priceMode === "buyer_offer";
-  const canCorrect = ["accepted", "payment_sent", "funds_received"].includes(request.status);
+  const paymentLocked = hasIrreversibleRequestProgress(request);
+  const canCorrect = request.status === "accepted" && !paymentLocked;
   const proposal = request.termsProposal;
   const pending = proposal?.status === "pending";
   const face = request.paymentMethod === "Face-to-Face (Meet in Person)";
   if (!["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)) return null;
   if (![request.sellerId, request.buyerId].includes(actorId)) return null;
-  if (!pending && ["usdt_release_pending", "usdt_sent"].includes(request.status)) return null;
+  if (!pending && (paymentLocked || !seller)) return null;
 
   async function submit(action: string) {
     if (disabled || inFlight.current) return;
@@ -61,7 +63,7 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
       <p className="text-sm">{isAr ? "راجع الكمية والسعر والإجمالي بدقة. لا تتغير الشروط إلا بعد موافقة المشتري." : "Review the exact amount, price and total. Terms change only after the buyer accepts."}</p>
       <div className="flex flex-wrap gap-2">
         {seller ? <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</Button> : <>
-          <Button disabled={disabled || busy} onClick={() => void submit(proposal.kind === "counter_offer" ? "accept_counter_offer" : "accept_amount")}>{isAr ? "موافقة على الشروط" : "Accept these terms"}</Button>
+          <Button disabled={disabled || busy || paymentLocked} onClick={() => void submit(proposal.kind === "counter_offer" ? "accept_counter_offer" : "accept_amount")}>{isAr ? "موافقة على الشروط" : "Accept these terms"}</Button>
           <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("decline_terms")}>{isAr ? "رفض الاقتراح" : "Decline proposal"}</Button>
         </>}
       </div>
