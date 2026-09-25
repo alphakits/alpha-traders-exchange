@@ -123,6 +123,14 @@ type AdminPayload = {
     activeCases: Array<MarketplaceEnforcementRecord & { sellerName: string; sellerEmail: string }>;
     recentActivity: Array<AdminEnforcementAuditEntry & { sellerName: string; actorName: string }>;
   };
+  presenceAnalytics?: {
+    onlineNow: number;
+    activeToday: number;
+    activeLast7Days: number;
+    activeLast30Days: number;
+    onlineUserIds: string[];
+    activeTodayUserIds: string[];
+  };
   complianceSettings?: {
     recoveryWallet: {
       network: SupportedNetwork;
@@ -3666,6 +3674,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                           {[
+                            { label: t("Online Now", "متصلون الآن"), value: data.presenceAnalytics?.onlineNow ?? 0 },
+                            { label: t("Active Users Today", "المستخدمون النشطون اليوم"), value: data.presenceAnalytics?.activeToday ?? 0 },
+                            { label: t("Active Last 7 Days", "نشطون خلال 7 أيام"), value: data.presenceAnalytics?.activeLast7Days ?? 0 },
+                            { label: t("Active Last 30 Days", "نشطون خلال 30 يومًا"), value: data.presenceAnalytics?.activeLast30Days ?? 0 },
                             { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
                             { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
