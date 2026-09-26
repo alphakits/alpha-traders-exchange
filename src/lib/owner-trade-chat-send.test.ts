@@ -7,7 +7,10 @@ describe("owner message acknowledgement", () => {
   it.each([200, 201])("accepts a matching stored or deduplicated message with HTTP %s", async status => {
     await expect(sendOwnerTradeChat(input, vi.fn().mockResolvedValue(Response.json({ message: receipt }, { status })))).resolves.toBe("sent");
   });
-  it.each([{ purchaseRequestId: "other" }, { clientMessageId: "other" }, { senderRole: "buyer" }, { message: "other" }, { id: "" }])("retains uncertainty for mismatched receipt %j", async override => {
+  it.each(["buyer", "approved_seller"])("accepts the canonical %s role when the owner participates in this trade", async senderRole => {
+    await expect(sendOwnerTradeChat(input, vi.fn().mockResolvedValue(Response.json({ message: { ...receipt, senderRole } })))).resolves.toBe("sent");
+  });
+  it.each([{ purchaseRequestId: "other" }, { clientMessageId: "other" }, { senderRole: "guest" }, { message: "other" }, { id: "" }])("retains uncertainty for mismatched receipt %j", async override => {
     await expect(sendOwnerTradeChat(input, vi.fn().mockResolvedValue(Response.json({ message: { ...receipt, ...override } })))).resolves.toBe("unknown");
   });
   it.each([{}, { success: true }, { message: receipt, error: "Failed" }])("does not erase a draft for malformed success %j", async body => {

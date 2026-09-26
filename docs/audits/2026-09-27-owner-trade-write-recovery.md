@@ -6,11 +6,11 @@ Each trade action now persists opaque recovery metadata before a single bounded 
 
 The existing endpoints and financial/review state transitions are unchanged. Dispute acknowledgements validate the exact resolved dispute. Ordinary-admin cancellation still uses its existing route. Shared transport protection applies to the existing review-unlock control without changing review rules.
 
-Owner chat now uses a deadline covering fetch and body parsing. Its draft clears only after a matching saved message acknowledgement (trade, message reference, owner role and text). Explicit retry of an unchanged draft uses its existing server-deduplicated reference. Confirmed delivery is distinguished from a failed history refresh. There is no automatic message retry.
+Owner chat now uses a deadline covering fetch and body parsing. Its draft clears only after a matching saved message acknowledgement (trade, message reference, canonical participant/owner role and text). Explicit retry of an unchanged draft uses its existing server-deduplicated reference. Confirmed delivery is distinguished from a failed history refresh. There is no automatic message retry.
 
 ## Validation
 
-- 143 tests passed across ten suites, including server chat deduplication, route behavior, trade actions/streams, owner privacy, cross-surface locks, remount/navigation, malformed success, stalled fetch/body, matching readback, storage failure and message retry/refresh outcomes.
+- 145 tests passed across ten suites, including server chat deduplication, route behavior, trade actions/streams, owner privacy, cross-surface locks, remount/navigation, malformed success, stalled fetch/body, matching readback, storage failure and message retry/refresh outcomes.
 - Type checking, affected-file lint and whitespace checks passed.
 - No real customer action, message or payment was used as a test.
 

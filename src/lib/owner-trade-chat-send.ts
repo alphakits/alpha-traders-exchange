@@ -11,6 +11,6 @@ export async function sendOwnerTradeChat(input: { tradeId: string; message: stri
     const receipt = payload?.message;
     return result.ok && !payload?.error && typeof receipt?.id === "string" && receipt.id.length > 0
       && receipt.purchaseRequestId === input.tradeId && receipt.clientMessageId === input.clientMessageId
-      && receipt.senderRole === "owner" && receipt.message === input.message ? "sent" : "unknown";
+      && ["owner", "buyer", "approved_seller"].includes(String(receipt.senderRole)) && receipt.message === input.message ? "sent" : "unknown";
   } catch { return "unknown"; }
 }
