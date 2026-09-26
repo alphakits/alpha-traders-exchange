@@ -17,6 +17,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-manual-close",
+    identifier: user.id,
     maxRequests: 20,
     windowMs: 60_000,
   });

@@ -1547,7 +1547,7 @@ function TradeRoomPageSession({
   }, [actor.id, canonicalSessionReady, isAr, refreshCanonicalSession, requestId]);
 
   const refreshVisibleRoom = useCallback(async () => {
-    if (document.visibilityState !== "visible" || backgroundRefreshInFlightRef.current || actionInFlightRef.current) return;
+    if (navigator.onLine === false || document.visibilityState !== "visible" || backgroundRefreshInFlightRef.current || actionInFlightRef.current) return;
     backgroundRefreshInFlightRef.current = true;
     try {
       const refreshed = await fetchRoom(true);
@@ -1730,14 +1730,14 @@ function TradeRoomPageSession({
   }, [room?.poke?.cooldownUntil, room?.releaseDeadlineActive]);
 
   useEffect(() => {
-    if (!canonicalSessionReady || document.visibilityState === "hidden") return;
+    if (!canonicalSessionReady || navigator.onLine === false || document.visibilityState === "hidden") return;
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
     let closed = false;
     let reconnecting = false;
     setStreamConnected(false);
 
     const scheduleReconnect = () => {
-      if (closed || reconnectTimeoutRef.current !== null) return;
+      if (closed || navigator.onLine === false || document.visibilityState === "hidden" || reconnectTimeoutRef.current !== null) return;
       const delayMs = getTradeRoomReconnectDelayMs(streamReconnectAttemptsRef.current);
       reconnectTimeoutRef.current = window.setTimeout(() => {
         reconnectTimeoutRef.current = null;
@@ -1833,6 +1833,14 @@ function TradeRoomPageSession({
       setStreamConnected(false);
     };
     const handleOffline = () => {
+      // Online/resume opens a fresh stream. Stop an already scheduled retry
+      // as well as the socket so offline phones do not create request loops.
+      closed = true;
+      lastResumeAtRef.current = 0;
+      if (reconnectTimeoutRef.current !== null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       stream.close();
       setStreamConnected(false);
     };
@@ -1873,7 +1881,7 @@ function TradeRoomPageSession({
 
   useEffect(() => {
     const refreshAfterResume = () => {
-      if (!canonicalSessionReady || document.visibilityState !== "visible") return;
+      if (!canonicalSessionReady || navigator.onLine === false || document.visibilityState !== "visible") return;
       const now = Date.now();
       if (now - lastResumeAtRef.current < 500) return;
       lastResumeAtRef.current = now;

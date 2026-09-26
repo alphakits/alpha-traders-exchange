@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
@@ -89,6 +89,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
   const scrollIntoView = vi.fn();
 
   beforeEach(() => {
+    sessionStorage.clear();
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
     Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
     navigationState.search = "section=marketplace-listings&listing=listing-123";
@@ -110,6 +111,45 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("loads owner account data without waiting for the optional SMS request", async () => {
+    let resolveSms!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? new Promise<Response>(resolve => { resolveSms = resolve; }) : Response.json(adminPayload()));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByRole("heading", { name: "Marketplace Listings" })).toBeTruthy();
+    await act(async () => resolveSms(Response.json({ deliveries: [] })));
+  });
+
+  it("retains an ambiguous rank receipt until the owner acknowledges audit verification, without replaying a write", async () => {
+    const seller = { id: "rank-seller", fullName: "AT-123456 (Test Seller)", role: "approved_seller", roles: ["approved_seller"], sellerPrestigeRank: "gold" };
+    sessionStorage.setItem("alpha-owner-pending-operations-v1", JSON.stringify([{ id: "pending-rank", targetId: seller.id, command: "rank", value: "gold", outcome: "unknown" }]));
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries")
+      ? Response.json({ deliveries: [] }) : Response.json({ ...adminPayload([listing], [seller]), users: [seller] }));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Verify current state" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Verify current state" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toHaveLength(0));
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("does not let a slower old dashboard refresh overwrite a newer response", async () => {
+    let resolveOld!: (response: Response) => void; let reads = 0;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (++reads === 1) return new Promise<Response>(resolve => { resolveOld = resolve; });
+      return Response.json(adminPayload([{ ...listing, sellerDisplayName: "New seller state" }]));
+    });
+    const view = render(<AlphaExchangeAdminDashboard isOwner />);
+    view.rerender(<AlphaExchangeAdminDashboard isOwner locale="ar" />);
+    await screen.findByText("New seller state");
+    await act(async () => resolveOld(Response.json(adminPayload([{ ...listing, sellerDisplayName: "Stale seller state" }]))));
+    expect(screen.queryByText("Stale seller state")).toBeNull();
+    expect(screen.getByText("New seller state")).toBeTruthy();
   });
 
   it("includes review-open and locked trades in Completed and links owner details to the read-only room", async () => {

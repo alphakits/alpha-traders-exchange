@@ -9,15 +9,29 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const isAr = locale === "ar";
   return buildPageMetadata({
     locale: isAr ? "ar" : "en",
-    title: isAr ? "تعلم التداول مجانًا | دورة Alpha Traders" : "Learn Trading for Free | Alpha Traders Course",
-    description: isAr ? "ابدأ تعلم التداول مجانًا مع Alpha Traders: الشموع، النماذج، الدعم والمقاومة، الترندلاين، إدارة المخاطر وعلم النفس والتطبيق المنظم." : "Learn trading for free with Alpha Traders: candlesticks, chart patterns, support and resistance, trendlines, risk management, psychology and structured practice.",
+    title: isAr ? "دورة تداول مجانية للمبتدئين" : "Free Trading Course for Beginners",
+    description: isAr ? "استكشف دورة Alpha Traders المجانية للمبتدئين: الشموع، النماذج، الدعم والمقاومة، إدارة المخاطر وعلم نفس التداول. الدخول إلى الدروس يتطلب حسابًا وبريدًا مؤكدًا." : "Explore Alpha Traders’ free beginner trading course: candlesticks, chart patterns, support and resistance, risk management and trading psychology. Verified email required for lessons.",
     path: "/learn-trading-free",
   });
 }
 
 export default async function LearnTradingFreePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params; const isAr = locale === "ar";
-  const topics = isAr ? ["أساسيات الشموع وحركة السعر","النماذج الفنية","الدعم والمقاومة","الترندلاين وبنية السوق","إدارة المخاطر والانضباط","علم نفس التداول والتطبيق العملي"] : ["Candlestick and price-action foundations","Chart patterns","Support and resistance","Trendlines and market structure","Risk management and discipline","Trading psychology and practical application"];
+  const topics = isAr ? [
+    { title: "أساسيات الشموع وحركة السعر", description: "تعرّف على أسعار الافتتاح والإغلاق وأعلى وأدنى سعر في الشمعة، واقرأ حركة السعر ضمن سياقها بدل الاعتماد على شمعة واحدة." },
+    { title: "النماذج الفنية", description: "تعلّم ملاحظة النماذج على الرسم البياني والتمييز بين احتمال تحرك السعر والنتيجة المؤكدة. ظهور نموذج لا يضمن اتجاه السوق." },
+    { title: "الدعم والمقاومة", description: "تعرّف على المناطق التي سبق أن تفاعل معها السعر، ولماذا قد يخترق السوق هذه المناطق بدل الارتداد منها." },
+    { title: "الترندلاين وبنية السوق", description: "افهم العلاقة بين القمم والقيعان وخطوط الاتجاه، وكيف تختلف قراءة سوق صاعد أو هابط عن سوق يتحرك ضمن نطاق." },
+    { title: "إدارة المخاطر والانضباط", description: "ابدأ بالتفكير في الخسارة المحتملة وحدود المخاطرة قبل التفكير في الربح، وافهم أهمية حجم الصفقة والالتزام بالخطة." },
+    { title: "علم نفس التداول والتطبيق العملي", description: "تعرّف على أثر الخوف والطمع والقرارات المتسرعة، وتدرّب على توثيق قراراتك ومراجعتها لبناء انضباط أفضل." },
+  ] : [
+    { title: "Candlestick and price-action foundations", description: "Understand the open, close, high and low of a candle, and read price movement in context rather than relying on one candle alone." },
+    { title: "Chart patterns", description: "Learn to recognize chart patterns and distinguish a possible price move from a certain outcome. A pattern never guarantees market direction." },
+    { title: "Support and resistance", description: "Explore areas where price previously reacted and why a market can break through those areas instead of reversing." },
+    { title: "Trendlines and market structure", description: "Understand how highs, lows and trendlines relate, and how an upward or downward trend differs from a range-bound market." },
+    { title: "Risk management and discipline", description: "Consider potential loss and risk limits before potential profit. Understand why position size and following a plan matter." },
+    { title: "Trading psychology and practical application", description: "Recognize fear, greed and impulsive decisions. Practice documenting and reviewing your reasoning to develop stronger discipline." },
+  ];
   const schema=buildCourseSchema({title:isAr?"دورة Alpha Traders المجانية لتعلم التداول":"Alpha Traders Free Trading Course",description:isAr?"مسار مجاني ومنظم لتعلم أساسيات التداول وإدارة المخاطر.":"A free, structured path for learning trading foundations and risk management.",locale:isAr?"ar":"en"});
   const faqs = isAr ? [
     { question: "هل دورة Alpha Traders مجانية؟", answer: "نعم. مسار تعلم التداول المعروض هنا مجاني، ويتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا للدخول إلى الدروس وحفظ التقدم." },
@@ -45,10 +59,10 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
       <PublicDiscoveryBreadcrumbs locale={isAr ? "ar" : "en"} items={breadcrumbSchema.itemListElement} />
       <div className="space-y-4">
         <p className="section-label">{isAr?"Alpha Traders Academy · مجاني":"Alpha Traders Academy · Free"}</p>
-        <h1 className="page-title">{isAr?"تعلم التداول مجانًا خطوة بخطوة":"Learn Trading for Free, Step by Step"}</h1>
+        <h1 className="page-title">{isAr?"دورة تداول مجانية للمبتدئين، خطوة بخطوة":"Free Trading Course for Beginners, Step by Step"}</h1>
         <p className="page-subtitle">{isAr?"مسار Alpha Traders التعليمي مجاني ومصمم لبناء الأساس قبل الانتقال إلى التطبيق: افهم السوق أولًا، ثم تعلّم إدارة المخاطر والانضباط." : "Alpha Traders Academy is free and designed to build the foundation before execution: understand the market first, then develop risk management and discipline."}</p>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">{topics.map((topic,i)=><div key={topic} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">{isAr?`المرحلة ${i+1}`:`Stage ${i+1}`}</p><h2 className="mt-2 font-semibold">{topic}</h2></div>)}</div>
+      <div className="grid gap-3 md:grid-cols-2">{topics.map((topic,i)=><div key={topic.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">{isAr?`المرحلة ${i+1}`:`Stage ${i+1}`}</p><h2 className="mt-2 font-semibold">{topic.title}</h2><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{topic.description}</p></div>)}</div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr?"لمن صُمم هذا المسار؟":"Who is this learning path for?"}</h2>
         <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr?"صُمم للمبتدئين والمتداولين الذين يريدون مراجعة الأساسيات ضمن مسار واضح باللغة العربية أو الإنجليزية. يمكنك استكشاف محتوى الدورة علنًا، لكن الدخول إلى الدروس وحفظ التقدم يتطلب حسابًا وبريدًا إلكترونيًا مؤكدًا.":"It is designed for beginners and traders who want to rebuild their foundations through a clear Arabic or English learning path. You can discover the course publicly, while lesson access and saved progress require an account with a verified email."}</p>

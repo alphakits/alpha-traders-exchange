@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-listing-create",
+      identifier: auth.user.id,
       maxRequests: 10,
       windowMs: 60_000,
     });

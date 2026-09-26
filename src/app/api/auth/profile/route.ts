@@ -117,7 +117,7 @@ export async function PATCH(request: NextRequest) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "auth:profile-update", maxRequests: 20, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "auth:profile-update", identifier: user.id, maxRequests: 20, windowMs: 60_000 });
   if (!rate.allowed) {
     return profileError(request, "PROFILE_RATE_LIMITED", 429, { "Retry-After": String(rate.retryAfterSeconds) });
   }

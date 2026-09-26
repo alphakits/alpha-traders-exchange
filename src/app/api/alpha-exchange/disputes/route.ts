@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:dispute-open",
+    identifier: user.id,
     maxRequests: 6,
     windowMs: 60_000,
   });

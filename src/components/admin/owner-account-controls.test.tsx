@@ -6,6 +6,7 @@ import { availableOwnerAccountCommands, executeOwnerAccountCommand, matchesOwner
 const target = { id: "seller-test", fullName: "AT-123456 (Test Seller)", role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller", disabled: false };
 const suspended = { ...target, role: "buyer", roles: ["buyer"], sellerStatus: "suspended" };
 beforeEach(() => {
+  sessionStorage.clear();
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
   Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
 });
@@ -30,7 +31,7 @@ it("protects owners, separates disabled accounts, and does not bypass seller app
 it.each([401, 403, 400, 408, 500])("does not claim a save on HTTP %s", async (status) => {
   const fetcher = vi.fn().mockResolvedValue(new Response("{}", { status }));
   const result = await executeOwnerAccountCommand(target, "suspend", "Reason", undefined, fetcher);
-  expect(result.outcome).toBe(status >= 500 || status === 408 ? "unknown" : "rejected");
+  expect(result.outcome).toBe(status >= 500 || status === 408 || status === 400 ? "unknown" : "rejected");
   expect(fetcher).toHaveBeenCalledOnce();
 });
 it("never displays controls to non-owners", () => {
@@ -60,4 +61,23 @@ it("keeps uncertain saves distinct and never retries a mutation after refresh fa
   await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
   fireEvent.submit(screen.getByRole("dialog").querySelector("form")!);
   expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it("keeps an uncertain command protected after unmount and remount, then clears only after fresh state verification", async () => {
+  const fetcher = vi.fn().mockRejectedValue(new Error("Connection lost")); vi.stubGlobal("fetch", fetcher);
+  const onRefresh = vi.fn().mockResolvedValue({ ...target, disabled: true });
+  const first = render(<OwnerAccountControls locale="en" target={target} isOwner onRefresh={onRefresh} />);
+  fireEvent.click(screen.getByRole("button", { name: "Manage account" }));
+  fireEvent.change(screen.getByLabelText("Reason (required for the audit record)"), { target: { value: "Test action" } });
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form")!);
+  await screen.findByText(/result could not be confirmed/);
+  first.unmount();
+  render(<OwnerAccountControls locale="en" target={target} isOwner onRefresh={onRefresh} initiallyOpen />);
+  await screen.findByText(/previous action still needs verification/);
+  fireEvent.submit(screen.getByRole("dialog").querySelector("form")!);
+  expect(fetcher).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh account" }));
+  await screen.findByText(/refreshed account confirms the change/);
+  expect(onRefresh).toHaveBeenCalledOnce();
+  expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toEqual([]);
 });

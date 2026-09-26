@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notifications-mark-all-read", maxRequests: 12, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notifications-mark-all-read", identifier: user.id, maxRequests: 12, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   try {

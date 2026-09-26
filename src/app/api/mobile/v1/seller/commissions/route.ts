@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "mobile:seller-commission-pay",
+      identifier: auth.user.id,
       maxRequests: 20,
       windowMs: 60_000,
     });

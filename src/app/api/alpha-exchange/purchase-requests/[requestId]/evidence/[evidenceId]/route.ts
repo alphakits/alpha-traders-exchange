@@ -15,6 +15,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-download",
+    identifier: user.id,
     maxRequests: 60,
     windowMs: 60_000,
   });

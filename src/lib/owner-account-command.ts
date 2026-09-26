@@ -73,6 +73,48 @@ export function matchesOwnerAccountCommandState(target: OwnerAccountTarget, comm
     && !requiresSellerControls(target)
     && (role === "admin" || !roles.includes("admin"));
 }
+/** A legacy HTTP 400 may be thrown after persistence; it is not a rollback receipt. */
+export function classifyOwnerCommandFailure(status: number, payload: unknown): Exclude<OwnerAccountCommandResult, { outcome: "saved" }> {
+  if (status === 401) return { outcome: "rejected", code: "sign_in_required", status };
+  if (status === 403) return { outcome: "rejected", code: "owner_access_required", status };
+  if (status === 429) return { outcome: "rejected", code: "rate_limited", status };
+  const body = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as { code?: unknown; commandOutcome?: unknown; mutationAttempted?: unknown } : null;
+  if (status === 400 && body?.code === "owner_command_validation" && body.commandOutcome === "rejected" && body.mutationAttempted === false) {
+    return { outcome: "rejected", code: "invalid_command", status };
+  }
+  return { outcome: "unknown", code: status === 408 ? "request_timeout" : status >= 500 ? "server_error" : "unconfirmed_error_response" };
+}
+
+/** Bounded single attempt, including body parsing. Never retries or claims abort rolls back a write. */
+export async function requestOwnerCommandOnce(
+  path: string, method: "POST" | "PATCH", body: Record<string, unknown>, fetcher: typeof fetch, timeoutMs: number,
+): Promise<{ ok: boolean; status: number; payload: unknown }> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("invalid_timeout");
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => { reject(new Error("timeout")); controller.abort(); }, timeoutMs);
+  });
+  const operation = (async () => {
+    const response = await fetcher(path, {
+      method, credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: controller.signal,
+    });
+    // Authentication/throttle gates can be displayed without waiting on an error body.
+    if (!response.ok && [401, 403, 429].includes(response.status)) return { ok: false, status: response.status, payload: null };
+    let payload: unknown;
+    try { payload = await response.json(); }
+    catch {
+      if (response.ok) throw new Error("invalid_response");
+      payload = null;
+    }
+    return { ok: response.ok, status: response.status, payload };
+  })();
+  try { return await Promise.race([operation, deadline]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
+}
+
 const inFlightAccounts = new Set<string>();
 
 /** One explicit command, no retry/replay. Transport failure never means confirmed rejection. */
@@ -85,36 +127,28 @@ export async function executeOwnerAccountCommand(
   timeoutMs = 20_000,
 ): Promise<OwnerAccountCommandResult> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return { outcome: "rejected", code: "invalid_timeout" };
-  if (inFlightAccounts.has(target.id)) return { outcome: "rejected", code: "command_in_progress" };
+  const accountId = target.id;
+  if (inFlightAccounts.has(accountId)) return { outcome: "rejected", code: "command_in_progress" };
   let plan: ReturnType<typeof planOwnerAccountCommand>;
   try { plan = planOwnerAccountCommand(target, command, reason, role); }
   catch { return { outcome: "rejected", code: "invalid_command" }; }
-  inFlightAccounts.add(target.id);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  inFlightAccounts.add(accountId);
   try {
-    const response = await fetcher(plan.path, {
-      method: "POST", credentials: "same-origin", cache: "no-store",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(plan.body), signal: controller.signal,
-    });
-    if (!response.ok) {
-      // A request timeout does not prove the server rolled back the command.
-      if (response.status === 408) return { outcome: "unknown", code: "request_timeout" };
-      if (response.status >= 500) return { outcome: "unknown", code: "server_error" };
-      return { outcome: "rejected", code: response.status === 401 ? "sign_in_required" : response.status === 403 ? "owner_access_required" : "server_rejected", status: response.status };
+    const response = await requestOwnerCommandOnce(plan.path, "POST", plan.body, fetcher, timeoutMs);
+    if (!response.ok) return classifyOwnerCommandFailure(response.status, response.payload);
+    if (!response.payload || typeof response.payload !== "object" || Array.isArray(response.payload)) {
+      return { outcome: "unknown", code: "invalid_response" };
     }
-    let payload: Record<string, unknown>;
-    try {
-      payload = await response.json();
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid response");
-    } catch { return { outcome: "unknown", code: "invalid_response" }; }
+    const payload = response.payload as Record<string, unknown>;
     const seller = payload.seller as { id?: string; sellerStatus?: string } | undefined;
     const enforcement = payload.enforcement as { latestRecord?: { sellerId?: string; status?: string } } | undefined;
-    const confirmed = command === "suspend" ? seller?.id === target.id && seller.sellerStatus === "suspended"
-      : command === "reactivate" ? seller?.id === target.id && seller.sellerStatus === "approved_seller"
-      : command === "revoke_seller" ? enforcement?.latestRecord?.sellerId === target.id && enforcement.latestRecord.status === "revoked"
+    const confirmed = command === "suspend" ? seller?.id === accountId && seller.sellerStatus === "suspended"
+      : command === "reactivate" ? seller?.id === accountId && seller.sellerStatus === "approved_seller"
+      : command === "revoke_seller" ? enforcement?.latestRecord?.sellerId === accountId && enforcement.latestRecord.status === "revoked"
       : payload.success === true;
     return confirmed ? { outcome: "saved", payload } : { outcome: "unknown", code: "unconfirmed_response" };
-  } catch { return { outcome: "unknown", code: controller.signal.aborted ? "timeout" : "connection_lost" }; }
-  finally { clearTimeout(timeout); inFlightAccounts.delete(target.id); }
+  } catch (cause) {
+    const code = cause instanceof Error && ["timeout", "invalid_response"].includes(cause.message) ? cause.message : "connection_lost";
+    return { outcome: "unknown", code };
+  } finally { inFlightAccounts.delete(accountId); }
 }

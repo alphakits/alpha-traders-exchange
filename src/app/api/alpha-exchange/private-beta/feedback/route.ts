@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:beta-feedback-submit",
+    identifier: user.id,
     maxRequests: 8,
     windowMs: 60_000,
   });

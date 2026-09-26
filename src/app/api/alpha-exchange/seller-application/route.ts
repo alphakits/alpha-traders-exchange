@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   if (!user) return unauthorized;
   const emailVerificationRequired = requireEmailVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:seller-application", maxRequests: 6, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:seller-application", identifier: user.id, maxRequests: 6, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   if (isAlphaExchangeOwnerEmail(user.email)) {
     logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Owner cannot apply as seller" });

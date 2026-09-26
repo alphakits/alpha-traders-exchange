@@ -37,7 +37,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:update-listing", maxRequests: 30, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:update-listing", identifier: user.id, maxRequests: 30, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }

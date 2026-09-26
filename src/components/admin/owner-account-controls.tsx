@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { beginOwnerPendingOperation, finishOwnerPendingOperation, readOwnerPendingOperations } from "@/lib/owner-pending-operation";
 import { Button } from "@/components/ui/button";
 import {
   availableOwnerAccountCommands, executeOwnerAccountCommand, isProtectedOwnerTarget,
@@ -24,10 +25,14 @@ type Props = {
   isOwner: boolean;
   /** Fetch and return this canonical account without replaying a mutation. Null means unavailable. */
   onRefresh: () => Promise<OwnerAccountTarget | null>;
+  /** Mount the sole dashboard-level dialog immediately, independently of filtered table rows. */
+  initiallyOpen?: boolean;
+  /** Called only when no request or unresolved readback remains. */
+  onDismiss?: () => void;
 };
 
 /** Owner-only UI; the parent must pass data from the existing private owner endpoint. */
-export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Props) {
+export function OwnerAccountControls({ locale, target, isOwner, onRefresh, initiallyOpen = false, onDismiss }: Props) {
   const isAr = locale === "ar";
   const text = (en: string, ar: string) => isAr ? ar : en;
   const id = useId();
@@ -36,9 +41,10 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
   const submitting = useRef(false);
   const pendingVerification = useRef<{ id: string; command: OwnerAccountCommand; role: OwnerEditableRole } | null>(null);
   const mounted = useRef(true);
-  const [open, setOpen] = useState(false);
+  const operationId = useRef<string | null>(null);
+  const [open, setOpen] = useState(initiallyOpen);
   const [busy, setBusy] = useState(false);
-  const [command, setCommand] = useState<OwnerAccountCommand>("disable");
+  const [command, setCommand] = useState<OwnerAccountCommand>(() => availableOwnerAccountCommands(target)[0] ?? "disable");
   const [role, setRole] = useState<OwnerEditableRole>("buyer");
   const [reason, setReason] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -52,6 +58,28 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
     const dialog = dialogRef.current;
     return () => { mounted.current = false; dialog?.close?.(); };
   }, []);
+  useEffect(() => {
+    if (!isOwner) return;
+    try {
+      const saved = readOwnerPendingOperations().find(row => row.targetId === target.id);
+      if (!saved) return;
+      if (saved.command === "rank") {
+        setRequiresRefresh(true);
+        setMessage(text("Resolve the pending rank action in the dashboard first.", "تحقق من إجراء الرتبة المعلق في اللوحة أولًا."));
+        return;
+      }
+      const savedRole = OWNER_EDITABLE_ROLES.includes(saved.value as OwnerEditableRole) ? saved.value as OwnerEditableRole : "buyer";
+      operationId.current = saved.id;
+      pendingVerification.current = { id: saved.targetId, command: saved.command, role: savedRole };
+      setCommand(saved.command); setRole(savedRole); setRequiresRefresh(true); setResult("unknown");
+      setMessage(text("A previous action still needs verification. Refresh the account; no command will be repeated.", "إجراء سابق يحتاج إلى التحقق. حدّث الحساب؛ لن يتم تكرار أي أمر."));
+    } catch {
+      setRequiresRefresh(true);
+      setMessage(text("Action recovery is unavailable. No new command was sent.", "تعذر استعادة حالة الإجراء. لم يتم إرسال أمر جديد."));
+    }
+    // Recover once for the selected account; live readback owns subsequent state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.id, isOwner]);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -68,6 +96,9 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
     if (submitting.current) return;
     setOpen(false);
     triggerRef.current?.focus();
+    // Unknown/saved-but-unreconciled commands must survive closing the dialog.
+    // The root host is not discarded until a canonical readback confirms the result.
+    if (!pendingVerification.current) onDismiss?.();
   }
   async function refresh(): Promise<boolean> {
     try {
@@ -75,6 +106,9 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
       const expected = pendingVerification.current;
       if (!fresh || fresh.id !== (expected?.id ?? target.id)) return false;
       if (expected && !matchesOwnerAccountCommandState(fresh, expected.command, expected.role)) return false;
+      if (operationId.current) finishOwnerPendingOperation(operationId.current, "clear");
+      operationId.current = null;
+      pendingVerification.current = null;
       return true;
     } catch { return false; }
   }
@@ -87,11 +121,22 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
     }
     // Capture the target/action exactly once. Changing a selector cannot retarget an in-flight request.
     const selected = { target: { ...target, roles: [...(target.roles ?? [])] }, command, reason: reason.trim(), role };
+    try {
+      operationId.current = beginOwnerPendingOperation({ targetId: target.id, command, value: role }).id;
+    } catch {
+      setRequiresRefresh(true);
+      setMessage(text("A previous action needs verification or recovery storage is unavailable. No new command was sent.", "يحتاج إجراء سابق إلى التحقق أو تعذر حفظ حالة الاستعادة. لم يتم إرسال أمر جديد."));
+      return;
+    }
+    pendingVerification.current = { id: selected.target.id, command: selected.command, role: selected.role };
     submitting.current = true;
     setBusy(true);
     setMessage("");
     try {
       const outcome = await executeOwnerAccountCommand(selected.target, selected.command, selected.reason, selected.role);
+      try { if (operationId.current) finishOwnerPendingOperation(operationId.current, outcome.outcome === "rejected" ? "clear" : outcome.outcome); }
+      catch { /* Keep the durable pending marker; no retry is sent. */ }
+      if (outcome.outcome === "rejected") { operationId.current = null; pendingVerification.current = null; }
       if (!mounted.current) return;
       setResult(outcome.outcome);
       if (outcome.outcome === "rejected") {
@@ -124,6 +169,26 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
     }
   }
 
+  async function reconcile() {
+    if (!isOwner || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      const ok = await refresh();
+      if (!mounted.current) return;
+      setRequiresRefresh(!ok);
+      if (ok) setResult("saved");
+      setMessage(ok
+        ? text("The refreshed account confirms the change. Review its current status before another action.", "تؤكد حالة الحساب المحدثة التغيير. راجعها قبل أي إجراء آخر.")
+        : text("The account state is not yet confirmed. Do not repeat the command.", "لم يتم تأكيد حالة الحساب بعد. لا تكرر الأمر."));
+      // In embedded/root mode, keep the result visible until the owner closes it.
+      if (ok && !open) setOpen(true);
+    } finally {
+      submitting.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+
   if (!isOwner) return null;
   if (isProtectedOwnerTarget(target)) return <span className="text-xs text-[#9CA3AF]">{text("Owner account protection", "حماية حساب المالك")}</span>;
   return <div className="space-y-2">
@@ -131,15 +196,14 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
       pendingVerification.current = null; setCommand(commands[0]); setRole("buyer"); setReason(""); setAcknowledged(false); setMessage(""); setResult(null); setOpen(true);
     }}>{text("Manage account", "إدارة الحساب")}</Button>
     {!open && message ? <p role="status" className="max-w-sm whitespace-normal text-xs text-amber-200">{message}</p> : null}
-    {!open && requiresRefresh ? <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={async () => {
-      if (submitting.current) return;
-      submitting.current = true; setBusy(true);
-      try { const ok = await refresh(); if (mounted.current) { setRequiresRefresh(!ok); setMessage(ok ? text("The refreshed account confirms the change. Review its current status before another action.", "تؤكد حالة الحساب المحدثة التغيير. راجعها قبل أي إجراء آخر.") : text("The account state is not yet confirmed. Do not repeat the command.", "لم يتم تأكيد حالة الحساب بعد. لا تكرر الأمر.")); } }
-      finally { submitting.current = false; if (mounted.current) setBusy(false); }
-    }}>{text("Refresh account", "تحديث الحساب")}</Button> : null}
+    {!open && requiresRefresh ? <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3" role="status">
+      <p className="mb-2 break-words text-sm"><bdi>{target.fullName}</bdi></p>
+      <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={reconcile}>{text("Refresh account", "تحديث الحساب")}</Button>
+    </div> : null}
     <dialog ref={dialogRef} dir={isAr ? "rtl" : "ltr"} aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`}
       className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto rounded-2xl border border-[#C9A227]/40 bg-[#101010] p-5 text-white backdrop:bg-black/80"
-      onCancel={event => { event.preventDefault(); close(); }} onClose={() => { if (!submitting.current) setOpen(false); }}>
+      onKeyDown={event => { if (event.key === "Escape") event.stopPropagation(); }}
+      onCancel={event => { event.preventDefault(); event.stopPropagation(); close(); }} onClose={() => { if (!submitting.current) setOpen(false); }}>
       <form onSubmit={submit} className="space-y-4" aria-busy={busy}>
         <h2 id={`${id}-title`} className="text-lg font-semibold">{text("Owner account action", "إجراء المالك على الحساب")}</h2>
         <p className="break-words font-medium"><bdi>{target.fullName}</bdi></p>
@@ -159,6 +223,7 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh }: Pro
         </fieldset>
         {message ? <p role={result === "saved" ? "status" : "alert"} aria-live="polite" className="rounded-xl border border-white/20 p-3 text-sm">{message}</p> : null}
         <div className="flex flex-wrap gap-2">
+          {requiresRefresh ? <Button type="button" variant="secondary" disabled={busy} onClick={reconcile}>{text("Refresh account", "تحديث الحساب")}</Button> : null}
           <Button type="submit" disabled={busy || requiresRefresh || result === "saved" || result === "unknown"}>{busy ? text("Saving…", "جارٍ الحفظ…") : text("Confirm action", "تأكيد الإجراء")}</Button>
           <Button type="button" variant="secondary" disabled={busy} onClick={close}>{text("Close", "إغلاق")}</Button>
         </div>

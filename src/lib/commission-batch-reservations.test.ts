@@ -19,7 +19,10 @@ beforeEach(async () => {
   db = new PGlite();
   await db.exec("CREATE SCHEMA alpha_exchange; CREATE TABLE alpha_exchange.commissions(id text primary key, seller_id text, payload jsonb); CREATE TABLE alpha_exchange.audit_logs(id text primary key, actor_user_id text, created_at timestamptz, payload jsonb);");
   await db.exec(migration);
-});
+  // Cold WASM database startup can exceed Vitest's 10-second hook default on
+  // shared build workers. This allowance applies only to fixture creation;
+  // receipt assertions and their test deadlines remain unchanged.
+}, 30_000);
 afterEach(async () => { await db.close(); });
 describe("durable cross-path receipt reservation", () => {
   it("allows all members of the approved group to share one original receipt", async () => {

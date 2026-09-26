@@ -8,6 +8,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { useAdminActionDialog } from "@/components/admin/use-admin-action-dialog";
+import { isProtectedOwnerTarget, type OwnerAccountTarget } from "@/lib/owner-account-command";
+import { readOwnerDashboardJson } from "@/lib/owner-dashboard-read";
+import { isOwnerDashboardSnapshot } from "@/lib/owner-dashboard-snapshot";
+import { executeOwnerRankBatch, planOwnerRankBatch, type OwnerRankBatchResult } from "@/lib/owner-rank-batch";
+import { beginOwnerPendingOperation, finishOwnerPendingOperation, readOwnerPendingOperations, OWNER_OPERATION_EVENT, type OwnerPendingOperation } from "@/lib/owner-pending-operation";
 import { OwnerAccountControls } from "@/components/admin/owner-account-controls";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
@@ -493,6 +498,27 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast, toastFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [data, setData] = useState<AdminPayload | null>(null);
+  const dashboardReadEpoch = useRef(0);
+  const dashboardMounted = useRef(true);
+  const [ownerAccountTarget, setOwnerAccountTarget] = useState<OwnerAccountTarget | null>(null);
+  const ownerAccountTargetRef = useRef<OwnerAccountTarget | null>(null);
+  const [ownerRankBatchResult, setOwnerRankBatchResult] = useState<OwnerRankBatchResult | null>(null);
+  const [pendingOwnerOperations, setPendingOwnerOperations] = useState<OwnerPendingOperation[]>([]);
+  useEffect(() => {
+    dashboardMounted.current = true;
+    const epoch = dashboardReadEpoch;
+    return () => { dashboardMounted.current = false; epoch.current++; };
+  }, []);
+  useEffect(() => {
+
+    const update = () => { try { setPendingOwnerOperations(readOwnerPendingOperations()); } catch { /* New commands fail closed if recovery storage is unavailable. */ } };
+    update(); window.addEventListener(OWNER_OPERATION_EVENT, update);
+    return () => window.removeEventListener(OWNER_OPERATION_EVENT, update);
+  }, [isOwner]);
+  function openOwnerAccount(target: OwnerAccountTarget) {
+    if (!isOwner || isProtectedOwnerTarget(target) || ownerAccountTargetRef.current || bulkRankInFlight.current) return;
+    ownerAccountTargetRef.current = target; setOwnerAccountTarget(target);
+  }
   const [systemHealth, setSystemHealth] = useState<SystemHealthSnapshot | null>(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [systemHealthError, setSystemHealthError] = useState<string | null>(null);
@@ -671,32 +697,35 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
   const fetchData = useCallback(async (options: { silent?: boolean } = {}): Promise<AdminPayload | null> => {
+    const epoch = ++dashboardReadEpoch.current;
+    const current = () => dashboardMounted.current && epoch === dashboardReadEpoch.current;
     if (!options.silent) setLoading(true);
     setError(null);
     try {
-      const [response, smsDeliveries] = await Promise.all([
-        fetch("/api/alpha-exchange/admin-prep", { cache: "no-store", signal: AbortSignal.timeout(15_000) }),
-        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store", signal: AbortSignal.timeout(15_000) })
-          .then(async (smsResponse) => {
-            if (!smsResponse.ok) return [];
-            const smsPayload = (await smsResponse.json()) as { deliveries?: AdminSmsDelivery[] };
-            return smsPayload.deliveries ?? [];
-          })
-          .catch(() => [] as AdminSmsDelivery[]),
-      ]);
-      const payload = (await response.json()) as Omit<AdminPayload, "smsDeliveries"> & { error?: string };
-      if (response.status === 401 || response.status === 403) { setData(null); setSelectedSeller(null); setSelectedRequest(null); }
-      if (!response.ok || !Array.isArray(payload.users) || !Array.isArray(payload.approvedSellers) || !Array.isArray(payload.purchaseRequests)) throw new Error(safeAdminError("load", locale));
-      const fresh = { ...payload, smsDeliveries };
+      const response = await readOwnerDashboardJson("/api/alpha-exchange/admin-prep");
+      if (!current()) return null;
+      if (response.status === 401 || response.status === 403) {
+        setData(null); setSelectedSeller(null); setSelectedRequest(null); setOwnerRankBatchResult(null);
+        ownerAccountTargetRef.current = null; setOwnerAccountTarget(null);
+      }
+      if (!response.ok || !isOwnerDashboardSnapshot(response.payload)) throw new Error(safeAdminError("load", locale));
+      const payload = response.payload as Omit<AdminPayload, "smsDeliveries">;
+      const fresh: AdminPayload = { ...payload, smsDeliveries: [] };
       setData(fresh);
-      setSelectedRequest((current) => current ? payload.purchaseRequests.find((request) => request.id === current.id) ?? null : null);
-      setSelectedSeller((current) => current ? payload.approvedSellers.find((seller) => seller.id === current.id) ?? null : null);
+      setSelectedRequest(previous => previous ? payload.purchaseRequests.find(row => row.id === previous.id) ?? null : null);
+      setSelectedSeller(previous => previous ? payload.approvedSellers.find(row => row.id === previous.id) ?? null : null);
+      // Optional delivery history never holds up core account readback.
+      void readOwnerDashboardJson("/api/alpha-exchange/admin/sms-deliveries").then(sms => {
+        if (!current() || !sms.ok) return;
+        const body = sms.payload as { deliveries?: AdminSmsDelivery[] } | null;
+        if (Array.isArray(body?.deliveries)) setData(previous => previous ? { ...previous, smsDeliveries: body.deliveries! } : previous);
+      }).catch(() => {});
       return fresh;
     } catch (requestError) {
-      setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
+      if (current()) setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
       return null;
     } finally {
-      if (!options.silent) setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [isArabic, locale]);
 
@@ -1148,14 +1177,28 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleSellerPrestigeOverride(sellerId: string, rank: SellerLevel, reason: string, clearOverride = false) {
-    await runAction(
-      fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/prestige`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rank, reason, clearOverride }),
-      }),
-      clearOverride ? t("Prestige override cleared.", "تمت إزالة تعديل الرتبة.") : t(`Seller prestige set to ${sellerLevelLabel(rank)}.`, `تم تعيين رتبة البائع إلى ${sellerLevelLabel(rank)}.`),
-    );
+    if (bulkRankInFlight.current || ownerAccountTargetRef.current) return;
+    const seller = data?.approvedSellers.find(row => row.id === sellerId);
+    if (!seller || isProtectedOwnerTarget(seller)) return;
+    bulkRankInFlight.current = true;
+    let receipt: OwnerPendingOperation | null = null;
+    try {
+      receipt = beginOwnerPendingOperation({ targetId: sellerId, command: "rank", value: clearOverride ? "automatic" : rank });
+      setRankMgmtSaving(new Set([sellerId]));
+      const result = await executeOwnerRankBatch([{ ...seller }], "set", reason, rank, {
+        clearOverride,
+        isActive: () => dashboardMounted.current,
+        refresh: async () => (await fetchData({ silent: true }))?.approvedSellers ?? null,
+      });
+      const outcome = result.items[0]?.outcome;
+      finishOwnerPendingOperation(receipt.id, outcome === "unknown" ? "unknown" : outcome === "saved_unverified" ? "saved" : "clear");
+      if (dashboardMounted.current) setOwnerRankBatchResult(result);
+    } catch {
+      if (dashboardMounted.current) pushToast(t("Verify the previous rank action before another command. No automatic retry was sent.", "تحقق من إجراء الرتبة السابق قبل أي أمر آخر. لم تتم إعادة المحاولة تلقائيًا."));
+    } finally {
+      bulkRankInFlight.current = false;
+      if (dashboardMounted.current) setRankMgmtSaving(new Set());
+    }
   }
 
   async function handleSaveComplianceRecoveryWallet() {
@@ -1211,45 +1254,46 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleBulkRankAction(action: "promote" | "demote" | "set" | "reset", targetRank?: SellerLevel) {
-    if (bulkRankInFlight.current) return;
-    const RANK_ORDER: readonly SellerLevel[] = SELLER_LEVELS;
-    const sellers = rankMgmtRows.filter((s) => rankMgmtSelected.has(s.id));
-    if (sellers.length === 0) { pushToast(t("No sellers selected.", "لم يتم اختيار أي بائع.")); return; }
-    const eligibleSellers = sellers.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner");
-    if (eligibleSellers.length === 0) { pushToast(t("Owner accounts cannot be modified.", "لا يمكن تعديل حساب المالك.")); return; }
-    const label = action === "promote" ? "promote to next rank" : action === "demote" ? "demote to previous rank" : action === "reset" ? "reset to Bronze" : `set rank to ${targetRank ?? "selected"}`;
-    if (!(await confirmAction(t(`Apply "${label}" to ${eligibleSellers.length} seller(s)?`, `هل تريد تطبيق الإجراء على ${eligibleSellers.length} من البائعين؟`)))) return;
+    if (bulkRankInFlight.current || ownerAccountTargetRef.current) return;
+    const targets = rankMgmtRows.filter(seller => rankMgmtSelected.has(seller.id)).map(seller => ({ ...seller, roles: seller.roles ? [...seller.roles] : undefined }));
+    if (!targets.length) { pushToast(t("No sellers selected.", "لم يتم اختيار أي بائع.")); return; }
     bulkRankInFlight.current = true;
-    let saved = 0, failed = 0, unknown = 0, skipped = 0;
+    const receipts: Array<{ id: string; targetId: string }> = [];
     try {
-    for (const seller of eligibleSellers) {
-      const current = seller.sellerPrestigeRank ?? "bronze";
-      const currentIdx = RANK_ORDER.indexOf(current);
-      let newRank: SellerLevel;
-      if (action === "promote") newRank = RANK_ORDER[Math.min(RANK_ORDER.length - 1, currentIdx + 1)];
-      else if (action === "demote") newRank = RANK_ORDER[Math.max(0, currentIdx - 1)];
-      else if (action === "reset") newRank = "bronze";
-      else newRank = targetRank ?? "bronze";
-      if (newRank === current && action !== "set" && action !== "reset") { skipped++; continue; }
-      setRankMgmtSaving((prev) => new Set(prev).add(seller.id));
-      try {
-        const response = await fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/prestige`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ rank: newRank, reason: `Bulk admin action — ${label}` }),
-        });
-        if (response.ok) saved++;
-        else if (response.status >= 500 || response.status === 408) unknown++;
-        else failed++;
-      } catch { unknown++; }
-      finally {
-        setRankMgmtSaving((prev) => { const next = new Set(prev); next.delete(seller.id); return next; });
+      const planned = planOwnerRankBatch(targets, action, targetRank);
+      if (!(await confirmAction(planned.map(row => `${row.fullName}: ${row.before} → ${row.after}`).join("\n")))) return;
+      const reason = await requestReason(t("Reason for these rank changes:", "سبب تغييرات الرتب:"));
+      if (!reason || !dashboardMounted.current) return;
+      const existing = readOwnerPendingOperations();
+      if (planned.some(row => row.outcome === "not_attempted" && existing.some(operation => operation.targetId === row.id))) {
+        pushToast(t("Verify the previous account actions before another rank change.", "تحقق من إجراءات الحساب السابقة قبل تغيير الرتبة.")); return;
       }
+      // Save all planned targets before any request; storage failure sends no mutations.
+      try {
+        for (const row of planned.filter(row => row.outcome === "not_attempted")) receipts.push(beginOwnerPendingOperation({ targetId: row.id, command: "rank", value: row.after }));
+      } catch {
+        for (const receipt of receipts) finishOwnerPendingOperation(receipt.id, "clear");
+        throw new Error("Recovery unavailable");
+      }
+      setRankMgmtSaving(new Set(receipts.map(row => row.targetId)));
+      const result = await executeOwnerRankBatch(targets, action, reason, targetRank, {
+        isActive: () => dashboardMounted.current,
+        refresh: async () => (await fetchData({ silent: true }))?.approvedSellers ?? null,
+      });
+      for (const item of result.items) {
+        const receipt = receipts.find(row => row.targetId === item.id);
+        if (receipt) finishOwnerPendingOperation(receipt.id, item.outcome === "unknown" ? "unknown" : item.outcome === "saved_unverified" ? "saved" : "clear");
+      }
+      if (!dashboardMounted.current) return;
+      setOwnerRankBatchResult(result);
+      const confirmed = new Set(result.items.filter(row => ["verified", "unchanged"].includes(row.outcome)).map(row => row.id));
+      setRankMgmtSelected(previous => new Set([...previous].filter(id => !confirmed.has(id))));
+    } catch {
+      if (dashboardMounted.current) pushToast(t("The rank batch could not be confirmed. Refresh account state before another command.", "تعذر تأكيد تغييرات الرتب. حدّث حالة الحساب قبل أي أمر آخر."));
+    } finally {
+      bulkRankInFlight.current = false;
+      if (dashboardMounted.current) setRankMgmtSaving(new Set());
     }
-    setRankMgmtSelected(new Set());
-    pushToast(t(`Rank changes: ${saved} saved, ${failed} rejected, ${unknown} unconfirmed, ${skipped} unchanged.`, `تغييرات الرتبة: ${saved} محفوظة، ${failed} مرفوضة، ${unknown} غير مؤكدة، ${skipped} دون تغيير.`));
-    await fetchData({ silent: true });
-    } finally { bulkRankInFlight.current = false; }
   }
 
   async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
@@ -1532,7 +1576,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         const tradeId = request || record.tradeId || record.purchaseRequestId
           ? displayTradeId(request, record.tradeId ?? record.purchaseRequestId)
           : "";
-        const source = record.source === "admin_manual" ? "Admin-issued" : "Trade 1%";
+        const source = record.source === "admin_manual" ? "Admin-issued" : "Trade";
         const tradeValue = record.source === "admin_manual" ? "" : record.grossAmount.toFixed(2);
         const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
         return [source, tradeId, buyerName, sellerName, tradeValue, record.commissionAmount.toFixed(2), record.paymentStatus, reason, record.createdAt].join(",");
@@ -1614,6 +1658,33 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   return (
     <section dir={isArabic ? "rtl" : "ltr"} lang={locale} className="section-container page-shell admin-dashboard-shell !max-w-[118rem] 2xl:!max-w-[128rem]">
       {actionDialog}
+      {isOwner && ownerAccountTarget ? <OwnerAccountControls key={ownerAccountTarget.id} locale={locale} target={ownerAccountTarget} isOwner initiallyOpen
+        onDismiss={() => { ownerAccountTargetRef.current = null; setOwnerAccountTarget(null); }}
+        onRefresh={async () => (await fetchData({ silent: true }))?.users.find(row => row.id === ownerAccountTarget.id) ?? null} /> : null}
+      {data && pendingOwnerOperations.length > 0 ? <div role="status" className="mb-4 rounded-xl border border-amber-400/40 p-4 text-sm">
+        <p>{t("Account actions awaiting verification", "إجراءات حساب بانتظار التحقق")}</p>
+        {pendingOwnerOperations.map(operation => {
+          const target = data.users.find(row => row.id === operation.targetId);
+          return <div key={operation.id} className="mt-2 flex flex-wrap items-center gap-3"><bdi>{target?.fullName ?? t("Account unavailable", "الحساب غير متاح")}</bdi>
+            <Button type="button" size="sm" variant="secondary" disabled={!target || Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0} onClick={async () => {
+              if (!target) return;
+              if (operation.command !== "rank") { openOwnerAccount(target); return; }
+              const fresh = await fetchData({ silent: true });
+              const seller = fresh?.approvedSellers.find(row => row.id === operation.targetId);
+              if (seller && (operation.value === "automatic" ? !seller.sellerRankOverride : seller.sellerPrestigeRank === operation.value)) {
+                if (operation.outcome !== "saved" && !(await confirmAction(t("The current rank matches, but the earlier command has no confirmed receipt. Confirm you checked the audit history before unlocking further actions. No command will be repeated.", "تطابق الرتبة الحالية المطلوب، لكن لا يوجد تأكيد للإجراء السابق. أكّد مراجعة سجل التدقيق قبل السماح بإجراءات جديدة. لن يُكرر أي أمر.")))) return;
+                try { finishOwnerPendingOperation(operation.id, "clear"); }
+                catch { pushToast(t("Recovery state could not be updated. The action remains protected.", "تعذر تحديث حالة الاستعادة. ما زال الإجراء محميًا.")); return; }
+                pushToast(t("Current rank verified. No rank command was repeated.", "تم التحقق من الرتبة الحالية دون تكرار الأمر."));
+              } else pushToast(t("The expected rank is not confirmed. Check the audit record before repeating an action.", "لم يتم تأكيد الرتبة المتوقعة. راجع سجل التدقيق قبل تكرار الإجراء."));
+            }}>{t("Verify current state", "تحقق من الحالة الحالية")}</Button></div>;
+        })}
+      </div> : null}
+      {ownerRankBatchResult ? <div role="status" className="mb-4 rounded-xl border border-white/20 p-4 text-sm">
+        <p className="font-semibold">{t("Seller rank action results", "نتائج إجراءات رتب البائعين")}</p>
+        <ul>{ownerRankBatchResult.items.map(item => <li key={item.id}><bdi>{item.fullName}</bdi>: {sellerLevelLabel(item.before)} → {item.automatic ? t("Automatic progression", "التقدّم التلقائي") : sellerLevelLabel(item.after)} · {({ verified: t("Verified", "مؤكد"), saved_unverified: t("Saved; refresh required", "محفوظ؛ يلزم التحديث"), unknown: t("Unknown; do not repeat", "غير مؤكد؛ لا تكرر"), rejected: t("Rejected", "مرفوض"), not_attempted: t("Not attempted", "لم ينفذ"), protected: t("Protected", "محمي"), unchanged: t("Unchanged", "دون تغيير") })[item.outcome]}</li>)}</ul>
+        <Button type="button" size="sm" variant="secondary" onClick={() => setOwnerRankBatchResult(null)}>{t("Dismiss results", "إغلاق النتائج")}</Button>
+      </div> : null}
       <div className="grid gap-6 xl:grid-cols-[290px_minmax(0,1fr)] xl:items-start">
         <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-4">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
@@ -2133,10 +2204,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     </td>
                                     <td className="px-4 py-3">
                                       <div className="flex flex-wrap items-center gap-2">
-                                        <OwnerAccountControls locale={locale} target={seller} isOwner={isOwner} onRefresh={async () => {
-                                          const fresh = await fetchData({ silent: true });
-                                          return fresh?.users.find((entry) => entry.id === seller.id) ?? null;
-                                        }} />
+                                        {isOwner ? <Button type="button" size="sm" variant="secondary" disabled={Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0 || isProtectedOwnerTarget(seller)} onClick={() => openOwnerAccount(seller)}>{t("Manage account", "إدارة الحساب")}</Button> : null}
                                         {isOnVacation ? (
                                           <Button type="button" size="sm" variant="secondary" onClick={async () => {
                                             if (!(await confirmAction(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟")))) return;
@@ -3720,10 +3788,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(user.createdAt))}</td>
                                   <td className="px-4 py-3">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <OwnerAccountControls locale={locale} target={user} isOwner={isOwner} onRefresh={async () => {
-                                        const fresh = await fetchData({ silent: true });
-                                        return fresh?.users.find((entry) => entry.id === user.id) ?? null;
-                                      }} />
+                                      {isOwner ? <Button type="button" size="sm" variant="secondary" disabled={Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0 || isProtectedOwnerTarget(user)} onClick={() => openOwnerAccount(user)}>{t("Manage account", "إدارة الحساب")}</Button> : null}
                                     </div>
                                   </td>
                                 </tr>
