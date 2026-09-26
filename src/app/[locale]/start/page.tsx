@@ -11,8 +11,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale: isAr ? "ar" : "en",
     title: isAr ? "دليل تعلم التداول وUSDT" : "Trading Education & USDT Guide",
     description: isAr
-      ? "ابدأ من هنا لاستكشاف تعليم التداول المجاني وسوق USDT/ILS العام في Alpha Traders، ثم سجّل الدخول للمتابعة ضمن صلاحيات حسابك."
-      : "Start here to discover Alpha Traders free trading education and the public USDT/ILS marketplace guide, then sign in to continue through your account permissions.",
+      ? "تعلّم أساسيات التداول مجانًا بالعربية أو الإنجليزية، وتعرّف على سوق USDT مقابل الشيكل وخطوات التعامل عبر Alpha Traders."
+      : "Learn trading foundations for free in Arabic or English, and discover the USDT/ILS marketplace and how to get started with Alpha Traders.",
     path: "/start",
   });
 }
@@ -46,7 +46,7 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
       <div className="space-y-4">
         <p className="section-label">Alpha Traders Academy & Exchange</p>
         <h1 className="page-title">{isAr ? "ابدأ من المسار المناسب لك" : "Start with the right Alpha Traders path"}</h1>
-        <p className="page-subtitle">{isAr ? "صفحة عامة تساعدك على اختيار المسار: تعلم التداول مجانًا أو استكشاف USDT/ILS. استخدام الميزات الفعلية يستمر عبر تسجيل الدخول والتحقق والصلاحيات الحالية." : "A public starting point for choosing your path: learn trading for free or explore USDT/ILS. Actual product access continues through the existing sign-in, verification and permission flow."}</p>
+        <p className="page-subtitle">{isAr ? "بدك تتعلّم التداول من الأساس؟ ابدأ بالدورة المجانية بالعربي. مهتم بـ USDT مقابل الشيكل؟ تعرّف على السوق وخطوات التعامل قبل أول طلب." : "Want to learn trading from the ground up? Start with the free course in Arabic or English. Interested in USDT for Israeli shekels? Explore the marketplace and understand the steps before your first request."}</p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-[#C9A227]/30 bg-[#0B0B0B]/90 p-6">
@@ -73,8 +73,8 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
             text: isAr ? "استكشف كيف تعمل العروض والبائعون المعتمدون وغرفة التداول قبل فتح أي طلب." : "Understand listings, approved sellers and the Trade Room flow before opening a request.",
           },
           {
-            title: isAr ? "الوصول حسب الحساب" : "Account-based access",
-            text: isAr ? "المحتوى العام قابل للاكتشاف، بينما الميزات الفعلية تبقى خلف تسجيل الدخول والتحقق والصلاحيات." : "Public information is discoverable while actual features remain behind sign-in, verification and permissions.",
+            title: isAr ? "بداية بخطوات واضحة" : "A clear way to get started",
+            text: isAr ? "استكشف أولًا، ثم أنشئ حسابًا وأكّد بريدك للدروس وحفظ تقدّمك. استخدام السوق يخضع لمتطلبات التحقق والأهلية الموضحة في المنصة." : "Explore first, then create an account and verify your email for lessons and saved progress. Marketplace access follows the verification and eligibility requirements shown on the platform.",
           },
         ].map((item) => (
           <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5">

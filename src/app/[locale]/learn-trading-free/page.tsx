@@ -61,6 +61,10 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <p className="section-label">{isAr?"Alpha Traders Academy · مجاني":"Alpha Traders Academy · Free"}</p>
         <h1 className="page-title">{isAr?"دورة تداول مجانية للمبتدئين، خطوة بخطوة":"Free Trading Course for Beginners, Step by Step"}</h1>
         <p className="page-subtitle">{isAr?"مسار Alpha Traders التعليمي مجاني ومصمم لبناء الأساس قبل الانتقال إلى التطبيق: افهم السوق أولًا، ثم تعلّم إدارة المخاطر والانضباط." : "Alpha Traders Academy is free and designed to build the foundation before execution: understand the market first, then develop risk management and discipline."}</p>
+        <div className="space-y-3">
+          <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants({ className: "w-full sm:w-auto" })}>{isAr ? "ابدأ الدورة المجانية" : "Start the Free Course"}</Link>
+          <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "أنشئ حسابًا أو سجّل الدخول، ثم أكّد بريدك للوصول إلى الدروس وحفظ تقدّمك. المحتوى تعليمي والتداول ينطوي على مخاطر؛ لا توجد أرباح مضمونة." : "Create an account or sign in, then verify your email to access lessons and save progress. Content is educational and trading involves risk; profits are never guaranteed."}</p>
+        </div>
       </div>
       <div className="grid gap-3 md:grid-cols-2">{topics.map((topic,i)=><div key={topic.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">{isAr?`المرحلة ${i+1}`:`Stage ${i+1}`}</p><h2 className="mt-2 font-semibold">{topic.title}</h2><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{topic.description}</p></div>)}</div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">

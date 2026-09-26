@@ -157,8 +157,9 @@ for (const locale of locales) {
       const academy = await load('src/app/[locale]/learn-trading-free/page.tsx').default(props);
       const exchange = await load('src/app/[locale]/buy-usdt-israel/page.tsx').default(props);
       const lessonLinks = walk(academy, x => x.type === 'a').map(x => x.props.href);
-      assert.equal(lessonLinks.filter(x => typeof x === 'object').length, 1);
-      assert.equal(JSON.stringify(lessonLinks.find(x => typeof x === 'object')), JSON.stringify({ pathname: '/login', query: { redirectTo: `/${locale}/academy` } }));
+      const courseHandoffs = lessonLinks.filter(x => typeof x === 'object');
+      assert.equal(courseHandoffs.length, 2, 'hero and closing course links remain available');
+      courseHandoffs.forEach(link => assert.equal(JSON.stringify(link), JSON.stringify({ pathname: '/login', query: { redirectTo: `/${locale}/academy` } })));
       assert.ok(lessonLinks.includes('/buy-usdt-israel'));
       assert.ok(!lessonLinks.some(x => typeof x === 'string' && x.includes('/lessons')));
       const exchangeLinks = walk(exchange, x => x.type === 'a').map(x => x.props.href);
