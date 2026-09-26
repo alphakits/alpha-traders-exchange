@@ -81,6 +81,10 @@ describe("owner completed Trade Room history", () => {
 
     expect(room.request).toMatchObject({ status, completedAt: UPDATED_AT, lockedAt: UPDATED_AT, buyerReview: { rating: 5 } });
     expect(room.listing).toBeNull();
+    expect(room.canViewPrivateIdentity).toBe(true);
+    expect(room.ownerIdentityLabels?.buyer).toBe(`${publicAccountId({ id: "buyer" })} (Amir Hassan)`);
+    expect(room.ownerIdentityLabels?.seller).toBe(`${publicAccountId({ id: "seller" })} (Maya Chen)`);
+    expect(room.ownerIdentityLabels).not.toHaveProperty("outsider");
     expect(room.messages).toHaveLength(125);
     expect(room.messages[0]).toMatchObject({ id: "message-0", message: "Amir Hassan paid Maya Chen", readByUserIds: [] });
     expect(room.messages.at(-1)?.id).toBe("message-124");
@@ -156,6 +160,8 @@ describe("owner completed Trade Room history", () => {
   it("keeps peer identities private and excludes owner history from ordinary room responses", async () => {
     const db = seed();
     const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "seller", actorRole: "owner", markMessagesRead: false, strongConsistency: true });
+    expect(room.canViewPrivateIdentity).toBe(false);
+    expect(room).not.toHaveProperty("ownerIdentityLabels");
     expect(room.counterpart).toEqual({ buyerName: publicAccountId(db.users[1]), sellerName: publicAccountId(db.users[2]), buyerPublicId: publicAccountId(db.users[1]), sellerPublicId: publicAccountId(db.users[2]) });
     expect(room).not.toHaveProperty("ownerHistory");
     expect(JSON.stringify(room)).not.toMatch(/Amir Hassan|Maya Chen/);

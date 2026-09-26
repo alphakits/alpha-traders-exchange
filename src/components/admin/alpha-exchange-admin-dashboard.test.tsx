@@ -121,6 +121,21 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(await screen.findByRole("heading", { name: "Marketplace Listings" })).toBeTruthy();
     await act(async () => resolveSms(Response.json({ deliveries: [] })));
   });
+  it("shows buyer and suspended-account names beside AT IDs in audit and notification history", async () => {
+    navigationState.search = "section=audit-logs";
+    const buyer = { id: "identity-buyer", fullName: "AT-100001 (Private Buyer)", role: "buyer" };
+    const suspended = { id: "identity-suspended", fullName: "AT-200002 (Private Suspended Seller)", role: "buyer", sellerStatus: "suspended" };
+    vi.mocked(fetch).mockImplementation(async input => String(input).includes("sms-deliveries") ? Response.json({ deliveries: [] }) : Response.json({
+      ...adminPayload(), users: [buyer, suspended],
+      auditLogs: [{ id: "audit-identity", actorUserId: buyer.id, targetUserId: suspended.id, action: "admin_override", details: "Account action", createdAt: "2026-09-26T12:00:00Z" }],
+      notifications: [{ id: "notification-identity", userId: buyer.id, title: "Notice", message: "Updated", category: "system", isRead: false, createdAt: "2026-09-26T12:00:00Z" }],
+    }));
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect((await screen.findAllByText(buyer.fullName)).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(suspended.fullName)).toBeTruthy();
+    expect(screen.queryByText(buyer.id)).toBeNull();
+    expect(screen.queryByText(suspended.id)).toBeNull();
+  });
 
   it("sends a listing approval once and clears recovery only after dashboard readback", async () => {
     let resolveWrite!: (response: Response) => void;

@@ -4,6 +4,7 @@ import { normalizePublicAccountId } from "@/lib/format-id";
 import type { TradeChatMessage } from "@/types/alpha-exchange";
 
 export type TradeChatContext = {
+  ownerIdentityLabels?: Record<string, string>;
   request: { buyerId: string; sellerId: string };
   counterpart: { buyerPublicId?: string; sellerPublicId?: string; buyerName?: string; sellerName?: string };
   listing?: { sellerReputation?: { level?: string } } | null;

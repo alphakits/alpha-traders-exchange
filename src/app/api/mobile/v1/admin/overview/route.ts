@@ -35,7 +35,7 @@ const ACTIVE_TRADE_STATUSES = new Set([
 async function overviewPayload(viewerUserId: string) {
   const [dashboard, pendingSellerApplications] = await Promise.all([
     getOwnerPendingListingsDashboardData(viewerUserId),
-    getPendingSellerApplicationsForAdmin(),
+    getPendingSellerApplicationsForAdmin(viewerUserId),
   ]);
   const pendingListings = dashboard.pendingListings.map((listing) => ({
     id: listing.id,

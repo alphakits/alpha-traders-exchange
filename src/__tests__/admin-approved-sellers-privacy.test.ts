@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getApprovedSellersForAdmin } from "@/lib/alpha-exchange-store";
+import { getApprovedSellersForAdmin, getAllSellerApplicationsForAdmin } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 import { publicAccountId } from "@/lib/public-account-identity";
@@ -43,6 +43,15 @@ function sensitiveSeller(): AlphaExchangeUser {
 }
 
 describe("getApprovedSellersForAdmin privacy boundary", () => {
+  it("projects current application names beside AT IDs only for a server-resolved owner", async () => {
+    const db = { users: [sensitiveSeller(), { id: "owner", role: "owner" }, { id: "admin", role: "admin" }],
+      sellerApplications: [{ id: "application", userId: "seller-1", fullName: "Old Private Name" }] } as unknown as AlphaExchangeDb;
+    expect((await getAllSellerApplicationsForAdmin(db, "owner"))[0].fullName).toBe(`${publicAccountId({ id: "seller-1" })} (Seller User)`);
+    for (const viewer of [undefined, "admin", "seller-1", "missing"]) {
+      expect((await getAllSellerApplicationsForAdmin(db, viewer))[0].fullName).toBe(publicAccountId({ id: "seller-1" }));
+    }
+    expect(db.sellerApplications[0].fullName).toBe("Old Private Name");
+  });
   it("returns allowlisted seller summaries rather than raw persisted users", async () => {
     const db = { users: [sensitiveSeller(), { id: "owner", role: "owner", fullName: "Owner" }] } as unknown as AlphaExchangeDb;
     const sellers = await getApprovedSellersForAdmin(db, "owner");

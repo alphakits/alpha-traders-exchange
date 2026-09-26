@@ -25,12 +25,12 @@ import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-se
 import { RankBadge, RankEmblem } from "@/components/ui/rank-badge";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { rankSurfaceTone } from "@/lib/rank-identity";
-import { PublicAccountId } from "@/components/ui/public-account-id";
+import { AccountIdentityLabel } from "@/components/ui/account-identity-label";
 import { publicAccountId } from "@/lib/public-account-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
-import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { canViewOwnerExchangeIdentity } from "@/lib/owner-exchange-access";
 import { hasRole } from "@/lib/roles";
 import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -1146,13 +1146,14 @@ type ListingCardProps = {
   isAr: boolean;
   marketPricePerUsdt: number;
   isOwnerListing: boolean;
+  canViewPrivateIdentity?: boolean;
   isOwnListing: boolean;
   isBuying: boolean;
   onOpen: (listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer") => void;
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
-export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, canViewPrivateIdentity = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
@@ -1211,7 +1212,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             </div>
             <div className="min-w-0">
               <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerListing ? currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")) : <PublicAccountId value={publicAccountId({ id: listing.sellerId })} audience="seller" rank={sellerLevel} />}</CardTitle>
+                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerListing ? currencyText(safeText(listing.sellerDisplayName, isAr ? "بائع" : "Seller")) : <AccountIdentityLabel publicId={publicAccountId({ id: listing.sellerId })} label={listing.sellerDisplayName} canViewPrivateIdentity={canViewPrivateIdentity} audience="seller" rank={sellerLevel} />}</CardTitle>
                 {isOwnerListing ? <RoleBadge variant="owner" locale={isAr ? "ar" : "en"} /> : null}
               </div>
               {isOwnerListing ? (
@@ -1796,7 +1797,7 @@ export function UsdtExchangePage({
   const desktopSellerNavigation = isDesktopWorkspace && hasSellerWorkspaceAccess;
   const desktopBuyerNavigation = isDesktopWorkspace && !hasSellerWorkspaceAccess && Boolean(sessionUser && accountRoleIdentity(sessionUser) === "buyer");
   const desktopWorkspaceNavigation = desktopSellerNavigation || desktopBuyerNavigation;
-  const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
+  const isAdminSession = Boolean(sessionUser && (hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
     const startedAt = Date.now();
@@ -3258,7 +3259,7 @@ export function UsdtExchangePage({
   const hasBuyerRole = Boolean(sessionUser && hasRole(sessionUser, "buyer"));
   const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
-  const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
+  const isOwnerViewer = canViewOwnerExchangeIdentity(sessionUser);
   const showBuyerSellerApplicationUpFront = Boolean(
     sessionUser
     && hasBuyerRole
@@ -5570,6 +5571,7 @@ export function UsdtExchangePage({
                   isAr={isAr}
                   marketPricePerUsdt={marketPricePerUsdt}
                   isOwnerListing={listing.sellerProfile?.isOwner === true}
+                  canViewPrivateIdentity={isOwnerViewer}
                   isOwnListing={Boolean((isApprovedSeller || isAdminSession) && sessionUser?.id === listing.sellerId)}
                   isBuying={false}
                   onOpen={openListingModal}

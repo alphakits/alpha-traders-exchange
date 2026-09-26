@@ -15,6 +15,7 @@ import type { AuditLogEntry, PurchaseRequest, TradeChatMessage, TradeDisputeCase
 export type OwnerTradeHistoryData = {
   request: PurchaseRequest;
   counterpart: { buyerName: string; sellerName: string };
+  ownerIdentityLabels?: Record<string, string>;
   messages: TradeChatMessage[];
   ownerHistory?: {
     evidenceFiles: TradeEvidenceFile[];
@@ -114,6 +115,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
   const actorLabel = (userId: string, role: UserRole) => {
     if (userId === request.buyerId) return `${t("Buyer", "المشتري")} · ${room.counterpart.buyerName}`;
     if (userId === request.sellerId) return `${t("Seller", "البائع")} · ${room.counterpart.sellerName}`;
+    if (room.ownerIdentityLabels && Object.hasOwn(room.ownerIdentityLabels, userId)) return room.ownerIdentityLabels[userId];
     if (role === "owner") return t("Owner", "المالك");
     if (role === "admin") return t("Admin", "الإدارة");
     return t("System", "النظام");

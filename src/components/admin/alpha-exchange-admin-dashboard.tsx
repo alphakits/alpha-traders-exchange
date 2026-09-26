@@ -10,6 +10,7 @@ import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, L
 import { useAdminActionDialog } from "@/components/admin/use-admin-action-dialog";
 import { isProtectedOwnerTarget, type OwnerAccountTarget } from "@/lib/owner-account-command";
 import { readOwnerDashboardJson } from "@/lib/owner-dashboard-read";
+import { publicAccountId } from "@/lib/public-account-identity";
 import { executeOwnerDashboardAction, prepareOwnerDashboardAction, type OwnerDashboardRequest } from "@/lib/owner-dashboard-action";
 import { isOwnerDashboardSnapshot } from "@/lib/owner-dashboard-snapshot";
 import { executeOwnerRankBatch, planOwnerRankBatch, type OwnerRankBatchResult } from "@/lib/owner-rank-batch";
@@ -840,6 +841,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     return map;
   }, [data?.approvedSellers]);
 
+  // Include buyers, suspended sellers and other accounts, not only approved sellers.
+  const accountLabels = useMemo(() => new Map([
+    ...(data?.approvedSellers ?? []).map(user => [user.id, user.fullName] as const),
+    ...(data?.users ?? []).map(user => [user.id, user.fullName] as const),
+  ]), [data?.approvedSellers, data?.users]);
+  const accountLabel = useCallback((id: string) => accountLabels.get(id) ?? publicAccountId({ id }), [accountLabels]);
+
   const listingById = useMemo(() => {
     const map = new Map<string, MarketplaceListing>();
     for (const listing of data?.listings ?? []) {
@@ -929,8 +937,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       const query = requestsQuery.trim().toLowerCase();
       if (!query) return true;
       const listing = listingById.get(request.listingId);
-      const seller = sellersById.get(request.sellerId);
-      const haystack = `${request.id} ${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
+      const haystack = `${request.id} ${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${accountLabel(request.sellerId)} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -938,18 +945,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, requestsPage);
-  }, [data?.purchaseRequests, listingById, requestsPage, requestsQuery, requestsSort, requestsStatus, sellersById]);
+  }, [data?.purchaseRequests, listingById, requestsPage, requestsQuery, requestsSort, requestsStatus, accountLabel]);
 
   const commissionsRows = useMemo(() => {
     const items = (data?.commissionRecords ?? []).filter((record) => {
       const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
-      const seller = sellersById.get(record.sellerId);
       const query = commissionsQuery.trim().toLowerCase();
       if (!query) return true;
       const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId ?? "";
       const tradeLabel = request || tradeId ? displayTradeId(request, tradeId) : "";
       const sourceLabel = record.source === "admin_manual" ? "admin-issued manual commission" : "trade commission";
-      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${seller?.fullName ?? record.sellerId} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
+      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${tradeLabel} ${request?.buyerName ?? record.buyerId ?? ""} ${accountLabel(record.sellerId)} ${sourceLabel} ${record.issueReason ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -958,7 +964,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, commissionsPage);
-  }, [commissionsPage, commissionsQuery, commissionsSort, data?.commissionRecords, requestsById, sellersById]);
+  }, [commissionsPage, commissionsQuery, commissionsSort, data?.commissionRecords, requestsById, accountLabel]);
 
   const deepLinkTarget = useMemo(() => {
     if (adminDestination.sellerApplicationId) return { kind: "sellerApplication" as const, id: adminDestination.sellerApplicationId };
@@ -1044,7 +1050,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       if (auditAction !== "all" && entry.action !== auditAction) return false;
       const query = auditQuery.trim().toLowerCase();
       if (!query) return true;
-      const actor = sellersById.get(entry.actorUserId)?.fullName ?? entry.actorUserId;
+      const actor = accountLabels.get(entry.actorUserId) ?? publicAccountId({ id: entry.actorUserId });
       const tradeId = entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : "";
       const haystack = `${entry.action} ${entry.details ?? ""} ${replaceExchangeEntityIds(entry.details ?? "", displayLookup)} ${actor} ${entry.listingId ?? ""} ${entry.listingId ? displayListingId(listingById.get(entry.listingId), entry.listingId) : ""} ${tradeId}`.toLowerCase();
       return haystack.includes(query);
@@ -1054,18 +1060,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, auditPage);
-  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, displayLookup, listingById, requestsById, sellersById]);
+  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, displayLookup, listingById, requestsById, accountLabels]);
 
   const notificationRows = useMemo(() => {
     const items = (data?.notifications ?? []).filter((entry) => {
       const query = notificationQuery.trim().toLowerCase();
       if (!query) return true;
-      const seller = sellersById.get(entry.userId);
-      const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
+      const recipient = accountLabels.get(entry.userId) ?? publicAccountId({ id: entry.userId });
+      const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${recipient} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     return paginate(sortNotificationsNewestFirst(items), notificationPage);
-  }, [data?.notifications, displayLookup, notificationPage, notificationQuery, sellersById]);
+  }, [data?.notifications, displayLookup, notificationPage, notificationQuery, accountLabels]);
 
   const smsDeliveryRows = useMemo(
     () => paginate(data?.smsDeliveries ?? [], smsDeliveriesPage),
@@ -1541,9 +1547,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       ["Source", "Trade ID", "Buyer", "Seller", "Trade Value", "Commission", "Payment Status", "Reason", "Date"].join(","),
       ...rows.map((record) => {
         const request = record.purchaseRequestId ? requestsById.get(record.purchaseRequestId) : undefined;
-        const seller = sellersById.get(record.sellerId);
         const buyerName = request?.buyerName ?? record.buyerId ?? "";
-        const sellerName = seller?.fullName ?? record.sellerId;
+        const sellerName = accountLabel(record.sellerId);
         const tradeId = request || record.tradeId || record.purchaseRequestId
           ? displayTradeId(request, record.tradeId ?? record.purchaseRequestId)
           : "";
@@ -1567,12 +1572,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     const csvRows = [
       ["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"].join(","),
       ...rows.map((request) => {
-        const seller = sellersById.get(request.sellerId);
         return [
           displayTradeId(request),
           displayRequestId(request),
           request.buyerName,
-          seller?.fullName ?? request.sellerId,
+          accountLabel(request.sellerId),
           request.usdtAmount,
           request.fiatAmount,
           request.currency,
@@ -2896,7 +2900,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <tbody>
                               {requestsRows.rows.map((request) => {
                                 const listing = listingById.get(request.listingId);
-                                const seller = sellersById.get(request.sellerId);
                                 return (
                                   <tr
                                     key={request.id}
@@ -2907,7 +2910,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   >
                                     <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{currencyText(displayTradeId(request))}</td>
                                     <td className="px-4 py-3 text-white">{currencyText(request.buyerName)}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(seller?.fullName ?? request.sellerId)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(accountLabel(request.sellerId))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">
                                       <p>{currencyText(`${request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT`)}</p>
                                       <p className={`mt-1 text-xs ${request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-[#9CA3AF]"}`}>
@@ -3064,8 +3067,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             const request = record.purchaseRequestId
                               ? (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId)
                               : undefined;
-                            const seller = sellersById.get(record.sellerId);
-                            const sellerName = seller?.fullName ?? record.sellerId;
+                            const sellerName = accountLabel(record.sellerId);
                             const isAdminIssued = record.source === "admin_manual";
                             const sourceLabel = isAdminIssued
                               ? `${t("Admin-issued", "صادرة عن الإدارة")} · ${displayCommissionId(record)}`
@@ -3259,18 +3261,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             </thead>
                             <tbody>
                               {auditRows.rows.map((entry) => {
-                                const actor = sellersById.get(entry.actorUserId);
                                 return (
                                   <tr key={entry.id} className="border-t border-white/10">
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(entry.createdAt))}</td>
-                                    <td className="px-4 py-3 text-white">{currencyText(actor?.fullName ?? entry.actorUserId)}</td>
+                                    <td className="px-4 py-3 text-white">{currencyText(accountLabel(entry.actorUserId))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(actionLabel(entry.action))}</td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">
                                       {currencyText(entry.listingId
                                         ? `${t("Listing", "العرض")} ${displayListingId(listingById.get(entry.listingId), entry.listingId)}`
                                         : entry.purchaseRequestId
                                           ? `${t("Trade", "الصفقة")} ${displayTradeId(requestsById.get(entry.purchaseRequestId), entry.purchaseRequestId)}`
-                                          : entry.targetUserId ?? t("system", "النظام"))}
+                                          : entry.targetUserId ? accountLabel(entry.targetUserId) : t("system", "النظام"))}
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(entry.reason ?? "—")}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(localizedAuditDetails(entry))}</td>
@@ -3304,7 +3305,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   return (
                                     <tr key={entry.id} className="border-t border-white/10">
                                       <td className="px-4 py-3 text-[#D1D5DB]" title={formatDate(entry.createdAt)}>{currencyText(formatNotificationRelativeTime(entry.createdAt, locale))}</td>
-                                      <td className="px-4 py-3 text-white">{currencyText(sellersById.get(entry.userId)?.fullName ?? entry.userId)}</td>
+                                      <td className="px-4 py-3 text-white">{currencyText(accountLabel(entry.userId))}</td>
                                       <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(notificationCategoryLabel(entry.category))}</td>
                                       <td className="px-4 py-3 text-white">{currencyText(replaceExchangeEntityIds(copy.title, displayLookup))}</td>
                                       <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(replaceExchangeEntityIds(copy.message, displayLookup))}</td>
@@ -4320,7 +4321,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <p>{t("Buyer:", "المشتري:")} <span className="text-white">{currencyText(selectedRequest.buyerName)}</span></p>
                 <p>{t("WhatsApp:", "واتساب:")} <span className="text-white" dir="ltr">{currencyText(selectedRequest.buyerWhatsapp)}</span></p>
                 <p>{t("Listing:", "العرض:")} <span className="font-mono font-medium text-white">{currencyText(displayListingId(listingById.get(selectedRequest.listingId), selectedRequest.listingId))}</span></p>
-                <p>{t("Seller:", "البائع:")} <span className="text-white">{currencyText(sellersById.get(selectedRequest.sellerId)?.fullName ?? selectedRequest.sellerId)}</span></p>
+                <p>{t("Seller:", "البائع:")} <span className="text-white">{currencyText(accountLabel(selectedRequest.sellerId))}</span></p>
                 <p>{t("Status:", "الحالة:")} <span className="text-white">{currencyText(statusLabel(selectedRequest.status))}</span></p>
                 <p>{currencyText(t("USDT Amount:", "كمية USDT:"))} <span className="text-white">{moneyText(selectedRequest.usdtAmount ?? "—")}</span></p>
                 <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{currencyText(`${selectedRequest.fiatAmount} ${selectedRequest.currency}`)}</span></p>

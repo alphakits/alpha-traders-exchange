@@ -50,6 +50,8 @@ type TradeRoomData = {
   request: PurchaseRequest;
   listing: MarketplaceListing | null;
   counterpart: { buyerName: string; sellerName: string; buyerPublicId?: string; sellerPublicId?: string };
+  canViewPrivateIdentity?: boolean;
+  ownerIdentityLabels?: Record<string, string>;
   messages: TradeChatMessage[];
   poke: {
     available: boolean;
@@ -3827,7 +3829,7 @@ function TradeRoomPageSession({
                                 : <span aria-hidden="true">AT</span>}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <TradeChatMessageLabel message={message} context={room} actorId={actor.id} locale={locale} />
+                              <TradeChatMessageLabel message={message} context={room} actorId={actor.id} locale={locale} canViewPrivateIdentity={room.canViewPrivateIdentity === true} />
                               <p
                                 data-trade-message-id={message.id}
                                 lang={localizedSystemMessage ? locale : undefined}

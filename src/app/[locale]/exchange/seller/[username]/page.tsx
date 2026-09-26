@@ -4,6 +4,7 @@ import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getSellerProfilePageData } from "@/lib/alpha-exchange-seller-profile";
 import { PremiumSellerProfilePage } from "@/components/sections/seller/premium-seller-profile-page";
+import { canViewOwnerExchangeIdentity } from "@/lib/owner-exchange-access";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,7 @@ async function SellerProfileRouteContent(
       data={data}
       viewerOwnsProfile={viewer?.id === data.profile.sellerId}
       viewerSignedIn={Boolean(viewer)}
+      canViewPrivateIdentity={canViewOwnerExchangeIdentity(viewer)}
     />
     </>
   );

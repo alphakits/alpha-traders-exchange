@@ -6,6 +6,6 @@ export async function GET() {
   const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
 
-  const [applications, pendingApplications] = await Promise.all([getAllSellerApplicationsForAdmin(), getPendingSellerApplicationsForAdmin()]);
+  const [applications, pendingApplications] = await Promise.all([getAllSellerApplicationsForAdmin(undefined, user.id), getPendingSellerApplicationsForAdmin(user.id)]);
   return NextResponse.json({ applications, pendingApplications }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
 }

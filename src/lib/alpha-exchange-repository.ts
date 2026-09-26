@@ -7,6 +7,7 @@ import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
+import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
 import type {
   AlphaExchangeDb,
   MarketplaceEnforcementAuditEntry,
@@ -2831,7 +2832,8 @@ export class AlphaExchangeRepository {
 
   /**
    * Loads the exact records needed to render one Trade Room with a single
-   * PostgreSQL round trip. The live stream calls this only when that trade's
+   * PostgreSQL round trip, plus a targeted actor lookup for owner history when
+   * other staff are involved. The live stream calls this only when that trade's
    * revision changed; it must never fan out through the full exchange
    * snapshot on a per-connection timer.
    */
@@ -2914,6 +2916,21 @@ export class AlphaExchangeRepository {
     snapshot.commissionRecords = Array.isArray(row.commission_payloads) ? row.commission_payloads : [];
     snapshot.tradeEvidenceFiles = Array.isArray(row.evidence_payloads) ? row.evidence_payloads : [];
     snapshot.auditLogs = Array.isArray(row.audit_payloads) ? row.audit_payloads : [];
+    if (isPublicOwnerIdentity(row.viewer_payload)) {
+      const loadedUserIds = new Set(snapshot.users.map(user => user.id));
+      const actorIds = [...new Set([
+        ...(row.request_payload.messages ?? []).map(message => message.senderUserId),
+        ...(row.request_payload.timeline ?? []).map(event => event.actorUserId),
+        ...snapshot.auditLogs.flatMap(entry => [entry.actorUserId, entry.targetUserId]),
+      ].filter((id): id is string => typeof id === "string" && Boolean(id) && !loadedUserIds.has(id)))];
+      if (actorIds.length > 0) {
+        const actors = await pool.query<{ payload: AlphaExchangeUser }>(
+          "select payload from alpha_exchange.users where id = any($1::text[])",
+          [actorIds],
+        );
+        snapshot.users.push(...actors.rows.map(actor => actor.payload));
+      }
+    }
     return attachVersion(snapshot, Number(row.version ?? "0"));
   }
 

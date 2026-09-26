@@ -386,6 +386,37 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining("audit.purchase_request_id = request.id"), [["history-trade"], "history-trade", "owner", true]);
   });
 
+  it.each([
+    { role: "owner", disabled: false, expectedQueries: 2 },
+    { role: "admin", roles: ["owner"], disabled: false, expectedQueries: 2 },
+    { role: "admin", disabled: false, expectedQueries: 1 },
+    { role: "buyer", disabled: false, expectedQueries: 1 },
+    { role: "owner", disabled: true, expectedQueries: 1 },
+  ])("loads additional trade actor identities only for a canonical enabled owner: %j", async viewer => {
+    const staff = { id: "staff", role: "admin", fullName: "Private Staff Name" };
+    const query = vi.fn().mockResolvedValueOnce({ rows: [{
+      request_payload: {
+        id: "trade", buyerId: "buyer", sellerId: "seller", status: "completed",
+        messages: [{ senderUserId: "staff" }, { senderUserId: "buyer" }, { senderUserId: "staff" }],
+        timeline: [{ actorUserId: "staff" }],
+      },
+      viewer_payload: { id: "viewer", ...viewer }, buyer_payload: { id: "buyer" }, seller_payload: { id: "seller" },
+      audit_payloads: [{ actorUserId: "staff", targetUserId: "seller" }], version: "44",
+    }] }).mockResolvedValueOnce({ rows: [{ payload: staff }] });
+    const repository = new AlphaExchangeRepository({ query, connect: vi.fn(), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue(undefined);
+
+    const snapshot = await repository.loadTradeRoomSnapshot(["trade"], "viewer", true);
+
+    expect(query).toHaveBeenCalledTimes(viewer.expectedQueries);
+    if (viewer.expectedQueries === 2) {
+      expect(query).toHaveBeenLastCalledWith("select payload from alpha_exchange.users where id = any($1::text[])", [["staff"]]);
+      expect(snapshot?.users).toContainEqual(staff);
+    } else {
+      expect(snapshot?.users.some(user => user.id === "staff")).toBe(false);
+    }
+  });
+
   it("loads only the explicitly selected critical-path snapshot tables", async () => {
     const query = vi.fn((queryText: string) => {
       if (queryText.includes("to_regclass")) return Promise.resolve({ rows: [{ ready: true }] });

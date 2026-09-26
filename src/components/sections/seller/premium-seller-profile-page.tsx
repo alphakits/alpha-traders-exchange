@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { publicAccountId } from "@/lib/public-account-identity";
 import { normalizePublicAccountId } from "@/lib/format-id";
 import { PublicAccountId } from "@/components/ui/public-account-id";
+import { AccountIdentityLabel } from "@/components/ui/account-identity-label";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { SellerRankIdentity, SellerRankCollection } from "@/components/profile/seller-rank-identity";
 import { rankVisualKey } from "@/lib/rank-identity";
@@ -195,6 +196,7 @@ type PremiumSellerProfilePageProps = {
   locale: "ar" | "en";
   viewerOwnsProfile?: boolean;
   viewerSignedIn?: boolean;
+  canViewPrivateIdentity?: boolean;
   data: {
     profile: PremiumSellerProfileData | null;
     sellerListings: Array<{
@@ -220,7 +222,7 @@ type PremiumSellerProfilePageProps = {
   };
 };
 
-export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, viewerSignedIn = false, data }: PremiumSellerProfilePageProps) {
+export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, viewerSignedIn = false, canViewPrivateIdentity = false, data }: PremiumSellerProfilePageProps) {
   const isAr = locale === "ar";
   const listSeparator = isAr ? "، " : ", ";
   const profile = data.profile;
@@ -341,7 +343,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     </div>
                     <div className={isAr ? "text-right" : ""}>
                       <div className={cn("flex items-center gap-2", isAr ? "flex-row-reverse" : "")}>
-                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerSeller ? <bdi dir="auto">{currencyText(seller.sellerName)}</bdi> : <PublicAccountId value={publicAccountId({ id: seller.sellerId })} audience="seller" rank={profile.sellerLevel} className="public-account-id--hero" />}</h1>
+                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{isOwnerSeller ? <bdi dir="auto">{currencyText(seller.sellerName)}</bdi> : <AccountIdentityLabel publicId={publicAccountId({ id: seller.sellerId })} label={seller.sellerName} canViewPrivateIdentity={canViewPrivateIdentity} audience="seller" rank={profile.sellerLevel} className="public-account-id--hero" />}</h1>
                         <BadgeCheck className={cn("h-5 w-5", isOwnerSeller ? "text-red-300" : "text-[#C9A227]")} />
                       </div>
                       <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">

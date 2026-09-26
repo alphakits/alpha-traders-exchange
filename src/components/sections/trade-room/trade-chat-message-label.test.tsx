@@ -11,6 +11,20 @@ const context = { request: { buyerId: "buyer-1", sellerId: "seller-1" }, counter
 const message: TradeChatMessage = { id: "message-1", purchaseRequestId: "trade-1", kind: "user", senderUserId: "buyer-1", senderRole: "approved_seller", message: "Hello", createdAt: "2026-09-24T12:00:00Z", readByUserIds: ["buyer-1"] };
 
 describe("public trade chat labels", () => {
+  it("shows private names beside AT IDs only when the room authorizes the owner", () => {
+    const ownerContext = { ...context, counterpart: { ...context.counterpart, buyerName: "AT-100001 (Private Buyer)" } };
+    const html = renderToStaticMarkup(<TradeChatMessageLabel message={message} context={ownerContext} actorId="owner" locale="en" canViewPrivateIdentity />);
+    expect(html).toContain("AT-100001");
+    expect(html).toContain("(Private Buyer)");
+    expect(renderToStaticMarkup(<TradeChatMessageLabel message={message} context={ownerContext} actorId="buyer-1" locale="en" />)).not.toContain("Private Buyer");
+  });
+  it("identifies staff in an owner view without exposing them to other participants", () => {
+    const staffMessage = { ...message, senderUserId: "admin", senderRole: "admin" as const };
+    const staffContext = { ...context, ownerIdentityLabels: { admin: "AT-300003 (Private Staff)" } };
+    const ownerHtml = renderToStaticMarkup(<TradeChatMessageLabel message={staffMessage} context={staffContext} actorId="owner" locale="en" canViewPrivateIdentity />);
+    expect(ownerHtml).toContain("AT-300003 (Private Staff)");
+    expect(renderToStaticMarkup(<TradeChatMessageLabel message={staffMessage} context={staffContext} actorId="buyer-1" locale="en" />)).not.toContain("Private Staff");
+  });
   it("shows the verified owner with a red Owner badge", () => {
     const html = renderToStaticMarkup(<TradeChatMessageLabel message={{ ...message, senderUserId: "owner-1", senderRole: "owner" }} context={context} actorId="buyer-1" locale="en" />);
     expect(html).toContain("Owner");

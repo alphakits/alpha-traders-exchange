@@ -7455,14 +7455,17 @@ export async function getSellerApplicationByUserId(userId: string, dbInput?: Alp
   return db.sellerApplications.find((item) => item.userId === userId) ?? null;
 }
 
-export async function getPendingSellerApplicationsForAdmin() {
-  const db = await readDb();
-  return db.sellerApplications.filter((item) => item.status === "pending");
+export async function getPendingSellerApplicationsForAdmin(viewerUserId?: string) {
+  return (await getAllSellerApplicationsForAdmin(undefined, viewerUserId)).filter((item) => item.status === "pending");
 }
 
-export async function getAllSellerApplicationsForAdmin(dbInput?: AlphaExchangeDb) {
+export async function getAllSellerApplicationsForAdmin(dbInput?: AlphaExchangeDb, viewerUserId?: string) {
   const db = dbInput ?? await readDb();
-  return db.sellerApplications;
+  const viewer = db.users.find(user => user.id === viewerUserId);
+  return db.sellerApplications.map(application => ({
+    ...application,
+    fullName: accountNameForViewer(db.users.find(user => user.id === application.userId) ?? { id: application.userId, fullName: application.fullName }, viewer),
+  }));
 }
 
 async function deliverSellerApprovalEmail(db: AlphaExchangeDb, applicationId: string, adminUserId: string) {
@@ -11305,6 +11308,9 @@ export async function resolveTradeRoomRequestForNotification(input: {
 }
 
 export interface TradeRoomData {
+  /** Server-resolved capability; caller-supplied actorRole never grants it. */
+  canViewPrivateIdentity?: boolean;
+  ownerIdentityLabels?: Record<string, string>;
   request: PurchaseRequest;
   listing: MarketplaceListing | null;
   counterpart: { buyerName: string; sellerName: string; buyerPublicId?: string; sellerPublicId?: string };
@@ -11476,6 +11482,12 @@ export async function getTradeRoomData(input: {
   const visibleMessageText = canViewPrivateContent
     ? ownerIdentityText(db.users)
     : identityTextRedactor([...db.users, { ...buyer, id: request.buyerId, fullName: request.buyerName }], true);
+  const identityActors = canViewPrivateContent ? new Set([
+    request.buyerId, request.sellerId,
+    ...messages.map(message => message.senderUserId),
+    ...(request.timeline ?? []).map(entry => entry.actorUserId),
+    ...db.auditLogs.filter(entry => entry.purchaseRequestId === request.id).flatMap(entry => [entry.actorUserId, entry.targetUserId]),
+  ]) : null;
 
   return {
     request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, input.actorUserId), input.actorUserId, viewerRole),
@@ -11486,6 +11498,9 @@ export async function getTradeRoomData(input: {
       buyerPublicId: publicAccountId(buyer ?? { id: request.buyerId }),
       sellerPublicId: publicAccountId(seller ?? { id: request.sellerId, role: "approved_seller" }),
     },
+    canViewPrivateIdentity: canViewPrivateContent,
+    ...(identityActors ? { ownerIdentityLabels: Object.fromEntries(db.users.filter(user => identityActors.has(user.id))
+      .map(user => [user.id, accountNameForViewer(user, viewer)])) } : {}),
     messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(
       { ...message, message: message.credentialKind ? message.message : visibleMessageText(message.message) },
       canViewPrivateContent,
@@ -17389,7 +17404,7 @@ export async function getNotificationsForUser(input: {
   const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
   const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
-  const redactActivity = isPublicOwnerIdentity(db.users.find(user => user.id === input.userId)) ? (value?: string) => value ?? "" : identityTextRedactor(db.users);
+  const redactActivity = isPublicOwnerIdentity(db.users.find(user => user.id === input.userId)) ? ownerIdentityText(db.users) : identityTextRedactor(db.users);
   const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120).map(entry => ({ ...entry, title: redactActivity(entry.title), details: redactActivity(entry.details) }));
   const clientNotifications = sortedNotifications
     .slice(safeOffset, safeOffset + safeLimit)
@@ -18666,7 +18681,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
 
   const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement] = await Promise.all([
     getAlphaExchangeSummaryForAdmin(db),
-    getAllSellerApplicationsForAdmin(db),
+    getAllSellerApplicationsForAdmin(db, viewerUserId),
     getApprovedSellersForAdmin(db, viewerUserId),
     getMarketplaceListingsForAdmin(db, viewerUserId),
     getPurchaseRequestsForAdmin(db, viewerUserId),
@@ -18678,8 +18693,15 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     getListingReliabilityForAdmin(db),
     getMarketplaceEnforcementDashboardData(db),
   ]);
-  const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
-  const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
+  const dashboardViewer = db.users.find(user => user.id === viewerUserId);
+  const dashboardText = isPublicOwnerIdentity(dashboardViewer) ? ownerIdentityText(db.users) : identityTextRedactor(db.users);
+  const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
+    .map(entry => ({ ...entry, title: dashboardText(entry.title), message: dashboardText(entry.message),
+      ...(entry.titleEn ? { titleEn: dashboardText(entry.titleEn) } : {}), ...(entry.titleAr ? { titleAr: dashboardText(entry.titleAr) } : {}),
+      ...(entry.messageEn ? { messageEn: dashboardText(entry.messageEn) } : {}), ...(entry.messageAr ? { messageAr: dashboardText(entry.messageAr) } : {}),
+    }));
+  const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
+    .map(entry => ({ ...entry, title: dashboardText(entry.title), details: dashboardText(entry.details) }));
   const users = db.users.map((user) => toAdminUserSummary(user, isPublicOwnerIdentity(db.users.find(viewer => viewer.id === viewerUserId))));
   const sellerReviews = db.sellerReviews ?? [];
   const complianceSettings = {
@@ -18694,7 +18716,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     purchaseRequests,
     disputes: db.disputes,
     commissionRecords,
-    auditLogs,
+    auditLogs: auditLogs.map(entry => ({ ...entry, details: dashboardText(entry.details), reason: entry.reason ? dashboardText(entry.reason) : entry.reason })),
     notifications,
     activityLog,
     trustEngine,
