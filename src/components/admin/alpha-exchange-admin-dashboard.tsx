@@ -10,6 +10,7 @@ import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, L
 import { useAdminActionDialog } from "@/components/admin/use-admin-action-dialog";
 import { isProtectedOwnerTarget, type OwnerAccountTarget } from "@/lib/owner-account-command";
 import { readOwnerDashboardJson } from "@/lib/owner-dashboard-read";
+import { executeOwnerDashboardAction, prepareOwnerDashboardAction, type OwnerDashboardRequest } from "@/lib/owner-dashboard-action";
 import { isOwnerDashboardSnapshot } from "@/lib/owner-dashboard-snapshot";
 import { executeOwnerRankBatch, planOwnerRankBatch, type OwnerRankBatchResult } from "@/lib/owner-rank-batch";
 import { beginOwnerPendingOperation, finishOwnerPendingOperation, readOwnerPendingOperations, OWNER_OPERATION_EVENT, type OwnerPendingOperation } from "@/lib/owner-pending-operation";
@@ -500,6 +501,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [data, setData] = useState<AdminPayload | null>(null);
   const dashboardReadEpoch = useRef(0);
   const dashboardMounted = useRef(true);
+  const dashboardActionInFlight = useRef(false);
   const [ownerAccountTarget, setOwnerAccountTarget] = useState<OwnerAccountTarget | null>(null);
   const ownerAccountTargetRef = useRef<OwnerAccountTarget | null>(null);
   const [ownerRankBatchResult, setOwnerRankBatchResult] = useState<OwnerRankBatchResult | null>(null);
@@ -1146,28 +1148,39 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     });
   }, [data?.approvedSellers, rankMgmtFilter, rankMgmtSearch]);
 
-  async function runAction(request: Promise<Response>, successMessage: string) {
+  async function runAction(request: OwnerDashboardRequest, successMessage: string | ((payload: Record<string, unknown>) => string), onSaved?: (payload: Record<string, unknown>) => void) {
+    if (!dashboardMounted.current || dashboardActionInFlight.current) return false;
+    dashboardActionInFlight.current = true;
     try {
-      const response = await request;
-      let payload: { error?: string } | null = null;
-      try {
-        payload = (await response.json()) as { error?: string };
-      } catch {
-        payload = null;
+      const result = await executeOwnerDashboardAction(request);
+      if (!dashboardMounted.current) return false;
+      if (result.outcome !== "saved") {
+        pushToast(result.outcome === "rejected" ? safeAdminError("action", locale) : t(
+          "This action is awaiting verification. Check the current state and audit history before trying again. No request was repeated.",
+          "هذا الإجراء بانتظار التحقق. راجع الحالة الحالية وسجل التدقيق قبل المحاولة مجددًا. لم يُكرر أي طلب.",
+        ));
+        if (result.outcome === "rejected") await fetchData({ silent: true });
+        return false;
       }
-      if (!response.ok) throw new Error(isArabic ? safeAdminError("action", locale) : payload?.error || safeAdminError("action", locale));
-      pushToast(successMessage);
-      await fetchData();
+      const fresh = await fetchData({ silent: true });
+      if (!dashboardMounted.current) return false;
+      if (!fresh) {
+        pushToast(t("The server confirmed the action, but the dashboard could not refresh. Refresh the current state; do not repeat the action.", "أكد الخادم الإجراء، لكن تعذر تحديث لوحة التحكم. حدّث الحالة الحالية دون تكرار الإجراء."));
+        return false;
+      }
+      if (result.operation) finishOwnerPendingOperation(result.operation.id, "clear");
+      onSaved?.(result.payload!);
+      pushToast(typeof successMessage === "function" ? successMessage(result.payload!) : successMessage);
       return true;
-    } catch (actionError) {
-      pushToast(isArabic ? safeAdminError("action", locale) : actionError instanceof Error ? actionError.message : safeAdminError("action", locale));
+    } catch {
+      if (dashboardMounted.current) pushToast(t("The action result needs verification. Refresh the current state before another attempt.", "تحتاج نتيجة الإجراء إلى تحقق. حدّث الحالة الحالية قبل أي محاولة أخرى."));
       return false;
-    }
+    } finally { dashboardActionInFlight.current = false; }
   }
 
   async function handleSellerAvailabilityStatus(sellerId: string, availabilityStatus: SellerAvailabilityStatus, successMessage: string, reason?: string) {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ availabilityStatus, reason }),
@@ -1208,7 +1221,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return;
     }
     await runAction(
-      fetch("/api/alpha-exchange/admin/compliance/recovery-wallet", {
+      prepareOwnerDashboardAction("/api/alpha-exchange/admin/compliance/recovery-wallet", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1298,7 +1311,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/listings/${listingId}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listingId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action, expirationHours, reason }),
@@ -1309,7 +1322,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleCreateInvite() {
     await runAction(
-      fetch("/api/alpha-exchange/admin/private-beta/invites", {
+      prepareOwnerDashboardAction("/api/alpha-exchange/admin/private-beta/invites", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1323,7 +1336,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleInviteStatus(inviteId: string, action: "expire" | "disable") {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/private-beta/invites/${inviteId}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/private-beta/invites/${inviteId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action }),
@@ -1334,7 +1347,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleFeedbackStatus(feedbackId: string, status: "new" | "in_review" | "resolved") {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/private-beta/feedback/${feedbackId}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/private-beta/feedback/${feedbackId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status }),
@@ -1349,7 +1362,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       return;
     }
     const published = await runAction(
-      fetch("/api/alpha-exchange/admin/private-beta/announcements", {
+      prepareOwnerDashboardAction("/api/alpha-exchange/admin/private-beta/announcements", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1371,7 +1384,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   async function handleAnnouncementState(announcement: BetaAnnouncement, isActive: boolean) {
     await runAction(
-      fetch(`/api/alpha-exchange/admin/private-beta/announcements/${announcement.id}`, {
+      prepareOwnerDashboardAction(`/api/alpha-exchange/admin/private-beta/announcements/${announcement.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ isActive }),
@@ -1398,7 +1411,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleConfirmCommissionPaid() {
-    if (!commissionPaidPending || commissionPaidSaving) return;
+    if (!commissionPaidPending || commissionPaidSaving || dashboardActionInFlight.current) return;
     const reason = commissionPaidReason.trim();
     if (!reason) {
       setCommissionPaidError(t(
@@ -1411,43 +1424,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     setCommissionPaidSaving(true);
     setCommissionPaidError(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/admin/commissions/${commissionPaidPending.record.id}`, {
+      const completed = await runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${commissionPaidPending.record.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          paymentStatus: "paid",
-          paymentVerificationStatus: "verified",
-          paymentVerificationNotes: reason,
-          reason,
-        }),
+        body: JSON.stringify({ paymentStatus: "paid", paymentVerificationStatus: "verified", paymentVerificationNotes: reason, reason }),
+      }), t("Commission marked paid.", "تم تسجيل العمولة كمدفوعة."), () => {
+        setCommissionPaidPending(null);
+        setCommissionPaidReason("");
       });
-      let payload: { commission?: CommissionRecord; error?: string } = {};
-      try {
-        payload = await response.json() as { commission?: CommissionRecord; error?: string };
-      } catch {
-        payload = {};
-      }
-      if (!response.ok || !payload.commission) {
-        throw new Error(payload.error || t(
-          "The commission could not be marked paid. Please try again.",
-          "تعذر تسجيل العمولة كمدفوعة. حاول مرة أخرى.",
-        ));
-      }
-      const updatedCommission = payload.commission;
-
-      setData((current) => current ? {
-        ...current,
-        commissionRecords: current.commissionRecords.map((record) => (
-          record.id === updatedCommission.id ? updatedCommission : record
-        )),
-      } : current);
-      setCommissionPaidPending(null);
-      setCommissionPaidReason("");
-      pushToast(t(
-        "Commission marked paid. Seller confirmation was sent.",
-        "تم تسجيل العمولة كمدفوعة وإرسال التأكيد للبائع.",
-      ));
-      await fetchData({ silent: true });
+      if (!completed && dashboardMounted.current) setCommissionPaidError(t("Payment action not confirmed. Close this dialog and verify the current state before another attempt.", "لم يتم تأكيد إجراء الدفع. أغلق النافذة وتحقق من الحالة الحالية قبل أي محاولة أخرى."));
     } catch (actionError) {
       const message = actionError instanceof Error
         ? actionError.message
@@ -1463,14 +1448,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (!(await confirmAction(t("Reverify this commission against the blockchain now?", "هل تريد إعادة التحقق من هذه العمولة على blockchain الآن؟")))) return;
     const reason = (await requestReason(t("Reason for reverifying this commission:", "سبب إعادة التحقق من هذه العمولة:"), t("Manual admin reverification", "إعادة تحقق يدوية من الإدارة")));
     if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
-    const p = await r.json() as { error?: string; notes?: string };
-    pushToast(r.ok ? t(`Reverification: ${p.notes ?? "complete"}`, "اكتملت إعادة التحقق.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
+    await runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) }), payload => payload.success === true
+      ? t("Commission payment verified.", "تم التحقق من دفع العمولة.")
+      : t("Verification completed; payment is not verified yet.", "اكتمل الفحص؛ لم يتم تأكيد الدفع بعد."));
   }
 
   async function handleIssueManualCommission(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (manualCommissionSubmitting || dashboardActionInFlight.current) return;
     const seller = sellersById.get(manualCommissionSellerId);
     const amount = Number(manualCommissionAmount);
     const reason = manualCommissionReason.trim();
@@ -1495,29 +1480,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
     setManualCommissionSubmitting(true);
     try {
-      const response = await fetch("/api/alpha-exchange/admin/commissions", {
+      await runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/commissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sellerId: seller.id,
-          commissionAmount: amount,
-          reason,
-          ...(dueAt ? { dueAt } : {}),
-        }),
+        body: JSON.stringify({ sellerId: seller.id, commissionAmount: amount, reason, ...(dueAt ? { dueAt } : {}) }),
+      }), t("Seller commission issued.", "تم إصدار عمولة البائع."), payload => {
+        setManualCommissionSellerId("");
+        setManualCommissionAmount("");
+        setManualCommissionReason("");
+        setManualCommissionDueDate("");
+        setCommissionsQuery((payload.commission as CommissionRecord).id);
+        setCommissionsPage(1);
       });
-      const payload = await response.json() as { commission?: CommissionRecord; error?: string };
-      if (!response.ok || !payload.commission) {
-        pushToast(isArabic ? safeAdminError("action", locale) : payload.error ?? safeAdminError("action", locale));
-        return;
-      }
-      setManualCommissionSellerId("");
-      setManualCommissionAmount("");
-      setManualCommissionReason("");
-      setManualCommissionDueDate("");
-      setCommissionsQuery(payload.commission.id);
-      setCommissionsPage(1);
-      pushToast(t("Seller commission issued and payment notification sent.", "تم إصدار عمولة البائع وإرسال إشعار الدفع."));
-      await fetchData();
     } catch {
       pushToast(safeAdminError("action", locale));
     } finally {
@@ -1542,7 +1516,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (!(await confirmAction(t("Broadcast this notification to all users?", "هل تريد إرسال هذا الإشعار إلى جميع المستخدمين؟")))) return;
     const reason = (await requestReason(t("Reason for this broadcast:", "سبب هذا الإرسال:"), t("Operational announcement", "إعلان تشغيلي")));
     if (!reason) return;
-    const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", {
+    await runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/notifications/broadcast", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1553,15 +1527,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         type: broadcastType,
         reason,
       }),
-    });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Broadcast sent.", "تم إرسال الإشعار.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) {
+    }), t("Broadcast sent.", "تم إرسال الإشعار."), () => {
       setBroadcastTitleEn("");
       setBroadcastBodyEn("");
       setBroadcastTitleAr("");
       setBroadcastBodyAr("");
-    }
+    });
   }
 
   function exportCommissionsCsv() {
@@ -1662,8 +1633,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         onDismiss={() => { ownerAccountTargetRef.current = null; setOwnerAccountTarget(null); }}
         onRefresh={async () => (await fetchData({ silent: true }))?.users.find(row => row.id === ownerAccountTarget.id) ?? null} /> : null}
       {data && pendingOwnerOperations.length > 0 ? <div role="status" className="mb-4 rounded-xl border border-amber-400/40 p-4 text-sm">
-        <p>{t("Account actions awaiting verification", "إجراءات حساب بانتظار التحقق")}</p>
+        <p>{t("Actions awaiting verification", "إجراءات بانتظار التحقق")}</p>
         {pendingOwnerOperations.map(operation => {
+          if (operation.command === "dashboard_action") return <div key={operation.id} className="mt-2 flex flex-wrap items-center gap-3">
+            <span>{t("Dashboard action", "إجراء لوحة التحكم")}</span>
+            <Button type="button" size="sm" variant="secondary" onClick={async () => {
+              if (dashboardActionInFlight.current) return;
+              const fresh = await fetchData({ silent: true });
+              if (!fresh || !dashboardMounted.current) return;
+              if (operation.outcome !== "saved" && !(await confirmAction(t("The earlier action has no confirmed receipt. Confirm you checked the current state and audit history before unlocking further actions. No request will be repeated.", "لا يوجد تأكيد للإجراء السابق. أكّد مراجعة الحالة الحالية وسجل التدقيق قبل السماح بإجراءات جديدة. لن يُكرر أي طلب.")))) return;
+              try { finishOwnerPendingOperation(operation.id, "clear"); }
+              catch { pushToast(t("Recovery state could not be updated. The action remains protected.", "تعذر تحديث حالة الاستعادة. ما زال الإجراء محميًا.")); return; }
+              pushToast(t("Current state refreshed. No action was repeated.", "تم تحديث الحالة الحالية دون تكرار أي إجراء."));
+            }}>{t("Verify current state", "تحقق من الحالة الحالية")}</Button>
+          </div>;
           const target = data.users.find(row => row.id === operation.targetId);
           return <div key={operation.id} className="mt-2 flex flex-wrap items-center gap-3"><bdi>{target?.fullName ?? t("Account unavailable", "الحساب غير متاح")}</bdi>
             <Button type="button" size="sm" variant="secondary" disabled={!target || Boolean(ownerAccountTarget) || rankMgmtSaving.size > 0} onClick={async () => {
@@ -2057,7 +2040,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           )))) return;
                                           const reason = (await requestReason(t("Reason for approving this seller application:", "سبب قبول طلب البائع:"), t("Seller approved for launch", "تم اعتماد البائع للعمل")));
                                           if (!reason) return;
-                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, {
+                                          void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, {
                                             method: "POST",
                                             headers: { "content-type": "application/json" },
                                             body: JSON.stringify({
@@ -2077,7 +2060,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           if (!(await confirmAction(t("Reject this seller application?", "هل تريد رفض طلب هذا البائع؟")))) return;
                                           const reason = (await requestReason(t("Reason for rejecting this seller application:", "سبب رفض طلب البائع:"), t("Application rejected", "تم رفض الطلب")));
                                           if (!reason) return;
-                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Application rejected.", "تم رفض الطلب."));
+                                          void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Application rejected.", "تم رفض الطلب."));
                                         }}
                                       >
                                         {t("Reject", "رفض")}
@@ -2091,7 +2074,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           onClick={async () => {
                                             setApprovalEmailSendingId(application.id);
                                             try {
-                                              await runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approval-email`, { method: "POST" }), t("Approval email submitted for delivery.", "تم إرسال رسالة الموافقة إلى خدمة البريد للتسليم."));
+                                              await runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/seller-applications/${application.id}/approval-email`, { method: "POST" }), t("Approval email submitted for delivery.", "تم إرسال رسالة الموافقة إلى خدمة البريد للتسليم."));
                                             } finally {
                                               setApprovalEmailSendingId(null);
                                             }
@@ -2603,7 +2586,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     <div className="flex flex-wrap items-center gap-2">
                                       {listing.status === "draft" ? (
                                         <>
-                                          <Button type="button" size="sm" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) }), t("Listing approved.", "تمت الموافقة على العرض."))}>
+                                          <Button type="button" size="sm" onClick={() => runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) }), t("Listing approved.", "تمت الموافقة على العرض."))}>
                                             {t("Approve", "موافقة")}
                                           </Button>
                                           <Button
@@ -2614,7 +2597,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                               const reason = (await promptAction(t("Reject reason", "سبب الرفض")));
                                               if (!reason) return;
                                               void runAction(
-                                                fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, {
+                                                prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, {
                                                   method: "PATCH",
                                                   headers: { "content-type": "application/json" },
                                                   body: JSON.stringify({ action: "reject", reason }),
@@ -2633,7 +2616,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                               const reason = (await promptAction(t("Change request", "التعديلات المطلوبة")));
                                               if (!reason) return;
                                               void runAction(
-                                                fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, {
+                                                prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, {
                                                   method: "PATCH",
                                                   headers: { "content-type": "application/json" },
                                                   body: JSON.stringify({ action: "request_changes", reason }),
@@ -2709,7 +2692,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                               "حذف اختبار الفحص نهائيًا مع الصفقة التجريبية والرسائل والإشعارات ومراجع السجل وتأثيره على الإحصاءات؟ يعمل هذا فقط قبل إرسال إثبات الدفع.",
                                             )))) return;
                                             void runAction(
-                                              fetch(`/api/alpha-exchange/admin/listings/${listing.id}/purge-smoke-test`, { method: "DELETE" }),
+                                              prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}/purge-smoke-test`, { method: "DELETE" }),
                                               t("Smoke-test records purged.", "تم حذف سجلات اختبار الفحص بالكامل."),
                                             );
                                           }}
@@ -2717,7 +2700,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           {t("Purge Smoke Test", "حذف اختبار الفحص بالكامل")}
                                         </Button>
                                       ) : null}
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "DELETE" }), t("Listing deleted.", "تم حذف العرض."))}>
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "DELETE" }), t("Listing deleted.", "تم حذف العرض."))}>
                                         {t("Delete", "حذف")}
                                       </Button>
                                     </div>
@@ -3190,7 +3173,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             if (!(await confirmAction(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟")))) return;
                                             const reason = (await requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة.")));
                                             if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
+                                            void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
                                           }}
                                         >
                                           {t("Reject", "رفض")}
@@ -3206,7 +3189,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             if (!(await confirmAction(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟")))) return;
                                             const reason = (await requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار.")));
                                             if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
+                                            void runAction(prepareOwnerDashboardAction(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
                                           }}
                                         >
                                           {t("Reset Pending", "إعادة للانتظار")}
@@ -4109,7 +4092,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
                                 onClick={async () => {
                                   if (!(await confirmAction(t("Force-expire all overdue listings? This cannot be undone.", "هل تريد إنهاء جميع العروض المتأخرة إجباريًا؟ لا يمكن التراجع عن ذلك.")))) return;
-                                  void runAction(fetch("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), t("Expired listings force-closed.", "تم إغلاق العروض المنتهية إجباريًا."));
+                                  void runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), t("Expired listings force-closed.", "تم إغلاق العروض المنتهية إجباريًا."));
                                 }}
                               >
                                 {t("Run Now", "تنفيذ الآن")}
@@ -4127,7 +4110,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   if (!(await confirmAction(t("Recalculate trust scores now? This may take a moment.", "هل تريد إعادة حساب درجات الثقة الآن؟ قد يستغرق ذلك بعض الوقت.")))) return;
                                   const reason = (await requestReason(t("Reason for recalculating trust scores:", "سبب إعادة حساب درجات الثقة:"), t("Launch trust recalculation", "إعادة حساب الثقة من الإدارة")));
                                   if (!reason) return;
-                                  void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Trust score recalculation triggered.", "بدأت إعادة حساب درجات الثقة."));
+                                  void runAction(prepareOwnerDashboardAction("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Trust score recalculation triggered.", "بدأت إعادة حساب درجات الثقة."));
                                 }}
                               >
                                 {t("Run Now", "تنفيذ الآن")}

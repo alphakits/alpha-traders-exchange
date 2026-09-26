@@ -2,13 +2,13 @@
 export type OwnerPendingOperation = {
   id: string;
   targetId: string;
-  command: "disable" | "enable" | "suspend" | "reactivate" | "revoke_seller" | "change_role" | "rank";
+  command: "disable" | "enable" | "suspend" | "reactivate" | "revoke_seller" | "change_role" | "rank" | "dashboard_action";
   value?: string;
   outcome: "pending" | "saved" | "unknown";
 };
 const KEY = "alpha-owner-pending-operations-v1";
 export const OWNER_OPERATION_EVENT = "alpha-owner-operation-change";
-const commands = ["disable", "enable", "suspend", "reactivate", "revoke_seller", "change_role", "rank"];
+const commands = ["disable", "enable", "suspend", "reactivate", "revoke_seller", "change_role", "rank", "dashboard_action"];
 export function readOwnerPendingOperations(): OwnerPendingOperation[] {
   const raw = sessionStorage.getItem(KEY);
   if (!raw) return [];

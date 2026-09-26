@@ -122,6 +122,58 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     await act(async () => resolveSms(Response.json({ deliveries: [] })));
   });
 
+  it("sends a listing approval once and clears recovery only after dashboard readback", async () => {
+    let resolveWrite!: (response: Response) => void;
+    let approved = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "PATCH") return new Promise<Response>(resolve => { resolveWrite = resolve; });
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      return Response.json(adminPayload([{ ...listing, status: approved ? "active" : "draft" }]));
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    const approve = await screen.findByRole("button", { name: "Approve" });
+    fireEvent.click(approve); fireEvent.click(approve);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+    approved = true;
+    await act(async () => resolveWrite(Response.json({ listing: { ...listing, status: "active" } })));
+    expect(await screen.findByText("Listing approved.")).toBeTruthy();
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toEqual([]);
+  });
+
+  it("retains an ambiguous listing action across remount without repeating it", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => init?.method === "PATCH"
+      ? Response.json({ listing: { id: "wrong-listing" } })
+      : String(input).includes("sms-deliveries") ? Response.json({ deliveries: [] }) : Response.json(adminPayload()));
+    const view = render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await screen.findByText(/This action is awaiting verification/);
+    expect(screen.queryByText("Listing approved.")).toBeNull();
+    view.unmount();
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Verify current state" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+  });
+
+  it("keeps a saved action when the follow-up read fails, then recovers with reads only", async () => {
+    let failedRead = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "PATCH") { failedRead = true; return Response.json({ listing }); }
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      return failedRead ? new Response(null, { status: 503 }) : Response.json(adminPayload());
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await screen.findByText(/The server confirmed the action, but the dashboard could not refresh/);
+    expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)[0].outcome).toBe("saved");
+    failedRead = false;
+    fireEvent.click(screen.getByRole("button", { name: "Verify current state" }));
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem("alpha-owner-pending-operations-v1")!)).toEqual([]));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+  });
+
   it("retains an ambiguous rank receipt until the owner acknowledges audit verification, without replaying a write", async () => {
     const seller = { id: "rank-seller", fullName: "AT-123456 (Test Seller)", role: "approved_seller", roles: ["approved_seller"], sellerPrestigeRank: "gold" };
     sessionStorage.setItem("alpha-owner-pending-operations-v1", JSON.stringify([{ id: "pending-rank", targetId: seller.id, command: "rank", value: "gold", outcome: "unknown" }]));
@@ -453,10 +505,10 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Confirm commission payment" })).toBeNull());
     expect(await screen.findByText("Payment settled")).toBeTruthy();
-    expect(screen.getByText("Commission marked paid. Seller confirmation was sent.")).toBeTruthy();
+    expect(screen.getByText("Commission marked paid.")).toBeTruthy();
   });
 
-  it("keeps the payment dialog open and shows the API error when settlement fails", async () => {
+  it("keeps the payment dialog open and prevents replay when settlement has no confirmed outcome", async () => {
     navigationState.search = "section=commissions";
     const seller = {
       id: "seller-payment-error",
@@ -497,9 +549,10 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const dialog = await screen.findByRole("dialog", { name: "Confirm commission payment" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
 
-    expect((await within(dialog).findByRole("alert")).textContent).toContain("Commission record changed. Refresh and try again.");
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Payment action not confirmed.");
     expect(screen.getByRole("dialog", { name: "Confirm commission payment" })).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm & Mark Paid" }));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
   });
 
   it("requires and submits both language editions for an emergency broadcast", async () => {

@@ -63,6 +63,7 @@ export function OwnerAccountControls({ locale, target, isOwner, onRefresh, initi
     try {
       const saved = readOwnerPendingOperations().find(row => row.targetId === target.id);
       if (!saved) return;
+      if (saved.command === "dashboard_action") return;
       if (saved.command === "rank") {
         setRequiresRefresh(true);
         setMessage(text("Resolve the pending rank action in the dashboard first.", "تحقق من إجراء الرتبة المعلق في اللوحة أولًا."));
