@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OwnerTradeHistory, OwnerTradeHistoryPage, type OwnerTradeHistoryData } from "./owner-trade-history";
 import { TradeRoomPage } from "./trade-room-page";
@@ -33,7 +33,7 @@ beforeEach(() => {
   navigation.search = "view=history";
   navigation.push.mockClear();
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("owner trade history", () => {
   it.each([
@@ -109,6 +109,129 @@ describe("owner trade history", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/alpha-exchange/trade-room/request-1?view=history");
     expect(stream).not.toHaveBeenCalled();
     expect(navigation.push).not.toHaveBeenCalled();
+    expect(screen.queryByText("Saved chat 0")).toBeNull();
+  });
+});
+
+
+describe("owner history refresh recovery", () => {
+  const flush = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(0); }); };
+  const advance = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+
+  it("refreshes complete history, private names and audit without truncating the transcript", async () => {
+    vi.useFakeTimers();
+    const updated = historyRoom();
+    updated.counterpart.buyerName = "AT-123456 (Current private name)";
+    updated.ownerHistory!.auditLogs[0].details = "New audit result";
+    updated.ownerIdentityLabels = { staff: "AT-654321 (Staff name)" };
+    updated.messages.push({ ...updated.messages[0], id: "new-staff-message", senderUserId: "staff", senderRole: "admin", message: "Staff update" });
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(historyRoom())).mockResolvedValueOnce(Response.json(updated));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<OwnerTradeHistoryPage locale="en" requestId="request-1" />);
+    await flush();
+    await advance(8000);
+    expect(screen.getByRole("region", { name: "Chat history (126)" })).toBeTruthy();
+    expect(screen.getAllByText(/Current private name/).length).toBeGreaterThan(0);
+    expect(screen.getByText("AT-654321 (Staff name)")).toBeTruthy();
+    expect(screen.getByText("New audit result")).toBeTruthy();
+    expect(fetchMock.mock.calls.every(([url, options]) => url.endsWith("?view=history") && !options.method)).toBe(true);
+  });
+
+  it.each([401, 403, 404])("clears private history on %s, stops automatic reads, and allows explicit retry", async status => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(historyRoom()))
+      .mockResolvedValueOnce({ ok: false, status, json: () => new Promise(() => {}) })
+      .mockResolvedValueOnce(Response.json(historyRoom()));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<OwnerTradeHistoryPage locale="en" requestId="request-1" />);
+    await flush();
+    expect(screen.getByText("Saved chat 0")).toBeTruthy();
+    await advance(8000);
+    expect(screen.queryByText("Saved chat 0")).toBeNull();
+    expect(screen.queryByText("Owner trade management")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("owner access");
+    await advance(24000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await flush();
+    expect(screen.getByText("Saved chat 0")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("recovers automatically after a stalled refresh without losing the saved history", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(historyRoom()))
+      .mockReturnValueOnce(new Promise(() => {})).mockResolvedValueOnce(Response.json(historyRoom()));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<OwnerTradeHistoryPage locale="en" requestId="request-1" />);
+    await flush();
+    await advance(23000);
+    expect(screen.getByText("Saved chat 0")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("retry");
+    expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(true);
+    await advance(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("pauses offline and refreshes the complete snapshot on reconnect", async () => {
+    vi.useFakeTimers();
+    let online = true;
+    vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
+    const fetchMock = vi.fn().mockImplementation(async () => Response.json(historyRoom()));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<OwnerTradeHistoryPage locale="en" requestId="request-1" />);
+    await flush();
+    online = false;
+    fireEvent(window, new Event("offline"));
+    await advance(24000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    online = true;
+    fireEvent(window, new Event("online"));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Saved chat 0")).toBeTruthy();
+  });
+
+  it("pauses in the background and preserves an unsent owner draft through refresh", async () => {
+    vi.useFakeTimers();
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    const fetchMock = vi.fn().mockImplementation(async () => Response.json(historyRoom("accepted")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<OwnerTradeHistoryPage locale="en" requestId="request-1" />);
+    await flush();
+    fireEvent.change(screen.getByRole("textbox", { name: /Owner message/ }), { target: { value: "Unsent private draft" } });
+    visibility = "hidden";
+    fireEvent(document, new Event("visibilitychange"));
+    await advance(24000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    visibility = "visible";
+    fireEvent(document, new Event("visibilitychange"));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((screen.getByRole("textbox", { name: /Owner message/ }) as HTMLTextAreaElement).value).toBe("Unsent private draft");
+    expect(fetchMock.mock.calls.every(([, options]) => !options.method)).toBe(true);
+  });
+
+  it("ignores an old trade response after navigation and clears the previous private screen", async () => {
+    vi.useFakeTimers();
+    let resolveOld!: (response: Response) => void;
+    const pending = new Promise<Response>(resolve => { resolveOld = resolve; });
+    const newRoom = historyRoom();
+    newRoom.request.id = "request-2";
+    newRoom.messages = [];
+    newRoom.counterpart.buyerName = "New trade buyer";
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(historyRoom())).mockReturnValueOnce(pending).mockResolvedValueOnce(Response.json(newRoom));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<OwnerTradeHistoryPage locale="en" requestId="request-1" />);
+    await flush();
+    await advance(8000);
+    view.rerender(<OwnerTradeHistoryPage locale="en" requestId="request-2" />);
+    expect(screen.queryByText("Saved chat 0")).toBeNull();
+    await flush();
+    await act(async () => { resolveOld(Response.json(historyRoom())); });
+    expect(screen.getByText("New trade buyer")).toBeTruthy();
     expect(screen.queryByText("Saved chat 0")).toBeNull();
   });
 });

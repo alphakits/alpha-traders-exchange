@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { currencyText } from "@/components/ui/currency-text";
 import { formatTradeId } from "@/lib/format-id";
+import { readOwnerTradeHistory } from "@/lib/owner-trade-history-read";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import { marketplacePaymentMethodLabelForLocale } from "@/lib/marketplace-display-localization";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
@@ -38,48 +39,75 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    const controller = new AbortController();
     let active = true;
+    let busy = false;
+    let denied = false;
+    let sequence = 0;
+    let controller: AbortController | undefined;
+    const unavailable = isAr ? "تعذر تحديث سجل الصفقة. ستتم إعادة المحاولة عند توفر الاتصال." : "Could not refresh trade history. Updates will retry when the connection is available.";
+    const accessLost = isAr ? "لم يعد سجل الصفقة متاحًا لهذا الحساب. تحقق من تسجيل الدخول وصلاحية المالك." : "Trade history is no longer available to this account. Check your sign-in and owner access.";
     setLoading(true);
     setRoom((current) => current?.request.id === requestId ? current : null);
     setError(null);
-    const timeout = window.setTimeout(() => controller.abort(), 15_000);
-    void (async () => {
-      try {
-        const response = await fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}?view=history`, {
-          cache: "no-store", signal: controller.signal,
-        });
-        const payload = await response.json() as OwnerTradeHistoryData;
-        if (!response.ok || payload.request?.id !== requestId || !Array.isArray(payload.messages)) throw new Error("history_unavailable");
-        if (active) setRoom(payload);
-      } catch {
-        if (active) setError(isAr ? "تعذر تحميل سجل الصفقة. تحقق من اتصالك وصلاحية حساب المالك ثم أعد المحاولة." : "Could not load trade history. Check your connection and owner access, then retry.");
-      } finally {
-        window.clearTimeout(timeout);
-        if (active) setLoading(false);
+
+    const refresh = async (initial = false) => {
+      if (!active || busy || denied) return;
+      if (navigator.onLine === false || (!initial && document.visibilityState === "hidden")) {
+        if (initial) { setLoading(false); setError(unavailable); }
+        return;
       }
-    })();
-    return () => { active = false; window.clearTimeout(timeout); controller.abort(); };
+      busy = true;
+      const currentSequence = ++sequence;
+      controller = new AbortController();
+      try {
+        const response = await readOwnerTradeHistory(requestId, controller.signal);
+        if (!active || currentSequence !== sequence) return;
+        if ([401, 403, 404].includes(response.status)) {
+          denied = true;
+          setRoom(null);
+          setError(accessLost);
+          return;
+        }
+        const payload = response.payload as OwnerTradeHistoryData | null;
+        if (!response.ok || payload?.request?.id !== requestId || !Array.isArray(payload.messages)
+          || typeof payload.counterpart?.buyerName !== "string" || typeof payload.counterpart?.sellerName !== "string") {
+          throw new Error("history_unavailable");
+        }
+        // Replace the entire authorized snapshot so names, evidence and audit stay current.
+        setRoom(payload);
+        setError(null);
+      } catch {
+        if (active && currentSequence === sequence) setError(unavailable);
+      } finally {
+        if (active && currentSequence === sequence) { busy = false; setLoading(false); }
+      }
+    };
+    const resume = () => { void refresh(); };
+    const pause = () => {
+      sequence += 1;
+      controller?.abort();
+      busy = false;
+      setLoading(false);
+    };
+    const visibilityChanged = () => { if (document.visibilityState === "hidden") pause(); else resume(); };
+    void refresh(true);
+    const timer = window.setInterval(resume, 8000);
+    window.addEventListener("online", resume);
+    window.addEventListener("offline", pause);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    return () => {
+      active = false;
+      sequence += 1;
+      window.clearInterval(timer);
+      controller?.abort();
+      window.removeEventListener("online", resume);
+      window.removeEventListener("offline", pause);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+    };
   }, [attempt, isAr, requestId]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let busy = false;
-    const timer = window.setInterval(async () => {
-      if (busy || document.visibilityState === "hidden") return;
-      busy = true;
-      try {
-        const response = await fetch(`/api/alpha-exchange/purchase-requests/${encodeURIComponent(requestId)}/messages`, { cache: "no-store", signal: controller.signal });
-        if (!response.ok) return;
-        const payload = await response.json();
-        if (Array.isArray(payload.messages) && payload.trade?.id === requestId) {
-          setRoom((current) => current ? { ...current, request: payload.trade, messages: payload.messages } : current);
-        }
-      } catch { /* Keep the last confirmed history during a temporary disconnect. */ }
-      finally { busy = false; }
-    }, 8000);
-    return () => { window.clearInterval(timer); controller.abort(); };
-  }, [requestId]);
+  // A route change must never render the previous trade while its new effect starts.
+  const visibleRoom = room?.request.id === requestId ? room : null;
 
   return (
     <main dir={isAr ? "rtl" : "ltr"} lang={locale} className="min-h-screen bg-[#050505] px-3 py-5 text-white sm:px-5">
@@ -87,9 +115,9 @@ export function OwnerTradeHistoryPage({ locale, requestId }: Props) {
         <a href={`/${locale}/admin/alpha-exchange?section=purchase-requests&requestId=${encodeURIComponent(requestId)}&details=1`} className={linkClass}>
           {isAr ? "العودة إلى طلبات الشراء" : "Back to purchases"}
         </a>
-        {loading && !room ? <p role="status" className={panelClass}>{isAr ? "جاري تحميل سجل غرفة الصفقة…" : "Loading trade room history…"}</p> : null}
+        {loading && !visibleRoom ? <p role="status" className={panelClass}>{isAr ? "جاري تحميل سجل غرفة الصفقة…" : "Loading trade room history…"}</p> : null}
         {error ? <div role="alert" className={panelClass}><p>{error}</p><Button type="button" variant="secondary" className="mt-3" onClick={() => setAttempt((value) => value + 1)}>{isAr ? "إعادة المحاولة" : "Retry"}</Button></div> : null}
-        {room ? <OwnerTradeHistory locale={locale} room={room} onUpdated={() => setAttempt((value) => value + 1)} /> : null}
+        {visibleRoom ? <OwnerTradeHistory key={requestId} locale={locale} room={visibleRoom} onUpdated={() => setAttempt((value) => value + 1)} /> : null}
       </div>
     </main>
   );
