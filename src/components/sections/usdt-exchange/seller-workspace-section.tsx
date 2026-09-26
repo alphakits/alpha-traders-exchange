@@ -4,6 +4,7 @@ import { UserPresence } from "@/components/ui/user-presence";
 
 
 import { AttentionSiren } from "@/components/ui/attention-siren";
+import { CommissionCheckoutPanel } from "./commission-checkout-panel";
 import { CommissionAutomationPanel } from "./commission-automation-panel";
 import { PublicAccountId } from "@/components/ui/public-account-id";
 import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-identity";
@@ -122,6 +123,7 @@ export type SellerWorkspaceSectionProps = {
   deferredSellerPanelsReady: boolean;
   evidenceUploading: Record<string, boolean>;
   groupedActivityHistory: Array<{ dayKey: string; label: string; items: AlphaExchangeActivityLogEntry[] }>;
+  onCommissionSettled?: () => void;
   handleCommissionPayNow: () => Promise<void>;
   handleOpenTradeRoom: (requestId: string) => void;
   handlePrefetchTradeRoom: (requestId: string) => void;
@@ -283,6 +285,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     deferredSellerPanelsReady,
     evidenceUploading,
     groupedActivityHistory,
+    onCommissionSettled,
     handleCommissionPayNow,
     handleOpenTradeRoom,
     handlePrefetchTradeRoom,
@@ -611,7 +614,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card id="commission-payment" tabIndex={-1} className="order-16 scroll-mt-24 border-[#C9A227]/30 bg-[#0B0B0B]/98">
+            <section id="commission-payment" tabIndex={-1} className="order-16 scroll-mt-24">
+              <CommissionCheckoutPanel isAr={isAr} embedded onSettled={onCommissionSettled} />
+              <details className="mt-4 rounded-2xl border border-white/15 p-4">
+                <summary className="cursor-pointer text-sm text-amber-200">{isAr ? "أرسلت دفعة بالفعل؟ متابعة تعليمات الدفع السابقة" : "Already sent a payment? Check previous payment instructions"}</summary>
+                <p className="my-3 text-sm text-amber-200">{isAr ? "هذه التعليمات للدفعات السابقة فقط. لا ترسل دفعة جديدة من هنا؛ استخدم الدفع التلقائي أعلاه." : "These instructions are for earlier payments only. For a new payment, use automatic checkout above."}</p>
+            <Card className="border-[#C9A227]/30 bg-[#0B0B0B]/98">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
@@ -1058,6 +1066,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
 
               </CardContent>
             </Card>
+              </details>
+            </section>
           ) : null}
 
           <Card id="create-listing" tabIndex={desktopNavigation ? -1 : undefined} className={cn("order-30 border-white/10 bg-[#0B0B0B]/90", desktopNavigation && "scroll-mt-24")}>

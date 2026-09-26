@@ -59,3 +59,17 @@ it("changed commission group does not show instructions to resend", async () => 
   fetchMock.mockResolvedValue(response({ ...waiting, status: "changed" })); render(<CommissionCheckoutPanel isAr={false} />);
   await screen.findByText(/These commissions changed/); expect(screen.queryByText(wallet)).toBeNull();
 });
+it("embedded checkout refreshes the seller workspace once after canonical paid status", async () => {
+  const onSettled = vi.fn();
+  fetchMock.mockResolvedValue(response(waiting));
+  render(<CommissionCheckoutPanel isAr={false} embedded onSettled={onSettled} />);
+  await screen.findByText(wallet);
+  expect(screen.queryByRole("main")).toBeNull();
+  expect(onSettled).not.toHaveBeenCalled();
+  fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0 }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" }));
+  await waitFor(() => expect(onSettled).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  expect(onSettled).toHaveBeenCalledOnce();
+});

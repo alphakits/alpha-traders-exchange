@@ -110,7 +110,7 @@ describe("owner completed Trade Room history", () => {
     db.purchaseRequests[0].messages![0].message = `${publicAccountId(db.users[1])} paid ${publicAccountId(db.users[2])}`;
     install(db);
     const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "owner", actorRole: "owner", ownerHistory: true });
-    expect(room.messages.at(-1)?.message).toBe("Amir Hassan paid Maya Chen");
+    expect(room.messages.at(-1)?.message).toBe(`${publicAccountId({ id: "buyer" })} (Amir Hassan) paid ${publicAccountId({ id: "seller" })} (Maya Chen)`);
   });
 
   it("retains the saved buyer name for the owner when an old buyer account is absent, while peers remain private", async () => {
@@ -118,8 +118,8 @@ describe("owner completed Trade Room history", () => {
     db.users = db.users.filter(item => item.id !== "buyer");
     install(db);
     const room = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "owner", actorRole: "owner", ownerHistory: true });
-    expect(room.counterpart.buyerName).toBe("Amir Hassan");
-    expect(room.request.buyerName).toBe("Amir Hassan");
+    expect(room.counterpart.buyerName).toBe(`${publicAccountId({ id: "buyer" })} (Amir Hassan)`);
+    expect(room.request.buyerName).toBe(`${publicAccountId({ id: "buyer" })} (Amir Hassan)`);
     const peerRoom = await getTradeRoomData({ purchaseRequestId: REQUEST_ID, actorUserId: "seller", actorRole: "approved_seller", markMessagesRead: false });
     expect(JSON.stringify(peerRoom)).not.toContain("Amir Hassan");
   });

@@ -7,6 +7,8 @@ import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { useAdminActionDialog } from "@/components/admin/use-admin-action-dialog";
+import { OwnerAccountControls } from "@/components/admin/owner-account-controls";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
@@ -63,6 +65,7 @@ type AdminSeller = {
   roles?: Array<"guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner">;
   sellerStatus: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
   sellerApprovalVerified: boolean;
+  disabled?: boolean;
   availabilityStatus?: SellerAvailabilityStatus;
   lifetimeCompletedVolumeUsdt?: number;
   sellerPrestigeRank?: SellerLevel;
@@ -108,7 +111,7 @@ type AdminPayload = {
     };
   };
   privateBeta: OwnerPrivateBetaDashboardData;
-  users: Array<{ id: string; fullName: string; email: string; whatsappNumber: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
+  users: Array<{ id: string; fullName: string; email: string; whatsappNumber: string; role: string; roles?: string[]; disabled?: boolean; sellerStatus?: string; createdAt: string }>;
   sellerReviews: SellerReviewRecord[];
   listingReliability: ListingReliabilityReport[];
   smsDeliveries: AdminSmsDelivery[];
@@ -326,6 +329,7 @@ function paginate<T>(items: T[], page: number) {
 export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: { locale?: "ar" | "en"; isOwner?: boolean }) {
   const searchParams = useSearchParams();
   const isArabic = locale === "ar";
+  const { confirmAction, promptAction, actionDialog } = useAdminActionDialog(isArabic);
   const t = useCallback((english: string, arabic: string) => isArabic ? arabic : english, [isArabic]);
   const statusLabel = useCallback((value: string | null | undefined) => {
     const status = value ?? "";
@@ -628,6 +632,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [rankMgmtSearch, setRankMgmtSearch] = useState("");
   const [rankMgmtFilter, setRankMgmtFilter] = useState<"all" | SellerLevel>("all");
   const [rankMgmtSelected, setRankMgmtSelected] = useState<Set<string>>(new Set());
+  const bulkRankInFlight = useRef(false);
   const [rankMgmtSaving, setRankMgmtSaving] = useState<Set<string>>(new Set());
   const [rankMgmtBulkRank, setRankMgmtBulkRank] = useState<SellerLevel>("bronze");
   const [rankConfirmPending, setRankConfirmPending] = useState<{ sellerId: string; sellerName: string; fromRank: SellerLevel; toRank: SellerLevel } | null>(null);
@@ -665,13 +670,13 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
-  const fetchData = useCallback(async (options: { silent?: boolean } = {}) => {
+  const fetchData = useCallback(async (options: { silent?: boolean } = {}): Promise<AdminPayload | null> => {
     if (!options.silent) setLoading(true);
     setError(null);
     try {
       const [response, smsDeliveries] = await Promise.all([
-        fetch("/api/alpha-exchange/admin-prep", { cache: "no-store" }),
-        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store" })
+        fetch("/api/alpha-exchange/admin-prep", { cache: "no-store", signal: AbortSignal.timeout(15_000) }),
+        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store", signal: AbortSignal.timeout(15_000) })
           .then(async (smsResponse) => {
             if (!smsResponse.ok) return [];
             const smsPayload = (await smsResponse.json()) as { deliveries?: AdminSmsDelivery[] };
@@ -680,11 +685,16 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           .catch(() => [] as AdminSmsDelivery[]),
       ]);
       const payload = (await response.json()) as Omit<AdminPayload, "smsDeliveries"> & { error?: string };
-      if (!response.ok) throw new Error(safeAdminError("load", locale));
-      setData({ ...payload, smsDeliveries });
-      setSelectedRequest((current) => current ? payload.purchaseRequests.find((request) => request.id === current.id) ?? current : null);
+      if (response.status === 401 || response.status === 403) { setData(null); setSelectedSeller(null); setSelectedRequest(null); }
+      if (!response.ok || !Array.isArray(payload.users) || !Array.isArray(payload.approvedSellers) || !Array.isArray(payload.purchaseRequests)) throw new Error(safeAdminError("load", locale));
+      const fresh = { ...payload, smsDeliveries };
+      setData(fresh);
+      setSelectedRequest((current) => current ? payload.purchaseRequests.find((request) => request.id === current.id) ?? null : null);
+      setSelectedSeller((current) => current ? payload.approvedSellers.find((seller) => seller.id === current.id) ?? null : null);
+      return fresh;
     } catch (requestError) {
       setError(isArabic ? safeAdminError("load", locale) : requestError instanceof Error ? requestError.message : safeAdminError("load", locale));
+      return null;
     } finally {
       if (!options.silent) setLoading(false);
     }
@@ -778,8 +788,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     }, 1800);
   }
 
-  function requestReason(promptText: string, defaultValue = "") {
-    const reason = window.prompt(promptText, defaultValue);
+  async function requestReason(promptText: string, defaultValue = "") {
+    const reason = (await promptAction(promptText, defaultValue));
     return reason ? reason.trim() : "";
   }
 
@@ -1201,13 +1211,17 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleBulkRankAction(action: "promote" | "demote" | "set" | "reset", targetRank?: SellerLevel) {
+    if (bulkRankInFlight.current) return;
     const RANK_ORDER: readonly SellerLevel[] = SELLER_LEVELS;
     const sellers = rankMgmtRows.filter((s) => rankMgmtSelected.has(s.id));
     if (sellers.length === 0) { pushToast(t("No sellers selected.", "لم يتم اختيار أي بائع.")); return; }
     const eligibleSellers = sellers.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner");
     if (eligibleSellers.length === 0) { pushToast(t("Owner accounts cannot be modified.", "لا يمكن تعديل حساب المالك.")); return; }
     const label = action === "promote" ? "promote to next rank" : action === "demote" ? "demote to previous rank" : action === "reset" ? "reset to Bronze" : `set rank to ${targetRank ?? "selected"}`;
-    if (!window.confirm(t(`Apply "${label}" to ${eligibleSellers.length} seller(s)?`, `هل تريد تطبيق الإجراء على ${eligibleSellers.length} من البائعين؟`))) return;
+    if (!(await confirmAction(t(`Apply "${label}" to ${eligibleSellers.length} seller(s)?`, `هل تريد تطبيق الإجراء على ${eligibleSellers.length} من البائعين؟`)))) return;
+    bulkRankInFlight.current = true;
+    let saved = 0, failed = 0, unknown = 0, skipped = 0;
+    try {
     for (const seller of eligibleSellers) {
       const current = seller.sellerPrestigeRank ?? "bronze";
       const currentIdx = RANK_ORDER.indexOf(current);
@@ -1216,7 +1230,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       else if (action === "demote") newRank = RANK_ORDER[Math.max(0, currentIdx - 1)];
       else if (action === "reset") newRank = "bronze";
       else newRank = targetRank ?? "bronze";
-      if (newRank === current && action !== "set" && action !== "reset") continue;
+      if (newRank === current && action !== "set" && action !== "reset") { skipped++; continue; }
       setRankMgmtSaving((prev) => new Set(prev).add(seller.id));
       try {
         const response = await fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/prestige`, {
@@ -1224,17 +1238,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ rank: newRank, reason: `Bulk admin action — ${label}` }),
         });
-        if (!response.ok) {
-          const payload = await response.json() as { error?: string };
-          pushToast(isArabic ? safeAdminError("action", locale) : payload.error ?? "Failed for one seller.");
-        }
-      } finally {
+        if (response.ok) saved++;
+        else if (response.status >= 500 || response.status === 408) unknown++;
+        else failed++;
+      } catch { unknown++; }
+      finally {
         setRankMgmtSaving((prev) => { const next = new Set(prev); next.delete(seller.id); return next; });
       }
     }
     setRankMgmtSelected(new Set());
-    pushToast(t(`Bulk rank action applied to ${eligibleSellers.length} seller(s).`, `تم تطبيق إجراء الرتبة على ${eligibleSellers.length} من البائعين.`));
-    await fetchData();
+    pushToast(t(`Rank changes: ${saved} saved, ${failed} rejected, ${unknown} unconfirmed, ${skipped} unchanged.`, `تغييرات الرتبة: ${saved} محفوظة، ${failed} مرفوضة، ${unknown} غير مؤكدة، ${skipped} دون تغيير.`));
+    await fetchData({ silent: true });
+    } finally { bulkRankInFlight.current = false; }
   }
 
   async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
@@ -1401,8 +1416,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   }
 
   async function handleReverifyCommission(commissionId: string) {
-    if (!window.confirm(t("Reverify this commission against the blockchain now?", "هل تريد إعادة التحقق من هذه العمولة على blockchain الآن؟"))) return;
-    const reason = requestReason(t("Reason for reverifying this commission:", "سبب إعادة التحقق من هذه العمولة:"), t("Manual admin reverification", "إعادة تحقق يدوية من الإدارة"));
+    if (!(await confirmAction(t("Reverify this commission against the blockchain now?", "هل تريد إعادة التحقق من هذه العمولة على blockchain الآن؟")))) return;
+    const reason = (await requestReason(t("Reason for reverifying this commission:", "سبب إعادة التحقق من هذه العمولة:"), t("Manual admin reverification", "إعادة تحقق يدوية من الإدارة")));
     if (!reason) return;
     const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
     const p = await r.json() as { error?: string; notes?: string };
@@ -1419,10 +1434,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       pushToast(t("Select a seller, enter at least 0.01 USDT, and provide a reason.", "اختر بائعًا وأدخل 0.01 USDT على الأقل وأضف السبب."));
       return;
     }
-    if (!window.confirm(t(
+    if (!(await confirmAction(t(
       `Issue a ${amount.toFixed(2)} USDT commission to ${seller.fullName}? The seller will be marketplace-locked until it is paid.`,
       `هل تريد إصدار عمولة بقيمة ${amount.toFixed(2)} USDT للبائع ${seller.fullName}؟ سيُقفل نشاطه في السوق حتى الدفع.`,
-    ))) return;
+    )))) return;
 
     let dueAt: string | undefined;
     if (manualCommissionDueDate) {
@@ -1466,28 +1481,6 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     }
   }
 
-  async function handleChangeUserRole(userId: string, currentRole: string) {
-    const newRole = window.prompt(t(`Change role for user (current: ${currentRole})\nOptions: guest, student, buyer, admin\nSeller access must use the verified application workflow.`, `تغيير دور المستخدم (الحالي: ${currentRole})\nالخيارات: guest, student, buyer, admin\nيجب منح صلاحية البائع عبر مسار الطلب والتحقق.`));
-    if (!newRole) return;
-    if (!window.confirm(t(`Change this user's role from ${currentRole} to ${newRole.trim()}?`, `هل تريد تغيير دور المستخدم من ${currentRole} إلى ${newRole.trim()}؟`))) return;
-    const reason = window.prompt(t("Reason for role change:", "سبب تغيير الدور:"));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/role`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t("Role updated.", "تم تحديث الدور.") : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
-  }
-
-  async function handleDisableUser(userId: string, disabled: boolean) {
-    if (!window.confirm(t(`${disabled ? "Disable" : "Enable"} this account?`, `هل تريد ${disabled ? "تعطيل" : "تفعيل"} هذا الحساب؟`))) return;
-    const reason = window.prompt(t(`Reason for ${disabled ? "disabling" : "enabling"} this account:`, `سبب ${disabled ? "تعطيل" : "تفعيل"} هذا الحساب:`));
-    if (!reason) return;
-    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/disable`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disabled, reason }) });
-    const p = await r.json() as { error?: string };
-    pushToast(r.ok ? t(`Account ${disabled ? "disabled" : "enabled"}.`, `تم ${disabled ? "تعطيل" : "تفعيل"} الحساب.`) : (isArabic ? safeAdminError("action", locale) : p.error ?? "Error"));
-    if (r.ok) await fetchData();
-  }
-
   async function handleModerateReview(reviewId: string, hide: boolean) {
     const reason = window.prompt(t(`Reason for ${hide ? "hiding" : "restoring"} this review:`, `سبب ${hide ? "إخفاء" : "إظهار"} هذا التقييم:`));
     if (!reason) return;
@@ -1502,8 +1495,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       pushToast(t("English and Arabic titles and bodies are required.", "العنوان والنص مطلوبان بالإنجليزية والعربية."));
       return;
     }
-    if (!window.confirm(t("Broadcast this notification to all users?", "هل تريد إرسال هذا الإشعار إلى جميع المستخدمين؟"))) return;
-    const reason = requestReason(t("Reason for this broadcast:", "سبب هذا الإرسال:"), t("Operational announcement", "إعلان تشغيلي"));
+    if (!(await confirmAction(t("Broadcast this notification to all users?", "هل تريد إرسال هذا الإشعار إلى جميع المستخدمين؟")))) return;
+    const reason = (await requestReason(t("Reason for this broadcast:", "سبب هذا الإرسال:"), t("Operational announcement", "إعلان تشغيلي")));
     if (!reason) return;
     const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", {
       method: "POST",
@@ -1620,6 +1613,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   return (
     <section dir={isArabic ? "rtl" : "ltr"} lang={locale} className="section-container page-shell admin-dashboard-shell !max-w-[118rem] 2xl:!max-w-[128rem]">
+      {actionDialog}
       <div className="grid gap-6 xl:grid-cols-[290px_minmax(0,1fr)] xl:items-start">
         <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-4">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
@@ -1675,7 +1669,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 </Card>
               ) : null}
 
-              {!loading && !error && data ? (
+              {!loading && data ? (
                 <>
                   {activeSection === "overview" ? (
                     <div className="space-y-6 xl:space-y-8">
@@ -1985,12 +1979,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         type="button"
                                         size="sm"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => {
-                                          if (!window.confirm(t(
+                                        onClick={async () => {
+                                          if (!(await confirmAction(t(
                                             "Approve this seller application after your WhatsApp review?",
                                             "هل تريد قبول طلب هذا البائع بعد مراجعة التوثيق عبر واتساب؟",
-                                          ))) return;
-                                          const reason = requestReason(t("Reason for approving this seller application:", "سبب قبول طلب البائع:"), t("Seller approved for launch", "تم اعتماد البائع للعمل"));
+                                          )))) return;
+                                          const reason = (await requestReason(t("Reason for approving this seller application:", "سبب قبول طلب البائع:"), t("Seller approved for launch", "تم اعتماد البائع للعمل")));
                                           if (!reason) return;
                                           void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, {
                                             method: "POST",
@@ -2008,9 +2002,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         size="sm"
                                         variant="secondary"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => {
-                                          if (!window.confirm(t("Reject this seller application?", "هل تريد رفض طلب هذا البائع؟"))) return;
-                                          const reason = requestReason(t("Reason for rejecting this seller application:", "سبب رفض طلب البائع:"), t("Application rejected", "تم رفض الطلب"));
+                                        onClick={async () => {
+                                          if (!(await confirmAction(t("Reject this seller application?", "هل تريد رفض طلب هذا البائع؟")))) return;
+                                          const reason = (await requestReason(t("Reason for rejecting this seller application:", "سبب رفض طلب البائع:"), t("Application rejected", "تم رفض الطلب")));
                                           if (!reason) return;
                                           void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Application rejected.", "تم رفض الطلب."));
                                         }}
@@ -2139,38 +2133,23 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     </td>
                                     <td className="px-4 py-3">
                                       <div className="flex flex-wrap items-center gap-2">
-                                        {!isSuspended ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                            if (!window.confirm(t("Suspend this seller?", "هل تريد إيقاف هذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for suspending this seller:", "سبب إيقاف البائع:"), t("Seller suspended", "تم إيقاف البائع"));
-                                            if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Seller suspended.", "تم إيقاف البائع."));
-                                          }}>
-                                            {t("Suspend", "إيقاف")}
-                                          </Button>
-                                        ) : (
-                                          <Button type="button" size="sm" onClick={() => {
-                                            if (!window.confirm(t("Reactivate this seller?", "هل تريد إعادة تفعيل هذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for reactivating this seller:", "سبب إعادة تفعيل البائع:"), t("Seller reactivated", "تمت إعادة تفعيل البائع"));
-                                            if (!reason) return;
-                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Seller reactivated.", "تمت إعادة تفعيل البائع."));
-                                          }}>
-                                            {t("Reactivate", "إعادة التفعيل")}
-                                          </Button>
-                                        )}
+                                        <OwnerAccountControls locale={locale} target={seller} isOwner={isOwner} onRefresh={async () => {
+                                          const fresh = await fetchData({ silent: true });
+                                          return fresh?.users.find((entry) => entry.id === seller.id) ?? null;
+                                        }} />
                                         {isOnVacation ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                            if (!window.confirm(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."));
+                                          <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                            if (!(await confirmAction(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟")))) return;
+                                            const reason = (await requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة.")));
                                             if (!reason) return;
                                             void handleSellerAvailabilityStatus(seller.id, "available", t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."), reason);
                                           }}>
                                             {t("End Vacation", "إنهاء الإجازة")}
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                            if (!window.confirm(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟"))) return;
-                                            const reason = requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."));
+                                          <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                            if (!(await confirmAction(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟")))) return;
+                                            const reason = (await requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة.")));
                                             if (!reason) return;
                                             void handleSellerAvailabilityStatus(seller.id, "vacation", t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."), reason);
                                           }}>
@@ -2184,15 +2163,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           type="button"
                                           size="sm"
                                           variant="secondary"
-                                          onClick={() => {
-                                            const nextRank = window.prompt(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), seller.sellerPrestigeRank ?? "bronze");
+                                          onClick={async () => {
+                                            const nextRank = (await promptAction(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), seller.sellerPrestigeRank ?? "bronze"));
                                             if (!nextRank) return;
                                             const rankInput = normalizeSellerLevel(nextRank);
                                             if (!rankInput) {
                                               pushToast(t("Invalid prestige rank.", "الرتبة غير صحيحة."));
                                               return;
                                             }
-                                            const reason = window.prompt(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة"));
+                                            const reason = (await promptAction(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة")));
                                             if (!reason) return;
                                             void handleSellerPrestigeOverride(seller.id, rankInput, reason, false);
                                           }}
@@ -2204,8 +2183,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => {
-                                              const reason = window.prompt(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي"));
+                                            onClick={async () => {
+                                              const reason = (await promptAction(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي")));
                                               if (!reason) return;
                                               void handleSellerPrestigeOverride(seller.id, seller.sellerPrestigeRank ?? "bronze", reason, true);
                                             }}
@@ -2563,8 +2542,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => {
-                                              const reason = window.prompt(t("Reject reason", "سبب الرفض"));
+                                            onClick={async () => {
+                                              const reason = (await promptAction(t("Reject reason", "سبب الرفض")));
                                               if (!reason) return;
                                               void runAction(
                                                 fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, {
@@ -2582,8 +2561,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => {
-                                              const reason = window.prompt(t("Change request", "التعديلات المطلوبة"));
+                                            onClick={async () => {
+                                              const reason = (await promptAction(t("Change request", "التعديلات المطلوبة")));
                                               if (!reason) return;
                                               void runAction(
                                                 fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, {
@@ -2600,9 +2579,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         </>
                                       ) : null}
                                       {(listing.status === "expired" || listing.status === "paused" || listing.status === "closed") ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                          if (!window.confirm(t(`${listing.status === "closed" ? "Reopen" : "Renew"} this listing?`, `هل تريد ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} هذا العرض؟`))) return;
-                                          const reason = requestReason(t(`Reason for ${listing.status === "closed" ? "reopening" : "renewing"} this listing:`, `سبب ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} العرض:`), listing.status === "closed" ? t("Listing reopened by admin.", "أعادت الإدارة فتح العرض.") : t("Listing renewed by admin.", "جدّدت الإدارة العرض."));
+                                        <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                          if (!(await confirmAction(t(`${listing.status === "closed" ? "Reopen" : "Renew"} this listing?`, `هل تريد ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} هذا العرض؟`)))) return;
+                                          const reason = (await requestReason(t(`Reason for ${listing.status === "closed" ? "reopening" : "renewing"} this listing:`, `سبب ${listing.status === "closed" ? "إعادة فتح" : "تجديد"} العرض:`), listing.status === "closed" ? t("Listing reopened by admin.", "أعادت الإدارة فتح العرض.") : t("Listing renewed by admin.", "جدّدت الإدارة العرض.")));
                                           if (!reason) return;
                                           void handleAdminListingAction(listing.id, "renew", listing.status === "closed" ? t("Listing reopened by admin.", "تمت إعادة فتح العرض.") : t("Listing renewed by admin.", "تم تجديد العرض."), 24, reason);
                                         }}>
@@ -2614,11 +2593,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           type="button"
                                           size="sm"
                                           variant="secondary"
-                                          onClick={() => {
-                                            if (!window.confirm(t("Extend this listing expiration?", "هل تريد تمديد صلاحية هذا العرض؟"))) return;
-                                            const hours = window.prompt(t("Extend expiration by hours (1, 6, 12, 24)", "مدة التمديد بالساعات (1، 6، 12، 24)"), "24");
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t("Extend this listing expiration?", "هل تريد تمديد صلاحية هذا العرض؟")))) return;
+                                            const hours = (await promptAction(t("Extend expiration by hours (1, 6, 12, 24)", "مدة التمديد بالساعات (1، 6، 12، 24)"), "24"));
                                             if (!hours) return;
-                                            const reason = requestReason(t("Reason for extending this listing:", "سبب تمديد العرض:"), t("Listing expiration extended.", "تم تمديد صلاحية العرض."));
+                                            const reason = (await requestReason(t("Reason for extending this listing:", "سبب تمديد العرض:"), t("Listing expiration extended.", "تم تمديد صلاحية العرض.")));
                                             if (!reason) return;
                                             void handleAdminListingAction(listing.id, "extend", t("Listing expiration extended.", "تم تمديد صلاحية العرض."), Number(hours), reason);
                                           }}
@@ -2627,9 +2606,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                         </Button>
                                       ) : null}
                                       {listing.status !== "closed" && listing.status !== "completed" && listing.status !== "cancelled" ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
-                                          if (!window.confirm(t("Close this listing?", "هل تريد إغلاق هذا العرض؟"))) return;
-                                          const reason = requestReason(t("Reason for closing this listing:", "سبب إغلاق العرض:"), t("Listing closed by admin.", "أغلقت الإدارة العرض."));
+                                        <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                                          if (!(await confirmAction(t("Close this listing?", "هل تريد إغلاق هذا العرض؟")))) return;
+                                          const reason = (await requestReason(t("Reason for closing this listing:", "سبب إغلاق العرض:"), t("Listing closed by admin.", "أغلقت الإدارة العرض.")));
                                           if (!reason) return;
                                           void handleAdminListingAction(listing.id, "close", t("Listing closed by admin.", "تم إغلاق العرض."), undefined, reason);
                                         }}>
@@ -2641,8 +2620,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           type="button"
                                           size="sm"
                                           variant="secondary"
-                                          onClick={() => {
-                                            const reason = window.prompt(t("Force-close reason", "سبب الإغلاق الإجباري"), t("Admin override", "إجراء من الإدارة"));
+                                          onClick={async () => {
+                                            const reason = (await promptAction(t("Force-close reason", "سبب الإغلاق الإجباري"), t("Admin override", "إجراء من الإدارة")));
                                             if (!reason) return;
                                             void handleAdminListingAction(listing.id, "force_close", t("Listing force closed.", "تم إغلاق العرض إجباريًا."), undefined, reason);
                                           }}
@@ -2656,11 +2635,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           size="sm"
                                           variant="secondary"
                                           className="border-red-500/50 bg-red-500/15 text-red-200 hover:bg-red-500/25"
-                                          onClick={() => {
-                                            if (!window.confirm(t(
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t(
                                               "Permanently purge this smoke-test listing, its test trade, messages, notifications, audit references, and metric impact? This works only before payment evidence is submitted.",
                                               "حذف اختبار الفحص نهائيًا مع الصفقة التجريبية والرسائل والإشعارات ومراجع السجل وتأثيره على الإحصاءات؟ يعمل هذا فقط قبل إرسال إثبات الدفع.",
-                                            ))) return;
+                                            )))) return;
                                             void runAction(
                                               fetch(`/api/alpha-exchange/admin/listings/${listing.id}/purge-smoke-test`, { method: "DELETE" }),
                                               t("Smoke-test records purged.", "تم حذف سجلات اختبار الفحص بالكامل."),
@@ -3139,9 +3118,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           size="sm"
                                           variant="secondary"
                                           className="w-full"
-                                          onClick={() => {
-                                            if (!window.confirm(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟"))) return;
-                                            const reason = requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة."));
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t("Reject this commission payment verification?", "هل تريد رفض التحقق من دفع هذه العمولة؟")))) return;
+                                            const reason = (await requestReason(t("Reason for rejecting this commission:", "سبب رفض العمولة:"), t("Commission verification rejected.", "تم رفض التحقق من العمولة.")));
                                             if (!reason) return;
                                             void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), t("Commission rejected.", "تم رفض العمولة."));
                                           }}
@@ -3155,9 +3134,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                           size="sm"
                                           variant="secondary"
                                           className="w-full"
-                                          onClick={() => {
-                                            if (!window.confirm(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟"))) return;
-                                            const reason = requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
+                                          onClick={async () => {
+                                            if (!(await confirmAction(t("Reset this commission to pending?", "هل تريد إعادة هذه العمولة إلى قيد الانتظار؟")))) return;
+                                            const reason = (await requestReason(t("Reason for resetting this commission to pending:", "سبب إعادة العمولة إلى قيد الانتظار:"), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار.")));
                                             if (!reason) return;
                                             void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), t("Commission reset to pending.", "تمت إعادة العمولة إلى قيد الانتظار."));
                                           }}
@@ -3736,16 +3715,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                     ) : (
                                       <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">{t("Active", "نشط")}</span>
                                     )}
+                                    <p className="mt-2 text-xs text-[#9CA3AF]">{t("Seller access", "صلاحية البائع")}: {currencyText(roleLabel(user.sellerStatus ?? "buyer"))}</p>
                                   </td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{currencyText(formatDate(user.createdAt))}</td>
                                   <td className="px-4 py-3">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleChangeUserRole(user.id, user.role)}>
-                                        {t("Change Role", "تغيير الدور")}
-                                      </Button>
-                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleDisableUser(user.id, !user.disabled)} className={user.disabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" : "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"}>
-                                        {user.disabled ? t("Enable", "تفعيل") : t("Disable", "تعطيل")}
-                                      </Button>
+                                      <OwnerAccountControls locale={locale} target={user} isOwner={isOwner} onRefresh={async () => {
+                                        const fresh = await fetchData({ silent: true });
+                                        return fresh?.users.find((entry) => entry.id === user.id) ?? null;
+                                      }} />
                                     </div>
                                   </td>
                                 </tr>
@@ -4064,8 +4042,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 variant="secondary"
                                 size="sm"
                                 className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
-                                onClick={() => {
-                                  if (!window.confirm(t("Force-expire all overdue listings? This cannot be undone.", "هل تريد إنهاء جميع العروض المتأخرة إجباريًا؟ لا يمكن التراجع عن ذلك."))) return;
+                                onClick={async () => {
+                                  if (!(await confirmAction(t("Force-expire all overdue listings? This cannot be undone.", "هل تريد إنهاء جميع العروض المتأخرة إجباريًا؟ لا يمكن التراجع عن ذلك.")))) return;
                                   void runAction(fetch("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), t("Expired listings force-closed.", "تم إغلاق العروض المنتهية إجباريًا."));
                                 }}
                               >
@@ -4080,9 +4058,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                 variant="secondary"
                                 size="sm"
                                 className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                                onClick={() => {
-                                  if (!window.confirm(t("Recalculate trust scores now? This may take a moment.", "هل تريد إعادة حساب درجات الثقة الآن؟ قد يستغرق ذلك بعض الوقت."))) return;
-                                  const reason = requestReason(t("Reason for recalculating trust scores:", "سبب إعادة حساب درجات الثقة:"), t("Launch trust recalculation", "إعادة حساب الثقة من الإدارة"));
+                                onClick={async () => {
+                                  if (!(await confirmAction(t("Recalculate trust scores now? This may take a moment.", "هل تريد إعادة حساب درجات الثقة الآن؟ قد يستغرق ذلك بعض الوقت.")))) return;
+                                  const reason = (await requestReason(t("Reason for recalculating trust scores:", "سبب إعادة حساب درجات الثقة:"), t("Launch trust recalculation", "إعادة حساب الثقة من الإدارة")));
                                   if (!reason) return;
                                   void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), t("Trust score recalculation triggered.", "بدأت إعادة حساب درجات الثقة."));
                                 }}
@@ -4184,18 +4162,18 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {selectedSeller.availabilityStatus === "vacation" ? (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => {
-                    if (!window.confirm(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟"))) return;
-                    const reason = requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."));
+                  <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                    if (!(await confirmAction(t("End vacation mode for this seller?", "هل تريد إنهاء وضع الإجازة لهذا البائع؟")))) return;
+                    const reason = (await requestReason(t("Reason for ending vacation mode:", "سبب إنهاء وضع الإجازة:"), t("Vacation Mode ended.", "تم إنهاء وضع الإجازة.")));
                     if (!reason) return;
                     void handleSellerAvailabilityStatus(selectedSeller.id, "available", t("Vacation Mode ended.", "تم إنهاء وضع الإجازة."), reason);
                   }}>
                     {t("End Vacation", "إنهاء الإجازة")}
                   </Button>
                 ) : (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => {
-                    if (!window.confirm(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟"))) return;
-                    const reason = requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."));
+                  <Button type="button" size="sm" variant="secondary" onClick={async () => {
+                    if (!(await confirmAction(t("Enable vacation mode for this seller?", "هل تريد تفعيل وضع الإجازة لهذا البائع؟")))) return;
+                    const reason = (await requestReason(t("Reason for enabling vacation mode:", "سبب تفعيل وضع الإجازة:"), t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة.")));
                     if (!reason) return;
                     void handleSellerAvailabilityStatus(selectedSeller.id, "vacation", t("Vacation Mode enabled.", "تم تفعيل وضع الإجازة."), reason);
                   }}>
@@ -4206,15 +4184,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                   type="button"
                   size="sm"
                   variant="secondary"
-                  onClick={() => {
-                    const nextRank = window.prompt(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), selectedSeller.sellerPrestigeRank ?? "bronze");
+                  onClick={async () => {
+                    const nextRank = (await promptAction(t("Set rank (bronze, silver, gold, diamond, elite)", "حدّد الرتبة (bronze, silver, gold, diamond, elite)"), selectedSeller.sellerPrestigeRank ?? "bronze"));
                     if (!nextRank) return;
                     const rankInput = normalizeSellerLevel(nextRank);
                     if (!rankInput) {
                       pushToast(t("Invalid prestige rank.", "الرتبة غير صحيحة."));
                       return;
                     }
-                    const reason = window.prompt(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة"));
+                    const reason = (await promptAction(t("Override reason", "سبب التعديل"), t("Manual admin override", "تعديل يدوي من الإدارة")));
                     if (!reason) return;
                     void handleSellerPrestigeOverride(selectedSeller.id, rankInput, reason, false);
                   }}
@@ -4226,8 +4204,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                     type="button"
                     size="sm"
                     variant="secondary"
-                    onClick={() => {
-                      const reason = window.prompt(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي"));
+                    onClick={async () => {
+                      const reason = (await promptAction(t("Reason for clearing override", "سبب إزالة التعديل"), t("Return to automatic progression", "العودة إلى التقدّم التلقائي")));
                       if (!reason) return;
                       void handleSellerPrestigeOverride(selectedSeller.id, selectedSeller.sellerPrestigeRank ?? "bronze", reason, true);
                     }}
@@ -4369,7 +4347,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 request={selectedRequest}
                 isOwner={isOwner}
                 openDispute={selectedOpenDispute}
-                onUpdated={() => fetchData({ silent: true })}
+                onUpdated={async () => { await fetchData({ silent: true }); }}
               />
             </div>
           </div>

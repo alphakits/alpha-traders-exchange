@@ -110,9 +110,9 @@ describe("owner seller notification identity", () => {
     const result = await getNotificationsForUser({ userId: OWNER_ID });
     const notification = result.notifications[0];
 
-    expect(notification.title).toBe("Flagged seller: Rod Molla");
-    expect(notification.message).toBe("Rod Molla triggered trust/risk signals. Trust score: 38.5/100.");
-    expect(notification.relatedSellerName).toBe("Rod Molla");
+    expect(notification.title).toBe(`Flagged seller: ${publicAccountId({ id: SELLER_ID })} (Rod Molla)`);
+    expect(notification.message).toBe(`${publicAccountId({ id: SELLER_ID })} (Rod Molla) triggered trust/risk signals. Trust score: 38.5/100.`);
+    expect(notification.relatedSellerName).toBe(`${publicAccountId({ id: SELLER_ID })} (Rod Molla)`);
     expect(notification.relatedSellerUsername).toBe(publicAccountUsername(SELLER_ID));
     expect(notification.actionLabel).toBe("Review Seller");
     expect(notification.actionHref).toBe(`/exchange/seller/${publicAccountUsername(SELLER_ID)}`);

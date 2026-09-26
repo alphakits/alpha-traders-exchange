@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getApprovedSellersForAdmin } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
+import { publicAccountId } from "@/lib/public-account-identity";
 
 function sensitiveSeller(): AlphaExchangeUser {
   return {
@@ -51,7 +52,7 @@ describe("getApprovedSellersForAdmin privacy boundary", () => {
 
     expect(seller).toMatchObject({
       id: "seller-1",
-      fullName: "Seller User",
+      fullName: `${publicAccountId({ id: "seller-1" })} (Seller User)`,
       role: "approved_seller",
       sellerStatus: "approved_seller",
       sellerPrestigeRank: undefined,

@@ -45,7 +45,7 @@ describe("account rank consistency and privacy", () => {
     expect(listings.find(row => row.sellerId === seller.id)?.sellerDisplayName).toBe(publicAccountId(seller));
     expect(JSON.stringify(listings)).not.toContain(buyer.whatsappNumber);
     const ownerListings = await getMarketplaceListings("active", undefined, owner.id);
-    expect(ownerListings.find(row => row.sellerId === seller.id)?.sellerDisplayName).toBe(seller.fullName);
+    expect(ownerListings.find(row => row.sellerId === seller.id)?.sellerDisplayName).toBe(`${publicAccountId(seller)} (${seller.fullName})`);
     for (const viewerUserId of [buyer.id, "admin-one"]) {
       const profile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(seller), viewerUserId, viewerRole: "owner" });
       expect(profile?.profile).toMatchObject({ fullName: publicAccountId(seller), profilePhotoUrl: "", contact: { email: "", phone: "" } });
@@ -55,14 +55,14 @@ describe("account rank consistency and privacy", () => {
       expect(JSON.stringify(room)).not.toMatch(/Maya Chen|Amir Hassan|502222222|503333333/);
     }
     const ownerProfile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(seller), viewerUserId: owner.id, viewerRole: "buyer" });
-    expect(ownerProfile?.profile).toMatchObject({ fullName: seller.fullName, city: "Haifa", bio: seller.bio, contact: { phone: seller.whatsappNumber, email: seller.email } });
+    expect(ownerProfile?.profile).toMatchObject({ fullName: `${publicAccountId(seller)} (${seller.fullName})`, city: "Haifa", bio: seller.bio, contact: { phone: seller.whatsappNumber, email: seller.email } });
     for (const strongConsistency of [false, true]) {
       const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: owner.id, actorRole: "owner", markMessagesRead: false, strongConsistency });
-      expect(room.counterpart).toEqual({ buyerName: buyer.fullName, sellerName: seller.fullName, buyerPublicId: publicAccountId(buyer), sellerPublicId: publicAccountId(seller) });
+      expect(room.counterpart).toEqual({ buyerName: `${publicAccountId(buyer)} (${buyer.fullName})`, sellerName: `${publicAccountId(seller)} (${seller.fullName})`, buyerPublicId: publicAccountId(buyer), sellerPublicId: publicAccountId(seller) });
       expect(room.request.buyerWhatsapp).toBe(buyer.whatsappNumber);
     }
     const ownerHistory = await getMyPurchaseRequests(owner.id, "owner");
-    expect(ownerHistory.find(row => row.id === request.id)).toMatchObject({ buyerName: buyer.fullName, buyerWhatsapp: buyer.whatsappNumber });
+    expect(ownerHistory.find(row => row.id === request.id)).toMatchObject({ buyerName: `${publicAccountId(buyer)} (${buyer.fullName})`, buyerWhatsapp: buyer.whatsappNumber });
     const ownerTrade = { ...request, id: "owner-as-buyer", buyerId: owner.id, buyerName: owner.fullName };
     db.purchaseRequests.push(ownerTrade);
     globalThis.__alphaExchangeMemorySnapshot = db as never;

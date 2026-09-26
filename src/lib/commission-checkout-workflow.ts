@@ -121,11 +121,15 @@ function reservedReceipts(snapshot: AlphaExchangeDb) {
   }
   return used;
 }
-function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, random: number) {
+function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, random: number, currentIds: ReadonlySet<string>) {
   if (Math.abs(desired - due) > CHECKOUT_TOLERANCE) fail("outside_tolerance");
   const used = new Set(getCommissionCheckouts(snapshot).map((checkout) => checkout.expectedMicros));
   for (const record of snapshot.commissionRecords) {
-    for (const amount of [record.commissionAmount, record.paymentExpectedAmount, ...(record.paymentReservedExpectedAmounts ?? [])]) {
+    // The current group's base fee is not a separate payment reference. Reserving
+    // it against itself forced a needless micro suffix even for a single fee.
+    // Keep all earlier/other fees, actual legacy references, and checkout history
+    // reserved so a different seller can never claim the same displayed amount.
+    for (const amount of [currentIds.has(record.id) ? undefined : record.commissionAmount, record.paymentExpectedAmount, ...(record.paymentReservedExpectedAmounts ?? [])]) {
       if (typeof amount === "number" && amount > 0) used.add(checkoutMicros(amount));
     }
   }
@@ -183,7 +187,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         const total = commissions.reduce((sum, row) => sum + BigInt(row.dueMicros), BigInt(0));
         if (total > BigInt(Number.MAX_SAFE_INTEGER - CHECKOUT_TOLERANCE)) fail("invalid_amount");
         const dueMicros = Number(total);
-        const expectedMicros = reserveAmount(snapshot, chosen ?? dueMicros, dueMicros, ports.random?.() ?? randomInt(9999));
+        const expectedMicros = reserveAmount(snapshot, chosen ?? dueMicros, dueMicros, ports.random?.() ?? randomInt(9999), ids);
         const checkout: CommissionCheckout = { id, sellerId: input.sellerId, network: input.network,
           createdAt: new Date(now()).toISOString(), dueMicros, expectedMicros, requestedMicros: chosen ?? dueMicros, commissions };
         assertUnchanged(snapshot, checkout);

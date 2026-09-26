@@ -8,10 +8,10 @@ describe("AT account identities", () => {
     const buyer = { id: "buyer", fullName: "Amir Hassan", role: "buyer" };
     expect(publicAccountName(owner)).toBe("Alex Morgan");
     expect(publicAccountName(buyer)).toBe(publicAccountId(buyer));
-    expect(accountNameForViewer(buyer, owner)).toBe("Amir Hassan");
+    expect(accountNameForViewer(buyer, owner)).toBe(`${publicAccountId(buyer)} (Amir Hassan)`);
     expect(accountNameForViewer(buyer, { id: "admin", role: "admin" })).toBe(publicAccountId(buyer));
     expect(identityTextRedactor([owner, buyer], true)("Alex Morgan met Amir Hassan")).toBe(`Alex Morgan met ${publicAccountId(buyer)}`);
-    expect(ownerIdentityText([owner, buyer])(`${publicAccountId(buyer)} sent a request`)).toBe("Amir Hassan sent a request");
+    expect(ownerIdentityText([owner, buyer])(`${publicAccountId(buyer)} sent a request`)).toBe(`${publicAccountId(buyer)} (Amir Hassan) sent a request`);
   });
   it("uses the dashboard identifier, including sellers purchasing as buyers", () => {
     expect(publicAccountId({ id: "one", role: "buyer" })).toBe(formatBuyerId(undefined, "one"));
@@ -25,7 +25,7 @@ describe("AT account identities", () => {
     expect(publicAccountId(buyer)).toBe(oldBuyer.replace("#B-", "AT-"));
     expect(publicAccountId({ ...buyer, role: "approved_seller" })).toBe(publicAccountId(buyer));
     expect(identityTextRedactor([buyer])(`${oldBuyer} / ${oldSeller}`)).toBe(`${publicAccountId(buyer)} / ${publicAccountId(buyer)}`);
-    expect(ownerIdentityText([buyer])(`${oldBuyer} / ${oldSeller}`)).toBe("Amir Hassan / Amir Hassan");
+    expect(ownerIdentityText([buyer])(`${oldBuyer} / ${oldSeller}`)).toBe(`${publicAccountId(buyer)} (Amir Hassan) / ${publicAccountId(buyer)} (Amir Hassan)`);
     expect(normalizePublicAccountId("Amir Hassan")).toBeUndefined();
     expect(normalizePublicAccountId("AT-000001")).toBe("AT-000001");
   });

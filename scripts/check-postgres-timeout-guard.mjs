@@ -17,9 +17,9 @@ const source = read("src/lib/postgres-timeout-guard.ts");
 const output = ts.transpileModule(source, { fileName: "postgres-timeout-guard.ts", reportDiagnostics: true,
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } });
 assert.equal(output.diagnostics.filter((item) => item.category === ts.DiagnosticCategory.Error).length, 0);
-const module = { exports: {} };
-vm.runInNewContext(output.outputText, { module, exports: module.exports });
-const { installPostgresTimeoutGuard: install } = module.exports;
+const loadedModule = { exports: {} };
+vm.runInNewContext(output.outputText, { module: loadedModule, exports: loadedModule.exports });
+const { installPostgresTimeoutGuard: install } = loadedModule.exports;
 const timeout = () => new Error("Query read timeout");
 function fake(query, end = () => Promise.resolve()) {
   const client = { calls: 0, closes: 0, query(...args) { this.calls++; return query.apply(this, args); },

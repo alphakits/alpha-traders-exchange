@@ -29,6 +29,7 @@ function adminPayload(
   commissionRecords: Array<Record<string, unknown>> = [],
 ) {
   return {
+    users: [],
     applications: [],
     approvedSellers,
     listings,
@@ -88,6 +89,8 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
   const scrollIntoView = vi.fn();
 
   beforeEach(() => {
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
     navigationState.search = "section=marketplace-listings&listing=listing-123";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
@@ -309,6 +312,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     const issueButton = screen.getByRole("button", { name: "Issue Commission & Notify Seller" }) as HTMLButtonElement;
     expect(issueButton.disabled).toBe(false);
     fireEvent.click(issueButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
 
     await waitFor(() => {
       const request = vi.mocked(fetch).mock.calls.find(([input, init]) => String(input).endsWith("/api/alpha-exchange/admin/commissions") && init?.method === "POST");
@@ -482,6 +486,9 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     fireEvent.change(screen.getByLabelText("النص بالعربية"), { target: { value: "سيتوقف التداول لفترة قصيرة." } });
     expect(broadcastButton.disabled).toBe(false);
     fireEvent.click(broadcastButton);
+    fireEvent.click(await screen.findByRole("button", { name: "تأكيد" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "سبب هذا الإرسال:" }), { target: { value: "Operational notice" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأكيد" }));
 
     await waitFor(() => {
       const broadcastRequest = vi.mocked(fetch).mock.calls.find(([input, init]) => String(input).endsWith("/notifications/broadcast") && init?.method === "POST");

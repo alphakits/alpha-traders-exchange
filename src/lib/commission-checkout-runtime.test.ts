@@ -72,3 +72,21 @@ it("absent or disabled database guards stop activation", async () => {
   mocks.pool.mockReturnValue({ query: vi.fn().mockResolvedValue({ rows: [{ ready: false }] }) });
   await expect(getCommissionCheckoutRuntime()).rejects.toThrow("guards");
 });
+it.each(["2.54", "3.54", "4.54"])("today's 2%% fee settles automatically for a prepared %s USDT payment", async (desiredAmount) => {
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], commissionAmount: 3.54,
+    sellerFeeAmount: 1.77, buyerFeeCollectedAmount: 1.77, feePolicyVersion: "buyer_seller_1pct_v1",
+    paymentExpectedAmount: 3.540001 }];
+  const service = await getCommissionCheckoutRuntime();
+  const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount });
+  expect(checkout.expectedMicros).toBe(Math.round(Number(desiredAmount) * 1e6));
+  const payment = { signature, network: "BEP20", amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+  mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  const result = await service.scan(Date.now() + 60_000);
+  expect(result.verified).toBe(1);
+  expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
+  expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords[0]).toMatchObject({
+    commissionAmount: 3.54, sellerFeeAmount: 1.77, buyerFeeCollectedAmount: 1.77,
+    feePolicyVersion: "buyer_seller_1pct_v1", paymentStatus: "paid",
+  });
+});

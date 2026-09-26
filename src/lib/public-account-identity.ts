@@ -12,15 +12,42 @@ export function publicAccountName(user: IdentityUser) {
   return isPublicOwnerIdentity(user) ? user.fullName?.trim() || "Alpha Traders Owner" : publicAccountId(user);
 }
 
+/** PRIVATE label. Use only inside an already server-authorized owner projection. */
+export function ownerAccountName(user: IdentityUser) {
+  if (isPublicOwnerIdentity(user)) return publicAccountName(user);
+  const id = publicAccountId(user);
+  const name = user.fullName?.trim();
+  // Do not fabricate a real name, or repeat an already formatted account ID.
+  if (!name || normalizePublicAccountId(name)) return id;
+  if (name.startsWith(`${id} (`) && name.endsWith(")")) return name;
+  return `${id} (${name})`;
+}
+
 /** Call with a canonical server-resolved viewer, never a client-supplied role. */
 export function accountNameForViewer(user: IdentityUser, viewer?: IdentityUser | null) {
-  return isPublicOwnerIdentity(viewer) ? user.fullName?.trim() || publicAccountName(user) : publicAccountName(user);
+  return isPublicOwnerIdentity(viewer) ? ownerAccountName(user) : publicAccountName(user);
 }
 
 /** Restores canonical names in stored AT-ID messages for an authorized owner view. */
 export function ownerIdentityText(users: readonly IdentityUser[]) {
-  const names = new Map(users.map(user => [publicAccountId(user), user.fullName?.trim() || publicAccountName(user)]));
-  return (value?: string) => (value ?? "").replace(/(?:AT-|#[SB]-)\d{6,7}\b/g, id => names.get(normalizePublicAccountId(id) ?? id) ?? id);
+  const names = new Map<string, string>();
+  const owners = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const user of users) {
+    const id = publicAccountId(user);
+    if (owners.has(id) && owners.get(id) !== user.id) ambiguous.add(id);
+    else { owners.set(id, user.id); names.set(id, ownerAccountName(user)); }
+  }
+  // Free-text AT labels alone cannot disambiguate a collision. Never guess a name.
+  for (const id of ambiguous) names.delete(id);
+  return (value?: string) => (value ?? "").replace(/(?:AT-|#[SB]-)\d{6,7}\b/g, (id, offset: number, text: string) => {
+    const normalized = normalizePublicAccountId(id) ?? id;
+    const label = names.get(normalized);
+    if (!label) return id;
+    const suffix = label.startsWith(normalized) ? label.slice(normalized.length) : "";
+    // Re-rendering an owner-projected message must not append the name twice.
+    return suffix && text.slice(offset + id.length).startsWith(suffix) ? normalized : label;
+  });
 }
 
 /** The same account identifier used by the dashboard, never a user-entered alias. */

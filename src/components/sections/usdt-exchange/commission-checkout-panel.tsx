@@ -21,7 +21,7 @@ function valid(value: unknown): value is CheckoutState {
       && typeof state.walletAddress === "string" && ["TRC20", "BEP20"].includes(state.checkout.network)
       && state.walletAddress === getClientCommissionWalletForNetwork(state.checkout.network)));
 }
-export function CommissionCheckoutPanel({ isAr }: { isAr: boolean }) {
+export function CommissionCheckoutPanel({ isAr, embedded = false, onSettled }: { isAr: boolean; embedded?: boolean; onSettled?: () => void }) {
   const [data, setData] = useState<CheckoutState | null>(null);
   const [network, setNetwork] = useState<"TRC20" | "BEP20">("TRC20");
   const [amount, setAmount] = useState("");
@@ -32,6 +32,15 @@ export function CommissionCheckoutPanel({ isAr }: { isAr: boolean }) {
   const [copied, setCopied] = useState("");
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const settledNotified = useRef(false);
+  const settledCallback = useRef(onSettled);
+  useEffect(() => { settledCallback.current = onSettled; }, [onSettled]);
+  useEffect(() => {
+    if (data?.status === "paid" && data.pendingCount === 0 && !settledNotified.current) {
+      settledNotified.current = true;
+      settledCallback.current?.();
+    } else if (data && data.pendingCount > 0) settledNotified.current = false;
+  }, [data]);
   const message = (en: string, ar: string) => isAr ? ar : en;
   const refresh = useCallback(async () => {
     if (!mounted.current || controller.current || !authorized) return;
@@ -82,8 +91,9 @@ export function CommissionCheckoutPanel({ isAr }: { isAr: boolean }) {
   const checkout = data?.checkout;
   const formatted = checkout ? (checkout.expectedMicros / 1e6).toFixed(6) : "";
   const controls = "w-full rounded-xl border border-white/20 bg-slate-950 px-4 py-3 text-white";
-  return <main dir={isAr ? "rtl" : "ltr"} className="mx-auto max-w-2xl space-y-5 px-4 py-8 text-white">
-    <Link className="text-sm text-amber-300" href={`/${isAr ? "ar" : "en"}/usdt-exchange`}>{message("Back to marketplace", "العودة للسوق")}</Link>
+  const Container = embedded ? "section" : "main";
+  return <Container dir={isAr ? "rtl" : "ltr"} className="mx-auto max-w-2xl space-y-5 px-4 py-8 text-white">
+    {!embedded ? <Link className="text-sm text-amber-300" href={`/${isAr ? "ar" : "en"}/usdt-exchange`}>{message("Back to marketplace", "العودة للسوق")}</Link> : null}
     <h1 className="text-2xl font-bold">{message("Automatic commission checkout", "دفع العمولات تلقائيًا")}</h1>
     <p className="text-sm leading-6 text-slate-300">{message("Prepare your payment before sending. Send the amount shown once; the system verifies and settles it without owner approval.", "أنشئ تعليمات الدفع قبل التحويل. أرسل المبلغ الظاهر مرة واحدة؛ يتحقق النظام ويسوّي العمولة دون موافقة المالك.")}</p>
     {error ? <p role="alert" className="rounded-xl border border-amber-400/40 p-4 text-sm text-amber-200">{error}</p> : null}
@@ -111,5 +121,5 @@ export function CommissionCheckoutPanel({ isAr }: { isAr: boolean }) {
       <p role="status" className="text-sm leading-6 text-slate-200">{message("Automatic checks run every minute. No screenshot, transaction-ID submission or owner approval is needed for a matching payment. Network confirmation can take longer. Do not resend while waiting.", "يتم الفحص التلقائي كل دقيقة. لا تحتاج الدفعة المطابقة إلى صورة أو إدخال معرّف معاملة أو موافقة المالك. قد يستغرق تأكيد الشبكة وقتًا أطول. لا تُعد الإرسال أثناء الانتظار.")}</p>
       <p className="text-xs leading-5 text-amber-200">{message("Use USDT on the selected network and ensure the net amount received equals the displayed amount. Do not round away a decimal reference or deduct a network fee from this amount.", "استخدم USDT على الشبكة المختارة، وتأكد أن صافي المبلغ المستلم يطابق المبلغ الظاهر. لا تحذف الخانات العشرية ولا تخصم رسوم الشبكة من هذا المبلغ.")}</p>
     </section> : null}
-  </main>;
+  </Container>;
 }

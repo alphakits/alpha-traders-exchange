@@ -15,15 +15,15 @@ function load(path, dependencies = {}, extra = {}) {
   const output = ts.transpileModule(read(path), { fileName: path, reportDiagnostics: true,
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } });
   assert.equal(output.diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error).length, 0, path);
-  const module = { exports: {} };
-  vm.runInNewContext(output.outputText, { module, exports: module.exports, Date, Intl, AbortController,
+  const loadedModule = { exports: {} };
+  vm.runInNewContext(output.outputText, { module: loadedModule, exports: loadedModule.exports, Date, Intl, AbortController,
     Response, URLSearchParams, setTimeout, clearTimeout,
     require(name) {
       if (Object.hasOwn(dependencies, name)) return dependencies[name];
       if (name === "server-only") return {};
       throw new Error(`Unexpected dependency ${name} in ${path}`);
     }, ...extra });
-  return module.exports;
+  return loadedModule.exports;
 }
 const reporting = load("src/lib/owner-analytics-reporting.ts");
 const model = load("src/lib/owner-live-analytics.ts", { "@/lib/owner-analytics-reporting": reporting });
@@ -155,11 +155,11 @@ const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve()
 function harness(responses = []) {
   let visible = true, visibility, signOut, clock = now, id = 0, calls = 0, unsubscribed = 0;
   const timers = new Map(); const states = [];
-  const module = load("src/lib/owner-live-analytics-poller.ts", { "@/lib/owner-live-analytics": model }, {
+  const loadedModule = load("src/lib/owner-live-analytics-poller.ts", { "@/lib/owner-live-analytics": model }, {
     setTimeout: (fn, ms) => { const key = ++id; timers.set(key, { fn, at: clock + ms }); return key; },
     clearTimeout: (key) => timers.delete(key),
   });
-  const controller = module.startOwnerAnalyticsPolling({
+  const controller = loadedModule.startOwnerAnalyticsPolling({
     onChange: (state) => states.push(clean(state)), isVisible: () => visible, clock: () => clock,
     fetcher: (signal) => {
       calls++;

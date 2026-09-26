@@ -19,9 +19,9 @@ function load(path, dependencies = {}) {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   });
   assert.equal(output.diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error).length, 0, path);
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   vm.runInNewContext(output.outputText, {
-    module, exports: module.exports,
+    module: loadedModule, exports: loadedModule.exports,
     require(name) {
       if (Object.hasOwn(dependencies, name)) return dependencies[name];
       if (name === "server-only") return {};
@@ -30,7 +30,7 @@ function load(path, dependencies = {}) {
       throw new Error(`Unexpected dependency ${name} in ${path}`);
     },
   });
-  return module.exports;
+  return loadedModule.exports;
 }
 const indexing = load("src/lib/seo-indexing.ts");
 const seo = load("src/lib/seo.ts", {

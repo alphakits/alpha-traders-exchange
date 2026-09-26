@@ -89,7 +89,7 @@ describe("public trust and AI discovery", () => {
 
     expect(organization).toMatchObject({
       name: "Alpha Traders Academy & Exchange",
-      alternateName: "Alpha Traders",
+      alternateName: ["Alpha Traders", "Alpha Traders Academy & Exchange", "Alpha Exchange"],
       url: "https://www.alphatraders.co.il",
       email: "support@alphatraders.co.il",
     });

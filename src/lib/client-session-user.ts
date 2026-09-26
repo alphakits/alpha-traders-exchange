@@ -1,4 +1,4 @@
-import { publicAccountName } from "@/lib/public-account-identity";
+import { publicAccountName, ownerAccountName } from "@/lib/public-account-identity";
 import type {
   AlphaExchangeUser,
   OnboardingSelection,
@@ -58,6 +58,7 @@ export type ClientSessionUser = {
 /** Runtime allowlist for seller records rendered in the admin workspace. */
 export type AdminSellerSummary = {
   id: string;
+  disabled?: boolean;
   fullName: string;
   email: string;
   whatsappNumber: string;
@@ -88,11 +89,12 @@ export function toAdminUserSummary(user: AlphaExchangeUser, privateIdentity = fa
   return {
     whatsappNumber: privateIdentity ? user.whatsappNumber : "",
     id: user.id,
-    fullName: privateIdentity ? user.fullName : publicAccountName(user),
+    fullName: privateIdentity ? ownerAccountName(user) : publicAccountName(user),
     email: privateIdentity ? user.email : "",
     role: user.role,
     roles: user.roles ?? [user.role],
     disabled: user.disabled === true,
+    sellerStatus: user.sellerStatus,
     createdAt: user.createdAt,
   };
 }
@@ -108,11 +110,12 @@ export function toAdminSellerSummary(user: AlphaExchangeUser, privateIdentity = 
   });
   return {
     id: user.id,
-    fullName: privateIdentity ? user.fullName : publicAccountName(user),
+    fullName: privateIdentity ? ownerAccountName(user) : publicAccountName(user),
     email: privateIdentity ? user.email : "",
     whatsappNumber: privateIdentity ? user.whatsappNumber : "",
     role: resolvePrimaryRole(roles),
     roles,
+    disabled: user.disabled === true,
     sellerStatus: user.sellerStatus,
     sellerApprovalVerified: isOwnerApprovedSeller(user),
     availabilityStatus: user.availabilityStatus,

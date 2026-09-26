@@ -5657,6 +5657,7 @@ export function UsdtExchangePage({
             deferredSellerPanelsReady,
             evidenceUploading,
             groupedActivityHistory,
+            onCommissionSettled: () => { void refreshSellerWorkspace(); },
             handleCommissionPayNow,
             handleOpenTradeRoom,
             handlePrefetchTradeRoom,
