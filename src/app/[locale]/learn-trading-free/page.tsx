@@ -88,6 +88,11 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة" : "Frequently asked questions"}</h2>
         <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
       </div>
+      <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
+        <h2 className="text-xl font-semibold">{isAr ? "مهتم بالتعلّم المباشر مع مارك؟" : "Interested in Learning Directly with Mark?"}</h2>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "ابدأ بالمسار المجاني، وسجّل اهتمامك إذا أردت مناقشة التعلّم مع مارك. أخبرنا بمستواك وهدفك؛ الطلب ليس حجزًا ولا يتطلب دفعًا." : "Start with the free course and register your interest if you would like to discuss learning with Mark. Tell us your level and goals; an enquiry is not a booking and requires no payment."}</p>
+        <Link href="/learn-with-mark" className={buttonVariants({ variant: "secondary", className: "mt-4" })}>{isAr ? "التعلّم مع مارك" : "Learn with Mark"}</Link>
+      </div>
       <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "الدورة مجانية. يلزم إنشاء حساب ببريد إلكتروني وتأكيده للدخول إلى الدروس وحفظ تقدّمك. لديك حساب؟ سجّل الدخول للمتابعة." : "The course is free. Create an account and verify your email to access lessons and save your progress. Already have an account? Sign in to continue."}</p>
       <div className="flex flex-wrap gap-3">
         <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants()}>{isAr?"ابدأ الدورة المجانية":"Start the Free Course"}</Link>

@@ -62,4 +62,17 @@ describe("ContactForm localization", () => {
     }
     expect(screen.getByRole("form", { name: form }).querySelector("button")?.disabled).toBe(false);
   });
+
+  it("sends learning interest explicitly and preserves its category for another enquiry", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ContactForm locale="en" topic="learning-with-mark" initialValues={{ name: "Test Learner", email: "learner@example.test", message: "I want to learn the fundamentals." }} />);
+    const subject = screen.getByLabelText(/Subject/) as HTMLInputElement;
+    expect(subject.readOnly).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: "Register your interest in learning with Mark" }));
+    await waitFor(() => expect(screen.getByText("Your interest has been recorded")).toBeTruthy());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ topic: "learning-with-mark", subject: "Interest in learning with Mark" });
+    fireEvent.click(screen.getByRole("button", { name: "Send another message" }));
+    expect((screen.getByLabelText(/Subject/) as HTMLInputElement).value).toBe("Interest in learning with Mark");
+  });
 });

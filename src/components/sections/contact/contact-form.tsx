@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2, AlertCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
 
 type Locale = "ar" | "en";
 
@@ -133,11 +134,21 @@ type ContactValues = {
 export function ContactForm({
   locale,
   initialValues,
+  topic,
 }: {
   locale: Locale;
   initialValues?: Partial<ContactValues>;
+  topic?: typeof LEARNING_INTEREST_TOPIC;
 }) {
-  const t = T[locale] ?? T.en;
+  const isLearningInterest = topic === LEARNING_INTEREST_TOPIC;
+  const t = isLearningInterest ? {
+    ...T[locale],
+    formTitle: locale === "ar" ? "سجّل اهتمامك بالتعلّم مع مارك" : "Register your interest in learning with Mark",
+    messagePlaceholder: locale === "ar" ? "ما مستواك الحالي؟ ماذا تريد أن تتعلّم؟ وما الوقت المناسب لك؟ لا ترسل بيانات مالية أو كلمات مرور." : "What is your current level, what would you like to learn, and when are you available? Do not include financial details or passwords.",
+    send: locale === "ar" ? "إرسال طلب الاهتمام" : "Send interest enquiry",
+    successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
+    successBody: locale === "ar" ? "حُفظ طلبك ليراجعه مارك. هذا ليس حجزًا مؤكدًا أو التزامًا بالدفع. يمكنك بدء الدورة المجانية أثناء انتظار الرد." : "Your enquiry has been saved for Mark to review. This is not a confirmed booking or a payment commitment. You can start the free course while awaiting a reply.",
+  } : T[locale] ?? T.en;
   const isRtl = locale === "ar";
 
   const uid = useId();
@@ -149,7 +160,7 @@ export function ContactForm({
   const [values, setValues] = useState<ContactValues>(() => ({
     name: initialValues?.name ?? "",
     email: initialValues?.email ?? "",
-    subject: initialValues?.subject ?? "",
+    subject: isLearningInterest ? LEARNING_INTEREST_SUBJECT[locale] : initialValues?.subject ?? "",
     message: initialValues?.message ?? "",
   }));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -164,6 +175,7 @@ export function ContactForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (status === "loading") return;
 
     const errors = validateClient(values, t);
     if (Object.keys(errors).length > 0) {
@@ -188,6 +200,7 @@ export function ContactForm({
           subject: values.subject.trim(),
           message: values.message.trim(),
           locale,
+          ...(topic ? { topic } : {}),
           website: honeypotRef.current?.value ?? "",
         }),
       });
@@ -221,7 +234,7 @@ export function ContactForm({
       }
 
       setStatus("success");
-      setValues({ name: "", email: "", subject: "", message: "" });
+      setValues({ name: "", email: "", subject: isLearningInterest ? LEARNING_INTEREST_SUBJECT[locale] : "", message: "" });
     } catch {
       setStatus("error");
       setErrorMsg(t.errorGeneric);
@@ -254,6 +267,7 @@ export function ContactForm({
       className="mt-8 grid max-w-3xl gap-5 rounded-2xl border border-white/10 bg-white/[0.02] p-5 md:p-6"
     >
       <h2 className="text-base font-semibold text-white/80">{t.formTitle}</h2>
+      {isLearningInterest ? <p className="text-sm leading-7 text-white/70">{locale === "ar" ? "اكتب مستواك وهدفك ووقتك المتاح. بيانات الطلب يطّلع عليها المالك للرد على استفسارك، ولا تظهر للزوار. إرسال الطلب لا يضيفك تلقائيًا إلى نشرة تسويقية." : "Share your level, learning goal and availability. The owner can review your details to respond to this enquiry; they are not public. Submitting does not automatically subscribe you to marketing."}</p> : null}
 
       {/* Honeypot — hidden from real users */}
       <input
@@ -328,6 +342,7 @@ export function ContactForm({
         <Input
           id={subjectId}
           name="subject"
+          readOnly={isLearningInterest}
           type="text"
           placeholder={t.subjectPlaceholder}
           maxLength={200}

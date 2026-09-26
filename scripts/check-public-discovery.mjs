@@ -43,7 +43,7 @@ const breadcrumb = load("src/lib/seo-breadcrumb.ts");
 const navigation = load("src/components/seo/public-discovery-breadcrumbs.tsx", { "next/link": { default: "test-link" } });
 const robots = load("src/app/robots.ts", { "@/lib/seo-indexing": indexing }).default();
 const sitemap = load("src/app/sitemap.ts").default();
-const pages = ["start", "learn-trading-free", "buy-usdt-israel"];
+const pages = ["start", "learn-trading-free", "buy-usdt-israel", "learn-with-mark"];
 const variants = ["en", "ar"];
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/lib/seo": seo,
@@ -51,6 +51,7 @@ const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/components/seo/public-discovery-breadcrumbs": navigation,
   "@/i18n/navigation": { Link: "test-link" },
   "@/components/ui/button": { buttonVariants: () => "test-button" },
+  "@/components/sections/contact/contact-form": { ContactForm: "test-contact-form" },
 });
 function walk(value, predicate) {
   if (Array.isArray(value)) return value.flatMap((child) => walk(child, predicate));

@@ -23,11 +23,11 @@ const deletionRequest = {
   website: "",
 };
 
-function makeRequest() {
+function makeRequest(overrides: Record<string, unknown> = {}) {
   return new NextRequest("http://localhost/api/contact", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(deletionRequest),
+    body: JSON.stringify({ ...deletionRequest, ...overrides }),
   });
 }
 
@@ -90,5 +90,22 @@ describe("support and account deletion request persistence", () => {
     const response = await responsePromise;
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it.each([
+    ["ar", "اهتمام بالتعلّم مع مارك"],
+    ["en", "Interest in learning with Mark"],
+  ])("stores learning interest under the canonical %s subject despite client changes", async (locale, subject) => {
+    mocks.query.mockResolvedValue({ rows: [] });
+    const response = await POST(makeRequest({ locale, topic: "learning-with-mark", subject: "Changed browser field" }));
+    expect(response.status).toBe(200);
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO public.contact_submissions"), expect.arrayContaining([subject, deletionRequest.email]));
+    expect(mocks.query.mock.calls[0][1][2]).toBe(subject);
+  });
+
+  it("rejects an unsupported enquiry category without storing it", async () => {
+    const response = await POST(makeRequest({ topic: "owner-bypass" }));
+    expect(response.status).toBe(400);
+    expect(mocks.query).not.toHaveBeenCalled();
   });
 });

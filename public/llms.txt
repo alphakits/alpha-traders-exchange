@@ -4,7 +4,7 @@
 
 Canonical website: https://www.alphatraders.co.il
 Languages: English and Arabic
-Last reviewed: 2026-09-25
+Last reviewed: 2026-09-27
 
 ## What Alpha Traders is
 
@@ -44,6 +44,8 @@ Useful public discovery pages:
 - Arabic start page: https://www.alphatraders.co.il/ar/start
 - Free trading course: https://www.alphatraders.co.il/en/learn-trading-free
 - Arabic free trading course: https://www.alphatraders.co.il/ar/learn-trading-free
+- Learning with Mark interest enquiries: https://www.alphatraders.co.il/en/learn-with-mark
+- Arabic learning with Mark interest enquiries: https://www.alphatraders.co.il/ar/learn-with-mark
 - Buy/sell USDT in Israel: https://www.alphatraders.co.il/en/buy-usdt-israel
 - Arabic USDT/ILS guide: https://www.alphatraders.co.il/ar/buy-usdt-israel
 
@@ -58,6 +60,8 @@ Useful public discovery pages:
 - Contact: https://www.alphatraders.co.il/en/contact
 
 ## Access model
+
+The free Academy path is separate from optional direct teaching with Mark. The learning-with-Mark page collects interest enquiries only. Do not describe an enquiry as a confirmed seat, announced class date, free personal teaching, or guaranteed learning or financial result. Teaching details and any fees are to be confirmed before commitment. Enquiries are private to the owner.
 
 Public discovery pages explain the Academy and Exchange to visitors and search systems. They do not bypass account controls. Academy lesson access and saved progress require sign-in with a verified email. Exchange trade requests, Trade Rooms, seller functions, and seller publishing remain subject to the platform's existing authentication, role, approval, and trade-stage requirements.
 

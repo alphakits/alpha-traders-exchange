@@ -4,6 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
 import { OwnerLiveAnalyticsPanel } from "@/components/admin/owner-live-analytics-panel";
+import { Link } from "@/i18n/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export default async function AlphaExchangeAdminPage({
   }
 
   return <>
+    {hasRole(user, "owner") ? <div className="section-container pt-6"><Link href="/admin/learning-interest" className="inline-flex min-h-11 items-center rounded-full border border-[#C9A227]/40 px-5 py-2 text-sm text-[#C9A227]">{locale === "ar" ? "طلبات التعلّم مع مارك" : "Learning with Mark Enquiries"}</Link></div> : null}
     {hasRole(user, "owner") ? <OwnerLiveAnalyticsPanel locale={locale === "ar" ? "ar" : "en"} /> : null}
     <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} isOwner={hasRole(user, "owner")} />
   </>;
