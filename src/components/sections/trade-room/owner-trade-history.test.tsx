@@ -235,3 +235,37 @@ describe("owner history refresh recovery", () => {
     expect(screen.queryByText("Saved chat 0")).toBeNull();
   });
 });
+
+
+describe("owner live chat send recovery", () => {
+  it("retains an unconfirmed draft and reuses its reference only on explicit retry", async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error("Connection interrupted")).mockImplementation(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      return Response.json({ message: { id: "saved-owner-message", purchaseRequestId: "request-1", senderRole: "owner", ...body } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const updated = vi.fn();
+    render(<OwnerTradeHistory locale="en" room={historyRoom("accepted")} onUpdated={updated} />);
+    fireEvent.change(screen.getByRole("textbox", { name: /Owner message/ }), { target: { value: "Please confirm delivery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send as Owner" }));
+    await screen.findByRole("alert");
+    expect((screen.getByRole("textbox", { name: /Owner message/ }) as HTMLTextAreaElement).value).toBe("Please confirm delivery");
+    expect(updated).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Send as Owner" }));
+    await waitFor(() => expect(updated).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).clientMessageId).toBe(JSON.parse(fetchMock.mock.calls[0][1].body).clientMessageId);
+    expect((screen.getByRole("textbox", { name: /Owner message/ }) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("distinguishes a sent message from a failed history refresh", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url, options) => Response.json({ message: { id: "saved-owner-message", purchaseRequestId: "request-1", senderRole: "owner", ...JSON.parse(options.body) } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<OwnerTradeHistory locale="en" room={historyRoom("accepted")} onUpdated={() => { throw new Error("Refresh failed"); }} />);
+    fireEvent.change(screen.getByRole("textbox", { name: /Owner message/ }), { target: { value: "Please confirm delivery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send as Owner" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Message sent, but history could not refresh");
+    expect((screen.getByRole("textbox", { name: /Owner message/ }) as HTMLTextAreaElement).value).toBe("");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,5 +1,5 @@
 /** A bounded, cancellable read. It never sends or replays an owner command. */
-export async function readOwnerTradeHistory(requestId: string, signal: AbortSignal, fetcher: typeof fetch = globalThis.fetch, timeoutMs = 15_000) {
+export async function readOwnerTradeHistory(requestId: string, signal: AbortSignal, fetcher: typeof fetch = globalThis.fetch, timeoutMs = 15_000, ownerHistory = true) {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel: () => void = () => {};
@@ -10,7 +10,7 @@ export async function readOwnerTradeHistory(requestId: string, signal: AbortSign
   });
   const request = (async () => {
     if (signal.aborted) { cancel(); throw new Error("History read cancelled"); }
-    const response = await fetcher(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}?view=history`, {
+    const response = await fetcher(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}${ownerHistory ? "?view=history" : ""}`, {
       credentials: "same-origin", cache: "no-store", signal: controller.signal,
     });
     // Revoked access must clear the screen without waiting for an error body.

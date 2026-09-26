@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { TradeOwnerActions } from "@/components/admin/trade-owner-actions";
 import { currencyText } from "@/components/ui/currency-text";
 import { formatTradeId } from "@/lib/format-id";
+import { sendOwnerTradeChat } from "@/lib/owner-trade-chat-send";
 import { readOwnerTradeHistory } from "@/lib/owner-trade-history-read";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import { marketplacePaymentMethodLabelForLocale } from "@/lib/marketplace-display-localization";
@@ -221,13 +222,13 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
           if (sendAttempt.current?.message !== message) sendAttempt.current = { message, id: crypto.randomUUID() };
           setSending(true); setSendError("");
           try {
-            const response = await fetch(`/api/alpha-exchange/purchase-requests/${encodeURIComponent(request.id)}/messages`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message, clientMessageId: sendAttempt.current.id }),
-            });
-            const payload = await response.json();
-            if (!response.ok) throw new Error(payload.error || t("Message could not be sent.", "تعذر إرسال الرسالة."));
-            setDraft(""); sendAttempt.current = null; onUpdated();
+            const outcome = await sendOwnerTradeChat({ tradeId: request.id, message, clientMessageId: sendAttempt.current.id });
+            if (outcome !== "sent") throw new Error(outcome === "rejected"
+              ? t("Message access or request limit prevented delivery. Check your session and try again.", "منعت الصلاحيات أو حدود الطلبات إرسال الرسالة. تحقق من جلستك وحاول مجددًا.")
+              : t("Message delivery is unconfirmed. Check the chat before retrying. Retrying this unchanged message reuses its reference to prevent duplicates.", "تسليم الرسالة غير مؤكد. تحقق من المحادثة قبل المحاولة مجددًا. إعادة الرسالة نفسها تستخدم مرجعها لمنع التكرار."));
+            setDraft(""); sendAttempt.current = null;
+            try { await onUpdated(); }
+            catch { setSendError(t("Message sent, but history could not refresh. Do not resend it.", "تم إرسال الرسالة لكن تعذر تحديث السجل. لا ترسلها مجددًا.")); }
           } catch (error) { setSendError(error instanceof Error ? error.message : t("Message could not be sent.", "تعذر إرسال الرسالة.")); }
           finally { sendLock.current = false; setSending(false); }
         }}>
