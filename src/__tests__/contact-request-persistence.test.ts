@@ -108,4 +108,26 @@ describe("support and account deletion request persistence", () => {
     expect(response.status).toBe(400);
     expect(mocks.query).not.toHaveBeenCalled();
   });
+
+  it.each(["ig_m01", "wa_m01", null, "private@example.test", { id: "ig_m01" }])("stores only approved learning campaign codes: %j", async campaignLinkId => {
+    mocks.query.mockResolvedValue({ rows: [] });
+    const response = await POST(makeRequest({ topic: "learning-with-mark", campaignLinkId }));
+    expect(response.status).toBe(200);
+    const expected = campaignLinkId === "ig_m01" || campaignLinkId === "wa_m01" ? campaignLinkId : null;
+    expect(mocks.query.mock.calls[0][1][6]).toBe(expected);
+  });
+
+  it.each(["sec-gpc", "dnt"])("does not save attribution when the %s request header opts out", async header => {
+    const request = makeRequest({ topic: "learning-with-mark", campaignLinkId: "ig_m01" });
+    request.headers.set(header, "1");
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(mocks.query.mock.calls[0][1][6]).toBeNull();
+  });
+
+  it("does not attribute support or deletion enquiries to a campaign", async () => {
+    await POST(makeRequest({ campaignLinkId: "ig_m01" }));
+    expect(mocks.query.mock.calls[0][0]).not.toContain("campaign_link_id");
+    expect(mocks.query.mock.calls[0][1]).toHaveLength(6);
+  });
 });

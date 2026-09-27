@@ -154,12 +154,17 @@ test("the React collector parses and imports the checked helper", () => {
 
 function storeWithPool(db) {
   const sandboxModule = { exports: {} };
+  const reportingModule = { exports: {} };
+  vm.runInNewContext(compile("src/lib/owner-analytics-reporting.ts"), {
+    module: reportingModule, exports: reportingModule.exports,
+  });
   vm.runInNewContext(compile("src/lib/traffic-analytics-store.ts"), {
     module: sandboxModule, exports: sandboxModule.exports,
     require(name) {
       if (name === "server-only") return {};
       if (name === "crypto") return crypto;
       if (name === "@/lib/postgres-runtime") return { getRuntimePostgresPool: () => db };
+      if (name === "@/lib/owner-analytics-reporting") return reportingModule.exports;
       throw Error(`Unexpected dependency: ${name}`);
     },
   });

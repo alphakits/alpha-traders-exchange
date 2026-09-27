@@ -5,6 +5,7 @@ import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
+import { learningCampaignLink } from "@/lib/learning-campaign";
 
 const RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -15,6 +16,7 @@ const ContactSchema = z.object({
   message: z.string().min(10).max(4000),
   locale: z.enum(["ar", "en"]).default("en"),
   topic: z.literal(LEARNING_INTEREST_TOPIC).optional(),
+  campaignLinkId: z.unknown().optional(),
   // honeypot — must be empty
   website: z.string().max(0).optional(),
 });
@@ -91,6 +93,9 @@ export async function POST(request: NextRequest) {
   const subject = parsed.data.topic === LEARNING_INTEREST_TOPIC
     ? LEARNING_INTEREST_SUBJECT[locale]
     : parsed.data.subject;
+  const campaignLinkId = parsed.data.topic === LEARNING_INTEREST_TOPIC
+    && request.headers.get("sec-gpc") !== "1" && request.headers.get("dnt") !== "1"
+    ? learningCampaignLink(parsed.data.campaignLinkId)?.id ?? null : null;
 
   const forwarded = request.headers.get("x-forwarded-for");
   const rawIp = forwarded ? forwarded.split(",")[0]?.trim() : request.headers.get("x-real-ip") ?? "unknown";
@@ -100,7 +105,13 @@ export async function POST(request: NextRequest) {
 
   if (pool) {
     try {
-      await pool.query(
+      if (parsed.data.topic === LEARNING_INTEREST_TOPIC) {
+        await pool.query(
+          `INSERT INTO public.contact_submissions (name, email, subject, message, locale, ip_hash, campaign_link_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [name, email, subject, message, locale, ipHash, campaignLinkId],
+        );
+      } else await pool.query(
         `INSERT INTO public.contact_submissions (name, email, subject, message, locale, ip_hash)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [name, email, subject, message, locale, ipHash],

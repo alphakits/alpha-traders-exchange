@@ -4,12 +4,12 @@ import { LEARNING_INTEREST_SUBJECT } from "@/lib/learning-interest";
 
 export const LEARNING_INTEREST_QUERY = `
   WITH latest AS (
-    SELECT DISTINCT ON (lower(btrim(email))) id, name, email, message, created_at
+    SELECT DISTINCT ON (lower(btrim(email))) id, name, email, message, created_at, campaign_link_id
     FROM public.contact_submissions
     WHERE subject = ANY($1::text[]) AND status <> 'spam'
     ORDER BY lower(btrim(email)), created_at DESC, id DESC
   )
-  SELECT id, name, email, message, created_at, count(*) OVER()::int AS total
+  SELECT id, name, email, message, created_at, campaign_link_id, count(*) OVER()::int AS total
   FROM latest ORDER BY created_at DESC, id DESC LIMIT 100
 `;
 
@@ -19,6 +19,7 @@ export type LearningInterest = {
   email: string;
   message: string;
   created_at: string | Date;
+  campaign_link_id: string | null;
   total: number;
 };
 

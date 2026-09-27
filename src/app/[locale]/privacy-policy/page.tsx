@@ -17,6 +17,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 const privacySections = {
   en: [
     {
+      title: "Learning enquiries and campaign links",
+      body: "When you express interest in learning with Mark, the owner can review your name, email and message to respond. A recognised campaign link code may accompany the enquiry so the owner can understand which content brought interest. Only approved channel and content codes are used; the full referring URL, search terms and advertising click IDs are not included in this attribution. A code can be retained in the same browser tab for up to 30 minutes. We respect Do Not Track and Global Privacy Control for this measurement. An enquiry is not a booking or automatic marketing subscription.",
+    },
+    {
       title: "Information we may collect",
       body: "Depending on how you use the service, data may include account and contact details, authentication and verification records, profile information, marketplace listings, trade messages and status history, payment or wallet details needed for a trade, uploaded evidence, support reports, notification preferences, and technical security logs.",
     },
@@ -58,6 +62,10 @@ const privacySections = {
     },
   ],
   ar: [
+    {
+      title: "طلبات التعلّم وروابط الحملة",
+      body: "عند تسجيل اهتمامك بالتعلّم مع مارك، يطّلع المالك على اسمك وبريدك ورسالتك للرد. قد يُرفق رمز رابط حملة معروف لمعرفة أي محتوى جلب الاهتمام. تُستخدم رموز قنوات ومواد محددة فقط؛ لا يُرفق رابط الإحالة الكامل أو كلمات البحث أو معرّفات النقر الإعلاني بهذا القياس. قد يبقى الرمز في علامة تبويب المتصفح نفسها لمدة 30 دقيقة كحد أقصى. نحترم إعدادات Do Not Track وGlobal Privacy Control في هذا القياس. الطلب ليس حجزًا أو اشتراكًا تسويقيًا تلقائيًا.",
+    },
     {
       title: "المعلومات التي قد نجمعها",
       body: "بحسب استخدامك للخدمة، قد تشمل البيانات معلومات الحساب والتواصل، وسجلات المصادقة والتحقق، ومعلومات الملف، وعروض السوق، ورسائل الصفقة وسجل حالتها، وتفاصيل الدفع أو المحفظة اللازمة للصفقة، والأدلة المرفوعة، وبلاغات الدعم، وتفضيلات الإشعارات، وسجلات الأمان التقنية.",

@@ -4,6 +4,7 @@ import { getCurrentSessionUserForAuthorization } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { buildPageMetadata } from "@/lib/seo";
 import { readLearningInterests, type LearningInterest } from "@/lib/learning-interest-store";
+import { LEARNING_CAMPAIGN_LINKS, learningCampaignLink, learningCampaignUrl } from "@/lib/learning-campaign";
 
 export const dynamic = "force-dynamic";
 
@@ -36,14 +37,25 @@ export default async function LearningInterestInbox({ params }: { params: Promis
         <Link href="/learn-with-mark" className="underline underline-offset-4">{isAr ? "صفحة الاهتمام العامة" : "Public Interest Page"}</Link>
         <a href={`/${language}/admin/learning-interest`} className="underline underline-offset-4">{isAr ? "تحديث القائمة" : "Refresh List"}</a>
       </div>
+      <details className="rounded-2xl border border-white/10 p-5">
+        <summary className="cursor-pointer font-semibold">{isAr ? "روابط الحملة الجاهزة" : "Ready Campaign Links"}</summary>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "المصدر هو آخر رابط حملة معروف في نفس علامة تبويب المتصفح خلال 30 دقيقة. لا يثبت هوية الشخص أو مصدرًا معتمدًا من منصة الإعلان. غير معروف يعني أن الرمز لم يصل أو لم يُجمع؛ لا يعني زيارة مباشرة. الروابط لا تنشر شيئًا تلقائيًا." : "Source means the last recognised campaign link in the same browser tab within 30 minutes. It does not verify identity or ad-platform attribution. Unknown means no code was captured, not necessarily a direct visit. These links do not publish anything automatically."}</p>
+        <ul className="mt-4 space-y-3 text-sm">{LEARNING_CAMPAIGN_LINKS.map(link => <li key={link.id}>
+          <span dir="ltr" className="font-semibold">{link.source} · {link.medium} · {link.content}</span>
+          <p dir="ltr" className="mt-1 break-all select-all text-[#C9A227]">{learningCampaignUrl(link)}</p>
+        </li>)}</ul>
+      </details>
       {unavailable ? <p role="alert" className="rounded-2xl border border-red-500/30 p-5">{isAr ? "تعذّر تحميل الطلبات الآن. أعد تحميل الصفحة؛ هذا لا يعني أن القائمة فارغة." : "Enquiries could not be loaded. Reload this page; this does not mean the list is empty."}</p> : <>
         <p className="text-sm text-[#D1D5DB]">{isAr ? `عدد عناوين البريد المختلفة: ${rows[0]?.total ?? 0}. تظهر أحدث 100 نتيجة كحد أقصى.` : `Distinct email addresses: ${rows[0]?.total ?? 0}. Up to the latest 100 entries are shown.`}</p>
-        {rows.length === 0 ? <p>{isAr ? "لا توجد طلبات اهتمام محفوظة بعد." : "No saved learning enquiries yet."}</p> : rows.map(row => <article key={row.id} className="space-y-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5">
+        {rows.length === 0 ? <p>{isAr ? "لا توجد طلبات اهتمام محفوظة بعد." : "No saved learning enquiries yet."}</p> : rows.map(row => {
+          const campaign = learningCampaignLink(row.campaign_link_id);
+          return <article key={row.id} className="space-y-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5">
           <h2 className="break-words text-lg font-semibold">{row.name}</h2>
           <p className="break-all text-sm"><span dir="ltr">{row.email}</span></p>
           <p className="text-xs text-[#D1D5DB]">{new Date(row.created_at).toLocaleString(isAr ? "ar-IL" : "en-GB", { timeZone: "Asia/Jerusalem" })} · {isAr ? "بتوقيت إسرائيل" : "Israel time"}</p>
+          <p className="text-xs text-[#C9A227]">{isAr ? "رابط الحملة: " : "Campaign link: "}{campaign ? <span dir="ltr">{campaign.source} · {campaign.medium} · {campaign.content}</span> : (isAr ? "غير معروف" : "Unknown")}</p>
           <p className="whitespace-pre-wrap break-words text-sm leading-7 text-[#D1D5DB]">{row.message}</p>
-        </article>)}
+        </article>; })}
       </>}
     </div>
   </section>;

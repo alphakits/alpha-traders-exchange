@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
+import { readLearningCampaign } from "@/lib/learning-campaign-client";
 
 type Locale = "ar" | "en";
 
@@ -201,6 +202,7 @@ export function ContactForm({
           message: values.message.trim(),
           locale,
           ...(topic ? { topic } : {}),
+          ...(isLearningInterest ? { campaignLinkId: readLearningCampaign(window) } : {}),
           website: honeypotRef.current?.value ?? "",
         }),
       });
@@ -267,7 +269,7 @@ export function ContactForm({
       className="mt-8 grid max-w-3xl gap-5 rounded-2xl border border-white/10 bg-white/[0.02] p-5 md:p-6"
     >
       <h2 className="text-base font-semibold text-white/80">{t.formTitle}</h2>
-      {isLearningInterest ? <p className="text-sm leading-7 text-white/70">{locale === "ar" ? "اكتب مستواك وهدفك ووقتك المتاح. بيانات الطلب يطّلع عليها المالك للرد على استفسارك، ولا تظهر للزوار. إرسال الطلب لا يضيفك تلقائيًا إلى نشرة تسويقية." : "Share your level, learning goal and availability. The owner can review your details to respond to this enquiry; they are not public. Submitting does not automatically subscribe you to marketing."}</p> : null}
+      {isLearningInterest ? <p className="text-sm leading-7 text-white/70">{locale === "ar" ? "اكتب مستواك وهدفك ووقتك المتاح. بيانات الطلب يطّلع عليها المالك للرد على استفسارك، ولا تظهر للزوار. قد يُرفق رمز رابط الحملة لمعرفة أي محتوى جلب الاهتمام، مع احترام عدم التتبع. إرسال الطلب لا يضيفك تلقائيًا إلى نشرة تسويقية." : "Share your level, learning goal and availability. The owner can review your details to respond; they are not public. A campaign link code may accompany your enquiry to understand which content brought interest, respecting tracking opt-outs. Submitting does not automatically subscribe you to marketing."}</p> : null}
 
       {/* Honeypot — hidden from real users */}
       <input
