@@ -73,6 +73,56 @@ afterEach(async () => {
 });
 
 describe("compact Exchange home", () => {
+  it.each([
+    { width: 390, locale: "en" as const },
+    { width: 1440, locale: "ar" as const },
+  ])("reveals seller insights when the asynchronously mounted section becomes visible ($width px, $locale)", async ({ width, locale }) => {
+    viewportWidth = width;
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    let notify!: IntersectionObserverCallback;
+    let observer!: IntersectionObserver;
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: IntersectionObserverCallback) {
+        notify = callback;
+        observer = this as unknown as IntersectionObserver;
+      }
+      observe = observe;
+      disconnect = disconnect;
+    });
+
+    render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    const placeholder = await screen.findByRole("heading", { name: locale === "ar" ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand" });
+    // The observer must attach after the lazy workspace module has mounted.
+    await waitFor(() => expect(observe).toHaveBeenCalled());
+    const target = observe.mock.calls[0][0] as HTMLElement;
+    // Observe the visible card, so a quick scroll cannot skip a one-pixel sentinel.
+    expect(target.contains(placeholder)).toBe(true);
+    const entry = (isIntersecting: boolean): IntersectionObserverEntry => ({
+      target, isIntersecting, time: 0, rootBounds: null,
+      intersectionRatio: isIntersecting ? 1 : 0,
+      boundingClientRect: target.getBoundingClientRect(),
+      intersectionRect: target.getBoundingClientRect(),
+    });
+    await act(async () => notify([entry(false)], observer));
+    expect(screen.queryByRole("heading", { name: locale === "ar" ? "ملف البائع" : "Seller Profile" })).toBeNull();
+    await act(async () => notify([entry(true)], observer));
+    expect(await screen.findByRole("heading", { name: locale === "ar" ? "ملف البائع" : "Seller Profile" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: locale === "ar" ? "الخط الزمني للنشاط" : "Activity Timeline" })).toBeTruthy();
+    expect(document.contains(placeholder)).toBe(false);
+    expect(disconnect).toHaveBeenCalled();
+  });
+
+  it("renders seller insights when the browser has no visibility observer", async () => {
+    viewportWidth = 390;
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    vi.stubGlobal("IntersectionObserver", undefined);
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    expect(await screen.findByRole("heading", { name: "Seller Profile" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Advanced insights load on demand" })).toBeNull();
+  });
+
   it.each([390, 1440])("never renders an anonymous buyer workspace at %spx", async width => {
     viewportWidth = width;
     const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={null} />);

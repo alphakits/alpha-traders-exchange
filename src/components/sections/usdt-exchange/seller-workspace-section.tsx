@@ -12,7 +12,7 @@ import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-ide
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
-import { useState, type Dispatch, type FormEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
+import { useState, type Dispatch, type FormEvent, type ReactNode, type RefCallback, type SetStateAction } from "react";
 import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -179,7 +179,7 @@ export type SellerWorkspaceSectionProps = {
   sellerBankAccounts: SellerBankAccount[];
   sellerBankAccountsLoading: boolean;
   sellerCommissionStatus: SellerCommissionStatus | null;
-  sellerDeferredPanelsSentinelRef: RefObject<HTMLDivElement | null>;
+  sellerDeferredPanelsRef: RefCallback<HTMLDivElement>;
   sellerEvidenceFiles: Record<string, File | null>;
   sellerExpandedTradeId: string | null;
   sellerOverviewStats: SellerOverviewStats;
@@ -340,7 +340,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     sellerBankAccounts,
     sellerBankAccountsLoading,
     sellerCommissionStatus,
-    sellerDeferredPanelsSentinelRef,
+    sellerDeferredPanelsRef,
     sellerEvidenceFiles,
     sellerExpandedTradeId,
     sellerOverviewStats,
@@ -1834,7 +1834,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             {renderNotificationCenterCard("notification-center-section")}
           </div>
 
-          <div ref={sellerDeferredPanelsSentinelRef} className="order-39 h-px w-full" aria-hidden />
+          <div className="order-39 h-px w-full" aria-hidden />
           {deferredSellerPanelsReady ? (
             <div className="order-40 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
               <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
@@ -1951,7 +1951,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               </Card>
             </div>
           ) : (
-            <Card className="order-40 border-white/10 bg-[#0B0B0B]/90">
+            <Card ref={sellerDeferredPanelsRef} className="order-40 border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle>{isAr ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand"}</CardTitle>
                 <CardDescription>
