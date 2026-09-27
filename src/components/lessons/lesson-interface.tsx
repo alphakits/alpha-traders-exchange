@@ -654,10 +654,10 @@ export function LessonInterface({
               <div className="mx-auto mt-3 max-w-sm">
                 <Progress value={courseProgress} />
               </div>
-              {courseComplete ? <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{isAr ? "أكملت دروس هذا المسار. يمكنك متابعة التعلّم المجاني أو استكشاف تعليم مدفوع مع مارك، باختيارك." : "You’ve completed this track. Keep learning for free, or explore optional paid teaching with Mark."}</p> : null}
+              {courseComplete ? <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{isAr ? "أكملت دروس هذا المسار. يمكنك متابعة التعلّم المجاني أو استكشاف ICT Mentorship مع مارك، باختيارك." : "You’ve completed this track. Keep learning for free, or explore ICT Mentorship with Mark."}</p> : null}
               <div className="mt-5 flex flex-wrap justify-center gap-2">
                 {courseComplete ? <Link href="/learn-with-mark#interest" className={buttonVariants({ variant: "secondary", className: "whitespace-normal text-center" })}>
-                  {isAr ? "التعليم المدفوع مع مارك" : "Paid Learning with Mark"}
+                  {isAr ? "ICT Mentorship مع مارك" : "ICT Mentorship with Mark"}
                 </Link> : null}
                 {nextSlug ? (
                   <Link href={`/lessons/${nextSlug}`} className={buttonVariants()}>

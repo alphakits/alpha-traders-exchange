@@ -6,7 +6,7 @@ import { Loader2, CheckCircle2, AlertCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
+import { LEARNING_EXPERIENCE, LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC, type LearningDetails } from "@/lib/learning-interest";
 import { readLearningCampaign } from "@/lib/learning-campaign-client";
 
 type Locale = "ar" | "en";
@@ -142,10 +142,18 @@ export function ContactForm({
   topic?: typeof LEARNING_INTEREST_TOPIC;
 }) {
   const isLearningInterest = topic === LEARNING_INTEREST_TOPIC;
+  const learningCopy = locale === "ar" ? {
+    experience: "خبرتك الحالية", experiencePlaceholder: "اختَر الأقرب لمستواك", experienceError: "اختَر مستواك الحالي.",
+    availability: "الوقت المتاح للدراسة", availabilityPlaceholder: "مثلًا: 3 ساعات بالأسبوع، مساءً بتوقيت إسرائيل", availabilityError: "اكتب الوقت المتاح للدراسة، من حرفين إلى 160 حرفًا.",
+  } : {
+    experience: "Your current experience", experiencePlaceholder: "Choose the closest match", experienceError: "Choose your current experience.",
+    availability: "Available study time", availabilityPlaceholder: "For example: 3 hours a week, evenings (Israel time)", availabilityError: "Describe your available study time in 2–160 characters.",
+  };
   const t = isLearningInterest ? {
     ...T[locale],
     formTitle: locale === "ar" ? "استفسر عن ICT Mentorship" : "Ask about ICT Mentorship",
-    messagePlaceholder: locale === "ar" ? "ما مستواك الحالي؟ ماذا تريد أن تتعلّم؟ وما الوقت المناسب لك؟ لا ترسل بيانات مالية أو كلمات مرور." : "What is your current level, what would you like to learn, and when are you available? Do not include financial details or passwords.",
+    message: locale === "ar" ? "هدفك وأسئلتك" : "Your learning goal and questions",
+    messagePlaceholder: locale === "ar" ? "شو حاب تفهم أو تطوّر؟ أي سوق بهمّك؟ احكِ عن صعوبة بالتطبيق أو سؤال عندك. لا ترسل أرصدة أو تفاصيل مالية أو كلمات مرور." : "What would you like to understand or improve? Which market interests you? Share a difficulty or a question. Do not include balances, financial details or passwords.",
     send: locale === "ar" ? "إرسال استفسار المنتورشيب" : "Send mentorship enquiry",
     successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
     successBody: locale === "ar" ? "حُفظ استفسارك عن ICT Mentorship ليراجعه مارك. هذا ليس حجزًا أو التزامًا بالدفع. اسمع شرح مارك أو ابدأ الأكاديمية المجانية أثناء انتظار الرد." : "Your ICT Mentorship enquiry has been saved for Mark to review. This is not a booking or payment commitment. Hear Mark’s explanation or start the free Academy while awaiting a reply.",
@@ -157,6 +165,8 @@ export function ContactForm({
   const emailId = `${uid}-email`;
   const subjectId = `${uid}-subject`;
   const messageId = `${uid}-message`;
+  const experienceId = `${uid}-experience`;
+  const availabilityId = `${uid}-availability`;
 
   const [values, setValues] = useState<ContactValues>(() => ({
     name: initialValues?.name ?? "",
@@ -167,7 +177,15 @@ export function ContactForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [learningDetails, setLearningDetails] = useState<{ experience: LearningDetails["experience"] | ""; availability: string }>({ experience: "", availability: "" });
   const honeypotRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
+
+  const setLearning = (field: "experience" | "availability") => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = e.target.value;
+    setLearningDetails(prev => ({ ...prev, [field]: value }));
+    setFieldErrors(prev => { const next = { ...prev }; delete next[field]; return next; });
+  };
 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setValues((prev) => ({ ...prev, [field]: e.target.value }));
@@ -176,9 +194,14 @@ export function ContactForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (status === "loading") return;
+    if (submittingRef.current) return;
 
     const errors = validateClient(values, t);
+    if (isLearningInterest) {
+      if (!learningDetails.experience || !Object.hasOwn(LEARNING_EXPERIENCE, learningDetails.experience)) errors.experience = learningCopy.experienceError;
+      const length = learningDetails.availability.trim().length;
+      if (length < 2 || length > 160) errors.availability = learningCopy.availabilityError;
+    }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       setStatus("error");
@@ -186,6 +209,7 @@ export function ContactForm({
       return;
     }
 
+    submittingRef.current = true;
     setStatus("loading");
     setErrorMsg("");
     setFieldErrors({});
@@ -202,7 +226,7 @@ export function ContactForm({
           message: values.message.trim(),
           locale,
           ...(topic ? { topic } : {}),
-          ...(isLearningInterest ? { campaignLinkId: readLearningCampaign(window) } : {}),
+          ...(isLearningInterest ? { campaignLinkId: readLearningCampaign(window), learningDetails: { ...learningDetails, availability: learningDetails.availability.trim() } } : {}),
           website: honeypotRef.current?.value ?? "",
         }),
       });
@@ -219,7 +243,9 @@ export function ContactForm({
           const mapped: Record<string, string> = {};
           for (const [k, msgs] of Object.entries(data.issues as Record<string, string[]>)) {
             const code = Array.isArray(msgs) ? msgs[0] : undefined;
-            const localized = localizeContactIssue(k, code, t);
+            const localized = isLearningInterest && k === "experience" ? learningCopy.experienceError
+              : isLearningInterest && k === "availability" ? learningCopy.availabilityError
+                : localizeContactIssue(k, code, t);
             if (localized) mapped[k] = localized;
           }
           setFieldErrors(mapped);
@@ -237,9 +263,12 @@ export function ContactForm({
 
       setStatus("success");
       setValues({ name: "", email: "", subject: isLearningInterest ? LEARNING_INTEREST_SUBJECT[locale] : "", message: "" });
+      setLearningDetails({ experience: "", availability: "" });
     } catch {
       setStatus("error");
       setErrorMsg(t.errorGeneric);
+    } finally {
+      submittingRef.current = false;
     }
   }
 
@@ -250,6 +279,7 @@ export function ContactForm({
         <h2 className="text-xl font-semibold text-white">{t.successTitle}</h2>
         <p className="text-sm text-white/70">{t.successBody}</p>
         {isLearningInterest ? <a href={`/${locale}/learn-with-mark#mark-explains`} className="text-sm text-[#C9A227] underline underline-offset-4">{locale === "ar" ? "اسمع شرح مارك · 7:44" : "Hear Mark’s explanation · 7:44"}</a> : null}
+        {isLearningInterest ? <a href={`/${locale}/learn-trading-free`} className="text-sm text-[#C9A227] underline underline-offset-4">{locale === "ar" ? "استكشف الأكاديمية المجانية" : "Explore the Free Academy"}</a> : null}
         <button
           type="button"
           onClick={() => setStatus("idle")}
@@ -363,6 +393,23 @@ export function ContactForm({
           </ActionFeedback>
         )}
       </div>
+
+      {isLearningInterest ? <fieldset disabled={status === "loading"} className="grid min-w-0 gap-5">
+        <legend className="sr-only">{locale === "ar" ? "عن تعلّمك" : "About your learning"}</legend>
+        <div className="grid min-w-0 gap-1.5">
+          <label htmlFor={experienceId} className="text-sm text-white/60">{learningCopy.experience} <span className="text-[#C9A227]">*</span></label>
+          <select id={experienceId} name="experience" value={learningDetails.experience} onChange={setLearning("experience")} required aria-invalid={!!fieldErrors.experience} aria-describedby={fieldErrors.experience ? `${experienceId}-err` : undefined} className="min-h-11 w-full min-w-0 rounded-xl border border-white/15 bg-[#111] px-3 py-3 text-base text-white focus:border-[#C9A227] focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30">
+            <option value="">{learningCopy.experiencePlaceholder}</option>
+            {Object.entries(LEARNING_EXPERIENCE).map(([value, label]) => <option key={value} value={value}>{label[locale]}</option>)}
+          </select>
+          {fieldErrors.experience ? <ActionFeedback as="p" role="alert" id={`${experienceId}-err`} className="text-xs text-red-400">{fieldErrors.experience}</ActionFeedback> : null}
+        </div>
+        <div className="grid gap-1.5">
+          <label htmlFor={availabilityId} className="text-sm text-white/60">{learningCopy.availability} <span className="text-[#C9A227]">*</span></label>
+          <Input id={availabilityId} name="availability" value={learningDetails.availability} onChange={setLearning("availability")} placeholder={learningCopy.availabilityPlaceholder} maxLength={160} required aria-invalid={!!fieldErrors.availability} aria-describedby={fieldErrors.availability ? `${availabilityId}-err` : undefined} />
+          {fieldErrors.availability ? <ActionFeedback as="p" role="alert" id={`${availabilityId}-err`} className="text-xs text-red-400">{fieldErrors.availability}</ActionFeedback> : null}
+        </div>
+      </fieldset> : null}
 
       {/* Message */}
       <div className="grid gap-1.5">

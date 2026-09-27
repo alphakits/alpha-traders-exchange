@@ -4,7 +4,7 @@ import { createHash } from "crypto";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
-import { LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
+import { formatLearningMessage, LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
 import { learningCampaignLink } from "@/lib/learning-campaign";
 
 const RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -17,16 +17,25 @@ const ContactSchema = z.object({
   locale: z.enum(["ar", "en"]).default("en"),
   topic: z.literal(LEARNING_INTEREST_TOPIC).optional(),
   campaignLinkId: z.unknown().optional(),
+  learningDetails: z.object({
+    experience: z.enum(["starting", "foundations", "studied", "practising"]),
+    availability: z.string().trim().min(2).max(160),
+  }).optional(),
   // honeypot — must be empty
   website: z.string().max(0).optional(),
 });
 
-type ContactField = "name" | "email" | "subject" | "message";
+type ContactField = "name" | "email" | "subject" | "message" | "experience" | "availability";
 
 function stableContactIssues(error: z.ZodError): Partial<Record<ContactField, string[]>> {
   const result: Partial<Record<ContactField, string[]>> = {};
   for (const issue of error.issues) {
     const field = issue.path[0];
+    if (field === "learningDetails") {
+      if (issue.path[1] === "availability") result.availability = ["LEARNING_AVAILABILITY_INVALID"];
+      else result.experience = ["LEARNING_EXPERIENCE_REQUIRED"];
+      continue;
+    }
     if (field !== "name" && field !== "email" && field !== "subject" && field !== "message") continue;
 
     let code: string;
@@ -89,7 +98,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { name, email, message, locale } = parsed.data;
+  const { name, email, locale } = parsed.data;
+  const message = parsed.data.topic === LEARNING_INTEREST_TOPIC && parsed.data.learningDetails
+    ? formatLearningMessage(parsed.data.message, parsed.data.learningDetails, locale)
+    : parsed.data.message;
   const subject = parsed.data.topic === LEARNING_INTEREST_TOPIC
     ? LEARNING_INTEREST_SUBJECT[locale]
     : parsed.data.subject;

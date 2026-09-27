@@ -130,4 +130,30 @@ describe("support and account deletion request persistence", () => {
     expect(mocks.query.mock.calls[0][0]).not.toContain("campaign_link_id");
     expect(mocks.query.mock.calls[0][1]).toHaveLength(6);
   });
+
+  it.each([
+    { experience: "unsupported", availability: "Evenings" },
+    { experience: "starting", availability: " " },
+    { experience: "starting", availability: "x".repeat(161) },
+  ])("rejects malformed mentorship details without saving them: %j", async learningDetails => {
+    const response = await POST(makeRequest({ topic: "learning-with-mark", learningDetails }));
+    expect(response.status).toBe(400);
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({ error: "validation_error", issues: expect.any(Object) });
+  });
+
+  it("stores Arabic learning details without changing the owner inbox category", async () => {
+    const response = await POST(makeRequest({ locale: "ar", topic: "learning-with-mark", learningDetails: { experience: "starting", availability: "  مساءً  " } }));
+    expect(response.status).toBe(200);
+    const values = mocks.query.mock.calls[0][1];
+    expect(values[2]).toBe("اهتمام بالتعلّم مع مارك");
+    expect(values[3]).toContain("الخبرة الحالية: ببدأ من الصفر");
+    expect(values[3]).toContain("وقت الدراسة المتاح: مساءً");
+    expect(values[3]).toContain(deletionRequest.message);
+  });
+
+  it("does not append mentorship details to unrelated support messages", async () => {
+    await POST(makeRequest({ learningDetails: { experience: "starting", availability: "Evenings" } }));
+    expect(mocks.query.mock.calls[0][1][3]).toBe(deletionRequest.message);
+  });
 });

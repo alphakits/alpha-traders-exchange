@@ -64,7 +64,7 @@ export function OwnerLiveAnalyticsPanel({ locale }: { locale: "ar" | "en" }) {
           <span className="shrink-0 text-sm">{open ? t("Hide", "إخفاء") : t("Open", "فتح")}</span>
         </button>
         <p className="mt-1 text-sm text-[#9CA3AF]">{t("Owner-only traffic and activity. Open to refresh independently of trade controls.", "الزيارات والنشاط للمالك فقط. افتح للتحديث بشكل مستقل عن أدوات إدارة الصفقات.")}</p>
-        {!state.forbidden ? <a href={`/${locale}/admin/learning-interest`} className="mt-3 inline-flex min-h-11 items-center text-sm text-[#F4D978] underline underline-offset-4">{t("Learning with Mark Enquiries", "طلبات التعلّم مع مارك")}</a> : null}
+        {!state.forbidden ? <a href={`/${locale}/admin/learning-interest`} className="mt-3 inline-flex min-h-11 items-center text-sm text-[#F4D978] underline underline-offset-4">{t("ICT Mentorship Enquiries", "استفسارات ICT Mentorship")}</a> : null}
         {open ? (
           <div id="owner-live-analytics-content" className="mt-5 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
