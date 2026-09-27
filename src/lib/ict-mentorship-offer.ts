@@ -2,6 +2,7 @@
 export const ICT_MENTORSHIP_OFFER = {
   experiencedFee: "₪6,700",
   beginnerFee: "₪7,500",
+  enquiriesCloseDateLabel: "31-12-2026",
   enquiriesCloseAt: "2027-01-01T00:00:00+02:00", // End of 2026 in Israel.
 } as const;
 

@@ -156,7 +156,7 @@ export function ContactForm({
     messagePlaceholder: locale === "ar" ? "شو حاب تفهم أو تطوّر؟ أي سوق بهمّك؟ احكِ عن صعوبة بالتطبيق أو سؤال عندك. لا ترسل أرصدة أو تفاصيل مالية أو كلمات مرور." : "What would you like to understand or improve? Which market interests you? Share a difficulty or a question. Do not include balances, financial details or passwords.",
     send: locale === "ar" ? "إرسال استفسار المنتورشيب" : "Send mentorship enquiry",
     successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
-    successBody: locale === "ar" ? "حُفظ استفسارك عن ICT Mentorship ليراجعه مارك. هذا ليس حجزًا أو التزامًا بالدفع. اسمع شرح مارك أو ابدأ الأكاديمية المجانية أثناء انتظار الرد." : "Your ICT Mentorship enquiry has been saved for Mark to review. This is not a booking or payment commitment. Hear Mark’s explanation or start the free Academy while awaiting a reply.",
+    successBody: locale === "ar" ? "حُفظ استفسارك عن ICT Mentorship ليراجعه مارك. الرد على الاستفسار بيكون عبر البريد الإلكتروني اللي كتبته. هذا ليس حجزًا أو التزامًا بالدفع. اسمع شرح مارك أو ابدأ الأكاديمية المجانية أثناء انتظار الرد." : "Your ICT Mentorship enquiry has been saved for Mark to review. Replies to your enquiry use the email address you provided. This is not a booking or payment commitment. Hear Mark’s explanation or start the free Academy while awaiting a reply.",
   } : T[locale] ?? T.en;
   const isRtl = locale === "ar";
 
@@ -361,15 +361,19 @@ export function ContactForm({
           name="email"
           type="email"
           autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          dir="ltr"
           placeholder={t.emailPlaceholder}
           maxLength={254}
           value={values.email}
           onChange={set("email")}
           disabled={status === "loading"}
           aria-invalid={!!fieldErrors.email}
-          aria-describedby={fieldErrors.email ? `${emailId}-err` : undefined}
+          aria-describedby={[isLearningInterest ? `${emailId}-hint` : "", fieldErrors.email ? `${emailId}-err` : ""].filter(Boolean).join(" ") || undefined}
           required
         />
+        {isLearningInterest ? <p id={`${emailId}-hint`} className="text-xs leading-6 text-white/60">{locale === "ar" ? "استخدم بريدًا بتقدر تفتحه؛ الرد على استفسارك بيكون من خلاله. ما بتحتاج حساب بالموقع." : "Use an email you can access; replies to your enquiry go here. No website account is needed."}</p> : null}
         {fieldErrors.email && (
           <ActionFeedback as="p" role="alert" id={`${emailId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
