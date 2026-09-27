@@ -12,6 +12,7 @@ import {
   deleteSellerBankAccount,
   getTradeRoomData,
   getTradeRoomBankDetails,
+  getSellerBankAccountsForUser,
   invalidateAlphaExchangeStoreCache,
   runAlphaExchangeMaintenance,
   runTradeActionReminders,
@@ -146,6 +147,21 @@ describe("seller bank accounts and trade guardrails", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("loads only the seller account for bank settings and preserves masking", async () => {
+    seedAcceptedBankTransferTrade();
+    const repository = await getAlphaExchangeRepository();
+    const fullRead = vi.spyOn(repository, "loadSnapshot").mockRejectedValue(new Error("Full snapshot must not be loaded"));
+    try {
+      const accounts = await getSellerBankAccountsForUser(SELLER_ID);
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0]).toMatchObject({ id: "bank-1", accountLast4: "7890" });
+      expect(accounts[0]).not.toHaveProperty("accountNumber");
+      expect(fullRead).not.toHaveBeenCalled();
+    } finally {
+      fullRead.mockRestore();
+    }
   });
 
   function listingInput(paymentMethods: string[]) {
