@@ -153,7 +153,7 @@ for (const locale of locales) {
         assert.equal(walk(nav[0], x => x.props?.['aria-current'] === 'page').length, 1);
       });
     }
-    test(`${locale}: exact existing course and marketplace handoffs preserved`, async () => {
+    test(`${locale}: course and marketplace links retain their intended handoffs`, async () => {
       const load = loader();
       const props = { params: Promise.resolve({ locale }) };
       const academy = await load('src/app/[locale]/learn-trading-free/page.tsx').default(props);
@@ -162,7 +162,9 @@ for (const locale of locales) {
       const courseHandoffs = lessonLinks.filter(x => typeof x === 'object');
       assert.equal(courseHandoffs.length, 2, 'hero and closing course links remain available');
       courseHandoffs.forEach(link => assert.equal(JSON.stringify(link), JSON.stringify({ pathname: '/login', query: { redirectTo: `/${locale}/academy` } })));
-      assert.ok(lessonLinks.includes('/buy-usdt-israel'));
+      const exchangeEntry = walk(academy, x => x.type === 'a' && text(x).includes('Alpha Exchange'));
+      assert.equal(exchangeEntry.length, 1);
+      assert.equal(exchangeEntry[0].props.href, '/usdt-exchange');
       assert.ok(!lessonLinks.some(x => typeof x === 'string' && x.includes('/lessons')));
       const exchangeLinks = walk(exchange, x => x.type === 'a').map(x => x.props.href);
       assert.ok(exchangeLinks.includes('/usdt-exchange'));
