@@ -225,6 +225,25 @@ test("network failures preserve timestamp but are flagged stale", async () => {
   assert.equal(h.states.at(-1).failed, true); assert.ok(h.states.at(-1).snapshot);
   h.controller.stop();
 });
+test("an unresponsive transport times out even when it ignores abort", async () => {
+  const h = harness([() => new Promise(() => {})]);
+  await h.advance(15_000);
+  assert.equal(h.states.at(-1).failed, true);
+  assert.equal(h.states.at(-1).refreshing, false);
+  await h.advance(30_000);
+  assert.equal(h.calls(), 2);
+  assert.equal(h.states.at(-1).failed, false);
+  h.controller.stop();
+});
+test("a stalled response body releases the polling lock", async () => {
+  const h = harness([{ ok: true, status: 200, json: () => new Promise(() => {}) }]);
+  await flush(); await h.advance(15_000);
+  assert.equal(h.states.at(-1).failed, true);
+  assert.equal(h.states.at(-1).refreshing, false);
+  await h.advance(30_000);
+  assert.equal(h.calls(), 2);
+  h.controller.stop();
+});
 test("malformed responses fail instead of displaying false zero", async () => {
   const h = harness([Response.json({ ok: true })]); await flush();
   assert.equal(h.states.at(-1).failed, true); assert.equal(h.states.at(-1).snapshot, null); h.controller.stop();

@@ -39,10 +39,12 @@ describe("English default and explicit language choices", () => {
     expect(middleware(request("/AR/login")).headers.get("location")).toBe(`${origin}/ar/login`);
   });
 
-  it("localizes deep links and sends signed-out visitors home", () => {
+  it("localizes deep links and preserves their destination through sign-in", () => {
     const entry = middleware(request("/trade-room/trade-123?tab=messages"));
     expect(entry.headers.get("location")).toBe(`${origin}/en/trade-room/trade-123?tab=messages`);
     const protectedPage = middleware(new NextRequest(entry.headers.get("location")!));
-    expect(protectedPage.headers.get("location")).toBe(`${origin}/en`);
+    const signIn = new URL(protectedPage.headers.get("location")!);
+    expect(signIn.pathname).toBe("/en/login");
+    expect(signIn.searchParams.get("redirectTo")).toBe("/en/trade-room/trade-123?tab=messages");
   });
 });

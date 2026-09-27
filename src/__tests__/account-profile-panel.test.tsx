@@ -366,7 +366,7 @@ describe("AccountProfilePanel", () => {
 
       await waitFor(() => expect(screen.getByText("Your session has expired. Please sign in again.")).toBeTruthy());
       expect(screen.queryByText(publicAccountId({ id: "user-1", role: "buyer" }))).toBeNull();
-      expect(replaceSpy).toHaveBeenCalledWith("/en");
+      expect(replaceSpy).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fprofile");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }

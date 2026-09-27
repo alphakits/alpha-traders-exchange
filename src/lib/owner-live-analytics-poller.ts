@@ -33,29 +33,40 @@ export function startOwnerAnalyticsPolling(options: {
     emit();
     const request = new AbortController();
     controller = request;
-    const timeout = setTimeout(() => request.abort(), LIVE_ANALYTICS_TIMEOUT_MS);
+    let timedOut = false;
+    let cancel = () => {};
+    const deadline = new Promise<never>((_, reject) => {
+      cancel = () => reject(new Error("Analytics read cancelled"));
+      request.signal.addEventListener("abort", cancel, { once: true });
+    });
+    const timeout = setTimeout(() => { timedOut = true; request.abort(); }, LIVE_ANALYTICS_TIMEOUT_MS);
     try {
-      const response = await options.fetcher(request.signal);
+      const response = await Promise.race([(async () => {
+        const result = await options.fetcher(request.signal);
+        if (request.signal.aborted) throw new Error("Analytics read cancelled");
+        if (result.status === 401 || result.status === 403) return { status: result.status, payload: null };
+        if (!result.ok && result.status !== 503) throw new Error("Analytics read failed");
+        const payload: unknown = await result.json();
+        return { status: result.status, payload };
+      })(), deadline]);
       if (stopped || state.forbidden || request.signal.aborted) return;
       if (response.status === 401 || response.status === 403) { deny(); return; }
-      if (!response.ok && response.status !== 503) throw new Error("Analytics read failed");
-      const payload: unknown = await response.json();
-      if (stopped || state.forbidden || request.signal.aborted) return;
-      const snapshot = parseLiveAnalytics(payload, options.clock?.() ?? Date.now());
+      const snapshot = parseLiveAnalytics(response.payload, options.clock?.() ?? Date.now());
       if (!snapshot) throw new Error("Invalid analytics response");
       state = { snapshot, refreshing: false, failed: false, forbidden: false };
     } catch {
-      if (!stopped && !state.forbidden) state = { ...state, refreshing: false, failed: true };
+      if (!stopped && !state.forbidden && (!request.signal.aborted || timedOut)) state = { ...state, refreshing: false, failed: true };
     } finally {
       clearTimeout(timeout);
+      request.signal.removeEventListener("abort", cancel);
       inFlight = false;
       controller = undefined;
       if (!stopped && !state.forbidden) {
         // Abort may occur after a fetch resolved, before its body finished.
-        if (request.signal.aborted) state = { ...state, failed: true };
+        if (timedOut) state = { ...state, failed: true };
         state = { ...state, refreshing: false };
         emit();
-        if (options.isVisible()) timer = setTimeout(() => { void refresh(); }, LIVE_ANALYTICS_POLL_MS);
+        if (options.isVisible()) timer = setTimeout(() => { void refresh(); }, request.signal.aborted && !timedOut ? 0 : LIVE_ANALYTICS_POLL_MS);
       }
     }
   };

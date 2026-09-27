@@ -112,9 +112,9 @@ describe("mobile accessibility completion", () => {
     expect(chart).toContain('focus-visible:ring-[#C9A227]');
   });
 
-  it("keeps coarse-pointer checkbox and radio controls at least 24px", () => {
+  it("keeps small-screen checkbox and radio controls at least 24px with any pointer", () => {
     const css = source("src/app/globals.css");
-    const coarsePointerStart = css.indexOf('@media (max-width: 768px) and (pointer: coarse)');
+    const coarsePointerStart = css.lastIndexOf('@media (max-width: 768px) {');
     const reducedMotionStart = css.indexOf('@media (prefers-reduced-motion: reduce)', coarsePointerStart);
     const coarsePointerRules = css.slice(coarsePointerStart, reducedMotionStart);
 

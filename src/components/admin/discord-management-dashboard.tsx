@@ -32,6 +32,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { DiscordManagementDiagnostics } from "@/lib/discord/management";
+import { pendingDiscordReconciliation, readDiscordManagementDiagnostics, submitDiscordReconciliation } from "@/lib/discord/management-client";
 
 const HEALTHY_POLL_MS = 30_000;
 const MIN_ERROR_POLL_MS = 15_000;
@@ -126,7 +127,10 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
   const failureCount = useRef(0);
   const diagnosticsRef = useRef<DiscordManagementDiagnostics | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inFlight = useRef(false);
+  const readController = useRef<AbortController | null>(null);
+  const accessDenied = useRef(false);
+  const actionInFlight = useRef(false);
+  const accessGeneration = useRef(0);
   const mounted = useRef(true);
   const reconcileTrigger = useRef<HTMLButtonElement>(null);
   const confirmationDialog = useRef<HTMLDivElement>(null);
@@ -134,25 +138,34 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
 
   const schedule = useCallback((delay: number, callback: () => void) => {
     if (timer.current) clearTimeout(timer.current);
-    if (document.visibilityState !== "visible") return;
+    if (!mounted.current || accessDenied.current || document.visibilityState !== "visible" || navigator.onLine === false) return;
     timer.current = setTimeout(callback, delay);
   }, []);
 
+  const denyAccess = useCallback(() => {
+    accessGeneration.current++;
+    accessDenied.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    readController.current?.abort();
+    readController.current = null;
+    diagnosticsRef.current = null;
+    setDiagnostics(null);
+    setLoadState("error");
+    setAction({ status: "idle" });
+    setLoadError(t("Access is no longer available. Sign in with an authorized account to continue.", "لم تعد الصلاحية متاحة. سجل الدخول بحساب مخوّل للمتابعة."));
+  }, [t]);
+
   const load = useCallback(async () => {
-    if (inFlight.current || document.visibilityState !== "visible") return;
-    inFlight.current = true;
+    if (!mounted.current || accessDenied.current || readController.current || document.visibilityState !== "visible" || navigator.onLine === false) return;
+    if (timer.current) clearTimeout(timer.current);
+    const controller = new AbortController();
+    readController.current = controller;
+    const current = () => mounted.current && readController.current === controller && !controller.signal.aborted;
     try {
-      const response = await fetch("/api/admin/discord/diagnostics", {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      const payload = await response.json() as
-        | DiscordManagementDiagnostics
-        | { error?: string; code?: string };
-      if (!("status" in payload)) {
-        throw new Error(isArabic ? "بيانات التشخيص غير متاحة." : payload.error ?? "Diagnostics are unavailable.");
-      }
-      if (!mounted.current) return;
+      const { status, payload } = await readDiscordManagementDiagnostics(controller.signal);
+      if (!current()) return;
+      if ([401, 403].includes(status)) { denyAccess(); return; }
+      if (!payload) throw new Error("Diagnostics unavailable");
       diagnosticsRef.current = payload;
       setDiagnostics(payload);
       setLoadState("ready");
@@ -160,7 +173,7 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
       failureCount.current = 0;
       schedule(HEALTHY_POLL_MS, () => void load());
     } catch {
-      if (!mounted.current) return;
+      if (!current()) return;
       failureCount.current += 1;
       setLoadState(diagnosticsRef.current ? "ready" : "error");
       setLoadError(t("Diagnostics could not be refreshed. The last confirmed state is preserved.", "تعذّر تحديث بيانات التشخيص. تم الاحتفاظ بآخر حالة مؤكدة."));
@@ -170,24 +183,44 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
       );
       schedule(delay, () => void load());
     } finally {
-      inFlight.current = false;
+      if (readController.current === controller) readController.current = null;
     }
-  }, [isArabic, schedule, t]);
+  }, [denyAccess, schedule, t]);
 
   useEffect(() => {
     mounted.current = true;
+    try {
+      if (pendingDiscordReconciliation() && !actionInFlight.current) setAction({ status: "error", message: t("The previous request is not confirmed. An explicit retry uses the same request and cannot enqueue a duplicate.", "نتيجة الطلب السابق غير مؤكدة. تستخدم المحاولة الصريحة نفس الطلب ولا تضيف نسخة مكررة.") });
+    } catch {
+      setAction({ status: "error", message: t("Request recovery storage is unavailable. No new request can be sent.", "تعذر حفظ حالة استعادة الطلب. لا يمكن إرسال طلب جديد.") });
+    }
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") void load();
-      else if (timer.current) clearTimeout(timer.current);
+      if (document.visibilityState === "visible" && navigator.onLine !== false) void load();
+      else {
+        if (timer.current) clearTimeout(timer.current);
+        readController.current?.abort();
+        readController.current = null;
+      }
     };
+    const onSignOut = () => denyAccess();
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("online", onVisibilityChange);
+    window.addEventListener("offline", onVisibilityChange);
+    window.addEventListener("alpha-auth-changed", onSignOut);
+    window.addEventListener("alpha-auth-signed-out", onSignOut);
     void load();
     return () => {
       mounted.current = false;
+      readController.current?.abort();
+      readController.current = null;
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("online", onVisibilityChange);
+      window.removeEventListener("offline", onVisibilityChange);
+      window.removeEventListener("alpha-auth-changed", onSignOut);
+      window.removeEventListener("alpha-auth-signed-out", onSignOut);
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [load]);
+  }, [denyAccess, load, t]);
 
   useEffect(() => {
     if (action.status === "confirming") confirmButton.current?.focus();
@@ -223,29 +256,24 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
   };
 
   const requestReconciliation = async () => {
+    if (actionInFlight.current || accessDenied.current || !mounted.current) return;
+    actionInFlight.current = true;
+    const generation = accessGeneration.current;
     setAction({ status: "submitting" });
     queueMicrotask(() => reconcileTrigger.current?.focus());
     try {
-      const response = await fetch("/api/admin/discord/reconcile", {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          confirmation: "reconcile_managed_integration",
-          idempotencyKey: crypto.randomUUID(),
-        }),
-      });
-      const payload = await response.json() as {
-        disposition?: "accepted" | "coalesced" | "replayed";
-        status?: "pending" | "processing" | "completed" | "dead";
-        resultCode?: string | null;
-        error?: string;
-      };
-      if (!response.ok || !payload.disposition || !payload.status) {
-        throw new Error(isArabic ? "لم يتم قبول الطلب." : payload.error ?? "The request was not accepted.");
+      const result = await submitDiscordReconciliation();
+      if (!mounted.current || accessGeneration.current !== generation || accessDenied.current) return;
+      if (result.outcome === "denied") { denyAccess(); return; }
+      if (result.outcome === "blocked") {
+        setAction({ status: "error", message: t("Request recovery storage is unavailable. No new request was sent.", "تعذر حفظ حالة استعادة الطلب. لم يُرسل طلب جديد.") });
+        return;
       }
+      if (result.outcome !== "acknowledged") {
+        setAction({ status: "error", message: t("The result is not confirmed. An explicit retry uses the same request; it does not create a duplicate.", "النتيجة غير مؤكدة. تستخدم المحاولة الصريحة نفس الطلب ولا تنشئ نسخة مكررة.") });
+        return;
+      }
+      const { payload } = result;
       setAction({
         status: "accepted",
         message: payload.disposition === "replayed"
@@ -255,16 +283,7 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
           : t("Reconciliation was accepted and is pending Railway processing.", "تم قبول طلب المطابقة وهو بانتظار المعالجة على Railway."),
       });
       schedule(1_000, () => void load());
-    } catch (error) {
-      setAction({
-        status: "error",
-        message: isArabic
-          ? "تعذّر حفظ طلب المطابقة. حاول مجددًا."
-          : error instanceof Error
-            ? error.message
-            : "The request could not be persisted.",
-      });
-    }
+    } finally { actionInFlight.current = false; }
   };
 
   if (loadState === "loading") {
@@ -294,7 +313,7 @@ export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | 
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="min-h-11" onClick={() => void load()}>
+            <Button className="min-h-11" onClick={() => { accessDenied.current = false; void load(); }}>
               {t("Try again", "حاول مجددًا")}
             </Button>
           </CardContent>
