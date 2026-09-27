@@ -29,7 +29,9 @@ function TradingViewFrame({ title, symbol, locale }: { title: string; symbol: st
         title={title}
         src={tradingViewUrl(symbol, locale)}
         loading="lazy"
-        className="h-[320px] w-full border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#C9A227]"
+        inert
+        tabIndex={-1}
+        className="pointer-events-none h-[320px] w-full border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#C9A227]"
         referrerPolicy="no-referrer-when-downgrade"
         allowFullScreen
       />
