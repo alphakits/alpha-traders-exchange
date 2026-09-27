@@ -1763,7 +1763,8 @@ export function UsdtExchangePage({
   const commissionPayIntentHandledRef = useRef<string | null>(null);
   const commissionNotificationSignatureRef = useRef<string | null>(null);
   const sellerWorkspaceResumeRefreshInFlightRef = useRef(false);
-  const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
+  // Callback-ref state also catches the workspace mounting after its dynamic import.
+  const [sellerDeferredPanelsTarget, setSellerDeferredPanelsTarget] = useState<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
   const renderCompleteRecordedRef = useRef(false);
   const interactivePaintRecordedRef = useRef(false);
@@ -2510,8 +2511,7 @@ export function UsdtExchangePage({
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess || isSessionResolving || deferredSellerPanelsReady) return;
-    const sentinel = sellerDeferredPanelsSentinelRef.current;
-    if (!sentinel) return;
+    if (!sellerDeferredPanelsTarget) return;
     if (typeof IntersectionObserver === "undefined") {
       setDeferredSellerPanelsReady(true);
       return;
@@ -2525,9 +2525,9 @@ export function UsdtExchangePage({
       },
       { rootMargin: "220px 0px" },
     );
-    observer.observe(sentinel);
+    observer.observe(sellerDeferredPanelsTarget);
     return () => observer.disconnect();
-  }, [deferredSellerPanelsReady, hasSellerWorkspaceAccess, isSessionResolving]);
+  }, [deferredSellerPanelsReady, hasSellerWorkspaceAccess, isSessionResolving, sellerDeferredPanelsTarget]);
 
   useEffect(() => {
     if (!hasSellerWorkspaceAccess) {
@@ -5718,7 +5718,7 @@ export function UsdtExchangePage({
             sellerBankAccounts,
             sellerBankAccountsLoading,
             sellerCommissionStatus,
-            sellerDeferredPanelsSentinelRef,
+            sellerDeferredPanelsRef: setSellerDeferredPanelsTarget,
             sellerEvidenceFiles,
             sellerExpandedTradeId,
             sellerOverviewStats,
