@@ -135,6 +135,7 @@ describe("POST /api/auth/login", () => {
       body: JSON.stringify({ email: "buyer@example.test", password: "test-password", rememberMe }),
     }) as unknown as NextRequest);
     expect(response.status).toBe(200);
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
     expect(mockCreateUserSession).toHaveBeenCalledWith("local-user", rememberMe ? 14 : 1);
     expect(setCookie).toHaveBeenCalledWith("alpha-auth", "test-session-token", expect.objectContaining({
       httpOnly: true, sameSite: "lax", path: "/",
@@ -146,7 +147,7 @@ describe("POST /api/auth/login", () => {
     }));
   });
 
-  it("resets session language after a successful Supabase login", async () => {
+  it("preserves the explicit language choice after a successful Supabase login", async () => {
     supabaseAuthMocks.signInWithPassword.mockResolvedValue({
       data: { user: { email: "buyer@example.test", email_confirmed_at: "2026-01-01", user_metadata: {} } },
       error: null,
@@ -156,7 +157,7 @@ describe("POST /api/auth/login", () => {
       body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
     }) as unknown as NextRequest);
     expect(response.status).toBe(200);
-    expect(setCookie).toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", "", expect.objectContaining({ maxAge: 0, path: "/" }));
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
   });
 
   it("returns a friendly error when the JSON body is malformed", async () => {
@@ -286,7 +287,7 @@ describe("POST /api/auth/login", () => {
       emailVerified: true,
     }));
     expect(mockCreateUserSession).toHaveBeenCalledWith(verifiedLocalUser.id, 14);
-    expect(setCookie).toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", "", expect.objectContaining({ maxAge: 0, path: "/" }));
+    expect(setCookie).not.toHaveBeenCalledWith("ALPHA_LOCALE_CHOICE", expect.anything(), expect.anything());
     expect(setCookie).toHaveBeenCalledWith("alpha-verified", "1", expect.any(Object));
     expect(setCookie).toHaveBeenCalledWith("alpha-phone-verified", "", expect.any(Object));
     expect(setCookie).not.toHaveBeenCalledWith("alpha-phone-verified", "1", expect.any(Object));

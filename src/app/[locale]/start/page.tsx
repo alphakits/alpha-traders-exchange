@@ -54,7 +54,7 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
           <h2 className="mt-2 text-2xl font-semibold">{isAr ? "تعلم التداول مجانًا" : "Learn Trading for Free"}</h2>
           <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "استكشف أساسيات الشموع والنماذج والدعم والمقاومة وبنية السوق وإدارة المخاطر وعلم النفس." : "Explore candlesticks, chart patterns, support and resistance, market structure, risk management and trading psychology."}</p>
           <Link href="/learn-trading-free" className={buttonVariants({ className: "mt-5" })}>{isAr ? "استكشف المسار المجاني" : "Explore the Free Path"}</Link>
-          <p className="mt-4 text-sm"><Link href="/learn-with-mark" className="text-[#C9A227] underline underline-offset-4">{isAr ? "مهتم بالتعلّم مع مارك؟" : "Interested in Learning with Mark?"}</Link></p>
+          <p className="mt-4 text-sm"><Link href="/learn-with-mark" className="text-[#C9A227] underline underline-offset-4">{isAr ? "لاحقًا: تعليم مدفوع مع مارك، باختيارك" : "Later: optional paid teaching with Mark"}</Link></p>
         </div>
         <div className="rounded-3xl border border-[#6CAEFF]/30 bg-[#0B0B0B]/90 p-6">
           <p className="text-sm font-semibold text-[#93C5FD]">Alpha Exchange · USDT / ILS</p>

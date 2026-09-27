@@ -72,10 +72,12 @@ function defaultMeta(): LearningMeta {
 
 function readAllProgress() {
   if (typeof window === "undefined") return {} as Record<string, LessonProgressState>;
-  const raw = window.localStorage.getItem(PROGRESS_STORAGE);
-  if (!raw) return {} as Record<string, LessonProgressState>;
   try {
-    return JSON.parse(raw) as Record<string, LessonProgressState>;
+    const raw = window.localStorage.getItem(PROGRESS_STORAGE);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, LessonProgressState>
+      : {} as Record<string, LessonProgressState>;
   } catch {
     return {} as Record<string, LessonProgressState>;
   }
@@ -107,11 +109,18 @@ export function getLessonProgressState(lessonId: string, courseId: string, lesso
   return all[lessonId] ?? createDefaultLessonProgress(lessonId, courseId, lessonSlug);
 }
 
-export function getCourseProgressPercent(_courseId: string, courseLessonIds: string[]) {
+export function getCourseProgressPercent(courseId: string, courseLessonIds: string[]) {
   if (!courseLessonIds.length) return 0;
   const all = readAllProgress();
-  const completed = courseLessonIds.filter((lessonId) => all[lessonId]?.lessonCompleted).length;
+  const completed = courseLessonIds.filter((lessonId) => all[lessonId]?.courseId === courseId && all[lessonId]?.lessonCompleted === true).length;
   return Math.round((completed / courseLessonIds.length) * 100);
+}
+
+/** Completion is exact, independent of the rounded percentage used for display. */
+export function isCourseComplete(courseId: string, courseLessonIds: string[]) {
+  if (!courseLessonIds.length) return false;
+  const all = readAllProgress();
+  return courseLessonIds.every((lessonId) => all[lessonId]?.courseId === courseId && all[lessonId]?.lessonCompleted === true);
 }
 
 export function isQuizPassed(score: number | null) {

@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
-import { clearClientLocaleChoice, englishLocalePath } from "@/i18n/locale-preference";
 import { ArrowLeftRight, Bell, BookOpen, ChartNoAxesCombined, Eye, EyeOff, GraduationCap, UserRound } from "lucide-react";
 import { LoginAtmosphere } from "./login-atmosphere";
 import { AppLoginNetwork } from "./app-login-network";
@@ -17,6 +16,7 @@ import styles from "./login-atmosphere.module.css";
 import appStyles from "./app-login-network.module.css";
 import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
 import { isExchangePage } from "@/lib/protected-page";
+import { isAcademyEntry } from "@/lib/academy-entry";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
@@ -37,7 +37,9 @@ function loginDestination(locale: "ar" | "en", rawRedirect: string | undefined, 
     try { sessionStorage.setItem("post_onboarding_redirect", candidate.replace(/^\/(ar|en)(?=\/|$)/, "") || "/"); } catch { /* Storage can be unavailable. */ }
   }
   const path = needsOnboarding ? "/onboarding" : candidate ?? fallback;
-  return /^\/(ar|en)(?:\/|$)/.test(path) ? path : path === "/" ? `/${locale}` : `/${locale}${path}`;
+  return /^\/(ar|en)(?=\/|[?#]|$)/.test(path)
+    ? path.replace(/^\/(ar|en)(?=\/|[?#]|$)/, `/${locale}`)
+    : path === "/" ? `/${locale}` : `/${locale}${path}`;
 }
 
 export function LoginForm({
@@ -187,10 +189,9 @@ export function LoginForm({
         await requestAppRememberedLogin(form.rememberMe ? "save" : "clear", { email: form.email, password: form.password });
       }
 
-      // A new authenticated session always starts in English. A restored
-      // existing session above retains the language selected during that session.
-      clearClientLocaleChoice();
-      const target = englishLocalePath(loginDestination("en", redirectTo, userForRedirect));
+      // The public entry defaults to English. Keep the language the learner
+      // selected on the login page, including the destination after sign-in.
+      const target = loginDestination(locale, redirectTo, userForRedirect);
       noteLoginJourneyRedirectStart(Date.now());
       window.dispatchEvent(new Event("alpha-auth-changed"));
       redirectStartedRef.current = true;
@@ -371,7 +372,7 @@ export function LoginForm({
 
             <p className={`${isNativeApp ? appStyles.register : ""} mt-6 text-sm text-[#9CA3AF]`}>
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}
-              <Link href="/register" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
+              <Link href={isAcademyEntry(redirectTo) ? "/register?intent=learn" : "/register"} className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                 {isAr ? "أنشئ حسابًا" : "Create Account"}
               </Link>
             </p>

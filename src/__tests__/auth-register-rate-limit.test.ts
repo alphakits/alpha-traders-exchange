@@ -128,6 +128,21 @@ describe("auth register route", () => {
     }));
   });
 
+  it.each(["en", "ar"])("keeps the %s free Academy journey in the verification return URL", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    const response = await POST(makeRequest("learner@example.test", locale, { intent: "learn", redirectTo: "https://outside.test" }));
+    expect(response.status).toBe(200);
+    const destination = new URL(mocks.signUp.mock.calls[0][0].options.emailRedirectTo);
+    expect(destination.origin).toBe("https://www.alphatraders.co.il");
+    expect(destination.pathname).toBe(`/${locale}/login`);
+    expect(destination.searchParams.get("redirectTo")).toBe(`/${locale}/academy`);
+  });
+
+  it("never accepts an arbitrary registration intent as a destination", async () => {
+    await POST(makeRequest("learner@example.test", "en", { intent: "https://outside.test", redirectTo: "//outside.test" }));
+    expect(mocks.signUp.mock.calls[0][0].options.emailRedirectTo).toBe("https://www.alphatraders.co.il/en/login");
+  });
+
   it.each([undefined, null, "", "   ", 501234567, { number: "+972501234567" }])("rejects a missing contact before creating an account: %j", async (whatsappNumber) => {
     const response = await POST(makeRequest("no-phone@example.com", "en", { whatsappNumber }));
     expect(response.status).toBe(400);

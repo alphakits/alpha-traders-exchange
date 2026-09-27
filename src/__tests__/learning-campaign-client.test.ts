@@ -12,6 +12,16 @@ function browser(search = "") {
 const query = (index = 0) => new URL(learningCampaignUrl(LEARNING_CAMPAIGN_LINKS[index])).search;
 
 describe("limited learning campaign attribution", () => {
+  it("starts all published links in English and preserves attribution for an explicit Arabic version", () => {
+    for (const link of LEARNING_CAMPAIGN_LINKS) {
+      const en = new URL(learningCampaignUrl(link));
+      const ar = new URL(learningCampaignUrl(link, "ar"));
+      expect(en.pathname).toBe(`/en${link.path}`);
+      expect(ar.pathname).toBe(`/ar${link.path}`);
+      expect(en.search).toBe(ar.search);
+      expect(readLearningCampaign(browser(ar.search))).toBe(link.id);
+    }
+  });
   it("recognises every campaign URL using a unique code, storing no URL or personal query fields", () => {
     expect(new Set(LEARNING_CAMPAIGN_LINKS.map(link => link.id)).size).toBe(LEARNING_CAMPAIGN_LINKS.length);
     for (const [index, link] of LEARNING_CAMPAIGN_LINKS.entries()) {

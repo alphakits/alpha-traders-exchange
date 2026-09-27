@@ -18,6 +18,17 @@ function completeRequiredFields() {
 }
 
 describe("RegisterForm localization", () => {
+  it.each(["en", "ar"] as const)("preserves the free learning intent and %s language during signup", async locale => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RegisterForm locale={locale} learningIntent />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).intent).toBe("learn");
+    const login = screen.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login" });
+    expect(new URL(login.getAttribute("href")!, "https://www.alphatraders.co.il").searchParams.get("redirectTo")).toBe(`/${locale}/academy`);
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });

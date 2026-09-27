@@ -24,6 +24,7 @@ function loader(env = {}) {
     '@/lib/seo-indexing': 'src/lib/seo-indexing.ts',
     '@/lib/seo-breadcrumb': 'src/lib/seo-breadcrumb.ts',
     '@/components/seo/public-discovery-breadcrumbs': 'src/components/seo/public-discovery-breadcrumbs.tsx',
+    '@/components/academy/learning-next-step': 'src/components/academy/learning-next-step.tsx',
   };
   const fixtures = {
     'server-only': {},

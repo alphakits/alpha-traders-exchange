@@ -45,6 +45,10 @@ const robots = load("src/app/robots.ts", { "@/lib/seo-indexing": indexing }).def
 const sitemap = load("src/app/sitemap.ts").default();
 const pages = ["start", "learn-trading-free", "buy-usdt-israel", "learn-with-mark"];
 const variants = ["en", "ar"];
+const learningNextStep = load("src/components/academy/learning-next-step.tsx", {
+  "@/i18n/navigation": { Link: "test-link" },
+  "@/components/ui/button": { buttonVariants: () => "test-button" },
+});
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/lib/seo": seo,
   "@/lib/seo-breadcrumb": breadcrumb,
@@ -52,6 +56,7 @@ const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/i18n/navigation": { Link: "test-link" },
   "@/components/ui/button": { buttonVariants: () => "test-button" },
   "@/components/sections/contact/contact-form": { ContactForm: "test-contact-form" },
+  "@/components/academy/learning-next-step": learningNextStep,
 });
 function walk(value, predicate) {
   if (Array.isArray(value)) return value.flatMap((child) => walk(child, predicate));

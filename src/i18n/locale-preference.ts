@@ -1,7 +1,7 @@
 // Separate from next-intl's legacy cookie, which also stored inferred locales.
 export const LOCALE_CHOICE_COOKIE = "ALPHA_LOCALE_CHOICE";
 // Keep the choice across reloads/app resumes, bounded by the longest login.
-// Successful login and logout explicitly clear it for the next session.
+// Sign-in preserves an explicit choice; logout resets the next visit to English.
 export const LOCALE_CHOICE_MAX_AGE = 60 * 60 * 24 * 14;
 
 export function clearClientLocaleChoice() {

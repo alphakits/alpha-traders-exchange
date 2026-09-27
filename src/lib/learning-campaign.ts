@@ -21,7 +21,7 @@ export function learningCampaignLink(value: unknown): LearningCampaignLink | nul
   return typeof value === "string" ? LEARNING_CAMPAIGN_LINKS.find(link => link.id === value) ?? null : null;
 }
 
-export function learningCampaignUrl(link: LearningCampaignLink): string {
+export function learningCampaignUrl(link: LearningCampaignLink, locale: "en" | "ar" = "en"): string {
   const params = new URLSearchParams({ utm_source: link.source, utm_medium: link.medium, utm_campaign: link.campaign, utm_content: link.content });
-  return `https://www.alphatraders.co.il/ar${link.path}?${params}`;
+  return `https://www.alphatraders.co.il/${locale}${link.path}?${params}`;
 }

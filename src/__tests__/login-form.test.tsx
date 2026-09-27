@@ -114,27 +114,35 @@ describe("LoginForm", () => {
   });
 
   it.each([
-    [undefined, "/en/usdt-exchange"],
-    ["/ar/usdt-exchange?mode=buy&sort=trust-desc", "/en/usdt-exchange?mode=buy&sort=trust-desc"],
-    ["/ar/trade-room/trade-1?tab=messages#latest", "/en/trade-room/trade-1?tab=messages#latest"],
-  ])("starts a new login in English while preserving its destination %s", async (redirectTo, expected) => {
+    ["en", undefined, "/en/usdt-exchange"],
+    ["ar", undefined, "/ar/usdt-exchange"],
+    ["ar", "/en/academy", "/ar/academy"],
+    ["en", "/ar/academy", "/en/academy"],
+    ["ar", "/ar/usdt-exchange?mode=buy&sort=trust-desc", "/ar/usdt-exchange?mode=buy&sort=trust-desc"],
+    ["ar", "/en/trade-room/trade-1?tab=messages#latest", "/ar/trade-room/trade-1?tab=messages#latest"],
+  ] as const)("keeps the selected %s page language after login with destination %s", async (locale, redirectTo, expected) => {
     const originalLocation = window.location;
     const replace = vi.fn();
     Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace } });
-    document.cookie = `${LOCALE_CHOICE_COOKIE}=ar; Path=/`;
+    document.cookie = `${LOCALE_CHOICE_COOKIE}=${locale}; Path=/`;
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { role: "buyer", roles: ["buyer"] } }) });
     vi.stubGlobal("fetch", fetch);
     try {
-      render(<LoginForm locale="ar" redirectTo={redirectTo} />);
-      fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "buyer@example.test" } });
-      fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "test-password" } });
-      fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+      render(<LoginForm locale={locale} redirectTo={redirectTo} />);
+      fireEvent.change(screen.getByLabelText(locale === "ar" ? "البريد الإلكتروني" : "Email"), { target: { value: "buyer@example.test" } });
+      fireEvent.change(screen.getByLabelText(locale === "ar" ? "كلمة المرور" : "Password"), { target: { value: "test-password" } });
+      fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "تسجيل الدخول" : "Login" }));
       await waitFor(() => expect(replace).toHaveBeenCalledWith(expected));
-      expect(document.cookie).not.toContain(`${LOCALE_CHOICE_COOKIE}=ar`);
+      expect(document.cookie).toContain(`${LOCALE_CHOICE_COOKIE}=${locale}`);
       expect(fetch).toHaveBeenCalledTimes(1);
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
     }
+  });
+
+  it.each(["en", "ar"] as const)("carries the free Academy intent into %s account creation", locale => {
+    render(<LoginForm locale={locale} redirectTo={`/${locale}/academy`} />);
+    expect(document.querySelector('a[href="/register?intent=learn"]')).not.toBeNull();
   });
 
   it.each(["/ar/trade-room/trade-1", "//outside.test", "/ar/login", "/login"])("restores a valid cookie session from Login with safe destination %s", async (redirectTo) => {

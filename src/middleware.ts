@@ -67,9 +67,9 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
   }
 
   if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
-    const choice = request.cookies.get(AUTH_COOKIE_NAME)?.value
-      ? request.cookies.get(LOCALE_CHOICE_COOKIE)?.value
-      : undefined;
+    // This cookie is written only by the explicit language switcher. Honour
+    // the choice while exploring and while signed in; never infer from locale.
+    const choice = request.cookies.get(LOCALE_CHOICE_COOKIE)?.value;
     const locale = choice === "ar" || choice === "en" ? choice : routing.defaultLocale;
     const localizedUrl = request.nextUrl.clone();
     localizedUrl.pathname = `/${locale}${pathname === "/" ? "" : pathname}`;

@@ -1,3 +1,4 @@
+import { LearningNextStep } from "@/components/academy/learning-next-step";
 import { notFound, redirect } from "next/navigation";
 import { courseSource } from "@/data/course-source";
 import { getCourseBySlug, getLessonsByCourse } from "@/lib/content";
@@ -91,22 +92,11 @@ export default async function CoursePage({ params }: { params: Promise<{ locale:
           </Card>
         )}
       </div>
-      <Card className="mt-6 border-[#6CAEFF]/30 bg-[#0B0B0B]/95">
-        <CardHeader>
-          <CardDescription className="text-[#93C5FD]">{isAr ? "تطبيق عملي" : "Practical application"}</CardDescription>
-          <CardTitle>{isAr ? "طبّق هذا المسار داخل Alpha Exchange" : "Apply this track inside Alpha Exchange"}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-[#9CA3AF]">
-            {isAr
-              ? "بعد إنهاء هذا المسار، يمكنك الدخول إلى Alpha Exchange للتداول مع بائعين موثوقين ضمن دورة صفقة واضحة وإشعارات فورية."
-              : "After finishing this track, you can move to Alpha Exchange to trade with approved sellers using a clear trade lifecycle and real-time notifications."}
-          </p>
-          <Link href="/usdt-exchange" className="inline-flex text-sm text-[#6CAEFF] hover:underline">
-            {isAr ? "الانتقال إلى Alpha Exchange" : "Go to Alpha Exchange"}
-          </Link>
-        </CardContent>
-      </Card>
+      <div className="mt-6"><LearningNextStep locale={locale} /></div>
+      <p className="mt-5 text-sm leading-7 text-[#9CA3AF]">
+        {isAr ? "شراء وبيع USDT مسار منفصل واختياري، وليس شرطًا للتعلّم." : "Buying and selling USDT is a separate, optional service. It is not required for learning."}{" "}
+        <Link href="/buy-usdt-israel" className="text-[#C9A227] underline underline-offset-4">{isAr ? "استكشف Alpha Exchange" : "Explore Alpha Exchange"}</Link>
+      </p>
     </section>
   );
 }

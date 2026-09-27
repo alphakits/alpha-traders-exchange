@@ -7,8 +7,8 @@ describe("normalizePreferredLocale", () => {
     expect(normalizePreferredLocale("en")).toBe("en");
   });
 
-  it("defaults legacy and invalid records to the Arabic site locale", () => {
-    expect(normalizePreferredLocale(undefined)).toBe("ar");
-    expect(normalizePreferredLocale("he")).toBe("ar");
+  it("defaults missing and invalid preferences to English", () => {
+    expect(normalizePreferredLocale(undefined)).toBe("en");
+    expect(normalizePreferredLocale("he")).toBe("en");
   });
 });

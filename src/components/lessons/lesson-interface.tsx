@@ -14,6 +14,7 @@ import {
   createDefaultLessonProgress,
   getCourseProgressPercent,
   getLessonProgressState,
+  isCourseComplete,
   isQuizPassed,
   markLessonAsCurrent,
   updateLessonProgress,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { formatLessonDifficulty } from "@/lib/academy-localization";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { LearningNextStep } from "@/components/academy/learning-next-step";
 import { VideoPlayer } from "./video-player";
 import dynamic from "next/dynamic";
 
@@ -80,6 +82,7 @@ export function LessonInterface({
   // Match the server snapshot before restoring browser-only saved progress.
   const [progressState, setProgressState] = useState(() => createDefaultLessonProgress(lesson.id, lesson.courseId, lesson.slug));
   const [courseProgress, setCourseProgress] = useState(0);
+  const [courseComplete, setCourseComplete] = useState(false);
   const [notesDraft, setNotesDraft] = useState(progressState.notes);
   const [notesSyncState, setNotesSyncState] = useState<SyncState>("idle");
   const [showCelebration, setShowCelebration] = useState(false);
@@ -87,6 +90,7 @@ export function LessonInterface({
 
   const refreshCourseProgress = useCallback(() => {
     setCourseProgress(getCourseProgressPercent(lesson.courseId, courseLessons.map((entry) => entry.id)));
+    setCourseComplete(isCourseComplete(lesson.courseId, courseLessons.map((entry) => entry.id)));
   }, [courseLessons, lesson.courseId]);
 
   useEffect(() => {
@@ -489,6 +493,8 @@ export function LessonInterface({
             </CardContent>
           </Card>
 
+          {courseComplete ? <LearningNextStep locale={locale} completed /> : null}
+
           <Card id={SECTION_IDS.navigation}>
             <CardHeader>
               <CardTitle>{isAr ? "التنقل بين الدروس" : "Lesson Navigation"}</CardTitle>
@@ -646,9 +652,13 @@ export function LessonInterface({
               <h3 id="lesson-completion-dialog-title" className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "نقاط الخبرة" : "XP Progress"} +{lesson.xpReward ?? 120}</p>
               <div className="mx-auto mt-3 max-w-sm">
-                <Progress value={Math.min(100, courseProgress + 8)} />
+                <Progress value={courseProgress} />
               </div>
-              <div className="mt-5 flex justify-center gap-2">
+              {courseComplete ? <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{isAr ? "أكملت دروس هذا المسار. يمكنك متابعة التعلّم المجاني أو استكشاف تعليم مدفوع مع مارك، باختيارك." : "You’ve completed this track. Keep learning for free, or explore optional paid teaching with Mark."}</p> : null}
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                {courseComplete ? <Link href="/learn-with-mark#interest" className={buttonVariants({ variant: "secondary", className: "whitespace-normal text-center" })}>
+                  {isAr ? "التعليم المدفوع مع مارك" : "Paid Learning with Mark"}
+                </Link> : null}
                 {nextSlug ? (
                   <Link href={`/lessons/${nextSlug}`} className={buttonVariants()}>
                     {isAr ? "متابعة التعلم" : "Continue Learning"}

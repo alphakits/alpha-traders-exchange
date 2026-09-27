@@ -1,3 +1,4 @@
+import { LearningNextStep } from "@/components/academy/learning-next-step";
 import { Link } from "@/i18n/navigation";
 import { buildPageMetadata, buildCourseSchema, buildFaqSchema, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
@@ -59,8 +60,11 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
       <PublicDiscoveryBreadcrumbs locale={isAr ? "ar" : "en"} items={breadcrumbSchema.itemListElement} />
       <div className="space-y-4">
         <p className="section-label">{isAr?"Alpha Traders Academy · مجاني":"Alpha Traders Academy · Free"}</p>
-        <h1 className="page-title">{isAr?"دورة تداول مجانية للمبتدئين، خطوة بخطوة":"Free Trading Course for Beginners, Step by Step"}</h1>
-        <p className="page-subtitle">{isAr?"مسار Alpha Traders التعليمي مجاني ومصمم لبناء الأساس قبل الانتقال إلى التطبيق: افهم السوق أولًا، ثم تعلّم إدارة المخاطر والانضباط." : "Alpha Traders Academy is free and designed to build the foundation before execution: understand the market first, then develop risk management and discipline."}</p>
+        <h1 className="page-title">
+          {isAr ? "تعلّم التداول. ابدأ مجانًا." : "Learn Trading. Start Free."}
+          <span className="mt-3 block text-lg font-normal text-[#D1D5DB]">{isAr ? "دورة تداول مجانية للمبتدئين" : "Free Trading Course for Beginners"}</span>
+        </h1>
+        <p className="page-subtitle">{isAr?"ابنِ أساسك في حركة السعر وإدارة المخاطر وعلم نفس التداول. تعلّم ضمن مسار منظّم، بالسرعة المناسبة لك، دون رسوم للدورة." : "Build your foundation in price action, risk management and trading psychology. Follow a structured course at your own pace, with no course fee."}</p>
         <div className="space-y-3">
           <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants({ className: "w-full sm:w-auto" })}>{isAr ? "ابدأ الدورة المجانية" : "Start the Free Course"}</Link>
           <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "أنشئ حسابًا أو سجّل الدخول، ثم أكّد بريدك للوصول إلى الدروس وحفظ تقدّمك. المحتوى تعليمي والتداول ينطوي على مخاطر؛ لا توجد أرباح مضمونة." : "Create an account or sign in, then verify your email to access lessons and save progress. Content is educational and trading involves risk; profits are never guaranteed."}</p>
@@ -88,11 +92,7 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة" : "Frequently asked questions"}</h2>
         <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
       </div>
-      <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
-        <h2 className="text-xl font-semibold">{isAr ? "مهتم بالتعلّم المباشر مع مارك؟" : "Interested in Learning Directly with Mark?"}</h2>
-        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "ابدأ بالمسار المجاني، وسجّل اهتمامك إذا أردت مناقشة التعلّم مع مارك. أخبرنا بمستواك وهدفك؛ الطلب ليس حجزًا ولا يتطلب دفعًا." : "Start with the free course and register your interest if you would like to discuss learning with Mark. Tell us your level and goals; an enquiry is not a booking and requires no payment."}</p>
-        <Link href="/learn-with-mark" className={buttonVariants({ variant: "secondary", className: "mt-4" })}>{isAr ? "التعلّم مع مارك" : "Learn with Mark"}</Link>
-      </div>
+      <LearningNextStep locale={locale} />
       <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "الدورة مجانية. يلزم إنشاء حساب ببريد إلكتروني وتأكيده للدخول إلى الدروس وحفظ تقدّمك. لديك حساب؟ سجّل الدخول للمتابعة." : "The course is free. Create an account and verify your email to access lessons and save your progress. Already have an account? Sign in to continue."}</p>
       <div className="flex flex-wrap gap-3">
         <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants()}>{isAr?"ابدأ الدورة المجانية":"Start the Free Course"}</Link>

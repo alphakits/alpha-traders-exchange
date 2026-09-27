@@ -52,4 +52,13 @@ describe("explicit language switch", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to Arabic" }));
     expect(mocks.replace).toHaveBeenCalledWith("/login", { locale: "ar" });
   });
+
+  it("keeps campaign attribution and the enquiry anchor when Arabic is chosen", () => {
+    mocks.pathname = "/learn-with-mark";
+    const tags = "utm_source=instagram&utm_medium=organic_social&utm_campaign=learn_with_mark_2026&utm_content=m01";
+    window.history.replaceState({}, "", `/en/learn-with-mark?${tags}#interest`);
+    render(<LocaleSwitcher />);
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Arabic" }));
+    expect(mocks.replace).toHaveBeenCalledWith(`/learn-with-mark?${tags}#interest`, { locale: "ar" });
+  });
 });

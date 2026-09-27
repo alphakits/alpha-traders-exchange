@@ -22,7 +22,7 @@ type RegistrationErrorCode =
   | "PASSWORD_MISMATCH"
   | "REGISTRATION_FAILED";
 
-export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
+export function RegisterForm({ locale, learningIntent = false }: { locale: "ar" | "en"; learningIntent?: boolean }) {
   const isAr = locale === "ar";
   const [form, setForm] = useState({
     fullName: "",
@@ -120,7 +120,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           "Content-Type": "application/json",
           "X-Locale": locale,
         },
-        body: JSON.stringify({ ...form, whatsappNumber }),
+        body: JSON.stringify({ ...form, whatsappNumber, ...(learningIntent ? { intent: "learn" } : {}) }),
       });
       const payload = (await response.json()) as { error?: string; code?: RegistrationErrorCode; message?: string };
       if (!response.ok) {
@@ -182,7 +182,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
 
         <p className="mt-5 text-sm text-[#9CA3AF]">
           {isAr ? "لديك حساب بالفعل؟" : "Already have an account?"}{" "}
-          <Link href="/login" className="text-[#C9A227] hover:underline">
+          <Link href={learningIntent ? `/login?${new URLSearchParams({ redirectTo: `/${locale}/academy` })}` : "/login"} className="text-[#C9A227] hover:underline">
             {isAr ? "تسجيل الدخول" : "Login"}
           </Link>
         </p>

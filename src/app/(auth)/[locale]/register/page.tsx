@@ -11,7 +11,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function RegisterPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function RegisterPage({ params, searchParams }: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ intent?: string }>;
+}) {
   const { locale } = await params;
-  return <RegisterForm locale={locale as "ar" | "en"} />;
+  const { intent } = await searchParams;
+  return <RegisterForm locale={locale as "ar" | "en"} learningIntent={intent === "learn"} />;
 }

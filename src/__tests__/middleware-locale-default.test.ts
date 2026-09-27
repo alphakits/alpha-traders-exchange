@@ -14,15 +14,15 @@ function request(path: string, cookie = "") {
 }
 
 describe("English default and explicit language choices", () => {
-  it.each(["", "NEXT_LOCALE=ar", `${LOCALE_CHOICE_COOKIE}=invalid`, `${LOCALE_CHOICE_COOKIE}=ar`])("opens English without a signed-in language choice (%s)", (cookie) => {
+  it.each(["", "NEXT_LOCALE=ar", `${LOCALE_CHOICE_COOKIE}=invalid`])("opens English without an explicit language choice (%s)", (cookie) => {
     const response = middleware(request("/", cookie));
     expect(response.headers.get("location")).toBe(`${origin}/en`);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("vary")).toBe("Cookie");
   });
 
-  it.each(["ar", "en"])("keeps an explicit %s choice while the session is active", (locale) => {
-    const cookie = `${AUTH_COOKIE_NAME}=test-session; ${LOCALE_CHOICE_COOKIE}=${locale}; NEXT_LOCALE=ar`;
+  it.each([["ar", false], ["en", false], ["ar", true], ["en", true]])("keeps an explicit %s choice with signed-in=%s", (locale, signedIn) => {
+    const cookie = `${signedIn ? `${AUTH_COOKIE_NAME}=test-session; ` : ""}${LOCALE_CHOICE_COOKIE}=${locale}; NEXT_LOCALE=ar`;
     expect(middleware(request("/", cookie)).headers.get("location")).toBe(`${origin}/${locale}`);
     expect(middleware(request("/login?redirectTo=%2Fdashboard%2Fseller", cookie)).headers.get("location"))
       .toBe(`${origin}/${locale}/login?redirectTo=%2Fdashboard%2Fseller`);

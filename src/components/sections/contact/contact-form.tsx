@@ -144,7 +144,7 @@ export function ContactForm({
   const isLearningInterest = topic === LEARNING_INTEREST_TOPIC;
   const t = isLearningInterest ? {
     ...T[locale],
-    formTitle: locale === "ar" ? "سجّل اهتمامك بالتعلّم مع مارك" : "Register your interest in learning with Mark",
+    formTitle: locale === "ar" ? "استفسر عن التعليم المدفوع مع مارك" : "Enquire about paid teaching with Mark",
     messagePlaceholder: locale === "ar" ? "ما مستواك الحالي؟ ماذا تريد أن تتعلّم؟ وما الوقت المناسب لك؟ لا ترسل بيانات مالية أو كلمات مرور." : "What is your current level, what would you like to learn, and when are you available? Do not include financial details or passwords.",
     send: locale === "ar" ? "إرسال طلب الاهتمام" : "Send interest enquiry",
     successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
