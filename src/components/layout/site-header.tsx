@@ -76,7 +76,7 @@ export async function SiteHeader({
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="section-container relative flex h-16 items-center justify-between gap-1.5 sm:gap-3">
+      <div className="section-container relative flex h-16 items-center justify-between gap-1.5 max-[389px]:h-auto max-[389px]:min-h-16 max-[389px]:flex-wrap max-[389px]:gap-y-2 max-[389px]:py-2 sm:gap-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
         <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image

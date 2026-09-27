@@ -2338,7 +2338,9 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
   }
 }
 
-@media (max-width: 768px) and (pointer: coarse) {
+/* Small screens need readable fields and touch-sized controls regardless of
+   whether a connected mouse or stylus changes the reported pointer type. */
+@media (max-width: 768px) {
   :where(
       button,
       [role="button"],
