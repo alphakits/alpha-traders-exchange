@@ -157,7 +157,7 @@ export default async function LearnWithMarkPage({ params }: { params: Promise<{ 
         <h2 id="faq-title" className="text-2xl font-semibold">{t("ICT Mentorship questions", "أسئلة عن ICT Mentorship")}</h2>
         <div className="mt-4 space-y-3">{faqs.map(faq => <details key={faq.question} className="rounded-xl border border-white/10 p-4"><summary className="cursor-pointer font-semibold">{faq.question}</summary><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></details>)}</div>
       </section>
-      <p className="text-sm leading-7 text-[#D1D5DB]">{t("Also interested in buying or selling USDT for Israeli shekels?", "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟")} <Link href="/buy-usdt-israel" className="text-[#E5CA77] underline underline-offset-4">{t("Explore Alpha Exchange", "تعرّف على Alpha Exchange")}</Link></p>
+      <p className="text-sm leading-7 text-[#D1D5DB]">{t("Also interested in buying or selling USDT for Israeli shekels?", "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟")} <Link href="/usdt-exchange" className="text-[#E5CA77] underline underline-offset-4">{t("Explore Alpha Exchange", "تعرّف على Alpha Exchange")}</Link></p>
     </div>
   </section>;
 }

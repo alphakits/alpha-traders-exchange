@@ -95,7 +95,7 @@ export default async function CoursePage({ params }: { params: Promise<{ locale:
       <div className="mt-6"><LearningNextStep locale={locale} /></div>
       <p className="mt-5 text-sm leading-7 text-[#9CA3AF]">
         {isAr ? "شراء وبيع USDT مسار منفصل واختياري، وليس شرطًا للتعلّم." : "Buying and selling USDT is a separate, optional service. It is not required for learning."}{" "}
-        <Link href="/buy-usdt-israel" className="text-[#C9A227] underline underline-offset-4">{isAr ? "استكشف Alpha Exchange" : "Explore Alpha Exchange"}</Link>
+        <Link href="/usdt-exchange" className="text-[#C9A227] underline underline-offset-4">{isAr ? "استكشف Alpha Exchange" : "Explore Alpha Exchange"}</Link>
       </p>
     </section>
   );

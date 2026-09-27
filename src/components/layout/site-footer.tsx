@@ -24,6 +24,7 @@ import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 import { FooterMarketOverview } from "@/components/layout/footer-market-overview";
 import { FooterNewsletterSignup } from "@/components/layout/footer-newsletter-signup";
+import { isProtectedPage } from "@/lib/protected-page";
 
 type FooterItem = {
   href: string;
@@ -146,11 +147,15 @@ function FooterNavSection({ section, locale }: { section: FooterSection; locale:
       <ul className="space-y-2">
         {section.items.map((item) => {
           const Icon = item.icon;
+          // Native navigation preserves the section through an HTTP sign-in
+          // redirect. Client-router redirects discard the original fragment.
+          const documentNavigation = item.href.includes("#") && isProtectedPage(item.href);
+          const NavigationLink = documentNavigation ? "a" : Link;
           return (
             <li key={`${section.id}-${item.en}`}>
-              <Link
-                href={item.href}
-                locale={locale}
+              <NavigationLink
+                href={documentNavigation ? `/${locale}${item.href}` : item.href}
+                {...(documentNavigation ? {} : { locale })}
                 className="group inline-flex min-h-11 items-center gap-2 text-sm text-[#B9C0CD] transition-colors hover:text-white md:min-h-0"
               >
                 <Icon className="h-3.5 w-3.5 text-[#C9A227]/80 transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -158,7 +163,7 @@ function FooterNavSection({ section, locale }: { section: FooterSection; locale:
                   {currencyText(isAr ? item.ar : item.en)}
                   <span className="pointer-events-none absolute -bottom-0.5 left-0 h-px w-full origin-left scale-x-0 bg-[#C9A227]/80 transition-transform duration-200 group-hover:scale-x-100" />
                 </span>
-              </Link>
+              </NavigationLink>
             </li>
           );
         })}
