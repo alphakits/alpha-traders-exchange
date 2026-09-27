@@ -144,11 +144,11 @@ export function ContactForm({
   const isLearningInterest = topic === LEARNING_INTEREST_TOPIC;
   const t = isLearningInterest ? {
     ...T[locale],
-    formTitle: locale === "ar" ? "استفسر عن التعليم المدفوع مع مارك" : "Enquire about paid teaching with Mark",
+    formTitle: locale === "ar" ? "استفسر عن ICT Mentorship" : "Ask about ICT Mentorship",
     messagePlaceholder: locale === "ar" ? "ما مستواك الحالي؟ ماذا تريد أن تتعلّم؟ وما الوقت المناسب لك؟ لا ترسل بيانات مالية أو كلمات مرور." : "What is your current level, what would you like to learn, and when are you available? Do not include financial details or passwords.",
-    send: locale === "ar" ? "إرسال طلب الاهتمام" : "Send interest enquiry",
+    send: locale === "ar" ? "إرسال استفسار المنتورشيب" : "Send mentorship enquiry",
     successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
-    successBody: locale === "ar" ? "حُفظ طلبك ليراجعه مارك. هذا ليس حجزًا مؤكدًا أو التزامًا بالدفع. يمكنك بدء الدورة المجانية أثناء انتظار الرد." : "Your enquiry has been saved for Mark to review. This is not a confirmed booking or a payment commitment. You can start the free course while awaiting a reply.",
+    successBody: locale === "ar" ? "حُفظ استفسارك عن ICT Mentorship ليراجعه مارك. هذا ليس حجزًا أو التزامًا بالدفع. اسمع شرح مارك أو ابدأ الأكاديمية المجانية أثناء انتظار الرد." : "Your ICT Mentorship enquiry has been saved for Mark to review. This is not a booking or payment commitment. Hear Mark’s explanation or start the free Academy while awaiting a reply.",
   } : T[locale] ?? T.en;
   const isRtl = locale === "ar";
 
@@ -249,6 +249,7 @@ export function ContactForm({
         <CheckCircle2 className="h-12 w-12 text-[#C9A227]" aria-hidden="true" />
         <h2 className="text-xl font-semibold text-white">{t.successTitle}</h2>
         <p className="text-sm text-white/70">{t.successBody}</p>
+        {isLearningInterest ? <a href={`/${locale}/learn-with-mark#mark-explains`} className="text-sm text-[#C9A227] underline underline-offset-4">{locale === "ar" ? "اسمع شرح مارك · 7:44" : "Hear Mark’s explanation · 7:44"}</a> : null}
         <button
           type="button"
           onClick={() => setStatus("idle")}
@@ -348,7 +349,7 @@ export function ContactForm({
           type="text"
           placeholder={t.subjectPlaceholder}
           maxLength={200}
-          value={values.subject}
+          value={isLearningInterest ? (locale === "ar" ? "ICT Mentorship مع مارك" : "ICT Mentorship with Mark") : values.subject}
           onChange={set("subject")}
           disabled={status === "loading"}
           aria-invalid={!!fieldErrors.subject}

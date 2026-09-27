@@ -31,6 +31,7 @@ function loader(env = {}) {
     'next/link': { default: 'a' },
     '@/i18n/navigation': { Link: 'a' },
     '@/components/ui/button': { buttonVariants: () => 'button-fixture' },
+    '@/components/academy/learning-share-actions': { LearningShareActions: 'test-share-actions' },
     '@/lib/brand': { BRAND_NAME: 'Alpha Traders Academy & Exchange', BRAND_PRIMARY_NAME: 'Alpha Traders', BRAND_SUPPORT_EMAIL: 'fixture@example.invalid', BRAND_OFFICIAL_SOCIALS: [] },
     '@/lib/public-trust': { getPublicTrustFaqs: () => [] },
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },

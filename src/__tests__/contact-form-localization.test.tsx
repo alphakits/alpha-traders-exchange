@@ -72,10 +72,10 @@ describe("ContactForm localization", () => {
     render(<ContactForm locale="en" topic="learning-with-mark" initialValues={{ name: "Test Learner", email: "learner@example.test", message: "I want to learn the fundamentals." }} />);
     const subject = screen.getByLabelText(/Subject/) as HTMLInputElement;
     expect(subject.readOnly).toBe(true);
-    fireEvent.submit(screen.getByRole("form", { name: "Enquire about paid teaching with Mark" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Ask about ICT Mentorship" }));
     await waitFor(() => expect(screen.getByText("Your interest has been recorded")).toBeTruthy());
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ topic: "learning-with-mark", subject: "Interest in learning with Mark", campaignLinkId: "wa_m01" });
     fireEvent.click(screen.getByRole("button", { name: "Send another message" }));
-    expect((screen.getByLabelText(/Subject/) as HTMLInputElement).value).toBe("Interest in learning with Mark");
+    expect((screen.getByLabelText(/Subject/) as HTMLInputElement).value).toBe("ICT Mentorship with Mark");
   });
 });

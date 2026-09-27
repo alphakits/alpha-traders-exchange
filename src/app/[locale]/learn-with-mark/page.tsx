@@ -1,6 +1,7 @@
 import { Link } from "@/i18n/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { ContactForm } from "@/components/sections/contact/contact-form";
+import { LearningShareActions } from "@/components/academy/learning-share-actions";
 import { PublicDiscoveryBreadcrumbs } from "@/components/seo/public-discovery-breadcrumbs";
 import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
@@ -10,8 +11,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const isAr = locale === "ar";
   return buildPageMetadata({
     locale: isAr ? "ar" : "en", path: "/learn-with-mark",
-    title: isAr ? "تعلّم التداول مع مارك" : "Learn Trading with Mark",
-    description: isAr ? "ابدأ بدورة التداول المجانية، ثم استكشف تعليمًا مباشرًا مدفوعًا مع مارك باختيارك. تعرّف على المحتوى والمواعيد والسعر قبل الالتزام. الاستفسار مجاني." : "Start with the free trading course, then explore optional paid teaching with Mark. Understand the content, schedule and price before committing. Enquiries are free.",
+    title: isAr ? "ICT Mentorship مع مارك" : "ICT Mentorship with Mark",
+    description: isAr ? "تعرّف على ICT Mentorship مع مارك: دراسة، تطبيق وأسئلة ومراجعة. اسمع شرحه الأصلي، استكشف المنهج وابدأ بالأكاديمية المجانية." : "Explore ICT Mentorship with Mark: study, practice, questions and review. Hear his original explanation, explore the curriculum and start with the free Academy.",
+    ogImage: "https://www.alphatraders.co.il/en/learn-with-mark/opengraph-image",
   });
 }
 
@@ -19,58 +21,97 @@ export default async function LearnWithMarkPage({ params }: { params: Promise<{ 
   const { locale } = await params;
   const isAr = locale === "ar";
   const language = isAr ? "ar" : "en";
-  const faqs = isAr ? [
-    { question: "هل يجب أن أدفع لأبدأ التعلّم؟", answer: "لا. يمكنك البدء بمسار الأكاديمية المجاني. يتطلب الدخول إلى الدروس حسابًا وبريدًا إلكترونيًا مؤكدًا. إرسال طلب الاهتمام هنا لا يتطلب أي دفع." },
-    { question: "هل التسجيل هنا يحجز لي درسًا مع مارك؟", answer: "لا. التعليم المباشر مع مارك مدفوع واختياري، وإرسال الاستفسار مجاني. تُوضح المواعيد وطريقة اللقاءات والمحتوى والسعر قبل أي التزام. لا يؤكد الطلب موعدًا أو مقعدًا." },
-    { question: "تعلّمت سابقًا وما زلت مشتتًا، هل يمكنني البدء؟", answer: "نعم. راجع المنهج المجاني وحدّد ما تريد فهمه بشكل أفضل، مثل قراءة السعر أو إدارة المخاطر أو الانضباط. يمكنك ذكر هذه النقاط في طلبك بدون مشاركة تفاصيل مالية خاصة." },
-    { question: "هل يجب استخدام Alpha Exchange حتى أتعلّم؟", answer: "لا. التعلّم واستخدام السوق مساران منفصلان. لا يلزمك شراء USDT أو فتح صفقة لبدء المسار التعليمي المجاني." },
-    { question: "هل التعليم يضمن أرباحًا أو تعويض خسائر؟", answer: "لا. المحتوى تعليمي ولا يضمن أرباحًا أو استرداد خسائر سابقة. التداول والأصول الرقمية ينطويان على مخاطر." },
-  ] : [
-    { question: "Do I have to pay to start learning?", answer: "No. You can start with the free Academy path. Lessons require an account with a verified email. Sending an interest enquiry here does not require payment." },
-    { question: "Does this reserve a lesson with Mark?", answer: "No. Direct teaching with Mark is optional and paid; sending an enquiry is free. Dates, format, content and price will be explained before any commitment. An enquiry does not confirm a date or place." },
-    { question: "Can I start if previous learning left me confused?", answer: "Yes. Review the free curriculum and identify what you want to understand better, such as price action, risk management or discipline. Describe those learning goals without sharing private financial details." },
-    { question: "Must I use Alpha Exchange to learn?", answer: "No. Education and the marketplace are separate paths. You do not need to buy USDT or open a trade to start the free learning path." },
-    { question: "Does teaching guarantee profits or recover losses?", answer: "No. The content is educational and does not guarantee profits or recovery of previous losses. Trading and digital assets involve risk." },
+  const t = (en: string, ar: string) => isAr ? ar : en;
+  const faqs = [
+    { question: t("Is ICT Mentorship the same as the free Academy?", "هل ICT Mentorship هو نفس الأكاديمية المجانية؟"), answer: t("The free Academy is a place to begin; lessons require an account with a verified email. ICT Mentorship is a separate programme with Mark and has a fee. An enquiry is free and does not reserve a place. Fees, duration, schedule, follow-up scope and cancellation terms are explained before any commitment.", "الأكاديمية المجانية متاحة كبداية، والدروس تتطلب حسابًا وبريدًا مؤكدًا. ICT Mentorship برنامج منفصل مع مارك برسوم. الاستفسار مجاني ولا يحجز مقعدًا؛ تُوضح الرسوم والمدة والمواعيد ونطاق المتابعة وشروط الإلغاء قبل أي التزام.") },
+    { question: t("Who teaches the mentorship?", "مين يقدّم المنتورشيب؟"), answer: t("Mark, the founder of Alpha Traders, provides the teaching and follow-up. This is Alpha Traders’ independent programme teaching ICT concepts; it is not presented as an official ICT programme or certification.", "مارك، مؤسس Alpha Traders، يقدّم المنهج والمتابعة. هذا برنامج Alpha Traders المستقل الذي يدرّس مفاهيم ICT؛ لا يُقدَّم بوصفه برنامجًا رسميًا أو شهادة صادرة عن ICT.") },
+    { question: t("I have studied before but still feel lost. Is this relevant?", "تعلّمت سابقًا وما زلت مشتتًا، هل يناسبني؟"), answer: t("Describe your experience and what you find difficult to understand or apply. The approach is to study concepts, document decisions and bring specific questions for review. You do not need to share balances or private financial information in your enquiry.", "احكِ عن خبرتك وما يصعب عليك فهمه أو تطبيقه. الهدف هو دراسة المفاهيم، توثيق القرارات وطرح أسئلة محدّدة للمراجعة. لا تحتاج لمشاركة أرصدتك أو تفاصيلك المالية في الاستفسار.") },
+    { question: t("Do I need previous experience?", "هل أحتاج خبرة سابقة؟"), answer: t("If you are new, begin with the free Academy and build your foundation. If you have experience, explain your level and goals in the enquiry so you can discuss the appropriate path and study commitment with Mark.", "إذا كنت مبتدئًا، ابدأ بالأكاديمية المجانية وابنِ أساسك. إذا عندك خبرة، اشرح مستواك وأهدافك عند الاستفسار، حتى تناقش مع مارك المسار المناسب والوقت المطلوب للدراسة والتطبيق.") },
+    { question: t("Are the prices and numbers in the recording the current offer?", "هل الأسعار والأرقام في التسجيل هي العرض الحالي؟"), answer: t("The original recording is from 7 September 2026 and includes historical prices, counts and personal experiences. These are not current enrolment terms or evidence of results you will achieve. Current programme details are explained before any commitment.", "التسجيل الأصلي من 7 سبتمبر 2026، وفيه أسعار وأعداد وتجارب سابقة. هذه ليست شروط التسجيل الحالية ولا دليلًا على نتيجة ستحصل عليها. تفاصيل البرنامج الحالي تُوضح قبل أي التزام.") },
+    { question: t("Do I need to buy USDT or hand over my money?", "هل يلزمني شراء USDT أو تسليم أموالي؟"), answer: t("No. Education is separate from Alpha Exchange. Mentorship is education, not money management; it does not require buying USDT or opening a trade. Trading involves risk, and education does not guarantee profits or recovery of losses.", "لا. التعلّم منفصل عن Alpha Exchange. المنتورشيب تعليم وليس إدارة أموال، ولا يلزمك شراء USDT أو فتح صفقة. التداول ينطوي على مخاطر، ولا يضمن التعليم أرباحًا أو تعويض خسائر.") },
+  ];
+  const approach = [
+    { title: t("Study and understand", "ادرس وافهم"), text: t("Start with the terminology and how a strategy is built. Understand the reasoning before trying to apply it.", "ابدأ بالمصطلحات وبنية الاستراتيجية. افهم لماذا الفكرة موجودة قبل أن تحاول استخدامها.") },
+    { title: t("Practise and document", "طبّق ووثّق"), text: t("Work through charts and record your entry reasoning, risk, stop and targets within a clear plan.", "تدرّب على قراءة الرسم وتسجيل سبب الدخول، المخاطرة، الستوب والأهداف ضمن خطة واضحة.") },
+    { title: t("Ask and review", "اسأل وراجع"), text: t("Bring specific questions: why was the stop hit, why did I exit before my target, and what did I miss in the analysis?", "ارجع بأسئلة محدّدة: لماذا ضرب الستوب؟ لماذا خرجت قبل الهدف؟ ماذا فاتني في التحليل؟") },
+    { title: t("Build independence", "ابنِ استقلاليتك"), text: t("Use review to understand mistakes and strengthen your decision-making and discipline. Progress takes your time and effort.", "استخدم المراجعة لفهم الأخطاء وتحسين قراراتك وانضباطك. التقدّم يحتاج وقتًا وجهدًا منك.") },
+  ];
+  const curriculum = [
+    { title: t("ICT / SMC and price action", "ICT / SMC وقراءة السعر"), text: t("Market structure, market maker models, liquidity, price inefficiencies, market traps and recurring patterns across timeframes.", "بنية السوق، نماذج صانع السوق، السيولة، اختلالات السعر، فخاخ السوق، وتكرار الأنماط عبر الأطر الزمنية.") },
+    { title: t("Strategy and execution", "بناء الاستراتيجية والتنفيذ"), text: t("OTE and Fibonacci settings, timing, entry conditions, stops and targets, and the distinction between scalping and swing approaches.", "مفاهيم OTE وإعدادات فيبوناتشي، التوقيت، شروط الدخول، الستوب والأهداف، والفرق بين السكالب والسوينج.") },
+    { title: t("Economics and news", "الاقتصاد والأخبار"), text: t("Global economic context, USD news and economic releases such as unemployment, and how they relate to reading the market.", "فهم سياق الاقتصاد العالمي، أخبار الدولار والبيانات الاقتصادية مثل البطالة، وعلاقتها بقراءة السوق.") },
+    { title: t("Risk and trading psychology", "إدارة المخاطر وعلم النفس"), text: t("Planning risk, impulsive decisions, emotions, following a plan and reviewing recurring mistakes.", "تخطيط المخاطرة، التسرّع، المشاعر، الالتزام بالخطة ومراجعة الأخطاء المتكررة.") },
+    { title: t("Context across markets", "السياق عبر الأسواق"), text: t("Study examples from futures, Nasdaq and S&P, forex and gold, and crypto markets such as Bitcoin and Ethereum.", "دراسة أمثلة من العقود الآجلة وNasdaq وS&P، الفوركس والذهب، والكريبتو مثل Bitcoin وEthereum.") },
+    { title: t("Lessons, practice and follow-up", "الدروس والتطبيق والمتابعة"), text: t("Recorded material, live learning and questions drawn from practice. Group or individual format, schedules and the scope of follow-up are defined before joining.", "مواد مسجّلة، تعلّم مباشر وأسئلة مبنية على التطبيق. تُحدد صيغة المجموعة أو الفردي ومواعيد ونطاق المتابعة قبل الانضمام.") },
+  ];
+  const summary = [
+    t("Commitment comes first: make time to study and practise, then bring questions rather than only watching lessons.", "الجدية أولًا: خصص وقتًا للدراسة والتطبيق، وارجع بأسئلتك بدل الاكتفاء بمشاهدة الدروس."),
+    t("Understand the terminology, strategy structure, OTE concepts and targets before trying to apply them.", "افهم المصطلحات وبناء الاستراتيجية، ومفاهيم OTE والأهداف، قبل محاولة تنفيذها."),
+    t("Review starts with a specific question about your decision: the entry, the stop or an exit before the target.", "المراجعة تبدأ بسؤال واضح عن قرارك: سبب الدخول، الستوب، أو الخروج قبل الهدف."),
+    t("Previous experience differs from starting at zero; learning takes time, practice and discipline.", "الخبرة السابقة تختلف عن البداية من الصفر؛ التعلّم يحتاج وقتًا وممارسة وانضباطًا."),
+    t("Mark explains why he prefers taking risks with his own money; he is not offering to manage students’ money.", "مارك يشرح لماذا يفضّل تحمّل مخاطرة أمواله الشخصية، ولا يعرض إدارة أموال الطلاب."),
   ];
   const breadcrumb = buildBreadcrumbSchema({ locale: language, items: [
-    { name: isAr ? "الرئيسية" : "Home", path: "" },
-    { name: isAr ? "ابدأ" : "Start", path: "/start" },
-    { name: isAr ? "التعلّم مع مارك" : "Learn with Mark", path: "/learn-with-mark" },
+    { name: t("Home", "الرئيسية"), path: "" },
+    { name: t("Start", "ابدأ"), path: "/start" },
+    { name: "ICT Mentorship", path: "/learn-with-mark" },
   ] });
   return <section className="section-container page-shell">
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumb) }} />
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(buildFaqSchema({ locale: language, path: "/learn-with-mark", faqs })) }} />
-    <div className="mx-auto max-w-4xl space-y-8">
+    <div className="mx-auto max-w-4xl space-y-8 sm:space-y-10">
       <PublicDiscoveryBreadcrumbs locale={language} items={breadcrumb.itemListElement} />
-      <div className="space-y-4">
+      <div className="space-y-5">
         <p className="section-label">Alpha Traders Academy</p>
-        <h1 className="page-title">{isAr ? "ابنِ أساسك. ثم تعلّم مع مارك." : "Build Your Foundation. Then Learn with Mark."}</h1>
-        <p className="page-subtitle">{isAr ? "ابدأ بالدورة المجانية وبالسرعة المناسبة لك. بعد إكمالها، إذا أردت تعليمًا مباشرًا مع مارك، استكشف الخيار المدفوع واحكيلنا عن أهدافك. الدورة المجانية تبقى مجانية، والانضمام للتعليم المدفوع باختيارك." : "Start with the free course at your own pace. After completing it, explore optional paid teaching with Mark if you want to continue learning directly with him. The free course stays free. Share your goals and decide after seeing the details."}</p>
+        <h1 className="page-title">{t("ICT Mentorship with Mark", "ICT Mentorship مع مارك")}</h1>
+        <p className="text-xl font-medium leading-relaxed text-[#E5CA77]">{t("Understand the reasoning behind your trades.", "افهم السبب وراء قراراتك.")}</p>
+        <p className="page-subtitle">{t("Study ICT concepts, practise with structure and bring your questions to Mark. Explore the curriculum and the follow-up approach, then decide whether the mentorship fits your goals.", "ادرس مفاهيم ICT، طبّق بخطة واضحة، وارجع بأسئلتك لمارك. تعرّف على المنهج وطريقة المتابعة، وخذ وقتك لتقرر إذا المسار مناسب إلك.")}</p>
         <div className="flex flex-wrap gap-3">
-          <Link href="/learn-trading-free" className={buttonVariants()}>{isAr ? "استكشف الدورة المجانية" : "Explore the Free Course"}</Link>
-          <a href="#interest" className={buttonVariants({ variant: "secondary" })}>{isAr ? "استفسر عن التعليم المدفوع" : "Enquire About Paid Teaching"}</a>
+          <a href="#mark-explains" className={buttonVariants({ className: "w-full sm:w-auto whitespace-normal text-center" })}>{t("Hear Mark’s Approach · 7:44", "اسمع شرح مارك · 7:44")}</a>
+          <a href="#interest" className={buttonVariants({ variant: "secondary", className: "w-full sm:w-auto whitespace-normal text-center" })}>{t("Ask About ICT Mentorship", "استفسر عن ICT Mentorship")}</a>
         </div>
+        <p className="text-sm leading-7 text-[#D1D5DB]">{t("Start with the foundations at your own pace. ", "ابدأ بالأساسيات على راحتك. ")}<Link href="/learn-trading-free" className="text-[#E5CA77] underline underline-offset-4">{t("Explore the Free Academy", "استكشف الأكاديمية المجانية")}</Link></p>
       </div>
-      <div className="grid gap-4 md:grid-cols-3">{[
-        { title: isAr ? "افهم المنهج أولًا" : "Understand the curriculum", text: isAr ? "شموع وحركة سعر، دعم ومقاومة، بنية سوق، مخاطر وعلم نفس التداول. راجع المواضيع ثم ابدأ الدروس بالترتيب." : "Candlesticks and price action, support and resistance, market structure, risk and psychology. Review the topics, then follow the lessons in order." },
-        { title: isAr ? "حدّد احتياجك" : "Describe your learning needs", text: isAr ? "اكتب إن كنت مبتدئًا أو تعلّمت سابقًا، وما الذي تريد فهمه، والوقت الذي تستطيع تخصيصه للتعلّم." : "Tell us whether you are new or have studied before, what you want to understand, and the time you can dedicate to learning." },
-        { title: isAr ? "قرّر بعد معرفة التفاصيل" : "Decide after seeing the details", text: isAr ? "التعليم المباشر مع مارك مدفوع واختياري. الاستفسار مجاني وليس حجزًا؛ تُوضح طريقة اللقاءات والمواعيد والسعر قبل أن تقرّر الانضمام." : "Direct teaching with Mark is optional and paid. An enquiry is free, not a booking. The format, schedule and price are explained before you decide to join." },
-      ].map(item => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><h2 className="font-semibold">{item.title}</h2><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{item.text}</p></div>)}</div>
-      <div className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-6">
-        <h2 className="text-xl font-semibold">{isAr ? "اختَر التعلّم على أساس واضح" : "Choose learning with clear expectations"}</h2>
-        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "اطّلع على المنهج، وافهم ما هو مجاني وما الذي ستناقشه مع المدرّس. اسأل عن طريقة الشرح والتطبيق والمتابعة. المعرفة تحتاج وقتًا وتدريبًا؛ لا أحد يستطيع ضمان الربح أو تعويض خسائرك." : "Review the curriculum and understand what is free and what you will discuss with the teacher. Ask about explanation, practice and follow-up. Learning takes time and practice; nobody can guarantee profits or recover your losses."}</p>
-        <Link href="/about-founder" className="mt-4 inline-block text-sm text-[#C9A227] underline underline-offset-4">{isAr ? "تعرّف على المؤسس والمنهج" : "Meet the Founder and Explore the Method"}</Link>
-      </div>
+      <section id="mark-explains" aria-labelledby="recording-title" className="scroll-mt-24 rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-5 sm:p-7">
+        <p className="section-label">{t("In Mark’s own voice", "بصوت مارك")}</p>
+        <h2 id="recording-title" className="mt-3 text-2xl font-semibold">{t("Hear how I approach teaching.", "اسمع طريقة تفكيري بالتعليم.")}</h2>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("A full explanation of commitment, study, practice and follow-up. Mark discusses student questions, mistakes and what he expects from someone who wants to learn.", "شرح كامل عن الجدية، الدراسة، التطبيق والمتابعة. مارك يحكي عن أسئلة الطلاب والأخطاء وما يتوقّعه من شخص جاي يتعلّم.")}</p>
+        <p id="recording-language" className="mb-3 mt-4 text-sm text-[#E5CA77]">{t("Original recording · Arabic with Hebrew phrases · 7:44", "التسجيل الأصلي · عربي مع عبارات عبرية · 7:44")}</p>
+        <audio controls preload="none" aria-label={t("Mark’s full mentorship explanation", "شرح مارك الكامل عن المنتورشيب")} aria-describedby="recording-language recording-context" className="block w-full min-w-0" src="/audio/mark-ict-mentorship-original.m4a">
+          <a href="/audio/mark-ict-mentorship-original.m4a">{t("Open the original recording", "افتح التسجيل الأصلي")}</a>
+        </audio>
+        <a href="/audio/mark-ict-mentorship-original.m4a" className="mt-3 inline-block text-sm text-[#E5CA77] underline underline-offset-4">{t("Open recording in your player", "افتح التسجيل في المشغّل")}</a>
+        <details className="mt-5 rounded-xl border border-white/10 p-4">
+          <summary className="cursor-pointer font-medium">{t("Key points from the recording", "خلاصة الشرح")}</summary>
+          <ul className="mt-3 list-disc space-y-2 ps-5 text-sm leading-7 text-[#D1D5DB]">{summary.map(point => <li key={point}>{point}</li>)}</ul>
+          <p className="mt-3 text-xs leading-6 text-white/50">{t("This is a summary of the clear points, not a verbatim transcript.", "هذه خلاصة للمعاني الواضحة، وليست تفريغًا حرفيًا للتسجيل.")}</p>
+        </details>
+        <p id="recording-context" className="mt-4 text-xs leading-6 text-white/60">{t("Recorded 7 September 2026. Prices, counts and investing stories are historical, not current enrolment terms or promised results. Current programme details are explained before any commitment.", "مسجّل في 7 سبتمبر 2026. الأسعار والأعداد والقصص الاستثمارية فيه تاريخية؛ ليست شروط التسجيل الحالية ولا وعدًا بنتائج. تفاصيل البرنامج الحالي تُوضح قبل أي التزام.")}</p>
+      </section>
+      <section aria-labelledby="approach-title">
+        <h2 id="approach-title" className="text-2xl font-semibold">{t("Study. Practise. Ask. Review.", "دراسة. تطبيق. سؤال. مراجعة.")}</h2>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">{approach.map((item, index) => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><p className="text-xs text-[#C9A227]">0{index + 1}</p><h3 className="mt-2 font-semibold">{item.title}</h3><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{item.text}</p></div>)}</div>
+      </section>
+      <section id="curriculum" aria-labelledby="curriculum-title" className="scroll-mt-24">
+        <h2 id="curriculum-title" className="text-2xl font-semibold">{t("What you will study", "ما الذي ستدرسه؟")}</h2>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">{curriculum.map(item => <div key={item.title} className="rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5"><h3 className="font-semibold">{item.title}</h3><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{item.text}</p></div>)}</div>
+      </section>
+      <section className="rounded-3xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-5 sm:p-7">
+        <h2 className="text-2xl font-semibold">{t("Explore the teaching before you decide.", "تعرّف على التعليم قبل قرارك.")}</h2>
+        <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{t("The free Academy stays free. ICT Mentorship with Mark is a separate programme with a fee. Before joining, review the content, duration, session format, schedule, price, follow-up scope and cancellation terms. An enquiry does not reserve a place or create a payment commitment.", "الأكاديمية المجانية بتضل مجانية. المنتورشيب مع مارك برنامج منفصل برسوم. قبل الانضمام، تعرف على المحتوى والمدة وصيغة اللقاءات والمواعيد والسعر ونطاق المتابعة وشروط الإلغاء. الاستفسار لا يحجز مقعدًا ولا ينشئ التزامًا بالدفع.")}</p>
+        <div className="mt-4 flex flex-wrap gap-4"><Link href="/learn-trading-free" className="text-sm text-[#E5CA77] underline underline-offset-4">{t("Start with the Free Academy", "ابدأ بالأكاديمية المجانية")}</Link><Link href="/about-founder" className="text-sm text-[#E5CA77] underline underline-offset-4">{t("Meet Mark and Explore the Method", "تعرّف على مارك والمنهج")}</Link></div>
+      </section>
       <div id="interest" className="scroll-mt-24">
-        <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "للبالغين 18 عامًا فما فوق. هذا استفسار مجاني عن تعليم مباشر مدفوع مع مارك. لا يوجد حجز أو دفع أو التزام عند الإرسال." : "For adults aged 18 and over. This is a free enquiry about paid teaching with Mark. Submitting does not book a place, take payment or create a commitment."}</p>
+        <p className="text-sm leading-7 text-[#D1D5DB]">{t("For adults aged 18 and over. Share your level, learning goal and available study time to discuss whether ICT Mentorship with Mark is a fit.", "للبالغين 18 عامًا فما فوق. احكِ عن مستواك وهدفك والوقت الذي تستطيع تخصيصه للتعلّم، حتى تناقش مع مارك إن كان ICT Mentorship مناسبًا لك.")}</p>
         <ContactForm locale={language} topic="learning-with-mark" />
-        <Link href="/privacy-policy" className="mt-4 inline-block text-sm text-[#C9A227] underline underline-offset-4">{isAr ? "سياسة الخصوصية" : "Privacy Policy"}</Link>
+        <Link href="/privacy-policy" className="mt-4 inline-block text-sm text-[#E5CA77] underline underline-offset-4">{t("Privacy Policy", "سياسة الخصوصية")}</Link>
       </div>
-      <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
-        <h2 className="text-xl font-semibold">{isAr ? "أسئلة عن التعلّم مع مارك" : "Questions about Learning with Mark"}</h2>
-        <div className="mt-4 space-y-4">{faqs.map(faq => <div key={faq.question}><h3 className="font-semibold">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
-      </div>
-      <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟" : "Also interested in buying or selling USDT for Israeli shekels?"} <Link href="/buy-usdt-israel" className="text-[#C9A227] underline underline-offset-4">{isAr ? "تعرّف على Alpha Exchange" : "Explore Alpha Exchange"}</Link></p>
+      <LearningShareActions locale={language} />
+      <section id="faq" aria-labelledby="faq-title" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-5 sm:p-7">
+        <h2 id="faq-title" className="text-2xl font-semibold">{t("ICT Mentorship questions", "أسئلة عن ICT Mentorship")}</h2>
+        <div className="mt-4 space-y-3">{faqs.map(faq => <details key={faq.question} className="rounded-xl border border-white/10 p-4"><summary className="cursor-pointer font-semibold">{faq.question}</summary><p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></details>)}</div>
+      </section>
+      <p className="text-sm leading-7 text-[#D1D5DB]">{t("Also interested in buying or selling USDT for Israeli shekels?", "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟")} <Link href="/buy-usdt-israel" className="text-[#E5CA77] underline underline-offset-4">{t("Explore Alpha Exchange", "تعرّف على Alpha Exchange")}</Link></p>
     </div>
   </section>;
 }

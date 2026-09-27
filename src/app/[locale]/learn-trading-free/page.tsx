@@ -1,4 +1,5 @@
 import { LearningNextStep } from "@/components/academy/learning-next-step";
+import { LearningShareActions } from "@/components/academy/learning-share-actions";
 import { Link } from "@/i18n/navigation";
 import { buildPageMetadata, buildCourseSchema, buildFaqSchema, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
@@ -93,6 +94,7 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         <div className="mt-4 space-y-4">{faqs.map((faq) => <div key={faq.question}><h3 className="font-semibold text-white">{faq.question}</h3><p className="mt-1 text-sm leading-7 text-[#D1D5DB]">{faq.answer}</p></div>)}</div>
       </div>
       <LearningNextStep locale={locale} />
+      <LearningShareActions locale={locale} destination="academy" />
       <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "الدورة مجانية. يلزم إنشاء حساب ببريد إلكتروني وتأكيده للدخول إلى الدروس وحفظ تقدّمك. لديك حساب؟ سجّل الدخول للمتابعة." : "The course is free. Create an account and verify your email to access lessons and save your progress. Already have an account? Sign in to continue."}</p>
       <div className="flex flex-wrap gap-3">
         <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants()}>{isAr?"ابدأ الدورة المجانية":"Start the Free Course"}</Link>

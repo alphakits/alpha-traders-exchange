@@ -57,6 +57,7 @@ const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/components/ui/button": { buttonVariants: () => "test-button" },
   "@/components/sections/contact/contact-form": { ContactForm: "test-contact-form" },
   "@/components/academy/learning-next-step": learningNextStep,
+  "@/components/academy/learning-share-actions": { LearningShareActions: "test-share-actions" },
 });
 function walk(value, predicate) {
   if (Array.isArray(value)) return value.flatMap((child) => walk(child, predicate));
