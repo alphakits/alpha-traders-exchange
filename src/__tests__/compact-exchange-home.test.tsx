@@ -19,6 +19,7 @@ let pending = false;
 let user = buyer;
 let requests: unknown[] = [];
 let requestsUnavailable = false;
+let requestsMalformed = false;
 let requestsLoading: Promise<void> | null = null;
 let viewportWidth = 1440;
 const mediaListeners = new Set<() => void>();
@@ -29,6 +30,7 @@ beforeEach(() => {
   user = buyer;
   requests = [trade];
   requestsUnavailable = false;
+  requestsMalformed = false;
   requestsLoading = null;
   viewportWidth = 1440;
   mediaListeners.clear();
@@ -55,7 +57,7 @@ beforeEach(() => {
     else if (url.includes("/purchase-requests")) {
       if (requestsLoading) await requestsLoading;
       if (requestsUnavailable) return new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 });
-      data = { requests };
+      data = requestsMalformed ? {} : { requests };
     }
     else if (url.includes("/my-listings")) data = { listings: [], summary: { canCreateListing: true }, commissionStatus: { status: "clear", pendingCount: 0 } };
     else if (url.includes("/listings")) data = { listings: [] };
@@ -315,7 +317,7 @@ describe("compact Exchange home", () => {
     }
   });
 
-  it("keeps the existing phone empty state and trade destination", async () => {
+  it("explains an empty phone workspace without navigating away", async () => {
     viewportWidth = 390;
     user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
     requests = [];
@@ -324,7 +326,95 @@ describe("compact Exchange home", () => {
     expect(screen.queryByText("There are no active trades currently.")).toBeNull();
     const welcome = within(container.querySelector('[data-account-role="approved_seller"]') as HTMLElement);
     fireEvent.click(welcome.getByRole("button", { name: "Active Trades" }));
-    expect(push).toHaveBeenLastCalledWith("/trade-room");
+    await screen.findByText("You have no active trades right now.");
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it.each(["en", "ar"] as const)("ignores completed, locked and other users' trades on phones (%s)", async locale => {
+    viewportWidth = 390;
+    const isAr = locale === "ar";
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    requests = [
+      ...["completed", "review_open", "locked", "cancelled", "declined"].map(status => ({ ...trade, id: status, sellerId: user.id, status })),
+      { ...trade, id: "completed-timestamp", sellerId: user.id, completedAt: trade.updatedAt },
+      { ...trade, id: "different-seller" },
+    ];
+    render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    fireEvent.click(screen.getByRole("button", { name: isAr ? "الصفقات النشطة" : "Active Trades" }));
+    await screen.findByText(isAr ? "ليس لديك أي صفقات نشطة الآن." : "You have no active trades right now.");
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it.each(["buyer", "seller"] as const)("shares an in-flight read and opens the trade after an early phone click (%s)", async side => {
+    viewportWidth = 390;
+    let finishLoading!: () => void;
+    requestsLoading = new Promise(resolve => { finishLoading = resolve; });
+    if (side === "seller") user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    requests = [{ ...trade, sellerId: side === "seller" ? user.id : trade.sellerId }];
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    const button = screen.getByRole("button", { name: side === "seller" ? "Active Trades" : /^Active Trades:/ });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.focus(window);
+    await screen.findByText("Loading your active trades…");
+    expect(screen.queryByText("You have no active trades right now.")).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+    const purchaseReads = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/purchase-requests"));
+    expect(purchaseReads()).toHaveLength(1);
+    await act(async () => finishLoading());
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/trade-room/home-active-trade"));
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a failed phone read separate from an empty account and retries on tap", async () => {
+    viewportWidth = 390;
+    requestsUnavailable = true;
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    const button = screen.getByRole("button", { name: /^Active Trades:/ });
+    fireEvent.click(button);
+    await screen.findByText("We couldn't load your trades. Tap Active Trades to try again.");
+    expect(screen.queryByText("You have no active trades right now.")).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+    requestsUnavailable = false;
+    fireEvent.click(button);
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/trade-room/home-active-trade"));
+  });
+
+  it("does not navigate after leaving the workspace during a pending read", async () => {
+    viewportWidth = 390;
+    let finishLoading!: () => void;
+    requestsLoading = new Promise(resolve => { finishLoading = resolve; });
+    const { unmount } = render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Active Trades:/ }));
+    await screen.findByText("Loading your active trades…");
+    unmount();
+    await act(async () => finishLoading());
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("does not interpret a malformed response as an empty account", async () => {
+    viewportWidth = 390;
+    requestsMalformed = true;
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Active Trades:/ }));
+    await screen.findByText("We couldn't load your trades. Tap Active Trades to try again.");
+    expect(screen.queryByText("You have no active trades right now.")).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("does not reload profile totals when an unchanged trade poll completes", async () => {
+    viewportWidth = 390;
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    await screen.findByRole("heading", { name: "Gold Buyer" });
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Active Trades:/ }).textContent).toContain("1"));
+    await act(async () => {});
+    const callsTo = (path: string) => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes(path)).length;
+    const profilesBefore = callsTo("/auth/profile");
+    const readsBefore = callsTo("/purchase-requests");
+    await act(async () => { fireEvent.focus(window); });
+    await waitFor(() => expect(callsTo("/purchase-requests")).toBeGreaterThan(readsBefore));
+    await act(async () => {});
+    expect(callsTo("/auth/profile")).toBe(profilesBefore);
   });
 
   it("moves one workspace at the desktop breakpoint and restores phone filters on resize", async () => {
@@ -340,6 +430,7 @@ describe("compact Exchange home", () => {
     expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);
     fireEvent.click(within(welcome).getByRole("button", { name: "Active Trades" }));
     expect((screen.getByRole("combobox", { name: "Filter purchase requests" }) as HTMLSelectElement).value).toBe("active");
+    await waitFor(() => expect(push).toHaveBeenLastCalledWith("/trade-room/home-active-trade"));
     act(() => { viewportWidth = 390; mediaListeners.forEach(listener => listener()); });
     expect(welcome.querySelector("#workspace-summary")).toBeNull();
     expect(container.querySelectorAll("#workspace-summary")).toHaveLength(1);

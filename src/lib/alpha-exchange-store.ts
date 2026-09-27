@@ -6665,7 +6665,10 @@ function toPublicSellerBankAccount(account: SellerBankAccount) {
 }
 
 export async function getSellerBankAccountsForUser(userId: string) {
-  const db = await readDb();
+  const repository = await getAlphaExchangeRepository();
+  const db = typeof repository.loadAuthUserSnapshot === "function"
+    ? normalizeDb(await repository.loadAuthUserSnapshot({ userId }))
+    : await readDbForAuthUser();
   const user = db.users.find((item) => item.id === userId);
   if (!user) throw new Error("User not found.");
   return getSellerBankAccounts(user).map(toPublicSellerBankAccount);
@@ -7807,7 +7810,7 @@ function closeRevokedSellerListings(db: AlphaExchangeDb, sellerId: string) {
 }
 
 export async function getSellerMarketplaceEnforcementStatus(sellerId: string, dbInput?: AlphaExchangeDb) {
-  const db = dbInput ?? await readDb();
+  const db = dbInput ?? await readDbForSellerWorkspace(sellerId);
   const activeRecord = getSellerActiveEnforcementRecord(db, sellerId);
   const latestRecord = getSellerLatestEnforcementRecord(db, sellerId);
   const latestAuditEntries = getMarketplaceEnforcementAuditLog(db)

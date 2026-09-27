@@ -1522,6 +1522,10 @@ export function UsdtExchangePage({
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
   const [purchaseRequestsState, setPurchaseRequestsState] = useState<"loading" | "ready" | "error">("loading");
+  const purchaseRequestsReadRef = useRef<{ userId: string; controller: AbortController; promise: Promise<PurchaseRequest[] | null> } | null>(null);
+  const purchaseRequestsSnapshotRef = useRef<{ userId: string; loadedAt: number; requests: PurchaseRequest[] } | null>(null);
+  const purchaseRequestsEpochRef = useRef(0);
+  const activeTradeNavigationRef = useRef(false);
   const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
   const [discordSharing, setDiscordSharing] = useState<DiscordListingSharingStatus | null>(null);
   const [discordShareActionKey, setDiscordShareActionKey] = useState<string | null>(null);
@@ -1882,24 +1886,59 @@ export function UsdtExchangePage({
     discordSharePollTimersRef.current = [];
   }, []);
 
-  const refreshMyPurchaseRequests = useCallback(async () => {
-    try {
+  useEffect(() => {
+    purchaseRequestsEpochRef.current += 1;
+    purchaseRequestsSnapshotRef.current = null;
+    setMyRequests([]);
+    setPurchaseRequestsState("loading");
+    return () => {
+      purchaseRequestsEpochRef.current += 1;
+      activeTradeNavigationRef.current = false;
+      purchaseRequestsSnapshotRef.current = null;
+      purchaseRequestsReadRef.current?.controller.abort();
+      purchaseRequestsReadRef.current = null;
+    };
+  }, [sessionUser?.id]);
+
+  const refreshMyPurchaseRequests = useCallback((): Promise<PurchaseRequest[] | null> => {
+    const userId = sessionUser?.id;
+    if (!userId) return Promise.resolve(null);
+    // Focus, polling, notifications and a button click share the same read.
+    // They must not queue duplicate queries or overwrite newer account data.
+    const current = purchaseRequestsReadRef.current;
+    if (current?.userId === userId) return current.promise;
+    current?.controller.abort();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15_000);
+    const pending = { userId, controller, promise: Promise.resolve(null) as Promise<PurchaseRequest[] | null> };
+    purchaseRequestsReadRef.current = pending;
+    pending.promise = (async () => { try {
       const response = await tracedReadFetch(
         "Workspace data loading: purchase requests",
         "/api/alpha-exchange/purchase-requests",
-        { cache: "no-store" },
+        { cache: "no-store", signal: controller.signal },
       );
       if (!response.ok) throw new Error("Purchase requests unavailable");
       const payload = (await response.json()) as { requests?: PurchaseRequest[] };
-      setMyRequests(payload.requests ?? []);
+      if (!Array.isArray(payload.requests)) throw new Error("Invalid purchase requests response");
+      if (purchaseRequestsReadRef.current !== pending || controller.signal.aborted) return null;
+      purchaseRequestsSnapshotRef.current = { userId, loadedAt: Date.now(), requests: payload.requests };
+      // Identical polls must not rerender every trade card and reload rank totals.
+      const requests = payload.requests;
+      setMyRequests(previous => JSON.stringify(previous) === JSON.stringify(requests) ? previous : requests);
       setPurchaseRequestsState("ready");
-      return true;
+      return payload.requests;
     } catch {
+      if (purchaseRequestsReadRef.current !== pending) return null;
       setPurchaseRequestsState("error");
       if (!desktopWorkspaceNavigation) setWorkspaceError(safeErrorMessage("workspace", isAr));
-      return false;
-    }
-  }, [desktopWorkspaceNavigation, isAr, tracedReadFetch]);
+      return null;
+    } finally {
+      window.clearTimeout(timer);
+      if (purchaseRequestsReadRef.current === pending) purchaseRequestsReadRef.current = null;
+    } })();
+    return pending.promise;
+  }, [desktopWorkspaceNavigation, isAr, sessionUser?.id, tracedReadFetch]);
 
   const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
     const revisionAtStart = sellerWorkspaceRevisionRef.current;
@@ -3437,8 +3476,6 @@ export function UsdtExchangePage({
     () => sortDashboardActivityNewestFirst(myListings),
     [myListings],
   );
-  const recentSellerRequests = useMemo(() => sortDashboardActivityNewestFirst(sellerRequests), [sellerRequests]);
-  const recentBuyerRequests = useMemo(() => sortDashboardActivityNewestFirst(buyerRequests), [buyerRequests]);
 
   useEffect(() => {
     setBuyerExpandedTradeId((current) => {
@@ -3670,16 +3707,12 @@ export function UsdtExchangePage({
     : (isAr ? "مساحة عملك جاهزة. راقب نشاطك أولاً، ثم انتقل إلى السوق." : "Your workspace is ready. Track activity first, then jump into the marketplace.");
 
   const openTradeCount = isSellerWorkspaceUser
-    ? (desktopSellerNavigation ? activeSellerRequests.length : sellerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length)
-    : (desktopBuyerNavigation ? activeBuyerRequests.length : buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length);
+    ? activeSellerRequests.length
+    : activeBuyerRequests.length;
   const totalBuyerRequests = buyerRequests.length;
   const unreadNotificationsTotal = notificationUnreadCount ?? notifications.filter((item) => !item.isRead).length;
-  const latestOpenBuyerTrade = desktopBuyerNavigation
-    ? activeBuyerRequests[0]
-    : recentBuyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
-  const latestOpenSellerTrade = desktopSellerNavigation
-    ? activeSellerRequests[0]
-    : recentSellerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
+  const latestOpenBuyerTrade = activeBuyerRequests[0];
+  const latestOpenSellerTrade = activeSellerRequests[0];
   // Existing trades remain available through the workspace's Continue Trade
   // action. Background refreshes must never replace an intentional marketplace
   // visit or interrupt a notification click with a generic Trade Room redirect.
@@ -3830,6 +3863,41 @@ export function UsdtExchangePage({
     setBuyerTradeStatus(activeOnly ? "active" : "all");
     scrollToBuyerTradeHistorySection();
   };
+  const openActiveTrades = async () => {
+    if (!sessionUser || activeTradeNavigationRef.current) return;
+    activeTradeNavigationRef.current = true;
+    const userId = sessionUser.id;
+    const epoch = purchaseRequestsEpochRef.current;
+    try {
+      if (desktopWorkspaceNavigation) {
+        if (isSellerWorkspaceUser) openSellerRequests(true);
+        else openBuyerRequests(true);
+      }
+      const snapshot = purchaseRequestsSnapshotRef.current;
+      const hasFreshSnapshot = purchaseRequestsState === "ready" && snapshot?.userId === userId
+        && Date.now() - snapshot.loadedAt < 12_000;
+      if (!hasFreshSnapshot && !desktopWorkspaceNavigation) setStatusMessage(isAr ? "جارٍ تحميل صفقاتك النشطة…" : "Loading your active trades…");
+      const requests = hasFreshSnapshot ? snapshot.requests : await refreshMyPurchaseRequests();
+      // An account change or unmount must never navigate using the old account.
+      if (epoch !== purchaseRequestsEpochRef.current) return;
+      if (requests === null) {
+        if (!desktopWorkspaceNavigation) setStatusMessage(isAr ? "تعذر تحميل صفقاتك. اضغط على الصفقات النشطة للمحاولة مجددًا." : "We couldn't load your trades. Tap Active Trades to try again.");
+        return;
+      }
+      const active = groupOwnTrades(requests, userId, isSellerWorkspaceUser ? "seller" : "buyer").active;
+      if (active.length === 0) {
+        if (!desktopWorkspaceNavigation) setStatusMessage(isAr ? "ليس لديك أي صفقات نشطة الآن." : "You have no active trades right now.");
+        return;
+      }
+      setStatusMessage(null);
+      if (active.length > 1 && desktopWorkspaceNavigation) {
+        return;
+      }
+      handleOpenTradeRoom(active[0].id);
+    } finally {
+      if (epoch === purchaseRequestsEpochRef.current) activeTradeNavigationRef.current = false;
+    }
+  };
   const openBuyerMarketplace = () => {
     if (!isDashboardWorkspace) {
       focusWorkspaceSection("buyer-marketplace-listings");
@@ -3977,15 +4045,8 @@ export function UsdtExchangePage({
             : purchaseRequestsState === "error"
               ? (isAr ? "افتح الصفقات لإعادة المحاولة" : "Open trades to retry")
               : (isAr ? "جارٍ تحميل الصفقات..." : "Loading current trades…"),
-        stat: !desktopBuyerNavigation || purchaseRequestsState === "ready" ? openTradeCount.toLocaleString("en-IL") : "—",
-        onClick: () => {
-          if (desktopBuyerNavigation) return openBuyerRequests(true);
-          if (latestOpenBuyerTrade) {
-            handleOpenTradeRoom(latestOpenBuyerTrade.id);
-            return;
-          }
-          router.push("/trade-room");
-        },
+        stat: purchaseRequestsState === "ready" ? openTradeCount.toLocaleString("en-IL") : "—",
+        onClick: () => { void openActiveTrades(); },
         icon: Wallet,
         tone: "blue",
       },
@@ -4109,14 +4170,7 @@ export function UsdtExchangePage({
       {
         key: "hero-active-trades",
         label: isAr ? "الصفقات النشطة" : "Active Trades",
-        onClick: () => {
-          if (desktopSellerNavigation) return openSellerRequests(true);
-          if (latestOpenSellerTrade) {
-            handleOpenTradeRoom(latestOpenSellerTrade.id);
-            return;
-          }
-          router.push("/trade-room");
-        },
+        onClick: () => { void openActiveTrades(); },
       },
     ]
     : [
