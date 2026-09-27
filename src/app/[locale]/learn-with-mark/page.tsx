@@ -13,7 +13,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale: isAr ? "ar" : "en", path: "/learn-with-mark",
     title: isAr ? "ICT Mentorship مع مارك" : "ICT Mentorship with Mark",
     description: isAr ? "تعرّف على ICT Mentorship مع مارك: دراسة، تطبيق وأسئلة ومراجعة. اسمع شرحه الأصلي، استكشف المنهج وابدأ بالأكاديمية المجانية." : "Explore ICT Mentorship with Mark: study, practice, questions and review. Hear his original explanation, explore the curriculum and start with the free Academy.",
-    ogImage: "https://www.alphatraders.co.il/en/learn-with-mark/opengraph-image",
+    ogImage: "https://www.alphatraders.co.il/images/brand/alpha-ict-mentorship-social.png",
   });
 }
 

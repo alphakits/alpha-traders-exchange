@@ -1,3 +1,5 @@
+import React from "react";
+import { writeFile } from "node:fs/promises";
 import { ImageResponse } from "next/og";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,6 +14,7 @@ export default async function Image() {
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: "54px 64px", background: "#080909", color: "#F5F2E9", border: "2px solid #A98224" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
         {/* ImageResponse renders a native image inside its generated graphic. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={`data:image/png;base64,${logo.toString("base64")}`} width={82} height={82} alt="" />
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}><span style={{ fontSize: 29, color: "#DFC16E" }}>ALPHA TRADERS</span><span style={{ fontSize: 19, letterSpacing: 3 }}>ACADEMY & EXCHANGE</span></div>
       </div>
@@ -21,3 +24,6 @@ export default async function Image() {
     </div>, size,
   );
 }
+
+async function main() { const response = await Image(); await writeFile("public/images/brand/alpha-ict-mentorship-social.png", Buffer.from(await response.arrayBuffer())); }
+main().catch(error => { console.error(error); process.exitCode = 1; });
