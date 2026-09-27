@@ -18,7 +18,7 @@ export function LearningShareActions({ locale, destination = "mentorship" }: {
   const title = destination === "academy" ? "Alpha Traders · Free Trading Education" : "ICT Mentorship with Mark · Alpha Traders";
   const description = destination === "academy"
     ? (isAr ? "تعرّف على دورة Alpha Traders المجانية. استكشف المنهج وابدأ بالأساسيات." : "Explore the free Alpha Traders course. See the curriculum and start with the foundations.")
-    : (isAr ? "تعرّف على ICT Mentorship مع مارك. اسمع شرحه عن الدراسة والتطبيق والمتابعة، واستكشف الأكاديمية المجانية." : "Explore ICT Mentorship with Mark. Hear his approach to study, practice and follow-up, and explore the free Academy.");
+    : (isAr ? "تعلّمت تداول ولسه عندك أسئلة بالتطبيق؟ تعرّف على ICT Mentorship مع مارك: اسمع شرحه الأصلي وشوف المنهج والرسوم. الأكاديمية المجانية متاحة كمان." : "Studied trading but still have questions about applying it? Explore ICT Mentorship with Mark: hear his original explanation and see the curriculum and tuition. The free Academy is available too.");
 
   useEffect(() => { setCanShare(typeof navigator.share === "function"); }, []);
 

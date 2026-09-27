@@ -75,7 +75,7 @@ describe("lesson progress hydration", () => {
     expect(container.textContent).toContain(locale === "ar" ? "الفيديو 1:30 · القراءة 45%" : "Video 1:30 · Reading 45%");
     expect(container.textContent).toContain(`${locale === "ar" ? "تقدم الدورة" : "Course Progress"} ${completed ? 100 : 0}%`);
     expect(JSON.parse(window.localStorage.getItem("alpha-traders:lesson-progress")!)[lesson.id]).toEqual(saved);
-    expect(container.querySelector('a[href="/learn-with-mark#interest"]') !== null).toBe(completed);
+    expect(container.querySelector('a[href="/learn-with-mark#tuition"]') !== null).toBe(completed);
     expect(createClient).not.toHaveBeenCalled();
   });
 

@@ -656,8 +656,8 @@ export function LessonInterface({
               </div>
               {courseComplete ? <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{isAr ? "أكملت دروس هذا المسار. يمكنك متابعة التعلّم المجاني أو استكشاف ICT Mentorship مع مارك، باختيارك." : "You’ve completed this track. Keep learning for free, or explore ICT Mentorship with Mark."}</p> : null}
               <div className="mt-5 flex flex-wrap justify-center gap-2">
-                {courseComplete ? <Link href="/learn-with-mark#interest" className={buttonVariants({ variant: "secondary", className: "whitespace-normal text-center" })}>
-                  {isAr ? "ICT Mentorship مع مارك" : "ICT Mentorship with Mark"}
+                {courseComplete ? <Link href="/learn-with-mark#tuition" className={buttonVariants({ variant: "secondary", className: "whitespace-normal text-center" })}>
+                  {isAr ? "شوف برنامج ICT Mentorship والرسوم" : "See ICT Mentorship & Tuition"}
                 </Link> : null}
                 {nextSlug ? (
                   <Link href={`/lessons/${nextSlug}`} className={buttonVariants()}>

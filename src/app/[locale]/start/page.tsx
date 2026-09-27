@@ -3,6 +3,7 @@ import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
 import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 import { PublicDiscoveryBreadcrumbs } from "@/components/seo/public-discovery-breadcrumbs";
+import { LearningNextStep } from "@/components/academy/learning-next-step";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -23,10 +24,12 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
   const faqs = isAr ? [
     { question: "ما هو Alpha Traders Academy & Exchange؟", answer: "منصة تجمع بين تعليم التداول المنظم ومسار عام لاكتشاف سوق P2P لصفقات USDT مقابل ILS." },
     { question: "من أين أبدأ إذا أردت تعلم التداول؟", answer: "ابدأ من دليل تعلم التداول المجاني. للدخول إلى الدروس وحفظ التقدم يلزم حساب وبريد إلكتروني مؤكد." },
+    { question: "تعلّمت سابقًا وبدي أشتغل على التطبيق، من وين أبدأ؟", answer: "استكشف ICT Mentorship مع مارك مباشرة. الصفحة بتوضح المنهج والرسوم وحالة استقبال الاستفسارات، وفيها شرحه الأصلي. ما لازم تكمّل الدورة المجانية حتى تتعرّف على البرنامج أو تستفسر." },
     { question: "من أين أبدأ إذا أردت USDT مقابل ILS؟", answer: "ابدأ من دليل USDT/ILS العام، ثم سجّل الدخول لاستخدام وظائف السوق وفق صلاحيات حسابك ومتطلبات المنصة." },
   ] : [
     { question: "What is Alpha Traders Academy & Exchange?", answer: "It combines structured trading education with public discovery information for a P2P USDT/ILS marketplace workflow." },
     { question: "Where should I start if I want to learn trading?", answer: "Start with the free trading education guide. Lesson access and saved progress require an account with a verified email." },
+    { question: "I have studied before and want help applying it. Where should I start?", answer: "Explore ICT Mentorship with Mark directly. The page explains the curriculum, tuition and enquiry availability, with his original recording. Completing the free course is not required to explore the programme or enquire." },
     { question: "Where should I start if I want USDT for ILS?", answer: "Start with the public USDT/ILS guide, then sign in to use marketplace functions according to your account permissions and platform requirements." },
   ];
   const faqSchema = buildFaqSchema({ locale: isAr ? "ar" : "en", path: "/start", faqs });
@@ -46,7 +49,7 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
       <div className="space-y-4">
         <p className="section-label">Alpha Traders Academy & Exchange</p>
         <h1 className="page-title">{isAr ? "ابدأ من المسار المناسب لك" : "Start with the right Alpha Traders path"}</h1>
-        <p className="page-subtitle">{isAr ? "بدك تتعلّم التداول من الأساس؟ ابدأ بالدورة المجانية بالعربي. مهتم بـ USDT مقابل الشيكل؟ تعرّف على السوق وخطوات التعامل قبل أول طلب." : "Want to learn trading from the ground up? Start with the free course in Arabic or English. Interested in USDT for Israeli shekels? Explore the marketplace and understand the steps before your first request."}</p>
+        <p className="page-subtitle">{isAr ? "ابدأ بالأساسيات مجانًا، أو تعرّف على ICT Mentorship مع مارك إذا عندك خبرة وبدك تشتغل على التطبيق. ولشراء أو بيع USDT مقابل الشيكل، استكشف دليل Alpha Exchange." : "Start with the foundations for free, or explore ICT Mentorship with Mark if you have experience and want to work on applying it. For buying or selling USDT with Israeli shekels, explore the Alpha Exchange guide."}</p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-[#C9A227]/30 bg-[#0B0B0B]/90 p-6">
@@ -54,7 +57,6 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
           <h2 className="mt-2 text-2xl font-semibold">{isAr ? "تعلم التداول مجانًا" : "Learn Trading for Free"}</h2>
           <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr ? "استكشف أساسيات الشموع والنماذج والدعم والمقاومة وبنية السوق وإدارة المخاطر وعلم النفس." : "Explore candlesticks, chart patterns, support and resistance, market structure, risk management and trading psychology."}</p>
           <Link href="/learn-trading-free" className={buttonVariants({ className: "mt-5" })}>{isAr ? "استكشف المسار المجاني" : "Explore the Free Path"}</Link>
-          <p className="mt-4 text-sm"><Link href="/learn-with-mark" className="text-[#C9A227] underline underline-offset-4">{isAr ? "تعمّق مع ICT Mentorship مع مارك" : "Go deeper with ICT Mentorship with Mark"}</Link></p>
         </div>
         <div className="rounded-3xl border border-[#6CAEFF]/30 bg-[#0B0B0B]/90 p-6">
           <p className="text-sm font-semibold text-[#93C5FD]">Alpha Exchange · USDT / ILS</p>
@@ -63,6 +65,7 @@ export default async function StartPage({ params }: { params: Promise<{ locale: 
           <Link href="/buy-usdt-israel" className={buttonVariants({ variant: "secondary", className: "mt-5" })}>{isAr ? "دليل USDT / ILS" : "USDT / ILS Guide"}</Link>
         </div>
       </div>
+      <LearningNextStep locale={locale} />
       <div className="grid gap-4 md:grid-cols-3">
         {[
           {

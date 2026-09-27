@@ -108,6 +108,7 @@ export async function HomePage({
                   <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
                 </Link>
               </div>
+              <p className="mt-4 text-sm leading-7 text-white/85">{isRtl ? "تعلّمت سابقًا وبدك تشتغل على التطبيق؟ " : "Studied before and want to work on applying it? "}<Link href="/learn-with-mark" className="inline-flex min-h-11 items-center text-[#E5CA77] underline underline-offset-4">{isRtl ? "تعرّف على ICT Mentorship مع مارك" : "Explore ICT Mentorship with Mark"}</Link></p>
             </div>
           </div>
         </div>
