@@ -355,7 +355,7 @@ describe("CanonicalSessionProvider", () => {
   it("builds a same-origin expiry redirect from the current location only", () => {
     expect(getSessionExpiryDestination({
       pathname: "/ar/trade-room/trade-1",
-    })).toBe("/en");
+    })).toBe("/ar/login?redirectTo=%2Far%2Ftrade-room%2Ftrade-1");
     expect(getSessionExpiryDestination({ pathname: "/en/login" })).toBeNull();
     expect(getSessionExpiryDestination({ pathname: "/ar/usdt-exchange" })).toBe("/ar/login?redirectTo=%2Far%2Fusdt-exchange");
   });

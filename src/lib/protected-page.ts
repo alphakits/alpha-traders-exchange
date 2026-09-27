@@ -12,9 +12,9 @@ export function isExchangePage(path: string) {
 }
 
 export function getSignedOutPageDestination(path: string) {
-  // Exchange links are public entry points. Explain the sign-in requirement
-  // and retain the requested marketplace view across every access boundary.
-  if (!isExchangePage(path)) return "/en";
-  const locale = /^\/ar\//i.test(path) ? "ar" : "en";
+  const locale = /^\/ar(?=\/|[?#]|$)/i.test(path) ? "ar" : "en";
+  // A protected link still represents the visitor's intended destination.
+  // Keep its language and view through sign-in at every access boundary.
+  if (!isProtectedPage(path) || path.includes("\\")) return `/${locale}`;
   return `/${locale}/login?redirectTo=${encodeURIComponent(path)}`;
 }

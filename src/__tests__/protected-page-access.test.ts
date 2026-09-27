@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 import middleware from "@/middleware";
 import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
-import { APP_PAGE_PATH_HEADER, isProtectedPage } from "@/lib/protected-page";
+import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 
 const mocks = vi.hoisted(() => ({ session: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ getCurrentSessionUser: mocks.session }));
@@ -24,14 +24,26 @@ describe("signed-out page access", () => {
     expect(response.headers.get("vary")).toBe("Cookie");
   });
 
-  it.each(privatePaths)("sends guest %s routes home on both languages and prevents caching the redirect", path => {
+  it.each(privatePaths)("preserves guest %s destinations through sign-in in both languages", path => {
     for (const locale of ["en", "ar"]) {
       const response = middleware(new NextRequest(`${origin}/${locale}/${path}?tab=history`, {
         headers: { cookie: `${AUTH_VERIFIED_COOKIE_NAME}=1` },
       }));
-      expect(response.headers.get("location")).toBe(`${origin}/en`);
+      const destination = new URL(response.headers.get("location")!);
+      expect(destination.pathname).toBe(`/${locale}/login`);
+      expect(destination.searchParams.get("redirectTo")).toBe(`/${locale}/${path}?tab=history`);
       expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("vary")).toBe("Cookie");
     }
+  });
+
+  it("retains sections and filters while rejecting unrelated or unsafe destinations", () => {
+    const path = "/ar/lessons?q=risk#risk-management";
+    expect(getSignedOutPageDestination(path)).toBe(`/ar/login?redirectTo=${encodeURIComponent(path)}`);
+    for (const unsafe of ["//example.com/academy", "https://example.com/academy", "/en/academy\\example.com", "/en/login"]) {
+      expect(getSignedOutPageDestination(unsafe)).toBe("/en");
+    }
+    expect(getSignedOutPageDestination("/ar/news")).toBe("/ar");
   });
 
   it.each(["/en", "/ar", "/en/login", "/en/register", "/en/news", "/en/privacy-policy", "/en/account-deletion", "/en/verify-email", "/en/exchange/seller/example"])("keeps the intended public route %s public", path => {
