@@ -24,6 +24,11 @@ const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, 
 type RedirectUser = { role?: string; roles?: string[]; sellerStatus?: string; sellerApprovalVerified?: boolean; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined;
 
 function loginDestination(locale: "ar" | "en", rawRedirect: string | undefined, user: RedirectUser) {
+  // URL fragments never reach middleware. Browsers carry them onto the login
+  // redirect, so restore the requested section before completing the handoff.
+  if (rawRedirect && !rawRedirect.includes("#") && window.location.hash) {
+    rawRedirect += window.location.hash;
+  }
   const roles = user?.roles ?? [];
   const owner = roles.includes("owner") || user?.role === "owner";
   const admin = roles.includes("admin") || user?.role === "admin";

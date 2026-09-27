@@ -140,6 +140,26 @@ describe("LoginForm", () => {
     }
   });
 
+  it.each([
+    ["/en/lessons?q=risk", "#risk-management", "/ar/lessons?q=risk#risk-management"],
+    ["/en/lessons#beginner-guides", "#risk-management", "/ar/lessons#beginner-guides"],
+    ["//outside.test", "#risk-management", "/ar/usdt-exchange"],
+  ])("preserves a browser-carried section for destination %s without replacing an explicit section", async (redirectTo, hash, expected) => {
+    const originalLocation = window.location;
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, hash, replace } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: { role: "buyer", roles: ["buyer"] } }) }));
+    try {
+      render(<LoginForm locale="ar" redirectTo={redirectTo} />);
+      fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "buyer@example.test" } });
+      fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "test-password" } });
+      fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(expected));
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
   it.each(["en", "ar"] as const)("carries the free Academy intent into %s account creation", locale => {
     render(<LoginForm locale={locale} redirectTo={`/${locale}/academy`} />);
     expect(document.querySelector('a[href="/register?intent=learn"]')).not.toBeNull();
