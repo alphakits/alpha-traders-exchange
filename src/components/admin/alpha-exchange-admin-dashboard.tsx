@@ -1673,7 +1673,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         <Button type="button" size="sm" variant="secondary" onClick={() => setOwnerRankBatchResult(null)}>{t("Dismiss results", "إغلاق النتائج")}</Button>
       </div> : null}
       <div className="grid gap-6 xl:grid-cols-[290px_minmax(0,1fr)] xl:items-start">
-        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-4">
+        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-24 xl:max-h-[calc(100dvh-7rem)] xl:overflow-y-auto xl:overscroll-contain">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
             <ShieldCheck className="h-3.5 w-3.5" />
             {isOwner ? t("Owner Control Center", "مركز تحكم المالك") : t("Alpha Exchange Admin", "إدارة Alpha Exchange")}
