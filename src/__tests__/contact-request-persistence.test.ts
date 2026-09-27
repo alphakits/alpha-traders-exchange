@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
@@ -32,8 +32,10 @@ function makeRequest(overrides: Record<string, unknown> = {}) {
 }
 
 describe("support and account deletion request persistence", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T11:00:00Z"));
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.getRuntimePostgresPool.mockReturnValue({ query: mocks.query });
   });
@@ -155,5 +157,20 @@ describe("support and account deletion request persistence", () => {
   it("does not append mentorship details to unrelated support messages", async () => {
     await POST(makeRequest({ learningDetails: { experience: "starting", availability: "Evenings" } }));
     expect(mocks.query.mock.calls[0][1][3]).toBe(deletionRequest.message);
+  });
+
+  it.each([
+    { topic: "learning-with-mark" },
+    { subject: "Interest in learning with Mark" },
+    { subject: "اهتمام بالتعلّم مع مارك", locale: "ar" },
+  ])("closes current and legacy mentorship enquiries at midnight in Israel while keeping support available: %j", async enquiry => {
+    vi.mocked(Date.now).mockReturnValue(Date.parse("2026-12-31T22:00:00Z"));
+    const response = await POST(makeRequest(enquiry));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "mentorship_intake_closed" });
+    expect(mocks.query).not.toHaveBeenCalled();
+    const support = await POST(makeRequest());
+    expect(support.status).toBe(200);
+    expect(mocks.query).toHaveBeenCalledOnce();
   });
 });

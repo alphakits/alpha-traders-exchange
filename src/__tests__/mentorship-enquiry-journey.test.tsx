@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContactForm } from "@/components/sections/contact/contact-form";
 import { LearningInformationReply } from "@/components/academy/learning-information-reply";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+beforeEach(() => { vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T11:00:00Z")); });
 
 const initialValues = { name: "Test Learner", email: "learner@example.test", message: "I want to understand market structure." };
 
@@ -54,6 +55,19 @@ describe("guided mentorship enquiry", () => {
     expect((screen.getByLabelText(/خبرتك الحالية/) as HTMLSelectElement).value).toBe("practising");
     expect(screen.queryByText("تم تسجيل اهتمامك")).toBeNull();
   });
+
+  it("handles an intake that closes while the form is open without reporting a saved enquiry", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: "mentorship_intake_closed" }) }));
+    render(<ContactForm locale="en" topic="learning-with-mark" initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/Your current experience/), { target: { value: "studied" } });
+    fireEvent.change(screen.getByLabelText(/Available study time/), { target: { value: "Evenings" } });
+    fireEvent.submit(screen.getByRole("form"));
+    await waitFor(() => expect(screen.getByText("The 2026 ICT Mentorship enquiry window has closed. The free Academy remains available.")).toBeTruthy());
+    expect((screen.getByRole("button", { name: "Send mentorship enquiry" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByDisplayValue(initialValues.message)).toBeTruthy();
+    expect(screen.queryByText("Your interest has been recorded")).toBeNull();
+    expect(screen.getByRole("link", { name: "Explore the Free Academy" }).getAttribute("href")).toBe("/en/learn-trading-free");
+  });
 });
 
 describe("owner information reply", () => {
@@ -68,7 +82,10 @@ describe("owner information reply", () => {
     await waitFor(() => expect(screen.getByText("Reply copied. No message has been sent.")).toBeTruthy());
     expect(copy.mock.calls[0][0]).toContain("https://www.alphatraders.co.il/ar/learn-with-mark#mark-explains");
     expect(copy.mock.calls[0][0]).toContain("7:44");
-    expect(copy.mock.calls[0][0]).not.toMatch(/7500|6700|6500|learner@example/);
+    expect(copy.mock.calls[0][0]).toContain("₪6,700");
+    expect(copy.mock.calls[0][0]).toContain("₪7,500");
+    expect(copy.mock.calls[0][0]).toContain("برنامج واحد");
+    expect(copy.mock.calls[0][0]).not.toMatch(/6,?500|learner@example/);
     expect(fetch).not.toHaveBeenCalled();
   });
 

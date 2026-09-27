@@ -41,6 +41,7 @@ const seo = load("src/lib/seo.ts", {
 });
 const breadcrumb = load("src/lib/seo-breadcrumb.ts");
 const navigation = load("src/components/seo/public-discovery-breadcrumbs.tsx", { "next/link": { default: "test-link" } });
+const mentorshipOffer = load("src/lib/ict-mentorship-offer.ts");
 const robots = load("src/app/robots.ts", { "@/lib/seo-indexing": indexing }).default();
 const sitemap = load("src/app/sitemap.ts").default();
 const pages = ["start", "learn-trading-free", "buy-usdt-israel", "learn-with-mark"];
@@ -50,6 +51,7 @@ const learningNextStep = load("src/components/academy/learning-next-step.tsx", {
   "@/components/ui/button": { buttonVariants: () => "test-button" },
 });
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
+  "@/lib/ict-mentorship-offer": mentorshipOffer,
   "@/lib/seo": seo,
   "@/lib/seo-breadcrumb": breadcrumb,
   "@/components/seo/public-discovery-breadcrumbs": navigation,

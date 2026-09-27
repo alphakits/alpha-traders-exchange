@@ -177,6 +177,7 @@ export function ContactForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [intakeClosed, setIntakeClosed] = useState(false);
   const [learningDetails, setLearningDetails] = useState<{ experience: LearningDetails["experience"] | ""; availability: string }>({ experience: "", availability: "" });
   const honeypotRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
@@ -194,7 +195,7 @@ export function ContactForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (submittingRef.current) return;
+    if (submittingRef.current || intakeClosed) return;
 
     const errors = validateClient(values, t);
     if (isLearningInterest) {
@@ -230,6 +231,16 @@ export function ContactForm({
           website: honeypotRef.current?.value ?? "",
         }),
       });
+
+      if (isLearningInterest && res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "mentorship_intake_closed") {
+          setIntakeClosed(true);
+          setStatus("error");
+          setErrorMsg(locale === "ar" ? "انتهت نافذة استقبال طلبات ICT Mentorship لعام 2026. الأكاديمية المجانية ما زالت متاحة." : "The 2026 ICT Mentorship enquiry window has closed. The free Academy remains available.");
+          return;
+        }
+      }
 
       if (res.status === 429) {
         setStatus("error");
@@ -450,7 +461,8 @@ export function ContactForm({
         </ActionFeedback>
       )}
 
-      <Button type="submit" disabled={status === "loading"} className="gap-2 self-start">
+      {intakeClosed ? <a href={`/${locale}/learn-trading-free`} className="text-sm text-[#C9A227] underline">{locale === "ar" ? "استكشف الأكاديمية المجانية" : "Explore the Free Academy"}</a> : null}
+      <Button type="submit" disabled={status === "loading" || intakeClosed} className="gap-2 self-start">
         {status === "loading" ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

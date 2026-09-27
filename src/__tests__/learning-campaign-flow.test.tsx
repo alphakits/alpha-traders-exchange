@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { NextRequest } from "next/server";
@@ -17,6 +17,9 @@ vi.mock("@/i18n/navigation", () => ({ Link: (props: AnchorHTMLAttributes<HTMLAnc
 import { POST } from "@/app/api/contact/route";
 import Inbox from "@/app/[locale]/admin/learning-interest/page";
 import { readLearningInterests } from "@/lib/learning-interest-store";
+
+beforeEach(() => { vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T11:00:00Z")); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 it("persists a campaign enquiry through the API and displays it only to the owner; RLS denies client roles", async () => {
   const db = new PGlite();

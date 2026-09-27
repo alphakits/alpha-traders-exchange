@@ -6,6 +6,7 @@ import { logEvent } from "@/lib/structured-logging";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { formatLearningMessage, LEARNING_INTEREST_SUBJECT, LEARNING_INTEREST_TOPIC } from "@/lib/learning-interest";
 import { learningCampaignLink } from "@/lib/learning-campaign";
+import { isIctMentorshipIntakeOpen } from "@/lib/ict-mentorship-offer";
 
 const RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -99,6 +100,11 @@ export async function POST(request: NextRequest) {
   }
 
   const { name, email, locale } = parsed.data;
+  const isMentorshipEnquiry = parsed.data.topic === LEARNING_INTEREST_TOPIC
+    || Object.values(LEARNING_INTEREST_SUBJECT).some(subject => subject === parsed.data.subject);
+  if (isMentorshipEnquiry && !isIctMentorshipIntakeOpen()) {
+    return NextResponse.json({ error: "mentorship_intake_closed" }, { status: 409, headers: RESPONSE_HEADERS });
+  }
   const message = parsed.data.topic === LEARNING_INTEREST_TOPIC && parsed.data.learningDetails
     ? formatLearningMessage(parsed.data.message, parsed.data.learningDetails, locale)
     : parsed.data.message;
