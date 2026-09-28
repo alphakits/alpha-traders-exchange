@@ -87,7 +87,7 @@ describe("USD News page", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...feed, events: [{ ...event, scheduledAt: "2026-09-23T11:30:00Z", actual: "0.4%" }] })));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-    fireEvent.click(screen.getByRole("button", { name: "Results", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Results" }));
     expect(screen.getByText("0.4%")).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(2);
   });
