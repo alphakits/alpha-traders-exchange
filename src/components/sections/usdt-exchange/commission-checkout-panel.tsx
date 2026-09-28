@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { runClientRequest } from "@/lib/client-request-deadline";
 import { getClientCommissionWalletForNetwork } from "@/lib/commission-config";
 import type { CommissionCheckout } from "@/lib/commission-checkout-workflow";
 interface CheckoutState {
@@ -12,25 +14,43 @@ interface CheckoutState {
 }
 const ENDPOINT = "/api/alpha-exchange/commissions/checkout";
 function valid(value: unknown): value is CheckoutState {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as CheckoutState;
-  return ["ready", "waiting", "paid", "changed"].includes(state.status) && Number.isSafeInteger(state.pendingCount) && state.pendingCount >= 0
-    && Number.isFinite(state.totalDueUsdt) && state.totalDueUsdt >= 0
-    && (!state.checkout || (Number.isSafeInteger(state.checkout.expectedMicros) && state.checkout.expectedMicros > 0
-      && Number.isSafeInteger(state.checkout.dueMicros) && state.checkout.dueMicros > 0
-      && typeof state.walletAddress === "string" && ["TRC20", "BEP20"].includes(state.checkout.network)
-      && state.walletAddress === getClientCommissionWalletForNetwork(state.checkout.network)));
+  if (!["ready", "waiting", "paid", "changed"].includes(state.status)
+    || !Number.isSafeInteger(state.pendingCount) || state.pendingCount < 0
+    || !Number.isFinite(state.totalDueUsdt) || state.totalDueUsdt < 0
+    || (state.pendingCount === 0) !== (state.totalDueUsdt === 0)) return false;
+  if (state.status === "paid" && state.pendingCount !== 0) return false;
+  if (state.status === "ready" || state.status === "paid") return state.checkout === null && state.walletAddress === null;
+  const checkout = state.checkout;
+  return Boolean(checkout && typeof checkout === "object" && !Array.isArray(checkout)
+    && typeof checkout.id === "string" && checkout.id && typeof checkout.sellerId === "string" && checkout.sellerId
+    && Number.isSafeInteger(checkout.expectedMicros) && checkout.expectedMicros > 0
+    && Number.isSafeInteger(checkout.dueMicros) && checkout.dueMicros > 0
+    && Math.abs(checkout.expectedMicros - checkout.dueMicros) <= 1_000_000
+    && (state.status !== "waiting" || state.pendingCount > 0)
+    && ["TRC20", "BEP20"].includes(checkout.network)
+    && state.walletAddress === getClientCommissionWalletForNetwork(checkout.network));
 }
-export function CommissionCheckoutPanel({ isAr, embedded = false, onSettled }: { isAr: boolean; embedded?: boolean; onSettled?: () => void }) {
+type PanelProps = { isAr: boolean; embedded?: boolean; onSettled?: () => void };
+export function CommissionCheckoutPanel(props: PanelProps) {
+  const session = useOptionalCanonicalSession();
+  // Account changes must discard the previous seller's amounts and requests.
+  return <CheckoutContent key={session ? session.user?.id ?? "signed-out" : "server-authorized"}
+    {...props} sessionAvailable={!session || Boolean(session.user)} />;
+}
+function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }: PanelProps & { sessionAvailable: boolean }) {
   const [data, setData] = useState<CheckoutState | null>(null);
   const [network, setNetwork] = useState<"TRC20" | "BEP20">("TRC20");
   const [amount, setAmount] = useState("");
   const [notSent, setNotSent] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [authorized, setAuthorized] = useState(true);
+  const [authorized, setAuthorized] = useState(sessionAvailable);
   const [copied, setCopied] = useState("");
   const controller = useRef<AbortController | null>(null);
+  const mutation = useRef<AbortController | null>(null);
+  const authorizedRef = useRef(sessionAvailable);
   const mounted = useRef(true);
   const settledNotified = useRef(false);
   const settledCallback = useRef(onSettled);
@@ -42,47 +62,95 @@ export function CommissionCheckoutPanel({ isAr, embedded = false, onSettled }: {
     } else if (data && data.pendingCount > 0) settledNotified.current = false;
   }, [data]);
   const message = (en: string, ar: string) => isAr ? ar : en;
+  const cancelRead = useCallback(() => {
+    const current = controller.current;
+    controller.current = null;
+    current?.abort();
+  }, []);
+  const deny = useCallback(() => {
+    authorizedRef.current = false;
+    cancelRead();
+    const current = mutation.current;
+    mutation.current = null;
+    current?.abort();
+    setAuthorized(false); setData(null); setAmount(""); setNotSent(false); setCopied(""); setBusy(false);
+    setError(isAr ? "سجّل الدخول بحساب البائع." : "Sign in with your seller account.");
+  }, [cancelRead, isAr]);
   const refresh = useCallback(async () => {
-    if (!mounted.current || controller.current || !authorized) return;
+    if (!mounted.current || controller.current || mutation.current || !authorizedRef.current
+      || document.hidden || navigator.onLine === false) return;
     const current = new AbortController(); controller.current = current;
-    const timer = setTimeout(() => current.abort(), 12_000);
     try {
-      const response = await fetch(ENDPOINT, { cache: "no-store", credentials: "same-origin", signal: current.signal });
+      const { response, value } = await runClientRequest(current, 12_000, async (signal) => {
+        const response = await fetch(ENDPOINT, { cache: "no-store", credentials: "same-origin", signal });
+        if (response.status === 401 || response.status === 403) return { response, value: null };
+        return { response, value: await response.json() as unknown };
+      });
+      if (!mounted.current || controller.current !== current || current.signal.aborted || !authorizedRef.current) return;
       if (response.status === 401 || response.status === 403) {
-        if (mounted.current && controller.current === current) { setAuthorized(false); setData(null); setError(isAr ? "سجّل الدخول بحساب البائع." : "Sign in with your seller account."); }
+        deny();
         return;
       }
-      const value: unknown = await response.json();
       if (!response.ok || !valid(value)) throw new Error("unavailable");
-      if (mounted.current && controller.current === current) { setData(value); setError(""); setAmount((previous) => previous || value.totalDueUsdt.toFixed(2)); }
+      setData(value); setError(""); setAmount((previous) => previous || value.totalDueUsdt.toFixed(2));
     } catch {
       if (mounted.current && controller.current === current) { setData(null); setError(isAr ? "تعذر تحديث حالة الدفع. لا ترسل دفعة أخرى؛ أعد المحاولة." : "Payment status is unavailable. Do not send another payment; retry the status check."); }
-    } finally { clearTimeout(timer); if (controller.current === current) controller.current = null; }
-  }, [authorized, isAr]);
+    } finally { if (controller.current === current) controller.current = null; }
+  }, [deny, isAr]);
   useEffect(() => {
-    mounted.current = true; void refresh();
-    const poll = () => { if (!document.hidden) void refresh(); };
+    mounted.current = true; setBusy(false);
+    if (!authorizedRef.current) deny();
+    else void refresh();
+    const poll = () => {
+      if (document.hidden || navigator.onLine === false) cancelRead();
+      else void refresh();
+    };
     const timer = setInterval(poll, 30_000);
     window.addEventListener("focus", poll); document.addEventListener("visibilitychange", poll);
-    return () => { mounted.current = false; clearInterval(timer); window.removeEventListener("focus", poll); document.removeEventListener("visibilitychange", poll); controller.current?.abort(); };
-  }, [refresh]);
+    window.addEventListener("online", poll); window.addEventListener("offline", poll);
+    window.addEventListener("alpha-auth-signed-out", deny);
+    return () => {
+      mounted.current = false; clearInterval(timer);
+      window.removeEventListener("focus", poll); document.removeEventListener("visibilitychange", poll);
+      window.removeEventListener("online", poll); window.removeEventListener("offline", poll);
+      window.removeEventListener("alpha-auth-signed-out", deny);
+      cancelRead();
+      const current = mutation.current; mutation.current = null; current?.abort();
+    };
+  }, [cancelRead, deny, refresh]);
   async function create() {
-    if (busy || !data || !notSent || !authorized || data.checkout) return;
+    if (mutation.current || !data || !notSent || !authorizedRef.current || data.checkout || navigator.onLine === false) return;
+    cancelRead();
+    const current = new AbortController(); mutation.current = current;
     setBusy(true); setError("");
+    let reconcile = true;
     try {
-      const response = await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ network, desiredAmount: amount, hasNotPaidYet: true }), signal: AbortSignal.timeout(20_000) });
-      const result = await response.json();
-      if (!mounted.current) return;
-      if (response.status === 401 || response.status === 403) { setAuthorized(false); setData(null); }
-      if (!response.ok) {
-        if (result.error === "outside_tolerance") throw new Error(isAr ? "المبلغ يجب أن يكون ضمن فرق 1 USDT من مجموع العمولات." : "The amount must be within 1 USDT of the commission total.");
-        throw new Error(isAr ? "تعذر إنشاء تعليمات الدفع. حدّث الحالة قبل أي تحويل جديد." : "Payment instructions could not be created. Refresh the status before making any transfer.");
+      const { response, result } = await runClientRequest(current, 20_000, async (signal) => {
+        const response = await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ network, desiredAmount: amount, hasNotPaidYet: true }), signal });
+        if (response.status === 401 || response.status === 403) return { response, result: null };
+        return { response, result: await response.json() as unknown };
+      });
+      if (!mounted.current || mutation.current !== current || !authorizedRef.current) return;
+      if (response.status === 401 || response.status === 403) { deny(); return; }
+      if (!response.ok && result && typeof result === "object" && "error" in result && result.error === "outside_tolerance") {
+        reconcile = false;
+        setError(isAr ? "المبلغ يجب أن يكون ضمن فرق 1 USDT من مجموع العمولات." : "The amount must be within 1 USDT of the commission total.");
       }
-      controller.current?.abort(); controller.current = null;
-      await refresh();
-    } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : "Payment unavailable"); }
-    finally { if (mounted.current) setBusy(false); }
+    } catch {
+      // A lost response can still mean the server issued the checkout. Read its
+      // canonical state; never automatically repeat a financial mutation.
+    } finally {
+      if (mounted.current && mutation.current === current && authorizedRef.current) {
+        mutation.current = null;
+        if (reconcile) {
+          setData(null); setNotSent(false); setCopied("");
+          setError(isAr ? "جارٍ التحقق من حالة الدفع. لا ترسل دفعة أخرى." : "Checking the payment status. Do not send another payment.");
+          await refresh();
+        }
+        if (mounted.current && authorizedRef.current) setBusy(false);
+      }
+    }
   }
   async function copy(text: string, label: string) {
     try { await navigator.clipboard.writeText(text); setCopied(label); }

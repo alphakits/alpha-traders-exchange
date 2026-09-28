@@ -5,6 +5,7 @@ import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { AppLocale } from "@/i18n/routing";
 import { clearClientLocaleChoice } from "@/i18n/locale-preference";
 import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { runClientRequest } from "@/lib/client-request-deadline";
 
 export type CanonicalSessionRefreshResult = "authenticated" | "anonymous" | "unavailable";
 
@@ -85,17 +86,17 @@ export function CanonicalSessionProvider({
     lastReadStartedAtRef.current = Date.now();
     const requestId = ++requestIdRef.current;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), CANONICAL_SESSION_READ_TIMEOUT_MS);
-    const cancelRead = () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
+    const cancelRead = () => controller.abort();
     cancelReadRef.current = cancelRead;
     const request = (async () => {
       if (shouldBlock) setIsResolving(true);
       try {
-        const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include", signal: controller.signal });
-        const payload = (await response.json().catch(() => null)) as { user?: ClientSessionUser | null } | null;
+        const { response, payload } = await runClientRequest(controller, CANONICAL_SESSION_READ_TIMEOUT_MS, async (signal) => {
+          const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include", signal });
+          if (response.status === 401 || response.status === 403) return { response, payload: null };
+          const payload = (await response.json().catch(() => null)) as { user?: ClientSessionUser | null } | null;
+          return { response, payload };
+        });
         if (!response.ok) {
           const result: CanonicalSessionRefreshResult = response.status === 401 || response.status === 403 ? "anonymous" : "unavailable";
           if (mountedRef.current && requestId === requestIdRef.current) {
@@ -127,7 +128,6 @@ export function CanonicalSessionProvider({
         }
         return "unavailable" as const;
       } finally {
-        clearTimeout(timeout);
         if (cancelReadRef.current === cancelRead) cancelReadRef.current = null;
         if (shouldBlock && mountedRef.current && requestId === requestIdRef.current) setIsResolving(false);
       }

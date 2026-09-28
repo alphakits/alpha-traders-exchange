@@ -36,6 +36,7 @@ import {
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
+import { runClientRequest } from "@/lib/client-request-deadline";
 import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -96,6 +97,17 @@ type TradeRoomChatPostPayload = {
   error?: string;
   message?: TradeChatMessage;
 };
+
+function confirmsChatMessage(value: unknown, requestId: string, actorId: string, clientMessageId: string): value is TradeChatMessage {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const message = value as TradeChatMessage;
+  return typeof message.id === "string" && Boolean(message.id) && !message.id.startsWith("optimistic-msg-")
+    && message.kind === "user" && message.purchaseRequestId === requestId
+    && message.senderUserId === actorId && message.clientMessageId === clientMessageId
+    && typeof message.message === "string" && typeof message.createdAt === "string"
+    && Number.isFinite(Date.parse(message.createdAt))
+    && Array.isArray(message.readByUserIds) && message.readByUserIds.every(id => typeof id === "string");
+}
 
 type ActorSession = {
   id: string;
@@ -1502,8 +1514,13 @@ function TradeRoomPageSession({
     }
     try {
       const startedAt = performance.now();
-      const response = await fetch(`/api/alpha-exchange/trade-room/${requestId}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
-      const payload = (await response.json()) as TradeRoomData & { error?: string; message?: string };
+      const { response, payload } = await runClientRequest(new AbortController(), 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/trade-room/${requestId}`, { cache: "no-store", signal });
+        // Revoked access must clear cached private content even when its error body stalls.
+        const payload = [401, 403, 404].includes(response.status) ? {}
+          : await response.json();
+        return { response, payload: payload as TradeRoomData & { error?: string; message?: string } };
+      });
       if (!response.ok) {
         if (response.status === 401) void refreshCanonicalSession?.({ force: true });
         if (response.status === 401 || response.status === 403 || response.status === 404) {
@@ -2042,8 +2059,11 @@ function TradeRoomPageSession({
     setBankDetailsBusy(true);
     setBankDetailsError(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/trade-room/${bankDetailsRequestId}/bank-details`, { method: "POST", cache: "no-store" });
-      const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
+      const { response, payload } = await runClientRequest(new AbortController(), 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/trade-room/${bankDetailsRequestId}/bank-details`, { method: "POST", cache: "no-store", signal });
+        const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
+        return { response, payload };
+      });
       if (!response.ok || !payload.bankDetails) {
         throw new Error(isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : (payload.error ?? "Failed to load bank details."));
       }
@@ -2063,6 +2083,9 @@ function TradeRoomPageSession({
     } catch (error) {
       setBankDetails(null);
       setBankDetailsError(localizedCaughtError(error, isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details.", isAr));
+      // Revealing details may have committed before the response was lost.
+      // Reconcile the cancellation gate without repeating the reveal action.
+      void fetchRoom(true);
     } finally {
       setBankDetailsBusy(false);
     }
@@ -2182,13 +2205,16 @@ function TradeRoomPageSession({
           clickToFetchMs: Math.round(responseStartedAt - startedAt),
         });
       }
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15_000),
+      const { response, responsePayload } = await runClientRequest(new AbortController(), 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal,
+        });
+        const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; destination?: string; metrics?: { totalMs?: number } };
+        return { response, responsePayload };
       });
-      const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; destination?: string; metrics?: { totalMs?: number } };
       const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
       // T2+T3: server timings from response headers
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
@@ -2358,34 +2384,42 @@ function TradeRoomPageSession({
         response = null;
         payload = null;
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), CHAT_SEND_TIMEOUT_MS);
         try {
-          response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRoom.request.id}/messages`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: requestBody,
-            signal: controller.signal,
+          const result = await runClientRequest(controller, CHAT_SEND_TIMEOUT_MS, async (signal) => {
+            const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRoom.request.id}/messages`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: requestBody,
+              signal,
+            });
+            const payload = response.status === 401 || response.status === 403 ? null
+              : await response.json().catch(() => null) as TradeRoomChatPostPayload | null;
+            return { response, payload };
           });
-          payload = await response.json().catch(() => null) as TradeRoomChatPostPayload | null;
+          response = result.response;
+          payload = result.payload;
           if (response.status === 401 && attempt === 0 && refreshCanonicalSession) {
             const sessionResult = await refreshCanonicalSession({ force: true });
             if (sessionResult === "authenticated") continue;
           }
           if (isRetryableChatResponse(response.status) && attempt === 0) continue;
+          if (response.ok && !confirmsChatMessage(payload?.message, currentRoom.request.id, actor.id, clientMessageId)) {
+            throw new Error("Message acknowledgement is unavailable.");
+          }
           break;
         } catch (error) {
+          response = null;
+          payload = null;
           lastNetworkError = error;
           if (attempt === 0) continue;
-        } finally {
-          window.clearTimeout(timeout);
         }
       }
       if (!response) {
         throw new Error(
           isAr
-            ? "تعذر الاتصال بالخادم. لم يتم إرسال الرسالة، وتمت إعادتها إلى مربع الكتابة."
-            : "Could not reach the server. Your message was not sent and has been restored in the message box.",
+            ? "تعذر تأكيد استلام الرسالة. تمت إعادة النص إلى مربع الكتابة؛ حاول مرة أخرى."
+            : "Message delivery could not be confirmed. Your draft is restored; please try again.",
           { cause: lastNetworkError },
         );
       }

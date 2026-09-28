@@ -7,6 +7,7 @@ import { useRef, useState, type ReactNode } from "react";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ClientRequestTimeoutError, runClientRequest } from "@/lib/client-request-deadline";
 
 export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor, onUpdated, onBusyChange }: {
   request: PurchaseRequest; actorId: string; isAr: boolean; disabled?: boolean;
@@ -36,15 +37,20 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, amountEditor
     if (onBusyChange?.(true) === false) return;
     inFlight.current = true; setBusy(true); setError("");
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
-        body: JSON.stringify({ action, value, proposalId: proposal?.id, expectedUpdatedAt: request.updatedAt, safetyAcknowledged: safety }),
+      const { response, body } = await runClientRequest(new AbortController(), 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, signal,
+          body: JSON.stringify({ action, value, proposalId: proposal?.id, expectedUpdatedAt: request.updatedAt, safetyAcknowledged: safety }),
+        });
+        const body = await response.json() as { request?: PurchaseRequest; error?: string };
+        return { response, body };
       });
-      const body = await response.json() as { request?: PurchaseRequest; error?: string };
       if (!response.ok || !body.request) throw new Error(body.error || "Could not confirm the change. Refresh and try again.");
       onUpdated(body.request); setValue(""); setEditing(false);
     } catch (caught) {
-      setError(isAr ? "تعذر تأكيد التغيير. تحقق من المبلغ وحدود العرض وحدّث الصفقة. للسحب دون بطاقة يجب مطابقة مبلغ رمز المشتري." : caught instanceof Error ? caught.message : "Could not confirm the change.");
+      setError(isAr ? "تعذر تأكيد التغيير. تحقق من المبلغ وحدود العرض وحدّث الصفقة. للسحب دون بطاقة يجب مطابقة مبلغ رمز المشتري."
+        : caught instanceof ClientRequestTimeoutError ? "The change could not be confirmed. Check the latest trade status before trying again."
+        : caught instanceof Error ? caught.message : "Could not confirm the change.");
     } finally { inFlight.current = false; setBusy(false); onBusyChange?.(false); }
   }
 
