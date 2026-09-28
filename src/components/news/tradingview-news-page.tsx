@@ -63,12 +63,12 @@ export function TradingViewNewsPage({ locale, eventId }: { locale: NewsLocale; e
         </div>
 
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3 text-xs leading-relaxed text-[#9CA3AF]">
-          <p className="max-w-xl">{isAr ? "تحقق من المنطقة الزمنية بجانب موعد الحدث. يمكنك تغيير الفلاتر داخل التقويم. بعض أسماء المؤشرات متاحة بالإنجليزية فقط." : "Check the timezone beside each event time. You can adjust the filters inside the calendar."}</p>
+          <p className="max-w-xl">{isAr ? "تحقق من المنطقة الزمنية لموعد الحدث. يمكنك تغيير الفلاتر داخل التقويم. بعض أسماء المؤشرات متاحة بالإنجليزية فقط." : "Check each event’s timezone. You can adjust the filters inside the calendar."}</p>
           <a href={calendarUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 text-[#D4AF37] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37]">{isAr ? "فتح في TradingView" : "Open on TradingView"}<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></a>
         </div>
 
         <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label={isAr ? "حالة إشعارات الأخبار" : "News alert status"}>
-          <div className="flex items-center gap-2"><BellOff className="h-4 w-4 text-[#D4AF37]" aria-hidden="true" /><h2 className="font-semibold text-white">{isAr ? "إشعارات أخبار Alpha Traders" : "Alpha Traders news alerts"}</h2></div>
+          <div className="flex items-center gap-2"><BellOff className="h-4 w-4 text-[#D4AF37]" aria-hidden="true" /><h2 className="font-semibold text-white">{brandText(isAr ? "إشعارات أخبار Alpha Traders" : "Alpha Traders news alerts")}</h2></div>
           <p className="mt-2 text-sm leading-relaxed text-[#BAC2CF]">{isAr ? "التقويم متاح للمتابعة هنا. إشعارات نتائج الأخبار عبر جرس التطبيق والبريد الإلكتروني غير مفعّلة حاليًا." : "Follow the calendar here. News-result notifications through the app bell and email are not active yet."}</p>
         </section>
         <p className="mt-5 text-xs leading-relaxed text-[#8F96A3]">{isAr ? "قد تتغير مواعيد الإصدار وتتأخر البيانات. النتائج معلومات اقتصادية ولا تضمن اتجاه حركة السوق." : "Release times may change and data may be delayed. Results are economic information and do not guarantee a market direction."}</p>
