@@ -12,6 +12,7 @@ import ExchangeRoute from "@/app/[locale]/usdt-exchange/page";
 
 const origin = "https://www.alphatraders.co.il";
 const privatePaths = ["dashboard", "dashboard/seller", "dashboard/seller/compliance-payment", "trade-room", "trade-room/test-trade", "trades", "profile", "settings", "notifications", "onboarding", "verify-account", "academy", "academy/course", "lessons", "lessons/example", "admin", "admin/alpha-exchange", "admin/discord"];
+privatePaths.push("prop-firms", "prop-firms/topstep", "prop-firms/my-funded-futures", "prop-firms/apex", "prop-firms/ftmo", "prop-firms/fundingpips");
 
 describe("signed-out page access", () => {
   it.each(["en", "ar"])("sends guest exchange visitors to %s login and retains marketplace filters", locale => {
