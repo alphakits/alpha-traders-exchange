@@ -39,7 +39,8 @@ test("marketplace dashboard loader no longer depends on optional analytics reads
 test("independent live endpoint keeps source isolation and owner access", () => {
   const store = read("src/lib/owner-live-analytics-store.ts");
   assert.match(store, /readOwnerPresenceAnalytics/);
-  assert.match(store, /capture\(readOwnerTrafficAnalytics\)/);
+  assert.match(store, /capture\(\(\) => readOwnerTrafficAnalytics\(reportingStartedAt\)\)/);
+  assert.match(store, /readOwnerPresenceAnalytics\(reportingStartedAt\)/);
   assert.match(store, /status: "unavailable", asOf: null, data: null/);
   const route = read("src/app/api/admin/live-analytics/route.ts");
   assert.match(route, /await requireApiOwner\(\)/);

@@ -31,10 +31,11 @@ const now = Date.parse("2026-09-25T04:40:00Z");
 const unavailable = () => ({ status: "unavailable", asOf: null, data: null });
 const traffic = () => ({ visitorsToday: 2, sessionsToday: 3, pageViewsToday: 5_000,
   webToday: 1, iosToday: 1, androidToday: 1, mobileToday: 2, desktopToday: 1,
-  topPages: [{ path: "/en/start", views: 5_000 }], sources: [{ source: "Direct", sessions: 3 }] });
+  topPages: [{ path: "/start", uniqueVisitors: 2, views: 5_000 }],
+  allTimePages: [{ path: "/start", uniqueVisitors: 2, views: 5_000 }], sources: [{ source: "Direct", sessions: 3 }] });
 const presence = () => ({ onlineNow: 0, activeToday: 5, activeLast7Days: 10, activeLast30Days: 10 });
 const ready = (data, time = now) => ({ status: "ready", asOf: new Date(time).toISOString(), data });
-const snapshot = () => ({ timeZone: "Asia/Jerusalem", presence: ready(presence()), traffic: ready(traffic()) });
+const snapshot = () => ({ timeZone: "Asia/Jerusalem", reportingStartedAt: new Date(now - 60_000).toISOString(), presence: ready(presence()), traffic: ready(traffic()) });
 const clean = (value) => JSON.parse(JSON.stringify(value));
 
 test("complete snapshot retains real counts including a genuine zero", () => {
@@ -99,6 +100,7 @@ function store({ hasDb = true, presenceRead = async () => ({ ...presence(), onli
     "@/lib/postgres-runtime": { getRuntimePostgresPool: () => hasDb ? {} : null },
     "@/lib/user-presence-store": { readOwnerPresenceAnalytics: presenceRead },
     "@/lib/traffic-analytics-store": { readOwnerTrafficAnalytics: trafficRead },
+    "@/lib/owner-analytics-period-store": { readOwnerAnalyticsStart: async () => new Date(now - 60_000).toISOString() },
     "@/lib/owner-live-analytics": model,
   });
 }
@@ -269,7 +271,7 @@ function flatten(value) {
   return value == null || typeof value === "boolean" ? "" : String(value);
 }
 function renderPanel(locale, state, open = true) {
-  let i = 0; const values = [open, state, now];
+  let i = 0; const values = [open, state, now, "all"];
   const component = load("src/components/admin/owner-live-analytics-panel.tsx", {
     react: { useState: () => [values[i++], () => {}], useRef: () => ({ current: null }), useEffect: () => {} },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
