@@ -13,6 +13,7 @@ import { HomepageStats } from "@/components/sections/home/homepage-stats";
 import { FounderPreview } from "@/components/sections/home/founder-preview";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { formatAcademyLevel } from "@/lib/academy-localization";
+import { PropGuidePromo } from "@/components/prop-firms/firm-directory";
 
 export async function HomePage({
   isAuthenticated,
@@ -127,6 +128,8 @@ export async function HomePage({
       </section>
 
       <TrustBar />
+
+      <PropGuidePromo locale={locale} />
 
       <HomepageStats />
 

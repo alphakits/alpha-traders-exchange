@@ -65,6 +65,7 @@ export async function SiteHeader({
   const nav = [
     { href: "/", label: t("home") },
     { href: "/academy", label: t("academy") },
+    { href: "/prop-firms", label: locale === "ar" ? "الشركات المموّلة" : "Prop Firms" },
     { href: "/community", label: t("community") },
     { href: "/news", label: locale === "ar" ? "الأخبار" : "News" },
     { href: "/contact", label: t("contact") },

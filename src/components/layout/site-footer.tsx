@@ -69,6 +69,7 @@ const LEARN_SECTION: FooterSection = {
   en: "Academy",
   ar: "الأكاديمية",
   items: [
+    { href: "/prop-firms", en: "Prop Firm Guides", ar: "دليل الشركات المموّلة", icon: Landmark },
     { href: "/learn-trading-free", en: "Learn Trading for Free", ar: "تعلم التداول مجانًا", icon: GraduationCap },
     { href: "/academy#courses-overview", en: "Trading Courses", ar: "دورات التداول", icon: GraduationCap },
     { href: "/lessons#beginner-guides", en: "Beginner Guides", ar: "أدلة المبتدئين", icon: FileText },
