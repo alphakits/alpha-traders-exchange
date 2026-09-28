@@ -7,10 +7,10 @@ The active iOS/Android website shell receives the same website navigation.
 ## Activation dependency
 
 The News page, normalized data API, scheduler, and opt-in in-app/email delivery
-are implemented. Live data is **disabled by default**. No provider account,
-purchase, data agreement, or API key is supplied by this change. The page
-clearly shows that news is being prepared while unconfigured; it never seeds
-production with demonstration events or fabricated actual results.
+are implemented. API ingestion and alerts are **disabled by default**. No provider
+account, purchase, data agreement, or API key is supplied by this change. While
+unconfigured, the page displays the official TradingView calendar described
+below; it never seeds production with demonstration events or fabricated results.
 
 The existing `docs/mobile/economic-calendar-post-release-plan.md` data-source
 rule remains applicable: do not scrape Forex Factory. Its weekly JSON export
@@ -80,10 +80,10 @@ activation and real provider delivery cannot be certified without that key.
 
 Official API reference:
 https://docs.tradingeconomics.com/economic_calendar/country/
-# Public calendar display (TradingView)
+## Public calendar display (TradingView)
 
 When the licensed API is `not_configured`, `/en/news` and `/ar/news` show TradingView's official economic-calendar widget instead of the preparation placeholder. The official generator settings are `countryFilter: "us"`, `importanceFilter: "0,1"` (the generator's **Only high importance** option), dark theme, responsive width, and `en` / `ar_AE`. Importance follows TradingView's classification, not Forex Factory's. Some indicator names remain English in the Arabic widget.
 
-`/api/news/calendar` serves only the public embed HTML, with the official attribution intact. It runs in an opaque-origin sandbox with a document-specific CSP for the exact vendor script and widget frame hosts. The application's global script policy stays unchanged. The wrapper offers reload and a direct TradingView link; a frame load event does not establish data freshness or release latency.
+The page uses the cross-origin iframe produced by TradingView's official generator, with attribution intact. The CSP allows the exact `https://www.tradingview-widget.com` frame origin while the application's script policy stays unchanged. The frame keeps its own origin so its browser storage/lock APIs work, without running vendor scripts in the Alpha Traders document. The wrapper offers reload and a direct TradingView link; a frame load event does not establish data freshness or release latency.
 
 This display does not ingest or cache TradingView event data, expose it through `/api/news`, or generate notifications. API credentials, the existing licensing gate, scheduler, and opt-in alert channels remain unchanged. The page explicitly says Alpha Traders news-result alerts are not active. No TradingView account or Premium subscription is required. Once the separately licensed API is configured, the existing native news view is used again.

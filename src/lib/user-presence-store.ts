@@ -119,7 +119,7 @@ export type OwnerPresenceAnalytics = {
   activeTodayUserIds: string[];
 };
 
-export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalytics> {
+export async function readOwnerPresenceAnalytics(startedAt?: string): Promise<OwnerPresenceAnalytics> {
   const pool = await presencePool();
   if (pool) {
     const { rows } = await pool.query<{
@@ -155,8 +155,9 @@ export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalyti
         coalesce(array_agg(distinct user_id) filter (
           where last_active_at >= date_trunc('day', now(), '${OWNER_ANALYTICS_TIME_ZONE}')
         ), array[]::text[]) as active_today_user_ids
-       from alpha_exchange.user_presence p`,
-      [PRESENCE_LEASE_MS, PRESENCE_IDLE_MS],
+       from alpha_exchange.user_presence p
+       where ($3::timestamptz is null or last_active_at >= $3::timestamptz)`,
+      [PRESENCE_LEASE_MS, PRESENCE_IDLE_MS, startedAt ?? null],
     );
     const row = rows[0];
     return {
@@ -170,6 +171,8 @@ export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalyti
   }
 
   const now = Date.now();
+  const start = startedAt === undefined ? -Infinity : Date.parse(startedAt);
+  if (Number.isNaN(start)) throw new RangeError("Invalid analytics start.");
   const todayKey = ownerAnalyticsDateKey(new Date(now));
   const online = new Set<string>();
   const today = new Set<string>();
@@ -178,7 +181,7 @@ export async function readOwnerPresenceAnalytics(): Promise<OwnerPresenceAnalyti
   for (const row of memory.values()) {
     const activeAt = Date.parse(row.lastActiveAt ?? "");
     const seenAt = Date.parse(row.lastSeenAt ?? "");
-    if (!Number.isFinite(activeAt)) continue;
+    if (!Number.isFinite(activeAt) || activeAt < start) continue;
     if (ownerAnalyticsDateKey(new Date(activeAt)) === todayKey) today.add(row.userId);
     if (activeAt >= now - 7 * 86_400_000) d7.add(row.userId);
     if (activeAt >= now - 30 * 86_400_000) d30.add(row.userId);

@@ -34,7 +34,10 @@ describe("USD News page", () => {
   });
   it("shows the official calendar without advertising active alerts or polling an unconfigured API", async () => {
     const { rerender } = render(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
-    expect(screen.getByTitle("TradingView USD economic calendar").getAttribute("src")).toBe("/api/news/calendar?locale=en");
+    const url = new URL(screen.getByTitle("TradingView USD economic calendar").getAttribute("src")!);
+    expect(url.origin).toBe("https://www.tradingview-widget.com");
+    expect(url.searchParams.get("locale")).toBe("en");
+    expect(JSON.parse(decodeURIComponent(url.hash.slice(1)))).toMatchObject({ countryFilter: "us", importanceFilter: "0,1" });
     expect(screen.getByText(/notifications through the app bell and email are not active/)).toBeTruthy();
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByText(/No other events/)).toBeNull();
@@ -46,8 +49,8 @@ describe("USD News page", () => {
   it("offers a recovery link and reload when the Arabic calendar takes too long", async () => {
     render(<NewsPage locale="ar" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
     const frame = screen.getByTitle("تقويم أخبار الدولار من TradingView");
-    expect(frame.getAttribute("src")).toBe("/api/news/calendar?locale=ar");
-    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(new URL(frame.getAttribute("src")!).searchParams.get("locale")).toBe("ar_AE");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-top-navigation");
     await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
     expect(screen.getByRole("status").textContent).toContain("يستغرق وقتًا أطول");
     expect(screen.getByRole("link", { name: "فتح في TradingView" }).getAttribute("href")).toBe("https://ar.tradingview.com/economic-calendar/");

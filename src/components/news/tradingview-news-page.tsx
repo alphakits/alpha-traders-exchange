@@ -12,6 +12,14 @@ export function TradingViewNewsPage({ locale, eventId }: { locale: NewsLocale; e
   const [loaded, setLoaded] = useState(false);
   const [delayed, setDelayed] = useState(false);
   const calendarUrl = isAr ? "https://ar.tradingview.com/economic-calendar/" : "https://www.tradingview.com/economic-calendar/";
+  // This cross-origin frame is produced by TradingView's official generator.
+  // Its browser APIs work without vendor scripts accessing our account page.
+  const widgetConfig = {
+    colorTheme: "dark", isTransparent: false, countryFilter: "us",
+    importanceFilter: "0,1", width: "100%", height: "100%",
+    utm_source: "www.alphatraders.co.il", utm_medium: "widget_new", utm_campaign: "events",
+  };
+  const widgetSrc = `https://www.tradingview-widget.com/embed-widget/events/?locale=${isAr ? "ar_AE" : "en"}#${encodeURIComponent(JSON.stringify(widgetConfig))}`;
 
   useEffect(() => {
     setLoaded(false);
@@ -44,13 +52,14 @@ export function TradingViewNewsPage({ locale, eventId }: { locale: NewsLocale; e
           <iframe
             key={`${locale}-${attempt}`}
             title={isAr ? "تقويم أخبار الدولار من TradingView" : "TradingView USD economic calendar"}
-            src={`/api/news/calendar?locale=${locale}`}
+            src={widgetSrc}
             className="block h-[640px] w-full border-0 sm:h-[720px]"
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             referrerPolicy="origin"
             onLoad={() => setLoaded(true)}
             onError={() => { setLoaded(false); setDelayed(true); }}
           />
+          <div className="tradingview-widget-copyright py-2 text-center text-xs text-[#9CA3AF]" dir="ltr"><a href={calendarUrl} target="_blank" rel="noopener nofollow" className="text-[#90BFF9] underline-offset-4 hover:underline">{isAr ? "التقويم الاقتصادي" : "Economic Calendar"}</a><span> by TradingView</span></div>
         </div>
 
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3 text-xs leading-relaxed text-[#9CA3AF]">

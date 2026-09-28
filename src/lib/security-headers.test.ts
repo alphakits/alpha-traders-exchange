@@ -54,4 +54,11 @@ describe("browser security headers", () => {
     const headers = buildSecurityHeaders({ isProduction: true });
     expect(new Set(headers.map((header) => header.key)).size).toBe(headers.length);
   });
+
+  it("allows the official calendar frame without granting third-party scripts access to account pages", () => {
+    const directives = cspDirectives(true);
+    expect(directives.get("frame-src")).toContain("https://www.tradingview-widget.com");
+    expect(directives.get("frame-src")).not.toContain("https:");
+    expect(directives.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
+  });
 });

@@ -20,7 +20,8 @@ export type TrafficCounts = {
   androidToday: number;
   mobileToday: number;
   desktopToday: number;
-  topPages: Array<{ path: string; views: number }>;
+  topPages: Array<{ path: string; uniqueVisitors: number; views: number }>;
+  allTimePages: Array<{ path: string; uniqueVisitors: number; views: number }>;
   sources: Array<{ source: string; sessions: number }>;
 };
 export type AnalyticsSource<T> =
@@ -28,6 +29,7 @@ export type AnalyticsSource<T> =
   | { status: "unavailable"; asOf: null; data: null };
 export type LiveAnalyticsSnapshot = {
   timeZone: typeof LIVE_ANALYTICS_TIME_ZONE;
+  reportingStartedAt: string | null;
   presence: AnalyticsSource<PresenceCounts>;
   traffic: AnalyticsSource<TrafficCounts>;
 };
@@ -51,9 +53,14 @@ function validPresence(value: unknown): value is PresenceCounts {
   return object(value) && presenceKeys.every((key) => count(value[key]));
 }
 function validTraffic(value: unknown): value is TrafficCounts {
+  const validPage = (row: unknown) => object(row) && typeof row.path === "string"
+    && row.path.length <= 240 && count(row.uniqueVisitors) && count(row.views)
+    && (row.uniqueVisitors as number) <= (row.views as number);
   return object(value) && trafficKeys.every((key) => count(value[key]))
     && Array.isArray(value.topPages) && value.topPages.length <= 8
-    && value.topPages.every((row) => object(row) && typeof row.path === "string" && row.path.length <= 240 && count(row.views))
+    && value.topPages.every(validPage)
+    && Array.isArray(value.allTimePages) && value.allTimePages.length <= 100
+    && value.allTimePages.every(validPage)
     && Array.isArray(value.sources) && value.sources.length <= 8
     && value.sources.every((row) => object(row) && typeof row.source === "string" && row.source.length <= 180 && count(row.sessions));
 }
@@ -68,8 +75,12 @@ function source<T>(value: unknown, valid: (input: unknown) => input is T, now: n
 export function parseLiveAnalytics(value: unknown, now = Date.now()): LiveAnalyticsSnapshot | null {
   if (!object(value) || value.timeZone !== LIVE_ANALYTICS_TIME_ZONE
     || !object(value.presence) || !object(value.traffic)) return null;
+  if (value.reportingStartedAt !== null && (typeof value.reportingStartedAt !== "string"
+    || !Number.isFinite(Date.parse(value.reportingStartedAt)) || Date.parse(value.reportingStartedAt) > now + 60_000)) return null;
+  if (value.reportingStartedAt === null && (value.presence.status !== "unavailable" || value.traffic.status !== "unavailable")) return null;
   return {
     timeZone: LIVE_ANALYTICS_TIME_ZONE,
+    reportingStartedAt: value.reportingStartedAt,
     presence: source(value.presence, validPresence, now),
     traffic: source(value.traffic, validTraffic, now),
   };

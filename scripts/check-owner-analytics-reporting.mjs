@@ -87,7 +87,7 @@ test("presence counts and user lists share the Israel boundary and valid-session
   assert.equal((query.match(/date_trunc\('day', now\(\), 'Asia\/Jerusalem'\)/g) ?? []).length, 2);
   assert.equal((query.match(/s\.token_hash = p\.session_key and s\.user_id = p\.user_id and s\.expires_at > now\(\)/g) ?? []).length, 2);
   assert.equal((query.match(/coalesce\(u\.payload->>'disabled', 'false'\) <> 'true'/g) ?? []).length, 2);
-  assert.deepEqual(Array.from(parameters), [90_000, 300_000]);
+  assert.deepEqual(Array.from(parameters), [90_000, 300_000, null]);
 });
 
 test("development presence uses Israel midnight even before UTC midnight", async () => {
