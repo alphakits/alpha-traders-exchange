@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NewsPage } from "./news-page";
 import type { NewsEvent, NewsFeed } from "@/lib/economic-news/model";
@@ -58,6 +59,24 @@ describe("USD News page", () => {
     expect(screen.getByTitle("تقويم أخبار الدولار من TradingView")).not.toBe(frame);
     fireEvent.load(screen.getByTitle("تقويم أخبار الدولار من TradingView"));
     expect(screen.queryByRole("status")).toBeNull();
+  });
+  it("does not create a third-party frame before checking for the installed app shell", () => {
+    const html = renderToStaticMarkup(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
+    expect(html).not.toContain("<iframe");
+  });
+  it("gives installed apps an explicit browser action with the same filters instead of a blocked frame", () => {
+    vi.stubGlobal("ReactNativeWebView", { postMessage: vi.fn() });
+    render(<NewsPage locale="ar" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    const link = screen.getByRole("link", { name: "فتح تقويم الأخبار" });
+    const url = new URL(link.getAttribute("href")!);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(url.origin).toBe("https://www.tradingview-widget.com");
+    expect(url.searchParams.get("locale")).toBe("ar_AE");
+    expect(JSON.parse(decodeURIComponent(url.hash.slice(1)))).toMatchObject({ countryFilter: "us", importanceFilter: "0,1" });
+    expect(window.ReactNativeWebView?.postMessage).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("stops network polling in a hidden tab and refreshes released values on return", async () => {
     const visible = vi.spyOn(document, "visibilityState", "get");
