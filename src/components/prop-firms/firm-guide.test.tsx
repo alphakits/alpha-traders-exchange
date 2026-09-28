@@ -14,6 +14,17 @@ beforeEach(() => window.history.replaceState({}, "", "/en/prop-firms/topstep"));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("visitor account-selection and payout flow", () => {
+  it.each(["en", "ar"] as const)("distinguishes direct Zero accounts from evaluation programs (%s)", locale => {
+    const fundingpips = propFirms.find(f => f.slug === "fundingpips")!;
+    guide({ firm: fundingpips, initialProgram: "zero", locale });
+    const rules = document.getElementById("evaluation-rules")!;
+    expect(rules.textContent).toContain(locale === "en" ? "Direct account rules" : "شروط الحساب المباشر");
+    expect(rules.textContent).not.toContain(locale === "en" ? "Evaluation profit-concentration" : "شروط تركز ربح الامتحان");
+    expect(document.body.textContent).not.toContain(locale === "en" ? "After you pass" : "بعد النجاح، شو بصير؟");
+    field("firm-program", "two-step");
+    expect(rules.textContent).toContain(locale === "en" ? "How to pass" : "شو لازم للنجاح؟");
+  });
+
   it("switches billing and size together without retaining the previous fee", () => {
     guide();
     const cost = screen.getByText("What does it cost?").closest("details")!;

@@ -23,6 +23,7 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
   const [copyError, setCopyError] = useState(false);
   const program = firm.programs.find(p => p.id === programId)!;
   const tier = program.tiers.find(t => t.size === size) ?? program.tiers[0];
+  const direct = tier.targets.length === 0;
   const topstep = firm.slug === "topstep";
   const currentPrice = topstep && billing === "no-activation" ? tier.noActivationPrice : tier.price;
   const sources = [...new Map([...program.sources, ...firm.sources].map(source => [source.url, source])).values()];
@@ -67,7 +68,7 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
       <p className={s.selectedNote}><Info size={14} aria-hidden="true" />{currencyText(program.tagline[locale])}</p>
     </section>
     <div className={s.stats} aria-live="polite" aria-atomic="true">
-      <div className={s.stat}><span className={s.statLabel}><Target size={14} />{choose("Evaluation target · phase 1", "هدف الامتحان · المرحلة الأولى")}</span><div className={s.statValue}>{tier.targets.length ? <span className={s.money}>{usd(tier.targets[0])}</span> : choose("Direct", "مباشر")}</div><small>{tier.targets[1] ? currencyText(choose(`Phase 2: ${usd(tier.targets[1])}`, `المرحلة الثانية: ${usd(tier.targets[1])}`)) : choose("See evaluation conditions below", "راجع شروط الامتحان تحت")}</small></div>
+      <div className={s.stat}><span className={s.statLabel}><Target size={14} />{direct ? choose("Account entry", "طريقة بدء الحساب") : choose("Evaluation target · phase 1", "هدف الامتحان · المرحلة الأولى")}</span><div className={s.statValue}>{tier.targets.length ? <span className={s.money}>{usd(tier.targets[0])}</span> : choose("Direct", "مباشر")}</div><small>{tier.targets[1] ? currencyText(choose(`Phase 2: ${usd(tier.targets[1])}`, `المرحلة الثانية: ${usd(tier.targets[1])}`)) : direct ? choose("No evaluation stage", "بدون مرحلة امتحان") : choose("See evaluation conditions below", "راجع شروط الامتحان تحت")}</small></div>
       <div className={s.stat}><span className={s.statLabel}><Shield size={14} />{choose("Maximum loss allowance", "هامش الخسارة القصوى")}</span><div className={s.statValue}><span className={s.money}>{usd(tier.maxLoss)}</span></div><small>{choose("The drawdown method matters", "طريقة احتساب الحد مهمة")}</small></div>
       <div className={s.stat}><span className={s.statLabel}><Wallet size={14} />{choose("Minimum request / profit", "أقل طلب / ربح مطلوب")}</span><div className={s.statValue}><span className={s.money}>{usd(tier.minPayout)}</span></div><small>{choose("Before method / cycle exceptions", "قبل استثناءات الطريقة والدورة")}</small></div>
       <div className={s.stat}><span className={s.statLabel}><BadgeDollarSign size={14} />{choose("Base trader share", "حصة المتداول الأساسية")}</span><div className={s.statValue}>{program.payout.share}%</div><small>{choose("Other cycles may use a different split", "قد تختلف مع دورة السحب")}</small></div>
@@ -81,17 +82,17 @@ export function FirmGuide({ firm, navigation, locale, initialProgram, initialSiz
           {list([program.pricing, program.activation])}
           <a className={s.button} style={{ marginTop: 16 }} href={firm.website} target="_blank" rel="noopener noreferrer">{choose("Check the current quote", "افحص السعر الحالي")}<ExternalLink size={13} /></a>
         </Panel>
-        <Panel icon={<Target />} title={choose("01 · How to pass", "01 · شو لازم للنجاح؟")} open id="evaluation-rules">
+        <Panel icon={<Target />} title={direct ? choose("01 · Direct account rules", "01 · شروط الحساب المباشر") : choose("01 · How to pass", "01 · شو لازم للنجاح؟")} open id="evaluation-rules">
           <dl className={s.facts}>
             {tier.targets.map((target, i) => <div key={i} className={s.fact}><dt>{choose(`Phase ${i + 1} profit target`, `هدف ربح المرحلة ${i + 1}`)}</dt><dd><span className={s.money}>{usd(target)}</span></dd></div>)}
             {fact(choose("Maximum loss", "حد الخسارة الكلي"), <span className={s.money}>{usd(tier.maxLoss)}</span>)}
             {fact(choose(topstep ? "Optional DLL" : "Daily loss (initial allowance)", topstep ? "DLL اختياري" : "الخسارة اليومية (الهامش الابتدائي)"), tier.dailyLoss ? <span className={s.money}>{usd(tier.dailyLoss)}</span> : choose("No evaluation DLL", "بدون DLL بالامتحان"))}
             {tier.contracts && fact(choose("Evaluation contracts · minis", "عقود الامتحان · ميني"), tier.contracts)}
-            {fact(choose("Minimum trading days", "أقل عدد أيام تداول"), program.evaluationDays[locale])}
+            {fact(direct ? choose("Evaluation stage", "مرحلة الامتحان") : choose("Minimum trading days", "أقل عدد أيام تداول"), program.evaluationDays[locale])}
           </dl>
           {list([program.evaluationConsistency, program.drawdown])}
         </Panel>
-        <Panel icon={<Flag />} title={choose("02 · After you pass", "02 · بعد النجاح، شو بصير؟")}>{list(program.funded)}</Panel>
+        <Panel icon={<Flag />} title={direct ? choose("02 · Starting your funded account", "02 · بداية الحساب المموّل") : choose("02 · After you pass", "02 · بعد النجاح، شو بصير؟")}>{list(program.funded)}</Panel>
         <Panel icon={<Wallet />} title={choose("03 · When and how much can I withdraw?", "03 · متى وقديش بقدر أسحب؟")} open id="payout-rules">
           {topstep && <p className={s.notice}>{currencyText(choose(`For the minimum ${usd(tier.minPayout)} request, the 50% rule needs at least ${usd(tier.minPayout * 2)} in XFA. You must ALSO complete the qualifying days and all conditions below. The full 50K/100K/150K is not a withdrawal balance.`, `لطلب أقل سحب ${usd(tier.minPayout)}، قاعدة 50% تحتاج رصيد XFA لا يقل عن ${usd(tier.minPayout * 2)}. لازم أيضاً تكمل الأيام المؤهّلة وكل الشروط تحت. حجم 50K/100K/150K ليس رصيد سحب.`))}</p>}
           {firm.slug === "apex" && <p className={s.notice}>{currencyText(choose(`First minimum request: ${usd(tier.buffer + tier.minPayout)} profit, meaning a balance of ${usd(tier.size + tier.buffer + tier.minPayout)}. This is the amount threshold; qualifying days and consistency are required too.`, `أول طلب بالحد الأدنى يحتاج ربح ${usd(tier.buffer + tier.minPayout)}، يعني رصيد ${usd(tier.size + tier.buffer + tier.minPayout)}. هذا حد المبلغ فقط؛ الأيام المؤهّلة والاتساق مطلوبان أيضاً.`))}</p>}
