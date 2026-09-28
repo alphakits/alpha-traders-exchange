@@ -69,6 +69,10 @@ News tables when activated. It never changes exchange schemas or trade rows.
 - Cron reads a bounded past/next seven-day window once per minute. Visible News
   pages refresh every 30 seconds; hidden pages stop polling. Delivery is not
   advertised as instantaneous: provider delay plus polling/caching applies.
+- Before activation, visible pages check the private News API every five minutes
+  and immediately on returning to the page or reconnecting. Manual refresh gives
+  an explicit result. Once data becomes available, the same open page switches
+  to live polling and reloads alert preferences without a document reload.
 - UI defaults to Asia/Jerusalem; device timezone is selectable. DST comes from
   IANA timezone rules. Zero is a valid actual; empty values stay blank. A passed
   scheduled time alone never establishes that a result was released.
