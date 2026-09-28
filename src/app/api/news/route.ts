@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readNewsFeed } from "@/lib/economic-news/repository";
 import { requireApiUser } from "@/lib/api-auth";
+import { newsEventId } from "@/lib/economic-news/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     return response;
   }
   const rawId = request.nextUrl.searchParams.get("event") ?? "";
-  const eventId = /^te-\d{1,24}$/.test(rawId) ? rawId : undefined;
+  const eventId = newsEventId(rawId);
   const feed = await readNewsFeed(Date.now(), eventId);
   return NextResponse.json(feed, { headers: { "Cache-Control": "private, no-store", "Vary": "Cookie" } });
 }

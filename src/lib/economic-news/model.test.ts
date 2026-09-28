@@ -12,7 +12,8 @@ describe("USD economic news data", () => {
   it("requires an explicitly licensed provider and a key, without a demo fallback", () => {
     expect(newsProviderConfigured({})).toBe(false);
     expect(newsProviderConfigured({ ECONOMIC_NEWS_PROVIDER: "trading-economics", TRADING_ECONOMICS_API_KEY: "test" })).toBe(false);
-    expect(newsProviderConfigured({ ECONOMIC_NEWS_PROVIDER: "trading-economics", TRADING_ECONOMICS_API_KEY: "test", ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED: "true" })).toBe(true);
+    expect(newsProviderConfigured({ ECONOMIC_NEWS_PROVIDER: "trading-economics", TRADING_ECONOMICS_API_KEY: "test", ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED: "true" })).toBe(false);
+    expect(newsProviderConfigured({ ECONOMIC_NEWS_PROVIDER: "trading-economics", TRADING_ECONOMICS_API_KEY: "test", ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED: "true", ECONOMIC_NEWS_WHITE_LABEL_CONFIRMED: "true" })).toBe(true);
   });
   it("includes only high-impact USD events and treats a US provider record's blank currency as USD", () => {
     const events = normalizeEconomicNews([row, { ...row, CalendarId: "2", Importance: 2 },

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { fetchEconomicNews, newsProviderConfigured } from "./provider";
 import { newsPool, persistNewsSnapshot } from "./repository";
 import { newsResultSummary, type NewsEvent } from "./model";
+import { configuredNewsProvider, newsProviderPrefix } from "./config";
 
 type Delivery = { id: string; user_id: string; channel: "inApp" | "email"; payload: NewsEvent; lease_token: string };
 
@@ -47,6 +48,8 @@ export async function deliverNewsRelease(delivery: Delivery) {
 }
 
 export async function drainNewsDeliveries(deadline: number) {
+  const provider = configuredNewsProvider();
+  if (!provider) return { sent: 0, failed: 0 };
   const pool = await newsPool();
   let sent = 0;
   let failed = 0;
@@ -56,10 +59,11 @@ export async function drainNewsDeliveries(deadline: number) {
       select id from alpha_exchange.economic_news_deliveries
       where ((status='pending' and available_at <= now()) or (status='processing' and lease_until < now()))
         and created_at > now() - interval '1 hour' and attempts < 5
+        and event_id like $2
       order by created_at, id for update skip locked limit 3
     ) update alpha_exchange.economic_news_deliveries d set status='processing',attempts=d.attempts+1,
       lease_token=$1,lease_until=now()+interval '2 minutes'
-      from due where due.id=d.id returning d.*`, [leaseToken]);
+      from due where due.id=d.id returning d.*`, [leaseToken, `${newsProviderPrefix(provider)}%`]);
     if (!rows.rows.length) break;
     await Promise.all(rows.rows.map(async (delivery) => {
       try {

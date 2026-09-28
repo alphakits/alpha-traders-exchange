@@ -1,13 +1,10 @@
 import "server-only";
 import { z } from "zod";
 import { arabicEventTitle, type NewsEvent } from "./model";
+import { configuredNewsProvider } from "./config";
+import { fetchFxStreetNews } from "./fxstreet";
 
-// No scraping or demo credentials. Activation requires a licensed server-side feed.
-export function newsProviderConfigured(env: Readonly<Record<string, string | undefined>> = process.env) {
-  return env.ECONOMIC_NEWS_PROVIDER === "trading-economics"
-    && env.ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED === "true"
-    && Boolean(env.TRADING_ECONOMICS_API_KEY?.trim());
-}
+export { newsProviderConfigured } from "./config";
 
 const value = z.union([z.string(), z.number()]).nullish();
 const providerEvent = z.object({
@@ -52,19 +49,23 @@ export function normalizeEconomicNews(raw: unknown, now = new Date()): NewsEvent
       id, providerId, title: row.Event, titleAr: arabicEventTitle(row.Event), scheduledAt,
       currency: "USD", impact: "high", actual: resultValue(row.Actual), forecast: resultValue(row.Forecast),
       previous: resultValue(row.Previous), revised: resultValue(row.Revised), reference: resultValue(row.Reference),
-      source: row.Source?.trim().slice(0, 200) || "Trading Economics", sourceUrl: sourceUrl(row.SourceURL),
+      source: row.Source?.trim().slice(0, 200) || "", sourceUrl: sourceUrl(row.SourceURL),
       providerUpdatedAt: utcTimestamp(row.LastUpdate), syncedAt: now.toISOString(),
       timing: Number(row.DateSpan ?? 0) === 0 ? "exact" : "tentative",
       kind: /speech|speaks|conference|minutes|statement|projections/i.test(row.Event) ? "speech" : "release",
     };
     const prior = events.get(id);
-    if (!prior || event.providerUpdatedAt > prior.providerUpdatedAt) events.set(id, event);
+    if (!prior || (event.providerUpdatedAt ?? "") > (prior.providerUpdatedAt ?? "")) events.set(id, event);
   }
   return [...events.values()].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
 }
 
 export async function fetchEconomicNews(now = new Date()): Promise<NewsEvent[]> {
-  if (!newsProviderConfigured()) throw new Error("News provider is not configured");
+  const provider = configuredNewsProvider();
+  if (!provider) throw new Error("News provider is not configured");
+  if (provider === "fxstreet") return fetchFxStreetNews(now, {
+    clientId: process.env.FXSTREET_CLIENT_ID!.trim(), clientSecret: process.env.FXSTREET_CLIENT_SECRET!.trim(),
+  });
   const start = new Date(now.getTime() - 7 * 86_400_000).toISOString().slice(0, 10);
   const end = new Date(now.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
   const url = new URL(`https://api.tradingeconomics.com/calendar/country/united%20states/${start}/${end}`);

@@ -21,9 +21,11 @@ The existing `docs/mobile/economic-calendar-post-release-plan.md` data-source
 rule remains applicable: do not scrape Forex Factory. Its weekly JSON export
 does not include actual results and does not establish redistribution rights.
 
-The implemented candidate adapter uses Trading Economics' documented calendar
-API, stable CalendarId, UTC timestamps, Importance=3, and US/USD filtering.
-Its impact classification is **not guaranteed to match Forex Factory exactly**.
+The candidate adapters use Trading Economics' documented calendar API (stable
+CalendarId, UTC timestamps, Importance=3) or FXStreet's current Calendar API
+(stable occurrence UUID, UTC timestamps, volatility=HIGH). Both restrict events
+to US/USD. Their impact classifications are **not guaranteed to match Forex
+Factory or TradingView exactly**.
 For an exact Forex Factory red-folder calendar, obtain a permitted API/data
 agreement and verify stable event IDs, timestamps, result availability, units,
 and redistribution/notification rights before adding that provider adapter.
@@ -36,7 +38,24 @@ cache/display data in the website and app and send result emails, configure:
 ECONOMIC_NEWS_PROVIDER=trading-economics
 TRADING_ECONOMICS_API_KEY=<server-side licensed key>
 ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED=true
+ECONOMIC_NEWS_WHITE_LABEL_CONFIRMED=true
 ```
+
+Alternatively, after an acceptable FXStreet quote and explicit rights approval:
+
+```
+ECONOMIC_NEWS_PROVIDER=fxstreet
+FXSTREET_CLIENT_ID=<server-side public/client key>
+FXSTREET_CLIENT_SECRET=<server-side private/client key>
+ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED=true
+ECONOMIC_NEWS_WHITE_LABEL_CONFIRMED=true
+```
+
+`ECONOMIC_NEWS_WHITE_LABEL_CONFIRMED` specifically confirms permission to present
+the feed in the Alpha Traders interface without supplier branding or outbound
+links. Do not set either confirmation because a quote was requested, a demo is
+accessible, or credentials alone were received. The written licence must also
+cover caching, translations, website/app redistribution and result alerts.
 
 Existing CRON_SECRET, Postgres, and Resend configuration is reused. Never place
 provider keys in NEXT_PUBLIC variables, clients, logs, PRs, or email messages.
@@ -54,6 +73,9 @@ News tables when activated. It never changes exchange schemas or trade rows.
   IANA timezone rules. Zero is a valid actual; empty values stay blank. A passed
   scheduled time alone never establishes that a result was released.
 - A first sync establishes a baseline without sending historical alerts.
+  Each provider has its own sync baseline; reads and delivery claims select
+  only that provider's event prefix. Switching providers is explicit, never an
+  automatic failover to a different impact classification or licence.
   Fresh result transitions queue alerts. Late releases can alert when an
   observed pending event gets a fresh source result. Stale catch-up and revisions
   do not generate a second release alert. Old queued deliveries expire in an hour.
@@ -69,6 +91,12 @@ News tables when activated. It never changes exchange schemas or trade rows.
   Speeches have no invented numerical result. Publisher names remain plain
   text; News never requires an external navigation. The current numeric
   calendar adapter does not supply speech transcripts/summaries.
+- FXStreet uses server-only OAuth client credentials and the `calendar` scope.
+  Access tokens stay in server memory, renew before expiry and are refreshed
+  once on 401. Authentication and feed requests reject redirects, have bounded
+  timeouts and return sanitized failures. Units and potency are retained;
+  absent actuals stay blank. Missing `lastUpdated` never becomes the local sync
+  time: such events can display but cannot trigger a release alert.
 - News links include `?event=<stable id>` and show that event first. Emails and
   notifications use bilingual factual comparisons, without market direction
   recommendations or predictions.
@@ -108,3 +136,33 @@ The interface, access gate and provider activation are distinct release states.
 Do not describe a preparation screen or successful UI/auth tests as live news
 or active alerts. Complete the licensed payload/release tests above before
 claiming full launch.
+
+## FXStreet preparation and contact status — 29 September 2026
+
+Mark approved a nonbinding pricing/licensing enquiry. It was sent from his
+iCloud account at 01:02 Europe/Bucharest to `contact@financialmarkets.media`,
+the contact published by the FXStreet white-label business provider. Sent-mail
+verification succeeded. The request asks for launch on 29 September after
+written price/rights approval, and expressly authorizes no trial, purchase or
+contract. No credential or paid subscription has been obtained.
+
+The dormant FXStreet adapter and synthetic contract tests are based on:
+
+- https://docs.fxstreet.com/api/calendar/
+- https://calendar-api.fxstreet.com/swagger/v1/openapi.json
+- https://docs.fxstreet.com/api/authentication/oauth2/v2/
+
+Before enabling cron in production, use an isolated preview with server-only
+credentials and the approved flags, then run:
+
+```
+node --conditions=react-server --import tsx scripts/verify-economic-news-provider.ts
+```
+
+This is a read-only connectivity/schema check; it prints counts only, never
+credentials or licensed event payloads, and does not write storage or send
+messages. A successful check does not certify release latency or notification
+delivery. Inspect a real upcoming-to-actual transition and a revision using
+isolated News storage and an authorized test recipient. Only then enable the
+selected provider for production. Do not fabricate production events to make
+the preparation screen appear live.

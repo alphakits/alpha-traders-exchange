@@ -62,6 +62,13 @@ describe("USD News page", () => {
     expect(screen.getByText("0.3%")).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith("/api/news", expect.objectContaining({ cache: "no-store" }));
   });
+  it("renders licensed FXStreet occurrences internally without provider branding or a fabricated update time", () => {
+    const fx = { ...event, id: "fxs-4fe1bd69-acce-4b24-9d54-f45c81708d29", source: "", providerUpdatedAt: null };
+    render(<NewsPage locale="en" initialFeed={{ ...feed, provider: null, events: [fx] }} initialNow={now} eventId={fx.id} />);
+    expect(screen.getByText("0.3%")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/FXStreet|Trading Economics|TradingView|Source updated/);
+    expect(document.querySelector('a[href^="http"]')).toBeNull();
+  });
   it.each([401, 403])("clears cached news and returns to sign-in after authorization fails with %s", async status => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status }));
     render(<NewsPage locale="ar" initialFeed={feed} initialNow={now} eventId="te-1" />);

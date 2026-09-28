@@ -2,7 +2,7 @@ import "server-only";
 import type { Pool, PoolClient } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { NEWS_STALE_AFTER_MS, shouldAlertForRelease, type NewsEvent, type NewsFeed, type NewsPreferences } from "./model";
-import { newsProviderConfigured } from "./provider";
+import { configuredNewsProvider, newsProviderConfigured, newsProviderPrefix } from "./config";
 
 // These tables belong only to News. Exchange snapshots and trade rows are never written here.
 const SCHEMA = `
@@ -13,6 +13,10 @@ const SCHEMA = `
   create index if not exists economic_news_schedule on alpha_exchange.economic_news_events(scheduled_at);
   create table if not exists alpha_exchange.economic_news_sync (
     id boolean primary key default true check (id), synced_at timestamptz not null
+  );
+  create table if not exists alpha_exchange.economic_news_provider_sync (
+    provider text primary key check (provider in ('trading-economics', 'fxstreet')),
+    synced_at timestamptz not null
   );
   create table if not exists alpha_exchange.economic_news_subscriptions (
     user_id text primary key references alpha_exchange.users(id) on delete cascade,
@@ -29,6 +33,7 @@ const SCHEMA = `
   create index if not exists economic_news_due_delivery on alpha_exchange.economic_news_deliveries(status, available_at);
   alter table alpha_exchange.economic_news_events enable row level security;
   alter table alpha_exchange.economic_news_sync enable row level security;
+  alter table alpha_exchange.economic_news_provider_sync enable row level security;
   alter table alpha_exchange.economic_news_subscriptions enable row level security;
   alter table alpha_exchange.economic_news_deliveries enable row level security;
 `;
@@ -62,21 +67,22 @@ async function initializeNewsStorage(): Promise<Pool> {
 }
 
 export async function readNewsFeed(now = Date.now(), eventId?: string): Promise<NewsFeed> {
-  if (!newsProviderConfigured()) return { status: "not_configured", updatedAt: null, provider: null, events: [] };
+  const provider = configuredNewsProvider();
+  if (!provider) return { status: "not_configured", updatedAt: null, provider: null, events: [] };
   try {
     const pool = await newsPool();
     const [sync, rows] = await Promise.all([
-      pool.query<{ synced_at: Date }>("select synced_at from alpha_exchange.economic_news_sync where id = true"),
+      pool.query<{ synced_at: Date }>("select synced_at from alpha_exchange.economic_news_provider_sync where provider = $1", [provider]),
       pool.query<{ payload: NewsEvent }>(`select payload from alpha_exchange.economic_news_events
-        where (scheduled_at >= $1 and scheduled_at <= $2) or id=$3 order by scheduled_at limit 500`,
-      [new Date(now - 7 * 86_400_000), new Date(now + 7 * 86_400_000), eventId ?? null]),
+        where ((scheduled_at >= $1 and scheduled_at <= $2) or id=$3) and id like $4 order by scheduled_at limit 500`,
+      [new Date(now - 7 * 86_400_000), new Date(now + 7 * 86_400_000), eventId ?? null, `${newsProviderPrefix(provider)}%`]),
     ]);
     const updatedAt = sync.rows[0]?.synced_at.toISOString() ?? null;
     return {
       status: !updatedAt ? "unavailable" : now - Date.parse(updatedAt) > NEWS_STALE_AFTER_MS ? "stale" : "ready",
-      updatedAt, provider: "Trading Economics", events: rows.rows.map((row) => row.payload),
+      updatedAt, provider: null, events: rows.rows.map((row) => row.payload),
     };
-  } catch { return { status: "unavailable", updatedAt: null, provider: "Trading Economics", events: [] }; }
+  } catch { return { status: "unavailable", updatedAt: null, provider: null, events: [] }; }
 }
 
 async function queueRelease(client: PoolClient, event: NewsEvent, now: Date) {
@@ -95,13 +101,15 @@ async function queueRelease(client: PoolClient, event: NewsEvent, now: Date) {
 }
 
 export async function persistNewsSnapshot(events: NewsEvent[], now = new Date()) {
+  const provider = configuredNewsProvider();
+  if (!provider || events.some((event) => !event.id.startsWith(newsProviderPrefix(provider)))) throw new Error("News provider mismatch");
   const pool = await initializeNewsStorage();
   const client = await pool.connect();
   try {
     await client.query("begin");
     const lock = await client.query<{ acquired: boolean }>("select pg_try_advisory_xact_lock(2072302) as acquired");
     if (!lock.rows[0]?.acquired) { await client.query("rollback"); return { synced: false, releases: 0 }; }
-    const sync = await client.query<{ synced_at: Date }>("select synced_at from alpha_exchange.economic_news_sync where id=true");
+    const sync = await client.query<{ synced_at: Date }>("select synced_at from alpha_exchange.economic_news_provider_sync where provider=$1", [provider]);
     // A slow older run cannot overwrite a more recent completed snapshot.
     if (sync.rows[0] && sync.rows[0].synced_at.getTime() >= now.getTime()) {
       await client.query("rollback"); return { synced: false, releases: 0 };
@@ -113,7 +121,7 @@ export async function persistNewsSnapshot(events: NewsEvent[], now = new Date())
     let releases = 0;
     for (const incoming of events) {
       const before = prior.get(incoming.id);
-      if (before && before.providerUpdatedAt > incoming.providerUpdatedAt) continue;
+      if (before?.providerUpdatedAt && (!incoming.providerUpdatedAt || before.providerUpdatedAt > incoming.providerUpdatedAt)) continue;
       const changed = Boolean(before && (before.actual !== incoming.actual || before.previous !== incoming.previous
         || before.scheduledAt !== incoming.scheduledAt || before.revised !== incoming.revised));
       const corrected = Boolean(before?.corrected || (before?.actual != null && changed));
@@ -127,8 +135,8 @@ export async function persistNewsSnapshot(events: NewsEvent[], now = new Date())
         releases++;
       }
     }
-    await client.query(`insert into alpha_exchange.economic_news_sync(id,synced_at) values(true,$1)
-      on conflict(id) do update set synced_at=excluded.synced_at`, [now]);
+    await client.query(`insert into alpha_exchange.economic_news_provider_sync(provider,synced_at) values($1,$2)
+      on conflict(provider) do update set synced_at=excluded.synced_at`, [provider, now]);
     // Expiry is isolated to News rows; completed delivery keys are retained to prevent duplicates.
     await client.query(`update alpha_exchange.economic_news_deliveries set status='expired'
       where status in ('pending','processing') and created_at < $1`, [new Date(now.getTime() - 60 * 60_000)]);

@@ -61,8 +61,8 @@ function EventCard({ event, locale, timeZone, now, selected = false }: {
       {event.revised !== null || event.corrected ? <p className="mt-2 text-xs text-amber-200">{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
       {status === "no_numeric_result" ? <p className="mt-3 text-xs text-[#9CA3AF]">{isAr ? "هذا الحدث لا يتضمن نتيجة رقمية. نص البيان أو الخطاب غير متاح في هذه التغذية." : "This event has no numeric result. The statement or speech text is not included in this feed."}</p> : null}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3 text-[11px] text-[#8F96A3]">
-        <span>{event.source}</span>
-        <span>{isAr ? "تحديث المصدر: " : "Source updated: "}{formatDate(event.providerUpdatedAt, locale, timeZone)}</span>
+        {event.source ? <span>{event.source}</span> : null}
+        {event.providerUpdatedAt ? <span>{isAr ? "تحديث المصدر: " : "Source updated: "}{formatDate(event.providerUpdatedAt, locale, timeZone)}</span> : null}
       </div>
     </article>
   );
@@ -161,7 +161,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
             {!filtered.length ? <p className="py-10 text-center text-sm text-[#9CA3AF]">{isAr ? "لا توجد أحداث أخرى مطابقة لهذا العرض." : "No other events match this view."}</p> : null}
           </>
         )}
-        {feed.updatedAt ? <p className="mt-4 text-xs text-[#8F96A3]">{feed.provider} · {isAr ? "آخر مزامنة: " : "Last synced: "}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}
+        {feed.updatedAt ? <p className="mt-4 text-xs text-[#8F96A3]">{isAr ? "آخر مزامنة: " : "Last synced: "}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}
         {user ? <div className="mt-6"><NewsPreferences key={user.id} locale={locale} /></div> : null}
         <p className="mt-5 text-xs leading-relaxed text-[#737C8C]">{isAr ? "قد تتغير مواعيد الإصدار. النتائج معلومات اقتصادية ولا تضمن اتجاه حركة السوق." : "Release times may change. Results are economic information and do not guarantee a market direction."}</p>
       </div>

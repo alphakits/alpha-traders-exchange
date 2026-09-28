@@ -24,13 +24,13 @@ describe("economic news page access", () => {
     expect(mocks.feed).not.toHaveBeenCalled();
   });
 
-  it("reads and renders the feed only after a real signed-in session resolves", async () => {
+  it.each(["te-123", "fxs-4fe1bd69-acce-4b24-9d54-f45c81708d29"])("reads %s only after a real signed-in session resolves", async eventId => {
     const feed = { status: "not_configured", updatedAt: null, provider: null, events: [] };
     mocks.session.mockResolvedValue({ id: "fixture-member" });
     mocks.feed.mockResolvedValue(feed);
-    const page = await NewsRoute({ params: Promise.resolve({ locale: "ar" }), searchParams: Promise.resolve({ event: "te-123" }) });
+    const page = await NewsRoute({ params: Promise.resolve({ locale: "ar" }), searchParams: Promise.resolve({ event: eventId }) });
     expect(mocks.session.mock.invocationCallOrder[0]).toBeLessThan(mocks.feed.mock.invocationCallOrder[0]);
-    expect(page.props).toMatchObject({ locale: "ar", initialFeed: feed, eventId: "te-123" });
+    expect(page.props).toMatchObject({ locale: "ar", initialFeed: feed, eventId });
   });
 
   it.each(["ar", "en"])("does not index the private %s page", async locale => {

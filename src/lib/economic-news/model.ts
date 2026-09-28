@@ -14,7 +14,7 @@ export type NewsEvent = {
   reference: string | null;
   source: string;
   sourceUrl: string | null;
-  providerUpdatedAt: string;
+  providerUpdatedAt: string | null;
   syncedAt: string;
   timing: "exact" | "tentative";
   kind: "release" | "speech";
@@ -31,6 +31,10 @@ export type NewsFeed = {
 export type NewsPreferences = { inApp: boolean; email: boolean };
 export const NEWS_STALE_AFTER_MS = 3 * 60_000;
 export const NEWS_RELEASE_ALERT_WINDOW_MS = 15 * 60_000;
+
+export function newsEventId(raw: unknown): string | undefined {
+  return typeof raw === "string" && /^(?:te-\d{1,24}|fxs-[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12})$/.test(raw) ? raw : undefined;
+}
 
 const ARABIC_TITLES: Record<string, string> = {
   "non farm payrolls": "الوظائف في القطاعات غير الزراعية",
@@ -69,6 +73,17 @@ const ARABIC_TITLES: Record<string, string> = {
   "ppi yoy": "مؤشر أسعار المنتجين — سنوي",
   "core ppi mom": "مؤشر أسعار المنتجين الأساسي — شهري",
   "average hourly earnings mom": "متوسط الأجر في الساعة — شهري",
+  "nonfarm payrolls": "الوظائف في القطاعات غير الزراعية",
+  "consumer price index (mom)": "مؤشر أسعار المستهلكين — شهري",
+  "consumer price index (yoy)": "مؤشر أسعار المستهلكين — سنوي",
+  "consumer price index ex food & energy (mom)": "مؤشر أسعار المستهلكين الأساسي — شهري",
+  "consumer price index ex food & energy (yoy)": "مؤشر أسعار المستهلكين الأساسي — سنوي",
+  "retail sales (mom)": "مبيعات التجزئة — شهري",
+  "gross domestic product annualized": "الناتج المحلي الإجمالي بالمعدل السنوي",
+  "core personal consumption expenditures - price index (mom)": "مؤشر أسعار نفقات الاستهلاك الشخصي الأساسي — شهري",
+  "core personal consumption expenditures - price index (yoy)": "مؤشر أسعار نفقات الاستهلاك الشخصي الأساسي — سنوي",
+  "average hourly earnings (mom)": "متوسط الأجر في الساعة — شهري",
+  "average hourly earnings (yoy)": "متوسط الأجر في الساعة — سنوي",
 };
 
 export function arabicEventTitle(title: string) {
@@ -113,6 +128,8 @@ export function newsResultSummary(event: NewsEvent, locale: NewsLocale) {
 
 export function shouldAlertForRelease(previous: NewsEvent | undefined, next: NewsEvent, now: number, initialized: boolean) {
   const age = now - Date.parse(next.scheduledAt);
+  // An unknown source-update time must never turn stale data into a new alert.
+  if (!next.providerUpdatedAt) return false;
   const sourceAge = now - Date.parse(next.providerUpdatedAt);
   return initialized && next.actual !== null && previous?.actual == null
     && next.timing === "exact" && age >= 0 && sourceAge >= -60_000 && sourceAge <= NEWS_RELEASE_ALERT_WINDOW_MS
