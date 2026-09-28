@@ -7,6 +7,7 @@ import { ArrowUpRight, CalendarDays, Clock3, Folder, RefreshCw } from "lucide-re
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Button } from "@/components/ui/button";
 import { NewsPreferences } from "./news-preferences";
+import { TradingViewNewsPage } from "./tradingview-news-page";
 import { NEWS_STALE_AFTER_MS, newsDayKey, newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
 
 type Filter = "upcoming" | "today" | "released";
@@ -67,6 +68,15 @@ function EventCard({ event, locale, timeZone, now, selected = false }: {
 }
 
 export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
+  locale: NewsLocale; initialFeed: NewsFeed; initialNow: number; eventId?: string;
+}) {
+  if (initialFeed.status === "not_configured") {
+    return <TradingViewNewsPage locale={locale} eventId={eventId} />;
+  }
+  return <ConnectedNewsPage locale={locale} initialFeed={initialFeed} initialNow={initialNow} eventId={eventId} />;
+}
+
+function ConnectedNewsPage({ locale, initialFeed, initialNow, eventId }: {
   locale: NewsLocale; initialFeed: NewsFeed; initialNow: number; eventId?: string;
 }) {
   const isAr = locale === "ar";

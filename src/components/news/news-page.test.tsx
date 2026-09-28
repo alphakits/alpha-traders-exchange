@@ -32,12 +32,29 @@ describe("USD News page", () => {
     expect(screen.getByText("تتضمن البيانات مراجعة من المصدر.")).toBeTruthy();
     expect(screen.getByText(/أعلى من المتوقع/)).toBeTruthy();
   });
-  it("distinguishes no data connection from a successful empty calendar and labels stale data", () => {
+  it("shows the official calendar without advertising active alerts or polling an unconfigured API", async () => {
     const { rerender } = render(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
-    expect(screen.getByText("USD news is being prepared")).toBeTruthy();
+    expect(screen.getByTitle("TradingView USD economic calendar").getAttribute("src")).toBe("/api/news/calendar?locale=en");
+    expect(screen.getByText(/notifications through the app bell and email are not active/)).toBeTruthy();
+    expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.queryByText(/No other events/)).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(fetch).not.toHaveBeenCalled();
     rerender(<NewsPage key="stale" locale="en" initialFeed={{ ...feed, status: "stale" }} initialNow={now} />);
     expect(screen.getByRole("status").textContent).toContain("delayed");
+  });
+  it("offers a recovery link and reload when the Arabic calendar takes too long", async () => {
+    render(<NewsPage locale="ar" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
+    const frame = screen.getByTitle("تقويم أخبار الدولار من TradingView");
+    expect(frame.getAttribute("src")).toBe("/api/news/calendar?locale=ar");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(screen.getByRole("status").textContent).toContain("يستغرق وقتًا أطول");
+    expect(screen.getByRole("link", { name: "فتح في TradingView" }).getAttribute("href")).toBe("https://ar.tradingview.com/economic-calendar/");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تحميل التقويم" }));
+    expect(screen.getByTitle("تقويم أخبار الدولار من TradingView")).not.toBe(frame);
+    fireEvent.load(screen.getByTitle("تقويم أخبار الدولار من TradingView"));
+    expect(screen.queryByRole("status")).toBeNull();
   });
   it("stops network polling in a hidden tab and refreshes released values on return", async () => {
     const visible = vi.spyOn(document, "visibilityState", "get");
