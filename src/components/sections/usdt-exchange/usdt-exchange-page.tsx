@@ -2682,15 +2682,15 @@ export function UsdtExchangePage({
     sellerProfileAbortControllerRef.current = controller;
     setIsSellerProfileLoading(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, {
-        cache: "no-store",
-        signal: controller.signal,
+      const { response, payload } = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store", signal });
+        const payload = await response.json() as { profile?: PremiumSellerProfileData; error?: string };
+        return { response, payload };
       });
-      const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
       if (requestId !== sellerProfileRequestIdRef.current || controller.signal.aborted) return;
       if (!response.ok || !payload.profile) {
         setSellerProfileData(null);
-        setStatusMessage(isAr ? safeErrorMessage("workspace", true) : (payload.error ?? safeErrorMessage("workspace", false)));
+        setStatusMessage((current) => current ?? (isAr ? safeErrorMessage("workspace", true) : (payload.error ?? safeErrorMessage("workspace", false))));
         return;
       }
       setSellerProfileData(payload.profile);
@@ -2698,7 +2698,7 @@ export function UsdtExchangePage({
       if (error instanceof Error && error.name === "AbortError") return;
       if (requestId !== sellerProfileRequestIdRef.current) return;
       setSellerProfileData(null);
-      setStatusMessage(safeErrorMessage("workspace", isAr));
+      setStatusMessage((current) => current ?? safeErrorMessage("workspace", isAr));
     } finally {
       if (requestId === sellerProfileRequestIdRef.current) {
         sellerProfileAbortControllerRef.current = null;
@@ -3175,29 +3175,33 @@ export function UsdtExchangePage({
     purchaseRequestInFlightRef.current = true;
     setIsSubmittingPurchase(true);
     try {
-      const response = await fetch("/api/alpha-exchange/purchase-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          feePolicyVersion: "buyer_seller_1pct_v1",
-          listingId: selectedListing.id,
-          usdtAmount: tradeAmount,
-          buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
-          receivingNetwork: buyerInfo.receivingNetwork,
-          ...(isCardlessAtmPaymentMethod(selectedListingPaymentMethod) ? {
-            bankName: buyerInfo.cardlessBankName,
-            cardlessWithdrawalCode: buyerInfo.cardlessWithdrawalCode,
-            cardlessVerificationKind: buyerInfo.cardlessVerificationKind,
-            cardlessVerificationValue: buyerInfo.cardlessVerificationValue,
-            cardlessIlsAmount: buyerInfo.cardlessIlsAmount,
-          } : {}),
-          paymentMethod: selectedListingPaymentMethod ?? undefined,
-          safetyAcknowledged: faceToFaceSafetyAcknowledged,
-          priceMode: purchasePriceMode,
-          offeredPrice: purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : undefined,
-        }),
+      const { response, payload } = await runClientRequest(new AbortController(), 20_000, async (signal) => {
+        const response = await fetch("/api/alpha-exchange/purchase-requests", {
+          method: "POST",
+          signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            feePolicyVersion: "buyer_seller_1pct_v1",
+            listingId: selectedListing.id,
+            usdtAmount: tradeAmount,
+            buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
+            receivingNetwork: buyerInfo.receivingNetwork,
+            ...(isCardlessAtmPaymentMethod(selectedListingPaymentMethod) ? {
+              bankName: buyerInfo.cardlessBankName,
+              cardlessWithdrawalCode: buyerInfo.cardlessWithdrawalCode,
+              cardlessVerificationKind: buyerInfo.cardlessVerificationKind,
+              cardlessVerificationValue: buyerInfo.cardlessVerificationValue,
+              cardlessIlsAmount: buyerInfo.cardlessIlsAmount,
+            } : {}),
+            paymentMethod: selectedListingPaymentMethod ?? undefined,
+            safetyAcknowledged: faceToFaceSafetyAcknowledged,
+            priceMode: purchasePriceMode,
+            offeredPrice: purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : undefined,
+          }),
+        });
+        const payload = await readPurchaseResponse(response);
+        return { response, payload };
       });
-      const payload = await readPurchaseResponse(response);
       if (!response.ok) {
         const requestId = response.headers.get("x-request-id");
         if (requestId) {

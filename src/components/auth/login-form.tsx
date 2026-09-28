@@ -1,5 +1,7 @@
 "use client";
 
+import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
+
 
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -139,32 +141,36 @@ export function LoginForm({
     appendLoginJourneyStep("User clicks Login", clickStartedAt, Date.now());
     try {
       const loginFetchStartedAt = Date.now();
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify(form),
-      });
-      appendLoginJourneyStep("HTTP response returned", loginFetchStartedAt, Date.now(), {
-        endpoint: "/api/auth/login",
-        status: response.status,
-      });
-      appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
-      let payload: {
-        error?: string;
-        user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
-        requiresEmailVerification?: boolean;
-      } | null = null;
-      try {
-        payload = (await response.json()) as {
+      const { response, payload } = await runClientRequest(new AbortController(), 30_000, async (signal) => {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "include",
+          signal,
+          headers: { "Content-Type": "application/json", "X-Locale": locale },
+          body: JSON.stringify(form),
+        });
+        appendLoginJourneyStep("HTTP response returned", loginFetchStartedAt, Date.now(), {
+          endpoint: "/api/auth/login",
+          status: response.status,
+        });
+        appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
+        let payload: {
           error?: string;
           user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
           requiresEmailVerification?: boolean;
-        };
-      } catch {
-        payload = null;
-      }
+        } | null = null;
+        try {
+          payload = (await response.json()) as {
+            error?: string;
+            user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
+            requiresEmailVerification?: boolean;
+          };
+        } catch {
+          payload = null;
+        }
+        return { response, payload };
+      });
       if (!response.ok) {
         const needsVerification = payload?.requiresEmailVerification === true;
         setRequiresEmailVerification(needsVerification);
@@ -214,12 +220,11 @@ export function LoginForm({
     if (isResendVerificationSubmitting) return;
     setIsResendVerificationSubmitting(true);
     try {
-      const response = await fetch("/api/auth/verify-email/resend", {
+      const { response, payload } = await fetchClientJson<{ error?: string; message?: string }>("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: form.email }),
-      });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      }, 30_000);
       if (!response.ok) {
         setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
         return;

@@ -1,5 +1,7 @@
 "use client";
 
+import { fetchClientJson } from "@/lib/client-request-deadline";
+
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
@@ -72,7 +74,7 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
     }
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/auth/reset/confirm", {
+      const { response, payload } = await fetchClientJson<{ error?: string; message?: string }>("/api/auth/reset/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -85,8 +87,7 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
           confirmPassword,
           locale,
         }),
-      });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      }, 30_000);
       if (!response.ok) {
         setErrorMessage(localizeResetError(payload.error));
         return;

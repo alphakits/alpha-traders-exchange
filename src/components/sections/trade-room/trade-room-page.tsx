@@ -36,7 +36,7 @@ import {
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
-import { runClientRequest } from "@/lib/client-request-deadline";
+import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -2019,16 +2019,15 @@ function TradeRoomPageSession({
     setAdjustingAmount(true);
     setActionError(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recalculate_cardless_amount", ilsAmount: adjustmentIlsAmount || undefined }), signal: AbortSignal.timeout(15_000) });
-      const payload = await response.json() as { request?: PurchaseRequest; error?: string };
-      if (!response.ok || !payload.request) throw new Error(isAr ? "تعذر تعديل المبلغ. تحقق من مبلغ السحب وحدود العرض ثم حدّث الصفقة." : payload.error ?? "Could not adjust the trade amount.");
+      const { response, payload } = await fetchClientJson<{ request?: PurchaseRequest; error?: string }>(`/api/alpha-exchange/purchase-requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recalculate_cardless_amount", ilsAmount: adjustmentIlsAmount || undefined }) }, 15_000);
+      if (!response.ok || payload.request?.id !== requestId) throw new Error(isAr ? "تعذر تعديل المبلغ. تحقق من مبلغ السحب وحدود العرض ثم حدّث الصفقة." : payload.error ?? "Could not adjust the trade amount.");
       const nextRoom = applyRequestToRoom(roomRef.current!, payload.request);
       roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom);
       setStatusMessage(isAr ? `تم تأكيد المبلغ: ${payload.request.usdtAmount} USDT مقابل ₪${payload.request.fiatAmount}.` : `Amount confirmed: ${payload.request.usdtAmount} USDT for ILS ${payload.request.fiatAmount}.`);
     } catch (error) {
       setActionError(localizedCaughtError(error, isAr ? "تعذر تأكيد تعديل المبلغ. حدّث الصفقة." : "Could not confirm the adjustment. Refresh the trade.", isAr));
-    } finally { releaseTradeRoomMutation(actionInFlightRef, mutationKey); setAdjustingAmount(false); }
-  }, [adjustingAmount, setActionError, requestId, adjustmentIlsAmount, isAr, actor.id, setStatusMessage]);
+    } finally { releaseTradeRoomMutation(actionInFlightRef, mutationKey); setAdjustingAmount(false); void fetchRoom(true); }
+  }, [adjustingAmount, fetchRoom, setActionError, requestId, adjustmentIlsAmount, isAr, actor.id, setStatusMessage]);
 
   const canRevealBankDetails = canRevealTradeRoomBankDetails(request, isSeller);
   const bankDetailsRequestId = request?.id ?? null;
@@ -2485,14 +2484,13 @@ function TradeRoomPageSession({
     setPokeBusy(true);
     setPokeResult(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/poke`, {
-        method: "POST",
-      });
-      const payload = (await response.json()) as {
+      const { response, payload } = await fetchClientJson<{
         error?: string;
         cooldownUntil?: string | null;
         poke?: TradeRoomData["poke"];
-      };
+      }>(`/api/alpha-exchange/purchase-requests/${request.id}/poke`, {
+        method: "POST",
+      }, 15_000);
       if (!response.ok) {
         if (payload.cooldownUntil) {
           setRoom((current) => current
@@ -2508,16 +2506,17 @@ function TradeRoomPageSession({
         }
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder.", isAr));
       }
-      if (payload.poke) {
-        setRoom((current) => current ? { ...current, poke: payload.poke! } : current);
+      if (!payload.poke || typeof payload.poke.canPoke !== "boolean" || typeof payload.poke.available !== "boolean") {
+        throw new Error(isAr ? "تعذر تأكيد إرسال التذكير. تحقق من حالة الصفقة قبل المحاولة مجددًا." : "The reminder could not be confirmed. Check the trade status before trying again.");
       }
+      setRoom((current) => current ? { ...current, poke: payload.poke! } : current);
       setPokeResult({ error: false, message: isAr ? `تم تنبيه ${pokeCounterpartLabel}.` : `${pokeCounterpartLabel} notified.` });
-      void fetchRoom(true);
     } catch (error) {
       setPokeResult({ error: true, message: localizedCaughtError(error, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder.", isAr) });
     } finally {
       releaseTradeRoomMutation(pokeInFlightRef, mutationKey);
       setPokeBusy(false);
+      void fetchRoom(true);
     }
   }, [fetchRoom, isAr, pokeBusy, pokeCounterpartLabel, request, room?.poke?.available]);
 
@@ -2543,7 +2542,7 @@ function TradeRoomPageSession({
     setStatusMessage(null);
     try {
       const fileData = await encodeFileToDataUrl(file);
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/evidence`, {
+      const { response, payload } = await fetchClientJson<{ error?: string; message?: string; request?: PurchaseRequest }>(`/api/alpha-exchange/purchase-requests/${request.id}/evidence`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2553,12 +2552,11 @@ function TradeRoomPageSession({
           sizeBytes: file.size,
           fileData,
         }),
-      });
-      const payload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest };
+      }, 30_000);
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence.", isAr));
       }
-      if (!payload.request) throw new Error(isAr ? "تعذر تأكيد الرفع. تحقق من حالة الصفقة قبل المحاولة مجددًا." : "Could not confirm the upload. Check the trade status before retrying.");
+      if (payload.request?.id !== request.id) throw new Error(isAr ? "تعذر تأكيد الرفع. تحقق من حالة الصفقة قبل المحاولة مجددًا." : "Could not confirm the upload. Check the trade status before retrying.");
       const nextRoom = applyRequestToRoom(roomRef.current ?? room, payload.request);
       roomRef.current = nextRoom;
       setRoom(nextRoom);
@@ -2638,27 +2636,29 @@ function TradeRoomPageSession({
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setDisputeBusy(true);
     try {
-      const response = await fetch("/api/alpha-exchange/disputes", {
+      const { response, payload } = await fetchClientJson<{ error?: string; message?: string; dispute?: { id?: string; purchaseRequestId?: string; status?: string } }>("/api/alpha-exchange/disputes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           purchaseRequestId: request.id,
           reason,
         }),
-      });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      }, 15_000);
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر فتح النزاع." : "Failed to open dispute.", isAr));
+      }
+      if (!payload.dispute?.id || payload.dispute.purchaseRequestId !== request.id || payload.dispute.status !== "open") {
+        throw new Error(isAr ? "تعذر تأكيد فتح النزاع. تحقق من حالة الصفقة قبل المحاولة مجددًا." : "The dispute could not be confirmed. Check the trade status before trying again.");
       }
       setDisputeReason("");
       setShowDisputeComposer(false);
       setStatusMessage(isAr ? "تم فتح النزاع وإبلاغ الإدارة." : "Dispute opened and admins were notified.");
-      await fetchRoom(true);
     } catch (error) {
       setStatusMessage(localizedCaughtError(error, isAr ? "تعذر فتح النزاع." : "Failed to open dispute.", isAr));
     } finally {
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setDisputeBusy(false);
+      void fetchRoom(true);
     }
   }, [disputeReason, fetchRoom, isAr, request, setStatusMessage]);
 
@@ -2675,25 +2675,28 @@ function TradeRoomPageSession({
     setCancelBusy(true);
     setStatusMessage(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
+      const { response, payload } = await fetchClientJson<{ error?: string; request?: PurchaseRequest }>(`/api/alpha-exchange/purchase-requests/${request.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "cancelled" }),
-      });
-      const payload = (await response.json()) as { error?: string; request?: PurchaseRequest };
+      }, 15_000);
       if (!response.ok) {
         setStatusMessage(isAr ? "تعذر إلغاء الطلب." : (payload.error ?? "Failed to cancel the request."));
         return;
       }
-      if (payload.request) publishTradeHeaderActivity(actor.id, toTradeHeaderActivity(payload.request));
+      if (payload.request?.id !== request.id || payload.request.status !== "cancelled") {
+        throw new Error("Cancellation was not confirmed.");
+      }
+      publishTradeHeaderActivity(actor.id, toTradeHeaderActivity(payload.request));
       router.push("/usdt-exchange");
     } catch {
-      setStatusMessage(isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request.");
+      setStatusMessage(isAr ? "تعذر تأكيد الإلغاء. تحقق من حالة الصفقة قبل المحاولة مجددًا." : "Cancellation could not be confirmed. Check the trade status before trying again.");
     } finally {
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setCancelBusy(false);
+      void fetchRoom(true);
     }
-  }, [actor.id, cancelBusy, isAr, request, room?.hasOpenDispute, router, setStatusMessage]);
+  }, [actor.id, cancelBusy, fetchRoom, isAr, request, room?.hasOpenDispute, router, setStatusMessage]);
 
   const handleDeclineTrade = useCallback(async () => {
     if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy || room?.hasOpenDispute) return;
@@ -2722,23 +2725,23 @@ function TradeRoomPageSession({
     setManualCloseBusy(true);
     setStatusMessage(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/trade-room/${request.id}/close`, {
+      const { response, payload } = await fetchClientJson<{ error?: string; request?: PurchaseRequest }>(`/api/alpha-exchange/trade-room/${request.id}/close`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason, explanation }),
-      });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string; request?: PurchaseRequest };
+      }, 15_000);
       if (!response.ok) {
         setStatusMessage(isAr ? "تعذر إغلاق الصفقة يدويًا." : (payload.error ?? "Failed to close trade manually."));
         return;
       }
-      if (payload.request && room) {
+      if (payload.request?.id !== request.id || payload.request.status !== "cancelled" || !payload.request.closedAt) {
+        throw new Error("The trade closure was not confirmed.");
+      }
+      if (room) {
         const nextRoom = applyRequestToRoom(room, payload.request);
         roomRef.current = nextRoom;
         setRoom(nextRoom);
         writeTradeRoomCache(requestId, actor.id, nextRoom);
-      } else {
-        await fetchRoom(true);
       }
       setShowManualCloseComposer(false);
       setManualCloseReason("");
@@ -2749,6 +2752,7 @@ function TradeRoomPageSession({
     } finally {
       releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setManualCloseBusy(false);
+      void fetchRoom(true);
     }
   }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room, setStatusMessage]);
 

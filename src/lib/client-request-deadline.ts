@@ -28,3 +28,20 @@ export async function runClientRequest<T>(
     controller.signal.removeEventListener("abort", cancel);
   }
 }
+
+/** Read one JSON response without retrying a possibly committed mutation. */
+export async function fetchClientJson<T>(input: string, init: RequestInit = {}, timeoutMs = 15_000) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (init.signal?.aborted) controller.abort();
+  else init.signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    return await runClientRequest(controller, timeoutMs, async (signal) => {
+      const response = await fetch(input, { ...init, signal });
+      const payload = await response.json() as T;
+      return { response, payload };
+    });
+  } finally {
+    init.signal?.removeEventListener("abort", cancel);
+  }
+}

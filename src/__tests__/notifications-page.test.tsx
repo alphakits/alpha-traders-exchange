@@ -178,6 +178,76 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.getByText("1 unread")).toBeTruthy();
   });
 
+  it.each(["fetch", "body"])("recovers from a stalled notification %s without showing an empty inbox or accepting its late result", async (phase) => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const stale = notification({ id: "stale", title: "Stale response", createdAt: "2026-08-27T10:00:00.000Z" });
+    const fresh = notification({ id: "fresh", title: "Fresh response", createdAt: "2026-08-27T11:00:00.000Z" });
+    const fetchMock = vi.fn().mockImplementationOnce(() => phase === "fetch" ? pending : Promise.resolve({ ok: true, json: () => pending }))
+      .mockResolvedValue(notificationsResponse([fresh]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByText("Failed to load notifications.")).toBeTruthy();
+    expect(screen.queryByText("Nothing here right now")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("Fresh response");
+    await act(async () => { finish(phase === "fetch" ? notificationsResponse([stale]) : { notifications: [stale] }); });
+    expect(screen.queryByText("Stale response")).toBeNull();
+    expect(screen.getByText("Fresh response")).toBeTruthy();
+  });
+
+  it("keeps a newer stream snapshot when an older inbox read finishes late", async () => {
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => { finish = resolve; })));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    const fresh = notification({ id: "stream-fresh", title: "Newest inbox", createdAt: "2026-08-27T11:00:00.000Z" });
+    await act(async () => { eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [fresh], unreadCount: 1 })); });
+    await act(async () => { finish(notificationsResponse([])); });
+    expect(screen.getByText("Newest inbox")).toBeTruthy();
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it.each(["Mark as read", "Mark all as read"])("preserves new streamed items while %s waits for confirmation", async (label) => {
+    const old = notification({ id: "old-read", createdAt: "2026-08-27T10:00:00.000Z" });
+    const fresh = notification({ id: "new-read", title: "Arrived during save", createdAt: "2026-08-27T11:00:00.000Z" });
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH"
+      ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve(notificationsResponse([old]))));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Your account has a new update.");
+    fireEvent.click(await screen.findByRole("button", { name: label }));
+    await act(async () => { eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [{ ...old, isRead: true }, fresh], unreadCount: 1 })); });
+    await act(async () => { finish({ ok: true }); });
+    expect(screen.getByText("Arrived during save")).toBeTruthy();
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it("releases a stalled read action without replaying it or inventing read confirmation", async () => {
+    const item = notification({ id: "read-timeout", createdAt: "2026-08-27T10:00:00.000Z" });
+    let finish!: (value: unknown) => void;
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH"
+      ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve(notificationsResponse([item])));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    const button = await screen.findByRole("button", { name: "Mark as read" });
+    fireEvent.click(button); fireEvent.click(button);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect((screen.getByRole("button", { name: "Mark as read" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+    await act(async () => { finish({ ok: true }); });
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it("rejects an inbox belonging to a different account", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse([
+      notification({ id: "private-other", userId: "user-2", title: "Other account secret", createdAt: "2026-08-27T10:00:00.000Z" }),
+    ])));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Failed to load notifications.");
+    expect(screen.queryByText("Other account secret")).toBeNull();
+  });
+
   it("does not reuse another account's cached notification inbox", async () => {
     const privateItem = notification({
       id: "private-user-one",

@@ -76,6 +76,46 @@ afterEach(async () => {
 });
 
 describe("compact Exchange home", () => {
+  it.each([["buy", "fetch"], ["offer", "body"]] as const)("releases a stalled %s request %s without repeating it or navigating on a late response", async (mode, phase) => {
+    requests = [];
+    user = { ...buyer, emailVerified: true };
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let finish!: (value: unknown) => void;
+    const stalled = new Promise((resolve) => { finish = resolve; });
+    const listing = { id: "recovery-listing", sellerId: "recovery-seller", sellerDisplayName: "AT-Recovery", photos: [],
+      originalAmount: "1000", availableAmount: "1000", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"],
+      minimumTrade: "100", maximumTrade: "1000", sellerDescription: "", responseTime: "5 minutes", status: "active", approvalStatus: "approved",
+      createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z" };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/alpha-exchange/listings") return Promise.resolve(Response.json({ listings: [listing] }));
+      if (String(input) === "/api/alpha-exchange/purchase-requests" && init?.method === "POST") {
+        return phase === "fetch" ? stalled : Promise.resolve({ ok: true, status: 200, headers: new Headers(), text: () => stalled });
+      }
+      return fallback(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    const open = await screen.findByRole("button", { name: mode === "offer" ? /Make a price offer to/ : /Buy USDT from/ });
+    fireEvent.click(open);
+    await waitFor(() => expect(document.getElementById("buyer-usdt-amount")).toBeTruthy());
+    fireEvent.change(document.getElementById("buyer-usdt-amount")!, { target: { value: "200" } });
+    const wallet = screen.getByPlaceholderText(/wallet address/i);
+    fireEvent.change(wallet, { target: { value: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8" } });
+    if (mode === "offer") fireEvent.change(document.getElementById("buyer-offered-price")!, { target: { value: "3.10" } });
+    vi.useFakeTimers();
+    fireEvent.submit(document.getElementById("buy-usdt-form")!);
+    const mutations = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" && String(init.body).includes("recovery-listing"));
+    expect(mutations()).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(screen.getByText("We could not confirm the request status. Check your trades before resubmitting.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: mode === "offer" ? "Submit Price Offer" : "Start Trade" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(mutations()).toHaveLength(1);
+    const payload = { purchase: { ...trade, id: "late-created-trade" }, destination: "/trade-room/late-created-trade" };
+    await act(async () => { finish(phase === "fetch" ? Response.json(payload) : JSON.stringify(payload)); });
+    expect(push).not.toHaveBeenCalled();
+    expect((document.getElementById("buyer-usdt-amount") as HTMLInputElement).value).toBe("200");
+  });
+
   it.each([
     { width: 390, locale: "en" as const },
     { width: 1440, locale: "ar" as const },

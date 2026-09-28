@@ -1,5 +1,7 @@
 "use client";
 
+import { fetchClientJson } from "@/lib/client-request-deadline";
+
 import { brandText } from "@/components/ui/currency-text";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -114,15 +116,14 @@ export function RegisterForm({ locale, learningIntent = false }: { locale: "ar" 
     }
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/auth/register", {
+      const { response, payload } = await fetchClientJson<{ error?: string; code?: RegistrationErrorCode; message?: string }>("/api/auth/register", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Locale": locale,
         },
         body: JSON.stringify({ ...form, whatsappNumber, ...(learningIntent ? { intent: "learn" } : {}) }),
-      });
-      const payload = (await response.json()) as { error?: string; code?: RegistrationErrorCode; message?: string };
+      }, 30_000);
       if (!response.ok) {
         setErrorMessage(localizeRegistrationError(payload.error, payload.code));
         return;

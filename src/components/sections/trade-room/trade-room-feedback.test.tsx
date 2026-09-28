@@ -69,6 +69,87 @@ it.each(["fetch", "body"])("confirms a committed trade action after a stalled %s
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
 });
 
+it.each([
+  ["cancel", "fetch"], ["cancel", "body"], ["adjust", "fetch"], ["adjust", "body"], ["poke", "fetch"], ["poke", "body"],
+] as const)("releases %s after a stalled %s without repeating the action or accepting a late response", async (action, phase) => {
+  vi.useFakeTimers();
+  const current = room("Cardless ATM Withdrawal", "accepted");
+  current.poke.available = true; current.poke.canPoke = true; current.poke.counterpartRole = "seller";
+  Object.assign(current.request, { fiatAmount: "400.00", pricePerUsdt: "3.20" });
+  let finish!: (value: unknown) => void;
+  const pending = new Promise((resolve) => { finish = resolve; });
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "POST" || init?.method === "PATCH"
+    ? phase === "fetch" ? pending : Promise.resolve({ ok: true, json: () => pending })
+    : Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={action === "poke" ? buyer : seller} />); });
+  if (action === "adjust") fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
+  const label = action === "cancel" ? "Cancel Trade" : action === "adjust" ? "Adjust USDT to withdrawal amount" : "Poke Seller";
+  const button = screen.getByRole("button", { name: label });
+  fireEvent.click(button); fireEvent.click(button);
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(false);
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" || init?.method === "PATCH")).toHaveLength(1);
+  const payload = { request: { ...current.request, status: "cancelled" }, poke: current.poke };
+  await act(async () => { finish(phase === "fetch" ? Response.json(payload) : payload); });
+  expect(navigation.push).not.toHaveBeenCalled();
+  expect(screen.queryByText("Seller notified.")).toBeNull();
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+});
+
+it.each([["dispute", "fetch"], ["dispute", "body"], ["close", "fetch"], ["close", "body"]] as const)("keeps the %s draft and unlocks the room after a stalled %s", async (action, phase) => {
+  vi.useFakeTimers();
+  const current = room("Bank Transfer", action === "close" ? "pending" : "accepted");
+  current.canOpenDispute = true;
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "POST" || init?.method === "PATCH"
+    ? phase === "fetch" ? new Promise(() => {}) : Promise.resolve({ ok: true, json: () => new Promise(() => {}) })
+    : Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />); });
+  fireEvent.click(screen.getByRole("button", { name: action === "close" ? "Close Trade" : "Open Dispute" }));
+  const draft = screen.getByLabelText(action === "close" ? "Trade close reason" : "Dispute reason") as HTMLInputElement;
+  fireEvent.change(draft, { target: { value: "Please check the recorded trade status." } });
+  const label = action === "close" ? "Confirm Manual Close" : "Submit Dispute";
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(false);
+  expect(draft.value).toBe("Please check the recorded trade status.");
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" || init?.method === "PATCH")).toHaveLength(1);
+  expect(screen.queryByText(action === "close" ? "Trade closed manually." : "Dispute opened and admins were notified.")).toBeNull();
+});
+
+it("does not leave a trade when cancellation returns an unconfirmed success body", async () => {
+  const current = room("Bank Transfer", "accepted");
+  vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => Promise.resolve(Response.json(init?.method === "PATCH" ? {} : current))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel Trade" }));
+  await screen.findByText("Cancellation could not be confirmed. Check the trade status before trying again.");
+  expect(navigation.push).not.toHaveBeenCalled();
+});
+
+it.each(["fetch", "body"])("retains the payment receipt after a stalled upload %s and ignores late confirmation", async (phase) => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const current = room("Bank Transfer", "accepted");
+  let finish!: (value: unknown) => void;
+  const pending = new Promise((resolve) => { finish = resolve; });
+  const fetchMock = vi.fn((url: string) => url.endsWith("/evidence")
+    ? phase === "fetch" ? pending : Promise.resolve({ ok: true, json: () => pending })
+    : Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+  fireEvent.change(await screen.findByLabelText("Choose payment receipt"), { target: { files: [new File(["proof"], "recover-receipt.png", { type: "image/png" })] } });
+  fireEvent.click(screen.getByRole("button", { name: "Upload Payment Receipt" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/evidence"))).toBe(true));
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  expect((screen.getByRole("button", { name: "Upload Payment Receipt" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByText("recover-receipt.png")).toBeTruthy();
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/evidence"))).toHaveLength(1);
+  const payload = { request: { ...current.request, status: "payment_sent" } };
+  await act(async () => { finish(phase === "fetch" ? Response.json(payload) : payload); });
+  expect(screen.queryByText("Payment receipt uploaded and seller notified.")).toBeNull();
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+});
+
 it.each(["missing", "wrong-message"])("keeps the draft and same message ID when a successful response has a %s acknowledgement", async (kind) => {
   const current = room("Bank Transfer", "accepted");
   const bodies: Array<{ message: string; clientMessageId: string }> = [];
