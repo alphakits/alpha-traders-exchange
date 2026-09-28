@@ -1,7 +1,0 @@
-# Local/build artifacts
-.next
-node_modules
-data/*.log
-
-# Oversized local media not supported by Vercel file limits
-public/files/**/*.mp4
