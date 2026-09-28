@@ -1,0 +1,54 @@
+import type { MetadataRoute } from "next";
+import { getSiteUrl } from "@/lib/site-url";
+
+const base = getSiteUrl();
+const locales = ["ar", "en"] as const;
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  const staticRoutes = [
+    "",
+    "/about-founder",
+    "/start",
+    "/learn-trading-free",
+    "/learn-with-mark",
+    "/prop-firms",
+    "/prop-firms/topstep",
+    "/prop-firms/my-funded-futures",
+    "/prop-firms/apex",
+    "/prop-firms/ftmo",
+    "/prop-firms/fundingpips",
+    "/buy-usdt-israel",
+    "/founder",
+    "/community",
+    "/contact",
+    "/safety-trust",
+    "/help-center",
+    "/support",
+    "/account-deletion",
+    "/report-abuse",
+    "/terms",
+    "/privacy-policy",
+    "/cookies",
+  ];
+
+  const entries: MetadataRoute.Sitemap = [];
+
+  for (const locale of locales) {
+    for (const route of staticRoutes) {
+      entries.push({
+        url: `${base}/${locale}${route}`,
+        changeFrequency: "weekly",
+        priority:
+          route === ""
+            ? 1
+            : ["/start", "/learn-trading-free", "/buy-usdt-israel"].includes(route)
+              ? 0.95
+              : ["/safety-trust", "/terms", "/privacy-policy"].includes(route)
+                ? 0.9
+                : 0.8,
+      });
+    }
+  }
+
+  return entries;
+}

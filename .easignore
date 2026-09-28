@@ -1,0 +1,84 @@
+# Keep EAS uploads aligned with the repository ignore rules. EAS gives this
+# file precedence over every .gitignore in the repository.
+
+# Git metadata
+.git
+
+# dependencies
+/node_modules
+/discord-worker/node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.next-dev/
+/.next-runtime/
+/.next-runtime-build/
+/.next-stale/
+/out/
+
+# production
+/build
+/discord-worker/dist/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Runtime database (seeded from data/alpha-exchange-db.json)
+/data/alpha-exchange-evidence/
+/data/alpha-exchange-repo-trace.log
+
+# Large web-only media is tracked with Git LFS but is not needed by the app.
+/public/files/
+
+# Mobile-local artifacts and signing material
+/apps/mobile/.expo/
+/apps/mobile/dist/
+/apps/mobile/node_modules/
+/apps/mobile/.env
+/apps/mobile/.env.local
+/apps/mobile/*.jks
+/apps/mobile/*.p8
+/apps/mobile/*.p12
+/apps/mobile/*.key
+/apps/mobile/*.mobileprovision
+
+# Debug / QA artifacts
+recovery-codes.txt
+cookies.txt
+build.log
+build-output.txt
+tmp-*.js
+tmp-*.mjs
+tmp-*.ts
+tmp-*.png
+/tmp/
+/test-results/
+.next-runtime-test-*/

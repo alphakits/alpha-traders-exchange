@@ -1,0 +1,20 @@
+name: Upload existing iOS build to TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        type: string
+        required: true
+        description: EAS ID of the already signed iOS store build to upload.
+
+jobs:
+  upload_testflight:
+    name: Upload the selected signed iOS build
+    type: submit
+    environment: production
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    params:
+      build_id: ${{ inputs.build_id }}
+      profile: production

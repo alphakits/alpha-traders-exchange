@@ -1,0 +1,16 @@
+**
+!Dockerfile.discord-worker
+!discord-worker/
+!discord-worker/package.json
+!discord-worker/package-lock.json
+!src/
+!src/workers/
+!src/workers/discord-worker.ts
+!src/lib/
+!src/lib/**
+!packages/
+!packages/contracts/
+!packages/contracts/src/
+!packages/contracts/src/**
+**/*.test.ts
+**/*.test.tsx

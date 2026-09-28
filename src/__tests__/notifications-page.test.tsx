@@ -1,0 +1,537 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NotificationsPage } from "@/components/notifications/notifications-page";
+import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
+
+const routerPush = vi.fn();
+
+vi.mock("@/i18n/navigation", () => ({
+  useRouter: () => ({
+    push: routerPush,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
+const eventSourceInstances: MockEventSource[] = [];
+
+class MockEventSource {
+  private listeners = new Map<string, Set<(event: Event & { data?: string }) => void>>();
+
+  constructor() {
+    eventSourceInstances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: Event & { data?: string }) => void) {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event: Event & { data?: string }) => void) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  emit(type: string, data: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data } as Event & { data?: string });
+    }
+  }
+
+  close() {}
+}
+
+function notification(input: Partial<AlphaExchangeNotification> & Pick<AlphaExchangeNotification, "id" | "createdAt">): AlphaExchangeNotification {
+  return {
+    userId: "user-1",
+    category: "account",
+    title: "Account update",
+    message: "Your account has a new update.",
+    isRead: false,
+    ...input,
+  };
+}
+
+function notificationsResponse(notifications: AlphaExchangeNotification[]) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      notifications,
+      total: notifications.length,
+      unreadCount: notifications.filter((item) => !item.isRead).length,
+    }),
+  };
+}
+
+describe("NotificationsPage mobile hierarchy", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-27T12:00:00.000Z"));
+    routerPush.mockReset();
+    eventSourceInstances.length = 0;
+    window.sessionStorage.clear();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    Object.defineProperty(globalThis, "EventSource", {
+      configurable: true,
+      writable: true,
+      value: MockEventSource,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("puts action-required items first, then groups the remaining history by day", async () => {
+    const items = [
+      notification({ id: "today", createdAt: "2026-08-27T11:50:00.000Z", title: "Account updated" }),
+      notification({ id: "yesterday", createdAt: "2026-08-26T08:00:00.000Z", title: "Profile updated", isRead: true }),
+      notification({ id: "earlier", createdAt: "2026-08-20T08:00:00.000Z", title: "Older account update", isRead: true }),
+      notification({
+        id: "action",
+        createdAt: "2026-08-26T07:00:00.000Z",
+        category: "listing",
+        title: "Listing approval required",
+        message: "Review this listing before it can go live.",
+        priority: "high",
+        actionHref: "/usdt-exchange?listing=review",
+        actionLabel: "Review Listing",
+      }),
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse(items)));
+
+    const { container } = render(<NotificationsPage locale="en" userId="user-1" />);
+
+    await screen.findByRole("heading", { name: "Needs your action" });
+    expect(screen.getByRole("heading", { name: "Today" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Yesterday" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Earlier" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review Listing" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+
+    const content = container.textContent ?? "";
+    expect(content.indexOf("Needs your action")).toBeLessThan(content.indexOf("Today"));
+    expect(content.indexOf("Listing approval required")).toBeLessThan(content.indexOf("Account updated"));
+
+    const message = screen.getByText("Review this listing before it can go live.");
+    expect(message.className).toContain("text-base");
+    expect(screen.getByRole("button", { name: "All" }).className).toContain("min-h-11");
+  });
+
+  it("keeps the inbox usable when a stale conversation has a malformed link", async () => {
+    const items = [notification({
+      id: "malformed-chat", createdAt: "2026-08-27T11:50:00.000Z", category: "trade",
+      reason: "trade_room_message", title: "New trade message", actionLabel: "Open Trade Room",
+      actionHref: "/trade-room/%E0%A4%A#chat", relatedHref: "/trade-room/Purchase-AbC#chat",
+    })];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse(items)));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open trade message" }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/trade-room/Purchase-AbC?action=open-trade#chat"));
+  });
+
+  it("opens a known trade immediately without waiting on a second network lookup", async () => {
+    const items = [notification({
+      id: "legacy-completed", createdAt: "2026-08-27T11:50:00.000Z", category: "trade",
+      reason: "trade_completed", title: "Trade completed", actionLabel: "Open Trade Room",
+      relatedRequestId: "Purchase-AbC",
+    })];
+    const fetchMock = vi.fn((url: string) => url.startsWith("/api/alpha-exchange/notifications")
+      ? Promise.resolve(notificationsResponse(items))
+      : new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Trade Room" }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/trade-room/Purchase-AbC"));
+  });
+
+  it.each([
+    ["Mark as read", "Failed to update notification."],
+    ["Mark all as read", "Failed to update notifications."],
+  ])("keeps unread state and reports an offline failure for %s", async (label, error) => {
+    const items = [notification({ id: "offline-1", createdAt: "2026-08-27T11:50:00.000Z" })];
+    vi.stubGlobal("fetch", vi.fn((_url: string, options?: RequestInit) => options?.method === "PATCH"
+      ? Promise.reject(new TypeError("Failed to fetch"))
+      : Promise.resolve(notificationsResponse(items))));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Your account has a new update.");
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await screen.findByText(error);
+    expect(screen.getByRole("button", { name: label }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it.each(["fetch", "body"])("recovers from a stalled notification %s without showing an empty inbox or accepting its late result", async (phase) => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const stale = notification({ id: "stale", title: "Stale response", createdAt: "2026-08-27T10:00:00.000Z" });
+    const fresh = notification({ id: "fresh", title: "Fresh response", createdAt: "2026-08-27T11:00:00.000Z" });
+    const fetchMock = vi.fn().mockImplementationOnce(() => phase === "fetch" ? pending : Promise.resolve({ ok: true, json: () => pending }))
+      .mockResolvedValue(notificationsResponse([fresh]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByText("Failed to load notifications.")).toBeTruthy();
+    expect(screen.queryByText("Nothing here right now")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("Fresh response");
+    await act(async () => { finish(phase === "fetch" ? notificationsResponse([stale]) : { notifications: [stale] }); });
+    expect(screen.queryByText("Stale response")).toBeNull();
+    expect(screen.getByText("Fresh response")).toBeTruthy();
+  });
+
+  it("keeps a newer stream snapshot when an older inbox read finishes late", async () => {
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => { finish = resolve; })));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    const fresh = notification({ id: "stream-fresh", title: "Newest inbox", createdAt: "2026-08-27T11:00:00.000Z" });
+    await act(async () => { eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [fresh], unreadCount: 1 })); });
+    await act(async () => { finish(notificationsResponse([])); });
+    expect(screen.getByText("Newest inbox")).toBeTruthy();
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it.each(["Mark as read", "Mark all as read"])("preserves new streamed items while %s waits for confirmation", async (label) => {
+    const old = notification({ id: "old-read", createdAt: "2026-08-27T10:00:00.000Z" });
+    const fresh = notification({ id: "new-read", title: "Arrived during save", createdAt: "2026-08-27T11:00:00.000Z" });
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH"
+      ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve(notificationsResponse([old]))));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Your account has a new update.");
+    fireEvent.click(await screen.findByRole("button", { name: label }));
+    await act(async () => { eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [{ ...old, isRead: true }, fresh], unreadCount: 1 })); });
+    await act(async () => { finish({ ok: true }); });
+    expect(screen.getByText("Arrived during save")).toBeTruthy();
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it("releases a stalled read action without replaying it or inventing read confirmation", async () => {
+    const item = notification({ id: "read-timeout", createdAt: "2026-08-27T10:00:00.000Z" });
+    let finish!: (value: unknown) => void;
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH"
+      ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve(notificationsResponse([item])));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    const button = await screen.findByRole("button", { name: "Mark as read" });
+    fireEvent.click(button); fireEvent.click(button);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect((screen.getByRole("button", { name: "Mark as read" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+    await act(async () => { finish({ ok: true }); });
+    expect(screen.getByText("1 unread")).toBeTruthy();
+  });
+
+  it("rejects an inbox belonging to a different account", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse([
+      notification({ id: "private-other", userId: "user-2", title: "Other account secret", createdAt: "2026-08-27T10:00:00.000Z" }),
+    ])));
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Failed to load notifications.");
+    expect(screen.queryByText("Other account secret")).toBeNull();
+  });
+
+  it("does not reuse another account's cached notification inbox", async () => {
+    const privateItem = notification({
+      id: "private-user-one",
+      createdAt: "2026-08-27T11:50:00.000Z",
+      title: "Private user one notification",
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(notificationsResponse([privateItem]))
+      .mockResolvedValue(notificationsResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstAccount = render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Private user one notification");
+    firstAccount.unmount();
+
+    render(<NotificationsPage locale="en" userId="user-2" />);
+    await screen.findByText("Nothing here right now");
+
+    expect(screen.queryByText("Private user one notification")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("announces the selected notification summary as a pressed toggle", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse([])));
+
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Nothing here right now");
+
+    const actionsSummary = screen.getByRole("button", { name: "Show notifications that need action: 0" });
+    const unreadSummary = screen.getByRole("button", { name: "Show unread notifications: 0" });
+    expect(actionsSummary.getAttribute("aria-pressed")).toBe("false");
+    expect(unreadSummary.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(actionsSummary);
+    });
+    expect(actionsSummary.getAttribute("aria-pressed")).toBe("true");
+    expect(unreadSummary.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(unreadSummary);
+    });
+    expect(actionsSummary.getAttribute("aria-pressed")).toBe("false");
+    expect(unreadSummary.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("renders a fully Arabic interface and lets Arabic users search localized notification copy", async () => {
+    const items = [
+      notification({
+        id: "unknown-trade",
+        createdAt: "2026-08-27T11:00:00.000Z",
+        category: "trade",
+        title: "Unknown legacy trade title",
+        message: "Unknown legacy trade message",
+        relatedRequestId: "request-1",
+        tradeSnapshot: {
+          requestId: "request-1",
+          tradeId: "trade-1",
+          sellerId: "seller-1",
+          buyerId: "user-1",
+          counterpartyName: "Seller One",
+          usdtAmount: "250",
+          fiatAmount: "750",
+          currency: "ILS",
+          currentStage: "accepted",
+          requiredAction: "Upload payment proof and mark Payment Sent",
+        },
+      }),
+      notification({
+        id: "today-account-ar",
+        createdAt: "2026-08-27T10:00:00.000Z",
+        title: "Unknown current account title",
+        message: "Unknown current account message",
+        isRead: true,
+      }),
+      notification({
+        id: "listing-action",
+        createdAt: "2026-08-26T09:00:00.000Z",
+        category: "listing",
+        title: "Listing approval required",
+        message: "Review this listing now",
+        priority: "high",
+        actionHref: "/usdt-exchange?listing=review",
+        actionLabel: "Review Listing",
+      }),
+      notification({
+        id: "earlier-ar",
+        createdAt: "2026-08-18T09:00:00.000Z",
+        title: "Unknown legacy account title",
+        message: "Unknown legacy account message",
+        isRead: true,
+      }),
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse(items)));
+
+    const { container } = render(<NotificationsPage locale="ar" userId="user-1" />);
+
+    await screen.findByRole("heading", { name: "تحتاج إلى إجراء الآن" });
+    expect(container.querySelector("section[dir='rtl']")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "اليوم" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "أقدم" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "مراجعة العرض" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "رفع إيصال الدفع" })).toBeTruthy();
+
+    const renderedCopy = container.textContent ?? "";
+    expect(renderedCopy).not.toContain("Unknown legacy");
+    expect(renderedCopy).not.toContain("Listing approval required");
+    expect(renderedCopy).not.toContain("Review this listing now");
+    expect(renderedCopy).not.toContain("Review Listing");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "البحث في الإشعارات" }), { target: { value: "تحديث على الصفقة" } });
+    await waitFor(() => expect(screen.getByText("تحديث على الصفقة")).toBeTruthy());
+    expect(screen.queryByText("تحديث على الحساب")).toBeNull();
+  });
+
+  it.each(["en", "ar"] as const)("shows view and read actions for a legacy new-listing alert in %s", async (locale) => {
+    const item = notification({
+      id: "new-listing", category: "listing", title: "🟢 New USDT Listing Available",
+      message: "A seller published 700 USDT.", relatedListingId: "listing-public",
+      actionHref: "/dashboard/seller", actionLabel: "Manage Listing",
+      createdAt: "2026-08-27T10:00:00.000Z",
+    });
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(notificationsResponse([item])));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationsPage locale={locale} userId="user-1" />);
+    const view = await screen.findByRole("button", { name: locale === "ar" ? "عرض الإعلان" : "View listing" });
+    expect(screen.queryByRole("button", { name: /Manage Listing|إدارة العرض/i })).toBeNull();
+    expect(screen.getByRole("button", { name: locale === "ar" ? "تحديد كمقروء" : "Mark as read" })).toBeTruthy();
+    fireEvent.click(view);
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/usdt-exchange#listing-listing-public"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/alpha-exchange/notifications/new-listing", expect.objectContaining({ method: "PATCH" }));
+  });
+
+  it("opens the exact action immediately while persisting read state in the background", async () => {
+    const item = notification({
+      id: "listing-route",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      category: "listing",
+      title: "Listing renewed",
+      message: "Your listing is active again.",
+      actionHref: "/usdt-exchange?listing=listing-1#my-listings",
+      actionLabel: "Manage Listing",
+    });
+    let confirmRead: ((value: { ok: boolean; status: number; json: () => Promise<object> }) => void) | undefined;
+    const readResponse = new Promise<{ ok: boolean; status: number; json: () => Promise<object> }>((resolve) => {
+      confirmRead = resolve;
+    });
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
+        return Promise.resolve(notificationsResponse([item]));
+      }
+      if (url.endsWith("/api/alpha-exchange/notifications/listing-route") && init?.method === "PATCH") {
+        return readResponse;
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Listing" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alpha-exchange/notifications/listing-route",
+      expect.objectContaining({ method: "PATCH" }),
+    ));
+    expect(routerPush).toHaveBeenCalledWith("/usdt-exchange?listing=listing-1#my-listings");
+    await act(async () => {
+      confirmRead?.({ ok: true, status: 200, json: async () => ({}) });
+      await readResponse;
+    });
+  });
+
+  it("archives Later durably and does not resurrect it from session state after re-login", async () => {
+    const item = notification({
+      id: "seller-application-later",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      category: "application",
+      title: "Seller application pending",
+      message: "Review this seller application.",
+      actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
+      actionLabel: "Review Application",
+      state: "unread",
+    });
+    let dismissed = false;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
+        return Promise.resolve(notificationsResponse(dismissed ? [] : [item]));
+      }
+      if (url.endsWith("/api/alpha-exchange/notifications/seller-application-later") && init?.method === "PATCH") {
+        dismissed = true;
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstLogin = render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Later" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alpha-exchange/notifications/seller-application-later",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "dismiss" }) }),
+    ));
+    await waitFor(() => expect(screen.queryByText("Seller application pending")).toBeNull());
+    firstLogin.unmount();
+
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Nothing here right now");
+    expect(screen.queryByText("Seller application pending")).toBeNull();
+  });
+
+  it("routes seller-application decisions to the full review screen", async () => {
+    const item = notification({
+      id: "seller-application-action",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      category: "application",
+      title: "Seller application pending",
+      message: "Review this seller application.",
+      actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
+      actionLabel: "Review Application",
+    });
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
+        return Promise.resolve(notificationsResponse([item]));
+      }
+      if (url.endsWith("/api/alpha-exchange/notifications/seller-application-action") && init?.method === "PATCH") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review Application" }));
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith(
+      "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
+    ));
+    expect(screen.queryByRole("button", { name: "Approve application" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject application" })).toBeNull();
+  });
+
+  it("reconciles streamed unread items and preserves mark-all-read behavior", async () => {
+    const streamedItem = notification({
+      id: "streamed-listing",
+      createdAt: "2026-08-27T11:58:00.000Z",
+      category: "listing",
+      title: "Listing approval required",
+      message: "A listing is waiting for review.",
+      priority: "high",
+      actionHref: "/usdt-exchange?listing=review",
+      actionLabel: "Review Listing",
+    });
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
+        return Promise.resolve(notificationsResponse([]));
+      }
+      if (url.endsWith("/api/alpha-exchange/notifications") && init?.method === "PATCH") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Nothing here right now");
+    expect(eventSourceInstances).toHaveLength(1);
+
+    act(() => {
+      eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [streamedItem], unreadCount: 1 }));
+    });
+
+    await screen.findByText("Listing approval required");
+    expect(screen.getByRole("button", { name: "Show unread notifications: 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alpha-exchange/notifications",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "mark_all_read" }) }),
+    ));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show unread notifications: 0" })).toBeTruthy());
+  });
+});

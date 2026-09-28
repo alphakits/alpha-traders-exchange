@@ -1,0 +1,29 @@
+
+> alpha-traders@0.1.0 build
+> next build
+
+   ▲ Next.js 15.5.20
+   - Experiments (use with caution):
+     · optimizePackageImports
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 16.8s
+   Linting and checking validity of types ...
+
+./src/components/sections/usdt-exchange/usdt-exchange-page.tsx
+130:10  Warning: 'sellerLevelRank' is defined but never used.  @typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+   Collecting page data ...
+[Error [PageNotFoundError]: Cannot find module for page: /icon.png] {
+  code: 'ENOENT'
+}
+[Error [PageNotFoundError]: Cannot find module for page: /[locale]/admin] {
+  code: 'ENOENT'
+}
+[Error [PageNotFoundError]: Cannot find module for page: /[locale]/community] {
+  code: 'ENOENT'
+}
+
+> Build error occurred
+[Error: Failed to collect page data for /icon.png] { type: 'Error' }

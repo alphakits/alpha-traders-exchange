@@ -1,0 +1,782 @@
+{
+  "summary": {
+    "baseUrl": "http://127.0.0.1:3100",
+    "generatedAt": "2026-08-05T16:31:36.700Z",
+    "breakpoints": [
+      320,
+      360,
+      375,
+      390,
+      412,
+      430,
+      768,
+      1024
+    ],
+    "roles": [
+      "guest",
+      "buyer",
+      "pending_seller",
+      "approved_seller",
+      "admin"
+    ],
+    "totals": {
+      "runs": 40,
+      "blockedRuns": 8,
+      "errorRuns": 17,
+      "issues": 3,
+      "high": 3,
+      "medium": 0
+    }
+  },
+  "results": [
+    {
+      "role": "guest",
+      "breakpoint": 320,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7579,
+            "domNodes": 692
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1484,
+            "domNodes": 138
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7106,
+            "domNodes": 318
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 360,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 2062,
+            "domNodes": 694
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1929,
+            "domNodes": 138
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 2087,
+            "domNodes": 318
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 375,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1994,
+            "domNodes": 694
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1317,
+            "domNodes": 138
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1901,
+            "domNodes": 318
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 390,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1981,
+            "domNodes": 694
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1262,
+            "domNodes": 135
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 3979,
+            "domNodes": 314
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 412,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 3627,
+            "domNodes": 693
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1490,
+            "domNodes": 135
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 3377,
+            "domNodes": 314
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 430,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 3566,
+            "domNodes": 694
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1705,
+            "domNodes": 135
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 3084,
+            "domNodes": 314
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 768,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 2639,
+            "domNodes": 690
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 2413,
+            "domNodes": 135
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 2847,
+            "domNodes": 314
+          }
+        }
+      ]
+    },
+    {
+      "role": "guest",
+      "breakpoint": 1024,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en",
+          "issues": [],
+          "metrics": {
+            "loadMs": 1951,
+            "domNodes": 690
+          }
+        },
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 2784,
+            "domNodes": 135
+          }
+        },
+        {
+          "route": "/en/contact",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5758,
+            "domNodes": 314
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 320,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [
+            {
+              "kind": "responsive-overflow",
+              "severity": "high",
+              "detail": "Horizontal overflow on /en/usdt-exchange at 320px (353 > 320)"
+            }
+          ],
+          "metrics": {
+            "loadMs": 22559,
+            "domNodes": 956
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [
+            {
+              "kind": "mobile-navigation",
+              "severity": "high",
+              "detail": "Mobile menu opened but profile/sign-in link was not visible on /en/profile"
+            }
+          ],
+          "metrics": {
+            "loadMs": 16593,
+            "domNodes": 0
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [
+            {
+              "kind": "mobile-navigation",
+              "severity": "high",
+              "detail": "Mobile menu opened but profile/sign-in link was not visible on /en/notifications"
+            }
+          ],
+          "metrics": {
+            "loadMs": 3609,
+            "domNodes": 0
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 360,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7942,
+            "domNodes": 953
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5643,
+            "domNodes": 330
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7593,
+            "domNodes": 366
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 375,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 12411,
+            "domNodes": 949
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7177,
+            "domNodes": 329
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [],
+          "metrics": {
+            "loadMs": 11596,
+            "domNodes": 370
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 390,
+      "status": "error",
+      "notes": [
+        "Login remained on /login after retry."
+      ],
+      "pages": []
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 412,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7942,
+            "domNodes": 958
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5279,
+            "domNodes": 332
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5138,
+            "domNodes": 374
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 430,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 10178,
+            "domNodes": 949
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5784,
+            "domNodes": 329
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5549,
+            "domNodes": 368
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 768,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 9571,
+            "domNodes": 950
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [],
+          "metrics": {
+            "loadMs": 23604,
+            "domNodes": 332
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [],
+          "metrics": {
+            "loadMs": 16817,
+            "domNodes": 366
+          }
+        }
+      ]
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 1024,
+      "status": "ok",
+      "notes": [],
+      "pages": [
+        {
+          "route": "/en/usdt-exchange",
+          "issues": [],
+          "metrics": {
+            "loadMs": 7596,
+            "domNodes": 949
+          }
+        },
+        {
+          "route": "/en/profile",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5696,
+            "domNodes": 329
+          }
+        },
+        {
+          "route": "/en/notifications",
+          "issues": [],
+          "metrics": {
+            "loadMs": 5707,
+            "domNodes": 370
+          }
+        }
+      ]
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 320,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 360,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 375,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 390,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 412,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 430,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 768,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "pending_seller",
+      "breakpoint": 1024,
+      "status": "blocked",
+      "notes": [
+        "Missing credentials for pending_seller. Set E2E_PENDING_SELLER_EMAIL/PASSWORD."
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 320,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 360,
+      "status": "error",
+      "notes": [
+        "Login remained on /login after retry."
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 375,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 390,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 412,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 430,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 768,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "approved_seller",
+      "breakpoint": 1024,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 320,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 360,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 375,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 390,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 412,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 430,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 768,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    },
+    {
+      "role": "admin",
+      "breakpoint": 1024,
+      "status": "error",
+      "notes": [
+        "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('form[data-hydrated=\"true\"]').first() to be visible\u001b[22m\n"
+      ],
+      "pages": []
+    }
+  ],
+  "issues": [
+    {
+      "role": "buyer",
+      "breakpoint": 320,
+      "route": "/en/usdt-exchange",
+      "kind": "responsive-overflow",
+      "severity": "high",
+      "detail": "Horizontal overflow on /en/usdt-exchange at 320px (353 > 320)"
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 320,
+      "route": "/en/profile",
+      "kind": "mobile-navigation",
+      "severity": "high",
+      "detail": "Mobile menu opened but profile/sign-in link was not visible on /en/profile"
+    },
+    {
+      "role": "buyer",
+      "breakpoint": 320,
+      "route": "/en/notifications",
+      "kind": "mobile-navigation",
+      "severity": "high",
+      "detail": "Mobile menu opened but profile/sign-in link was not visible on /en/notifications"
+    }
+  ]
+}

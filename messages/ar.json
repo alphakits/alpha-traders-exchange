@@ -1,0 +1,35 @@
+{
+  "brand": "𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤",
+  "nav": {
+    "home": "الرئيسية",
+    "academy": "الأكاديمية",
+    "lessons": "الدروس",
+    "analysis": "تحليلات السوق",
+    "founder": "عن المؤسس",
+    "community": "المجتمع",
+    "faq": "الأسئلة الشائعة",
+    "contact": "تواصل معنا",
+    "alphaExchange": "⇄ Alpha Exchange",
+    "profile": "الملف الشخصي",
+    "notifications": "الإشعارات",
+    "dashboard": "لوحة التحكم",
+    "signIn": "تسجيل الدخول",
+    "signOut": "تسجيل الخروج",
+    "login": "تسجيل الدخول",
+    "admin": "لوحة الإدارة"
+  },
+  "home": {
+    "badge": "تعليم تداول احترافي • سوق USDT موثوق",
+    "headlineLine1": "تداول بوضوح.",
+    "headlineLine2": "وانمُ بثقة.",
+    "subheadline": "Alpha Traders تجمع بين أكاديمية تداول احترافية، وسوق USDT موثوق، ومجتمع جاد ينمو فيه المبتدئون والمحترفون معًا.",
+    "startLearning": "ابدأ في Alpha Academy",
+    "exploreExchange": "ادخل إلى Alpha Exchange",
+    "watchIntro": "تعرّف على المؤسس",
+    "missionTitle": "رسالتنا",
+    "missionBody": "بناء جيل عربي يتقن التداول وفق منهجية احترافية قائمة على إدارة المخاطر، الانضباط النفسي، والتحليل الموضوعي."
+  },
+  "footer": {
+    "rights": "جميع الحقوق محفوظة لـ 𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤"
+  }
+}

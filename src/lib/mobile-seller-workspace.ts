@@ -1,0 +1,58 @@
+import type { MobileSellerListing, MobileSellerListingDetail } from "@alpha-traders/contracts";
+import type { MarketplaceListing } from "@/types/alpha-exchange";
+import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+
+export function toMobileSellerListing(listing: MarketplaceListing): MobileSellerListing {
+  return {
+    id: listing.id,
+    displayNumber: listing.displayNumber,
+    availableAmount: listing.availableAmount,
+    price: listing.price,
+    currency: listing.currency,
+    network: listing.network,
+    paymentMethods: [...listing.paymentMethods],
+    minimumTrade: listing.minimumTrade,
+    maximumTrade: listingMaximumForAvailableAmount(listing),
+    status: listing.status,
+    approvalStatus: listing.approvalStatus,
+    expiresAt: listing.expiresAt,
+    updatedAt: listing.updatedAt,
+    actions: {
+      canPause: listing.status === "active",
+      canResume: listing.status === "paused",
+    },
+  };
+}
+
+export function toMobileSellerListingDetail(listing: MarketplaceListing): MobileSellerListingDetail {
+  return {
+    ...toMobileSellerListing(listing),
+    photos: [...listing.photos],
+    bankAccountId: listing.bankAccountId,
+    bankName: listing.bankName,
+    sellerDescription: listing.sellerDescription,
+    notes: listing.notes ?? "",
+    responseTime: listing.responseTime,
+    createdAt: listing.createdAt,
+  };
+}
+
+export function isIdempotentSellerListingStatus(
+  listing: MarketplaceListing,
+  status: "active" | "paused",
+) {
+  return listing.status === status;
+}
+
+export function sellerListingMutationError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (/not found|only your own listings/i.test(message)) {
+    return { code: "NOT_FOUND" as const, status: 404 };
+  }
+  if (
+    /locked|no longer editable|pending approval|pending commission|remain hidden|restricted|only switch|changed while/i.test(message)
+  ) {
+    return { code: "LISTING_ACTION_NOT_ALLOWED" as const, status: 409 };
+  }
+  return { code: "SERVICE_UNAVAILABLE" as const, status: 503 };
+}

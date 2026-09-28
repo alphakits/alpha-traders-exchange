@@ -1,0 +1,53 @@
+import { NextRequest, NextResponse } from "next/server";
+import { closePurchaseRequestManually } from "@/lib/alpha-exchange-store";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
+
+type RouteContext = {
+  params: Promise<{ requestId: string }>;
+};
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const { user, unauthorized } = await requireApiUser();
+  if (!user) return unauthorized;
+
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
+
+  const rate = await checkSharedRateLimit({
+    headers: request.headers,
+    key: "exchange:trade-manual-close",
+    identifier: user.id,
+    maxRequests: 20,
+    windowMs: 60_000,
+  });
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Too many close requests. Please try again shortly." },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
+    );
+  }
+
+  try {
+    const body = await request.json();
+    const { requestId } = await context.params;
+    const reason = String(body.reason ?? "").trim();
+    const explanation = String(body.explanation ?? "").trim();
+    const trade = await closePurchaseRequestManually({
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      reason,
+      explanation,
+    });
+    return NextResponse.json({ request: trade });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to close trade.";
+    const status = message === "Trade not found."
+      ? 404
+      : message.includes("not allowed")
+        ? 403
+        : 400;
+    return NextResponse.json({ error: message }, { status });
+  }
+}

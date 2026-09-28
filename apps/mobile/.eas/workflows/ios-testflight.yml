@@ -1,0 +1,38 @@
+name: Alpha Traders iOS TestFlight
+run_name: iOS TestFlight • ${{ github.sha }}
+
+on:
+  push:
+    branches: [release/ios-testflight]
+  workflow_dispatch: {}
+
+jobs:
+  build_ios:
+    name: Build signed iOS production app
+    type: build
+    environment: production
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    params:
+      platform: ios
+      profile: production
+      message: Alpha Traders iOS TestFlight build
+
+  upload_testflight:
+    name: Upload Alpha Traders to TestFlight
+    needs: [build_ios]
+    type: submit
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+      profile: production
+
+  install_instructions:
+    name: Install from TestFlight
+    needs: [upload_testflight]
+    type: doc
+    params:
+      md: |
+        The signed Alpha Traders build was uploaded to TestFlight. Add the
+        owner's Apple ID to an App Store Connect internal testing group, then
+        open the invitation on the iPhone. This workflow does not submit the
+        app for public App Store review or release it to customers.

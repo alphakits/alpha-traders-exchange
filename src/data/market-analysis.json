@@ -1,0 +1,20 @@
+[
+  {
+    "id": "a1",
+    "title": "USD Index Weekly Liquidity Map",
+    "titleAr": "خريطة السيولة الأسبوعية لمؤشر الدولار",
+    "summary": "Key external liquidity zones with session-based reaction scenarios.",
+    "summaryAr": "مناطق سيولة رئيسية مع سيناريوهات تفاعل حسب الجلسات.",
+    "publishedAt": "2026-07-10",
+    "tags": ["DXY", "Liquidity", "Weekly"]
+  },
+  {
+    "id": "a2",
+    "title": "Gold Intraday Execution Plan",
+    "titleAr": "خطة تنفيذ يومية للذهب",
+    "summary": "Bias model, invalidation map, and risk-adjusted execution checkpoints.",
+    "summaryAr": "نموذج الانحياز ومستويات الإلغاء ونقاط تنفيذ مضبوطة بالمخاطر.",
+    "publishedAt": "2026-07-12",
+    "tags": ["XAUUSD", "Intraday", "Execution"]
+  }
+]

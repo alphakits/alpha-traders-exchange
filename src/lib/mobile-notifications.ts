@@ -1,0 +1,118 @@
+import type {
+  MobileLocale,
+  MobileNotification,
+  MobileNotificationDestination,
+} from "@alpha-traders/contracts";
+import { getSafeInternalNotificationDestination } from "@/lib/notification-action-destination";
+import { isNotificationActionRequired } from "@/lib/notification-action-required";
+import { localizeNotificationCopy } from "@/lib/notification-localization";
+import type { AlphaExchangeNotification, NotificationTradeSnapshot } from "@/types/alpha-exchange";
+import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+
+const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function safeResourceId(value: string | null | undefined) {
+  const normalized = value?.trim() ?? "";
+  return RESOURCE_ID_PATTERN.test(normalized) ? normalized : null;
+}
+
+function notificationDestination(notification: AlphaExchangeNotification): MobileNotificationDestination | null {
+  const explicitHref = getSafeInternalNotificationDestination(notification) ?? "";
+  let explicitPath = "";
+  if (explicitHref.startsWith("/") && !explicitHref.startsWith("//")) {
+    try {
+      const parsed = new URL(explicitHref, "https://www.alphatraders.co.il");
+      if (parsed.origin === "https://www.alphatraders.co.il") {
+        explicitPath = parsed.pathname.replace(/^\/(?:ar|en)(?=\/)/i, "");
+      }
+    } catch {
+      explicitPath = "";
+    }
+  }
+
+  // Explicit role destinations must be resolved before category inference. An
+  // admin notification may reference a trade for context without granting the
+  // admin access to the participants' Trade Room.
+  if (/^\/admin(?:\/|$)/i.test(explicitPath)) return { screen: "admin" };
+  if (/^\/dashboard\/seller\/compliance-payment(?:\/|$)/i.test(explicitPath)) {
+    return { screen: "seller" };
+  }
+  if (/^\/dashboard\/seller(?:\/|$)/i.test(explicitPath)) return { screen: "seller" };
+  if (/^\/settings(?:\/|$)/i.test(explicitPath)) return { screen: "settings" };
+  if (/^\/(?:profile|dashboard)(?:\/|$)/i.test(explicitPath)) return { screen: "profile" };
+  if (/^\/onboarding(?:\/|$)/i.test(explicitPath)) return { screen: "seller_application" };
+
+  let explicitTradeRoomRequestId: string | null = null;
+  const explicitTradeRoomMatch = explicitPath.match(/^\/trade-room\/([^/]+)(?:\/|$)/i);
+  if (explicitTradeRoomMatch?.[1]) {
+    try {
+      explicitTradeRoomRequestId = safeResourceId(decodeURIComponent(explicitTradeRoomMatch[1]));
+    } catch {
+      explicitTradeRoomRequestId = null;
+    }
+  }
+
+  const requestId = safeResourceId(notification.relatedRequestId)
+    ?? safeResourceId(notification.tradeSnapshot?.requestId)
+    ?? explicitTradeRoomRequestId;
+  if (requestId && (
+    notification.category === "trade"
+    || notification.category === "review"
+    || notification.category === "dispute"
+  )) {
+    return { screen: "trade", requestId };
+  }
+  if (notification.category === "listing") return { screen: "marketplace" };
+  if (notification.category === "application") return { screen: "seller_application" };
+  if (notification.category === "account") return { screen: "profile" };
+  return null;
+}
+
+function currentTradeActionRequired(
+  snapshot: NotificationTradeSnapshot | undefined,
+  recipientUserId: string,
+) {
+  if (!snapshot) return false;
+  const isBuyer = snapshot.buyerId === recipientUserId;
+  const isSeller = snapshot.sellerId === recipientUserId;
+  const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
+  if (snapshot.currentStage === "pending") return isSeller;
+  if (snapshot.currentStage === "accepted") return isBuyer;
+  if (snapshot.currentStage === "payment_sent") return isSeller;
+  if (snapshot.currentStage === "funds_received") return isSeller;
+  if (snapshot.currentStage === "usdt_release_pending") return isSeller;
+  if (snapshot.currentStage === "usdt_sent") return cashTrade ? isSeller : isBuyer;
+  if (snapshot.currentStage === "review_open" || snapshot.currentStage === "completed") return isBuyer;
+  return false;
+}
+
+/**
+ * Converts the richer web notification model into a strict native allowlist.
+ * Internal user IDs, raw hrefs, counterpart IDs, bank data, and trade amounts
+ * are deliberately omitted from the native response.
+ */
+export function toMobileNotification(
+  notification: AlphaExchangeNotification,
+  locale: MobileLocale,
+): MobileNotification {
+  const copy = localizeNotificationCopy(notification, locale);
+  const destination = notificationDestination(notification);
+  return {
+    id: notification.id,
+    category: notification.category,
+    title: copy.title,
+    message: copy.message,
+    isRead: notification.state ? notification.state !== "unread" : notification.isRead,
+    priority: notification.priority ?? "normal",
+    actionRequired: Boolean(destination) && (
+      currentTradeActionRequired(notification.tradeSnapshot, notification.userId)
+      || isNotificationActionRequired(notification)
+    ),
+    destination,
+    relatedDisplayNumber: notification.relatedRequestDisplayNumber
+      ?? notification.relatedTradeDisplayNumber
+      ?? notification.relatedListingDisplayNumber,
+    createdAt: notification.createdAt,
+    updatedAt: notification.updatedAt ?? notification.createdAt,
+  };
+}

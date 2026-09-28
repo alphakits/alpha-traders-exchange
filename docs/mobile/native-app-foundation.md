@@ -1,0 +1,330 @@
+# Alpha Traders native app foundation
+
+Status: private-beta client implemented; signed device distribution and
+real-device acceptance remain pending.
+
+## Current product decision
+
+Ship one signed Expo/React Native TypeScript app for iOS and Android. Its root
+layout renders the canonical production website through a hardened WebView so
+phone users receive the exact website features, rules, copy, and fixes without a
+second drifting product surface. Expo provides the branded icon and splash,
+native lock-screen notifications, notification taps, app-review prompts, and
+signed App Store/Google Play packaging.
+
+The existing versioned native APIs and native screens remain a tested foundation,
+but they are not rendered by the shipping root layout. The Next.js application
+remains the single visible product and the authoritative backend for marketplace
+rules, persistence, audit logs, authentication, and bilingual behavior.
+
+Primary references:
+
+- [Expo authentication overview](https://docs.expo.dev/develop/authentication/)
+- [Expo Router authentication](https://docs.expo.dev/router/advanced/authentication/)
+- [Expo SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/)
+- [EAS Build](https://docs.expo.dev/build/introduction/)
+
+## What can be reused
+
+- Marketplace and trade lifecycle rules in the Next.js server layer.
+- Existing English and Arabic product language and RTL behavior.
+- Public listings, seller profiles, reviews, trade rooms, notifications, and
+  account/profile APIs after the mobile API gates below are complete.
+- Pure TypeScript domain types and validation once extracted into a package
+  without `next/*`, Node-only, or server-only imports.
+- Existing brand assets and the black/gold visual system.
+
+Do not recreate visible website flows in a second active native interface. Keep
+native-only capabilities narrowly scoped and bridge them through bounded,
+versioned messages whose payloads contain no credentials or private trade data.
+
+## Pre-app API gates
+
+These are release blockers, not optional polish.
+
+### 1. Versioned device authentication
+
+The current application session is an opaque token stored only in an HTTP-only
+browser cookie. A native client needs an explicit device-session contract.
+
+Target endpoints:
+
+- `POST /api/mobile/v1/auth/login`
+- `POST /api/mobile/v1/auth/refresh`
+- `GET /api/mobile/v1/auth/me`
+- `DELETE /api/mobile/v1/auth/session`
+
+Target behavior:
+
+- Return short-lived access tokens and rotated refresh tokens only from the
+  mobile auth surface.
+- Store only token hashes and device/session metadata server-side.
+- Accept `Authorization: Bearer <access-token>` on versioned mobile routes.
+- Revoke the current device independently; support a user-wide sign-out path.
+- Keep the browser cookie path unchanged.
+- Store native credentials in SecureStore, never AsyncStorage or app logs.
+- Apply login, refresh, OTP, and reset rate limits per account, device, and IP.
+
+Do not expose the existing 14-day browser session token in a general web login
+response.
+
+### 2. Stable versioned API facade
+
+Add `/api/mobile/v1` handlers that call the existing server-side domain
+functions. They should not duplicate trading rules.
+
+Every response should provide a stable error code and request ID. Mobile
+requests should send:
+
+- `Authorization`
+- `Accept-Language: ar` or `en`
+- `X-App-Version`
+- `X-Device-Id` containing a random installation ID, not a hardware identifier
+- `Idempotency-Key` for trade-changing requests
+
+Never authorize from role, user ID, locale, or device headers; resolve identity
+and roles from the validated device session.
+
+### 3. Mobile-safe evidence uploads
+
+Implemented for the native client with bounded multipart image uploads. The
+server retains temporary JSON compatibility for an earlier private client, but
+the current app no longer base64-duplicates evidence in JavaScript memory.
+
+Requirements:
+
+- Preserve participant/role checks before issuing or accepting an upload.
+- Enforce byte size, allowed media type, and file signature server-side.
+- Generate server-owned filenames and avoid contact data in object keys.
+- Make finalization idempotent so retries cannot advance a trade twice.
+- Return progress-safe errors and never include storage-provider details.
+
+### 4. Push and foreground freshness
+
+- Register push tokens per user, installation, platform, locale, app version,
+  and the exact authenticated website session inside the signed app.
+- Require the canonical authenticated session to register or replace a token;
+  expired or logged-out sessions must stop delivery server-side.
+- Keep notification payloads privacy-safe: no bank details, phone numbers,
+  evidence URLs, or sensitive message text on the lock screen.
+- Deep-link to a route identifier and fetch authorized content after open.
+- Keep SSE and bounded foreground refresh as the source of truth. Push is a
+  privacy-safe wake-up hint and never authorizes or advances a trade.
+
+### 5. Idempotency and reconciliation
+
+All money/trade-changing operations must be safely retryable across weak mobile
+networks. At minimum this covers purchase creation, state transitions, evidence
+finalization, disputes, reviews, and commission submission.
+
+The server remains authoritative. The app may optimistically update cosmetic UI,
+but it must re-fetch the trade snapshot after every mutation and on foreground.
+No trade transition should be queued for offline execution.
+
+## Proposed repository layout
+
+```text
+apps/
+  mobile/                 Expo app, Expo Router routes, native UI
+packages/
+  contracts/              API schemas, domain DTOs, stable error codes
+  design-tokens/          colors, spacing, typography, semantic tokens
+src/                      existing Next.js web and server application
+```
+
+Create the workspace only after the device-auth contract is reviewed, so the
+first app slice can sign in against a real, secure API instead of temporary
+mocks that later become production dependencies.
+
+## Native MVP
+
+### Phase 1: read-only private beta
+
+- Arabic/English selection with complete RTL navigation.
+- Login, registration handoff, verification state, logout, and session expiry.
+- Marketplace browse/filter, listing details, seller profile, and reviews.
+- Profile and notification center.
+- Deep links from privacy-safe push notifications.
+
+### Phase 2: trading
+
+- Create and view purchase requests.
+- Active trades and full trade-room state.
+- Messages, buyer/seller evidence upload, confirmation steps, and disputes.
+- Seller availability and listing management for approved sellers.
+
+### Phase 3: academy and refinement
+
+- Academy/lesson experience appropriate for native playback. Completed in
+  source with published-only authenticated APIs, five-tab phone navigation,
+  offline content caching, local progress, quizzes, bookmarks, and notes.
+- Biometric re-entry as a local convenience, never as server authorization.
+  Completed in source with optional per-account enrollment, immediate
+  app-switcher masking, protected SecureStore sentinels, and safe recovery when
+  biometric enrollment changes.
+- Accessibility, degraded-network UX, and app update enforcement. Completed in
+  source with screen-reader structure, explicit financial form labels, loading
+  state announcements, scalable wrapping layouts, readable minimum type sizes,
+  reduced-motion navigation, offline recovery, and mandatory-version handling.
+- Store listing assets, signed-build acceptance, and release-console work.
+
+Admin moderation, announcements, user-role changes, imports/exports, and Discord
+operations remain on the web console until a separate security review approves
+native administration.
+
+## Screen and route map
+
+```text
+(public)
+  language -> welcome -> login/register
+  marketplace -> listing -> seller profile
+
+(authenticated tabs)
+  marketplace
+  academy -> course -> lesson
+  trades -> trade room -> evidence/dispute/review
+  notifications
+  profile -> settings/security/seller workspace
+
+(approved seller)
+  seller workspace -> listings/availability
+```
+
+## Client foundations
+
+- Expo Router route groups for public, authenticated, buyer, and approved-seller
+  screens.
+- A single typed API client with request IDs, timeouts, cancellation, token
+  refresh serialization, and one retry only for safe/idempotent requests.
+- TanStack Query or an equivalent query cache for server state; no second copy
+  of marketplace truth in a global client store.
+- SecureStore for credentials and non-sensitive storage for locale/onboarding.
+- Native deep-link allowlist; never open an arbitrary URL supplied by an API.
+- Error reporting with contact-bearing and financial fields scrubbed before
+  transmission.
+
+## Environments and delivery
+
+Use distinct development, preview, and production API origins. Production builds
+must refuse cleartext HTTP and must not contain test-support secrets or admin
+keys. Use EAS internal distribution for the first device beta, then TestFlight
+and Google Play internal testing before public review.
+
+## Release gates
+
+The native beta is ready only when:
+
+- Web production health is stable through cold starts.
+- Device login, refresh rotation, revocation, and expiry tests pass.
+- Cross-user authorization tests cover every private mobile endpoint.
+- Duplicate/replayed trade mutations are harmless.
+- Upload size/type/signature checks pass on iOS and Android fixtures.
+- Arabic RTL and English layouts pass on small and large phones.
+- Any build that enables remote push opens only the correct authorized
+  destination and never includes sensitive preview data.
+- Airplane-mode, timeout, app-kill, background/foreground, and expired-session
+  recovery paths are verified.
+- No admin-only capability or secret is bundled into the app.
+
+## Current private-beta status
+
+Completed in source:
+
+- Website-parity app shell with strict production-origin navigation, shared
+  authenticated cookies, safe external handoff, weak-network recovery, a branded
+  icon/splash, and no separate visible native product surface.
+- Signed-device Expo push registration bound to the active user session, durable
+  delivery deduplication, bounded provider retries, receipt reconciliation, and
+  invalid-token deactivation,
+  privacy-safe Arabic/English lock-screen copy, unread badge sync, allowlisted
+  notification taps, token-rotation recovery, and foreground permission
+  revalidation with direct phone-settings/retry guidance.
+- Versioned, device-bound access and rotating refresh sessions.
+- Bilingual marketplace, seller profiles, buyer request creation, participant-
+  only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
+  verified post-trade reviews, and seller review responses.
+- Native evidence is resized, re-encoded to remove embedded photo metadata, and
+  sent as bounded multipart data while the server preserves participant checks,
+  file-signature validation, neutral filenames, and content-derived replay
+  safety.
+- Buyer requests validate network-specific receiving-wallet formats locally
+  with the same portable TRC20 checksum, EVM, and Solana rules enforced by the
+  canonical server path.
+- Server-side native marketplace facets, filtering, and sorting before
+  pagination, with compact screen-reader-labeled controls for small phones.
+  Authenticated responses disable actions on the seller's own listing without
+  exposing seller IDs and are never stored in a shared public cache.
+- Privacy-safe native notification center with unread state, bounded polling,
+  capped paginated history, and allowlisted deep links. Marketplace and trade
+  collections use the same bounded incremental-loading contract.
+- SecureStore session persistence, account-isolated query caches, foreground
+  refresh, private-beta access/password-recovery handoffs, and legal/advanced-account
+  links.
+- Native profile activity and reputation summaries, level progress, everyday
+  profile editing, and six explicit privacy controls. The versioned endpoint
+  derives the account from the device session and omits private contact numbers,
+  commission history, billing data, and internal persistence identifiers.
+- Generation-aware refresh recovery reuses credentials already rotated by a
+  concurrent request and prevents stale work from reviving or clearing a
+  signed-out or replacement account session.
+- Optional per-account Face ID/fingerprint privacy lock. It uses a separate
+  authentication-protected sentinel, masks the navigation tree before app
+  backgrounding, pauses live queries while locked, and requires a fresh sign-in
+  after the operating system invalidates changed biometric enrollment.
+- Canonical USDT release countdown visibility, including warning and overdue
+  guidance without treating the client clock as an authorization boundary.
+- Native connectivity monitoring that pauses server-state fetches while offline,
+  resumes and refreshes them after reconnection, and presents bilingual degraded-
+  network status without discarding a saved session.
+- Platform-specific minimum-version enforcement on every mobile API surface,
+  plus a fail-open startup check and bilingual mandatory-update screen. A known
+  mandatory update remains enforced during later network loss.
+- Full bilingual native Academy with published-only authenticated catalog and
+  lesson projections, absolute HTTPS media handoffs, account-isolated offline
+  content/progress, course resume state, lesson requirements, quizzes,
+  bookmarks, notes, and previous/next navigation. The tab bar stays at five
+  destinations on small phones; approved sellers enter their native workspace
+  from Profile.
+- Native accessibility guardrails covering headings, form controls, busy states,
+  44–52 point touch targets, larger base caption sizes, wrapping financial
+  layouts, scroll-safe recovery surfaces, RTL-aware navigation motion, modal
+  biometric masking, and operating-system reduced-motion settings.
+- Role-gated approved-seller workspace with bounded private listing history,
+  retry-safe pause/resume actions, availability controls, and a fixed trusted
+  handoff for creation, financial edits, bank management, and commissions.
+- Optional-session marketplace and seller-profile responses consistently block
+  self-trades on every native entry path, remain free of seller identifiers,
+  constrain remote images to credential-free HTTPS, and purge personalized
+  caches when the account changes. Trade-local sensitive state also resets on
+  account or route changes and ignores late responses from an older Trade Room.
+- Automated native type-check and iOS/Android export inside the repository
+  release gate, plus pinned Expo Doctor validation for app configuration and
+  duplicate native-module detection.
+
+Still requires external acceptance:
+
+- One signed Android internal build and the real-device matrix in the
+  [private-beta release runbook](./private-beta-release-runbook.md).
+- Apple Developer enrollment, signing, and one TestFlight build.
+- End-to-end Expo/APNs/FCM delivery acceptance on signed physical devices,
+  including permission denial/re-enable, token rotation, background/terminated
+  receipt, tap destination, badge clearing, and lock-screen privacy checks.
+- Store metadata, screenshots, reviewer access, and final release approval.
+
+The exact handoff sequence, evidence to record, and card-gated steps are in the
+[private-beta release runbook](./private-beta-release-runbook.md).
+
+## First implementation slice
+
+1. Extract versioned DTOs and stable error codes into `packages/contracts`.
+2. Add device-session tables and hashed, rotating token services.
+3. Implement the four `/api/mobile/v1/auth/*` endpoints with negative
+   authorization tests.
+4. Scaffold `apps/mobile` with locale selection, SecureStore-backed session
+   handling, login, and a read-only marketplace.
+5. Distribute an internal build to real iOS and Android devices before adding
+   trade mutations.
+
+That slice proves the security boundary, bilingual navigation, build pipeline,
+and production API integration before the highest-risk trading features are
+introduced.

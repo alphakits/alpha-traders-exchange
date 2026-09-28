@@ -1,0 +1,125 @@
+import createMiddleware from "next-intl/middleware";
+import { NextResponse } from "next/server";
+import { routing } from "@/i18n/routing";
+import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { hasTrustedSameOrigin } from "@/lib/request-origin";
+import { allowsLocalTestSupportRequest } from "@/lib/runtime-safety";
+import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+
+const intlMiddleware = createMiddleware(routing);
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const EXTERNAL_CALLBACK_PATHS = new Set([
+  "/api/discord/marketplace-events",
+  "/api/twilio/status",
+]);
+
+function isExternalCallbackPath(pathname: string) {
+  return EXTERNAL_CALLBACK_PATHS.has(pathname.replace(/\/$/, ""));
+}
+
+function isOriginlessNativeMobileRequest(request: Parameters<typeof intlMiddleware>[0]) {
+  if (!request.nextUrl.pathname.startsWith("/api/mobile/v1/")) return false;
+  if (request.headers.get("origin") || request.headers.get("sec-fetch-site")) return false;
+  const deviceId = request.headers.get("x-device-id")?.trim() ?? "";
+  const appVersion = request.headers.get("x-app-version")?.trim() ?? "";
+  const platform = request.headers.get("x-platform")?.trim().toLowerCase();
+  return deviceId.length >= 16
+    && deviceId.length <= 128
+    && appVersion.length >= 1
+    && appVersion.length <= 50
+    && (platform === "ios" || platform === "android");
+}
+
+function rejectUntrustedApiMutation() {
+  return NextResponse.json(
+    { error: "Invalid request origin." },
+    {
+      status: 403,
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+        "Vary": "Origin, Sec-Fetch-Site",
+      },
+    },
+  );
+}
+
+export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
+  const { pathname } = request.nextUrl;
+  const isApiRoute = pathname.startsWith("/api/");
+
+  if (isApiRoute) {
+    const isProtectedMutation = STATE_CHANGING_METHODS.has(request.method.toUpperCase())
+      && !isExternalCallbackPath(pathname);
+    const isOriginlessLocalTestMutation = !request.headers.get("origin")
+      && allowsLocalTestSupportRequest(request);
+    const isOriginlessMobileMutation = isOriginlessNativeMobileRequest(request);
+    if (
+      isProtectedMutation
+      && !hasTrustedSameOrigin(request)
+      && !isOriginlessLocalTestMutation
+      && !isOriginlessMobileMutation
+    ) {
+      return rejectUntrustedApiMutation();
+    }
+    return NextResponse.next();
+  }
+
+  if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
+    // This cookie is written only by the explicit language switcher. Honour
+    // the choice while exploring and while signed in; never infer from locale.
+    const choice = request.cookies.get(LOCALE_CHOICE_COOKIE)?.value;
+    const locale = choice === "ar" || choice === "en" ? choice : routing.defaultLocale;
+    const localizedUrl = request.nextUrl.clone();
+    localizedUrl.pathname = `/${locale}${pathname === "/" ? "" : pathname}`;
+    const response = NextResponse.redirect(localizedUrl);
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Vary", "Cookie");
+    return response;
+  }
+
+  const isProtectedRoute = isProtectedPage(pathname);
+  const requiresVerifiedEmail = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|trade-room|trades|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
+  const isSellerWorkspaceRoute = /^\/(ar|en)\/dashboard\/seller(?:\/|$)/.test(pathname);
+  const isTradeRoomRoute = /^\/(ar|en)\/trade-room(?:\/|$)/.test(pathname);
+  const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+  const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
+  const phoneVerificationRequired = isMarketplacePhoneVerificationEnabled();
+  const hasVerifiedPhone = request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
+
+  if (isProtectedRoute && !hasSession) {
+    const response = NextResponse.redirect(new URL(getSignedOutPageDestination(`${pathname}${request.nextUrl.search}`), request.url));
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Vary", "Cookie");
+    return response;
+  }
+  if (isSellerWorkspaceRoute && hasSession && (!hasVerifiedEmail || (phoneVerificationRequired && !hasVerifiedPhone))) {
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
+    verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(verifyAccountUrl);
+  }
+  if (isTradeRoomRoute && hasSession && !hasVerifiedEmail) {
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
+    verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(verifyAccountUrl);
+  }
+  if (requiresVerifiedEmail && hasSession && !hasVerifiedEmail) {
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    const verifyUrl = new URL(`/${locale}/verify-email`, request.url);
+    return NextResponse.redirect(verifyUrl);
+  }
+
+  // Always overwrite the caller's value. The server layout uses this trusted
+  // path to reject invalid sessions before streaming any account page.
+  request.headers.set(APP_PAGE_PATH_HEADER, `${pathname}${request.nextUrl.search}`);
+  const response = intlMiddleware(request);
+  if (isProtectedRoute) response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
+export const config = {
+  matcher: ["/", "/api/:path*", "/(ar|en)/:path*", "/((?!api|_next|_vercel|.*\\..*).*)"],
+};

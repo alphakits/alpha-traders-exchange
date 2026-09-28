@@ -1,0 +1,274 @@
+import { BrandedText as Text } from "../../src/components/branded-text";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Redirect, useRouter } from "expo-router";
+import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
+import { useAuth } from "../../src/auth/auth-context";
+import { canUseSellerTools } from "../../src/auth/seller-access";
+import { GoldButton } from "../../src/components/gold-button";
+import { LanguageSwitch } from "../../src/components/language-switch";
+import { NativeSiteHeader } from "../../src/components/native-site-header";
+import { useLocale } from "../../src/i18n/locale-context";
+import { useBiometricLock } from "../../src/security/biometric-lock-context";
+import { AccountProfilePanel } from "../../src/screens/account-profile-panel";
+
+export default function ProfileScreen() {
+  const router = useRouter();
+  const { status, user, logout, isBusy } = useAuth();
+  const { isRTL, t } = useLocale();
+  const biometric = useBiometricLock();
+  if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
+  const canUseSellerWorkspace = canUseSellerTools(user);
+  const canApplyToSell = !canUseSellerWorkspace
+    && user.sellerStatus !== "pending_seller_approval"
+    && (user.role === "buyer" || user.roles.includes("buyer"));
+
+  async function toggleBiometricLock() {
+    const result = biometric.isEnabled ? await biometric.disable() : await biometric.enable();
+    if (result === "success") return;
+    const message = result === "unsupported"
+      ? t("biometricUnavailable")
+      : result === "invalidated"
+        ? t("biometricChanged")
+        : t("biometricFailed");
+    Alert.alert(t("biometricSecurity"), message);
+  }
+
+  const accountLinks = [
+    ...(canUseSellerWorkspace
+      ? [{ href: "/(tabs)/seller" as const, label: t("fullSellerWorkspace") }]
+      : canApplyToSell
+        ? [{ href: "/seller-application" as const, label: t("applyToSell") }]
+        : []),
+    { href: "/settings" as const, label: t("manageAccount") },
+    { href: "/account-deletion" as const, label: t("requestAccountDeletion") },
+    { href: "/support" as const, label: t("support") },
+    { href: "/privacy-policy" as const, label: t("privacyPolicy") },
+    { href: "/terms" as const, label: t("termsOfService") },
+  ];
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <NativeSiteHeader />
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <AccountProfilePanel />
+        <View style={styles.section}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
+          <LanguageSwitch />
+        </View>
+        <View style={styles.section}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("biometricSecurity")}</Text>
+          <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("biometricSecurityBody")}</Text>
+          <Text style={[
+            styles.securityStatus,
+            biometric.isEnabled && styles.securityStatusEnabled,
+            isRTL && styles.rtlText,
+          ]}>
+            {biometric.isEnabled ? `✓ ${t("biometricEnabled")}` : t("biometricDisabled")}
+          </Text>
+          {biometric.isSupported || biometric.isEnabled ? (
+            <GoldButton
+              loading={biometric.isAuthenticating || biometric.isChecking}
+              onPress={() => void toggleBiometricLock()}
+              variant="outline"
+            >
+              {biometric.isEnabled ? t("disableBiometric") : t("enableBiometric")}
+            </GoldButton>
+          ) : (
+            <Text style={[styles.unavailable, isRTL && styles.rtlText]}>{t("biometricUnavailable")}</Text>
+          )}
+        </View>
+        {canUseSellerWorkspace ? (
+          <View style={styles.sellerSection}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("sellerWorkspaceBody")}</Text>
+            <GoldButton onPress={() => router.push("/(tabs)/seller")}>
+              {t("openNativeSellerWorkspace")}
+            </GoldButton>
+          </View>
+        ) : null}
+        <View style={styles.section}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("accountAndSupport")}</Text>
+          <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("accountAndSupportBody")}</Text>
+          <View style={styles.linkList}>
+            {accountLinks.map((link, index) => (
+              <View key={link.href}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                <Pressable
+                  accessibilityRole="link"
+                  onPress={() => router.push(link.href)}
+                  style={({ pressed }) => [
+                    styles.linkRow,
+                    isRTL && styles.rowReverse,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={[styles.linkLabel, isRTL && styles.rtlText]}>{link.label}</Text>
+                  <Text style={styles.chevron}>{isRTL ? "‹" : "›"}</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        </View>
+        <GoldButton loading={isBusy} onPress={() => void logout()} variant="outline">
+          {t("signOut")}
+        </GoldButton>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    backgroundColor: "transparent",
+    flex: 1,
+  },
+  content: {
+    gap: spacing.xl,
+    padding: spacing.lg,
+  },
+  card: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.xl,
+  },
+  avatar: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.gold,
+    borderRadius: 42,
+    borderWidth: 1.5,
+    height: 84,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    overflow: "hidden",
+    width: 84,
+  },
+  avatarText: {
+    color: colors.goldBright,
+    fontSize: 34,
+    fontWeight: "900",
+  },
+  avatarImage: {
+    height: "100%",
+    width: "100%",
+  },
+  name: {
+    color: colors.text,
+    fontSize: typography.title,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  email: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    textAlign: "center",
+  },
+  roleBadge: {
+    backgroundColor: "rgba(216, 180, 74, 0.12)",
+    borderColor: colors.borderGold,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  roleText: {
+    color: colors.goldBright,
+    fontSize: typography.small,
+    fontWeight: "800",
+  },
+  verified: {
+    color: colors.success,
+    fontSize: typography.small,
+    marginTop: spacing.sm,
+  },
+  section: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  sellerSection: {
+    backgroundColor: "rgba(216, 180, 74, 0.08)",
+    borderColor: colors.borderGold,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  securityStatus: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    fontWeight: "800",
+  },
+  securityStatusEnabled: {
+    color: colors.success,
+  },
+  unavailable: {
+    color: colors.warning,
+    fontSize: typography.small,
+    lineHeight: 20,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: typography.section,
+    fontWeight: "800",
+  },
+  sectionBody: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    lineHeight: 20,
+  },
+  linkList: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  linkRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    minHeight: 50,
+    paddingHorizontal: spacing.md,
+  },
+  linkLabel: {
+    color: colors.text,
+    flex: 1,
+    fontSize: typography.small,
+    fontWeight: "700",
+  },
+  chevron: {
+    color: colors.goldBright,
+    fontSize: typography.section,
+    fontWeight: "900",
+  },
+  divider: {
+    backgroundColor: colors.border,
+    height: 1,
+  },
+  pressed: {
+    opacity: 0.72,
+  },
+  rowReverse: {
+    flexDirection: "row-reverse",
+  },
+  rtlText: {
+    textAlign: "right",
+    writingDirection: "rtl",
+  },
+});

@@ -1,0 +1,46 @@
+[
+  {
+    "id": "c1",
+    "slug": "market-structure-foundations",
+    "title": "Market Structure Foundations",
+    "titleAr": "أساسيات هيكل السوق",
+    "level": "beginner",
+    "summary": "Build core understanding of market phases, trend logic, and chart context.",
+    "summaryAr": "بناء فهم أساسي لمراحل السوق ومنطق الاتجاه والسياق السعري.",
+    "order": 1,
+    "thumbnail": "/images/course-market-structure.jpg"
+  },
+  {
+    "id": "c2",
+    "slug": "precision-risk-management",
+    "title": "Precision Risk Management",
+    "titleAr": "إدارة المخاطر الاحترافية",
+    "level": "risk-management",
+    "summary": "Institutional-level risk frameworks, position sizing, and drawdown control.",
+    "summaryAr": "أطر متقدمة لإدارة المخاطر وحساب حجم الصفقة والتحكم في التراجع.",
+    "order": 2,
+    "thumbnail": "/images/course-risk.jpg"
+  },
+  {
+    "id": "c3",
+    "slug": "trading-psychology-system",
+    "title": "Trading Psychology System",
+    "titleAr": "نظام علم نفس التداول",
+    "level": "psychology",
+    "summary": "Discipline loops, emotional regulation, and professional journaling habits.",
+    "summaryAr": "دوائر الانضباط، تنظيم العاطفة، وعادات التوثيق الاحترافي.",
+    "order": 3,
+    "thumbnail": "/images/course-psychology.jpg"
+  },
+  {
+    "id": "c4",
+    "slug": "ict-core-framework",
+    "title": "ICT Core Framework",
+    "titleAr": "إطار ICT الأساسي",
+    "level": "ict",
+    "summary": "Liquidity models, session behavior, and objective entry models.",
+    "summaryAr": "نماذج السيولة وسلوك الجلسات ونماذج الدخول الموضوعية.",
+    "order": 4,
+    "thumbnail": "/images/course-ict.jpg"
+  }
+]

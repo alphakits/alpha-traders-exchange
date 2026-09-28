@@ -1,0 +1,19 @@
+name: Alpha Traders Android Production Build
+run_name: Android production build • ${{ github.sha }}
+
+on:
+  push:
+    branches: [release/android-production]
+  workflow_dispatch: {}
+
+jobs:
+  build_android:
+    name: Build signed Android production app
+    type: build
+    environment: production
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    params:
+      platform: android
+      profile: production
+      message: Alpha Traders Android production build

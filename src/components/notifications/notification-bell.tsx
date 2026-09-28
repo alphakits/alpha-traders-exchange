@@ -1,0 +1,643 @@
+"use client";
+
+import { brandText } from "@/components/ui/currency-text";
+
+import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
+import type { AppLocale } from "@/i18n/routing";
+import { Link, useRouter } from "@/i18n/navigation";
+import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
+import { Button } from "@/components/ui/button";
+import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
+import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
+import { formatNotificationRelativeTime } from "@/lib/notification-time";
+import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
+import { extractRequestIdFromTradeRoomHref, extractTradeRoomHrefFromRelatedHref, getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
+import {
+  getExplicitNonTradeRoomNotificationDestination,
+  getSafeInternalNotificationDestination,
+} from "@/lib/notification-action-destination";
+import { isNotificationActionRequired } from "@/lib/notification-action-required";
+import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
+import { forwardCompletedTradesToNative, syncNotificationCountToNative } from "@/lib/native-app-bridge";
+import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+
+type NotificationsPayload = {
+  notifications: AlphaExchangeNotification[];
+  total: number;
+  unreadCount: number;
+};
+
+const BELL_REFRESH_WINDOW_MS = 30_000;
+
+type NotificationsStreamPayload = {
+  notifications: AlphaExchangeNotification[];
+  unreadCount: number;
+};
+
+type TradeRoomRequestPayload = {
+  id: string;
+  status: string;
+  sellerId: string;
+  buyerId: string;
+  paymentMethod?: string;
+};
+
+type TradeSnapshotPayload = {
+  requestId?: string;
+  currentStage?: string;
+  sellerId?: string;
+  buyerId?: string;
+  paymentMethod?: string;
+};
+
+function notificationIcon(notification: AlphaExchangeNotification) {
+  if (notification.category === "trade") return Scale;
+  if (notification.category === "listing") return Tags;
+  if (notification.category === "application") return UserRound;
+  if (notification.category === "report" || notification.category === "dispute") return ShieldCheck;
+  if (notification.category === "trust") return Star;
+  if (notification.title.toLowerCase().includes("announcement")) return Megaphone;
+  return BellDot;
+}
+
+function formatNotificationTitle(notification: AlphaExchangeNotification, locale: AppLocale) {
+  return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).title, notification);
+}
+
+function formatNotificationMessage(notification: AlphaExchangeNotification, locale: AppLocale) {
+  return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).message, notification);
+}
+
+function activeBellNotifications(notifications: AlphaExchangeNotification[]) {
+  return notifications.filter((notification) => notification.state !== "archived" && !notification.isRead);
+}
+
+function buildTradeRoomHashForAction(action: string) {
+  if (action === "upload-payment-receipt" || action === "upload-seller-evidence") return "evidence";
+  if (action === "review-trade" || action === "open-trade") return "status-banner";
+  return "action-required";
+}
+
+function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
+  const isSeller = request.sellerId === actorUserId;
+  const isBuyer = request.buyerId === actorUserId;
+  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  if (request.status === "pending" && isSeller) return "accept-trade";
+  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
+  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
+  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
+  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
+  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
+  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
+  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
+  return "open-trade";
+}
+
+function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null | undefined, actorUserId: string) {
+  const requestId = String(snapshot?.requestId ?? "").trim();
+  const status = String(snapshot?.currentStage ?? "").trim();
+  const sellerId = String(snapshot?.sellerId ?? "").trim();
+  const buyerId = String(snapshot?.buyerId ?? "").trim();
+  if (!requestId || !status || !sellerId || !buyerId) return null;
+  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot?.paymentMethod }, actorUserId);
+}
+
+function inferTradeActionFromNotificationText(notification: AlphaExchangeNotification) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (/new trade request/.test(text)) return "accept-trade";
+  if (/withdrawal code|handed over cash|handed the cash/.test(text)) return "confirm-money-received";
+  if (/trade request accepted/.test(text)) return "upload-payment-receipt";
+  if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
+  if (/buyer wallet is now revealed|send-and-complete/.test(text)) return "confirm-usdt-sent";
+  if (/cash trade ready to complete/.test(text)) return "complete-cash-trade";
+  if (/will complete the cash trade|no receipt confirmation is required/.test(text)) return "open-trade";
+  if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
+  if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
+  if (/review available|trade completed/.test(text)) return "review-trade";
+  return "open-trade";
+}
+
+function buildTradeDestinationFromNotification(notification: AlphaExchangeNotification) {
+  const conversationDestination = getTradeRoomConversationDestination(notification);
+  if (conversationDestination) return conversationDestination;
+  const requestId = notification.relatedRequestId?.trim()
+    || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
+    || (extractRequestIdFromTradeRoomHref(notification.relatedHref) ?? extractRequestIdFromTradeRoomHref(notification.actionHref))
+    || null;
+  if (!requestId) return null;
+
+  const snapshotAction = notification.userId
+    ? buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId)
+    : null;
+  const action = snapshotAction ?? inferTradeActionFromNotificationText(notification);
+  const hash = buildTradeRoomHashForAction(action);
+  return `/trade-room/${encodeURIComponent(requestId)}?action=${encodeURIComponent(action)}#${hash}`;
+}
+
+type NotificationBellProps = { locale: AppLocale };
+type OptionalCanonicalSession = ReturnType<typeof useOptionalCanonicalSession>;
+
+export function NotificationBell(props: NotificationBellProps) {
+  const canonicalSession = useOptionalCanonicalSession();
+  const accountKey = canonicalSession
+    ? (canonicalSession.user?.id ?? "signed-out")
+    : "unscoped";
+  return <NotificationBellSession key={accountKey} {...props} canonicalSession={canonicalSession} />;
+}
+
+function NotificationBellSession({
+  locale,
+  canonicalSession,
+}: NotificationBellProps & { canonicalSession: OptionalCanonicalSession }) {
+  const isAr = locale === "ar";
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState(0);
+  const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const refreshSession = canonicalSession?.refresh;
+  const canonicalUserId = canonicalSession?.user?.id;
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const isOpenRef = useRef(false);
+  const notificationsCountRef = useRef(0);
+  const unreadCountRef = useRef(0);
+  const router = useRouter();
+  const notificationAccountScope = canonicalSession
+    ? (canonicalSession.user?.id ?? "signed-out")
+    : "unscoped";
+  const activeNotificationAccountScopeRef = useRef(notificationAccountScope);
+  activeNotificationAccountScopeRef.current = notificationAccountScope;
+  const canLoadNotifications = !canonicalSession || (!canonicalSession.isResolving && Boolean(canonicalSession.user));
+
+  const applyUnreadCount = useCallback((value: number) => {
+    const normalized = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+    unreadCountRef.current = normalized;
+    setUnreadCount(normalized);
+    syncNotificationCountToNative(normalized, canonicalSession?.user?.id, locale);
+  }, [canonicalSession?.user?.id, locale]);
+
+  useEffect(() => () => {
+    // Prevent a response owned by an unmounted account-scoped bell from
+    // publishing native or React state after an authentication change.
+    activeNotificationAccountScopeRef.current = "disposed";
+    loadControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setOpenNotificationsSnapshot(null);
+      return;
+    }
+    if (openNotificationsSnapshot === null && notifications.length > 0) {
+      setOpenNotificationsSnapshot(notifications);
+    }
+  }, [isOpen, notifications, openNotificationsSnapshot]);
+
+  useEffect(() => {
+    notificationsCountRef.current = notifications.length;
+  }, [notifications.length]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    const closeOutside = (event: PointerEvent) => {
+      if (panelRef.current && event.target instanceof Node && !panelRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOutside);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOutside);
+    };
+  }, [isOpen]);
+
+  const loadNotifications = useCallback(async (
+    limit: number,
+    options?: { preserveOpenList?: boolean; forceListUpdate?: boolean },
+  ) => {
+    if (!canLoadNotifications) return;
+    if (loadControllerRef.current && !options?.forceListUpdate) return;
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    const operationScope = notificationAccountScope;
+    const startedAt = Date.now();
+    const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
+    if (!shouldPreserveList) {
+      setIsLoading(true);
+    }
+    setLoadError(null);
+    try {
+      incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
+      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) {
+        if (response.status === 401) void refreshSession?.({ force: true });
+        throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      }
+      const payload = (await response.json()) as NotificationsPayload;
+      if (activeNotificationAccountScopeRef.current !== operationScope || loadControllerRef.current !== controller) return;
+      const incoming = activeBellNotifications(payload.notifications ?? []);
+      forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
+      const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
+      if (!shouldPreserveList && !keepVisibleList) {
+        const sortedIncoming = sortNotificationsNewestFirst(incoming);
+        setNotifications(sortedIncoming);
+        if (options?.forceListUpdate && isOpenRef.current) {
+          setOpenNotificationsSnapshot(sortedIncoming);
+        }
+      }
+      applyUnreadCount(payload.unreadCount ?? 0);
+      setLastLoadedAt(Date.now());
+      appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
+    } catch {
+      if (activeNotificationAccountScopeRef.current === operationScope && loadControllerRef.current === controller) {
+        setLoadError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      const ownsLoad = loadControllerRef.current === controller;
+      if (ownsLoad) loadControllerRef.current = null;
+      if (ownsLoad && activeNotificationAccountScopeRef.current === operationScope && !shouldPreserveList) {
+        setIsLoading(false);
+      }
+    }
+  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope]);
+
+  useEffect(() => {
+    if (!canLoadNotifications) return;
+    void loadNotifications(20);
+  }, [canLoadNotifications, loadNotifications]);
+
+  const handleNotificationStream = useCallback((event: Event) => {
+    if (activeNotificationAccountScopeRef.current !== notificationAccountScope) return;
+    const messageEvent = event as MessageEvent<string>;
+    try {
+      const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+      const incoming = activeBellNotifications(
+        Array.isArray(payload.notifications) ? payload.notifications : [],
+      );
+      forwardCompletedTradesToNative(
+        incoming,
+        canonicalSession?.user?.id,
+        locale,
+      );
+      if (!isOpenRef.current) {
+        setNotifications(sortNotificationsNewestFirst(incoming));
+      }
+      applyUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+    } catch {
+      // Ignore malformed stream payloads and keep current state.
+    }
+  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope]);
+  useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
+
+  function handleToggleOpen() {
+    const nextOpen = !isOpenRef.current;
+    isOpenRef.current = nextOpen;
+    setIsOpen(nextOpen);
+    if (nextOpen) {
+      router.prefetch("/notifications");
+      if (Date.now() - lastLoadedAt >= BELL_REFRESH_WINDOW_MS || notifications.length === 0) {
+        void loadNotifications(20);
+      }
+    }
+  }
+
+  async function handleMarkOneRead(notificationId: string) {
+    const target = notifications.find((item) => item.id === notificationId)
+      ?? openNotificationsSnapshot?.find((item) => item.id === notificationId);
+    if (!target || target.isRead) return;
+    // The bell is an active-inbox surface. Read items remain available in the
+    // full Notification Center, but disappear from this quick-action list.
+    setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notificationId) ?? prev);
+    applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead: true }),
+      });
+      if (!response.ok) {
+        // Revert on failure with a fresh server fetch.
+        await loadNotifications(20, { forceListUpdate: true });
+      }
+    } catch {
+      await loadNotifications(20, { forceListUpdate: true });
+    }
+  }
+
+  async function handleDismissNotification(notification: AlphaExchangeNotification) {
+    const actionKey = `${notification.id}:dismiss`;
+    if (actionLoading[actionKey]) return;
+    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
+    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notification.id) ?? prev);
+    if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss" }),
+      });
+      if (!response.ok) throw new Error("notification_dismiss_failed");
+    } catch {
+      setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
+      await loadNotifications(20, { forceListUpdate: true });
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    }
+  }
+
+  async function handleMarkAllRead() {
+    // The quick-action bell contains unread items only. Keep read history in
+    // the Notification Center and clear this surface immediately.
+    setNotifications([]);
+    setOpenNotificationsSnapshot([]);
+    applyUnreadCount(0);
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      if (!response.ok) {
+        await loadNotifications(20, { forceListUpdate: true });
+      }
+    } catch {
+      await loadNotifications(20, { forceListUpdate: true });
+    }
+  }
+
+  async function handleOpenNotification(notification: AlphaExchangeNotification) {
+    const destination = await resolveNotificationDestination(notification);
+    if (!destination) return;
+
+    const requestId = extractRequestIdFromTradeRoomHref(destination);
+    if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
+    if (!notification.isRead) void handleMarkOneRead(notification.id);
+    setIsOpen(false);
+    router.push(destination);
+  }
+
+  function isTradeNotification(notification: AlphaExchangeNotification) {
+    return notification.category === "trade";
+  }
+
+  function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    const commissionDestination = getCommissionPaymentNotificationDestination(notification);
+    if (commissionDestination) return commissionDestination;
+    // A category is not an authorization boundary. Explicit internal actions
+    // for an admin/nonparticipant must not be rewritten to a Trade Room.
+    const explicitInternalDestination = getExplicitNonTradeRoomNotificationDestination(notification);
+    if (explicitInternalDestination) return explicitInternalDestination;
+    if (isTradeNotification(notification)) {
+      const fallbackHref = resolveTradeRoomHref(notification);
+      return buildTradeDestinationFromNotification(notification) ?? fallbackHref;
+    }
+    return getSafeInternalNotificationDestination(notification);
+  }
+
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    for (const href of [notification.actionHref, notification.relatedHref]) {
+      if (!href?.trim()) continue;
+      try {
+        const parsed = new URL(href, "https://www.alphatraders.co.il");
+        const byQuery = parsed.searchParams.get("sellerApplication");
+        if (byQuery?.trim()) return byQuery.trim();
+      } catch {
+        // Continue to a valid related fallback.
+      }
+    }
+    return null;
+  }
+
+  function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    const label = getCommissionPaymentNotificationDestination(notification)
+      ? "Pay Commission"
+      : notification.actionLabel?.trim()
+        ? notification.actionLabel.trim()
+        : isTradeNotification(notification)
+          ? "Continue Trade"
+          : notification.category === "application"
+            ? "Review Application"
+            : notification.category === "listing"
+              ? "View listing"
+              : "View Details";
+    return localizeNotificationActionLabel(label, locale, notification);
+  }
+
+  function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${encodeURIComponent(notification.relatedRequestId.trim())}`;
+    return (extractTradeRoomHrefFromRelatedHref(notification.relatedHref) ?? extractTradeRoomHrefFromRelatedHref(notification.actionHref));
+  }
+
+  const hasUnread = unreadCount > 0;
+  const actionRequiredCount = notifications.filter(
+    (notification) => isNotificationActionRequired(notification),
+  ).length;
+  const hasActionRequired = actionRequiredCount > 0;
+  const renderedNotifications = isOpen ? (openNotificationsSnapshot ?? notifications) : notifications;
+  const wrapperDirection = useMemo(() => (locale === "ar" ? "rtl" : "ltr"), [locale]);
+
+  return (
+    <div className="relative" ref={panelRef} dir={wrapperDirection}>
+      <button
+        type="button"
+        onClick={() => void handleToggleOpen()}
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/[0.02] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] md:h-9 md:w-9"
+        aria-label={isAr ? "الإشعارات" : "Notifications"}
+      >
+        <Bell className="h-4 w-4" />
+        {hasUnread ? (
+          <span className="absolute -end-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full border border-[#C9A227]/45 bg-[#C9A227] px-1 text-[10px] font-semibold text-black">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        ) : null}
+        {hasActionRequired ? <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-amber-400" /> : null}
+      </button>
+
+      <div
+        data-testid="notification-panel"
+        className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
+          isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
+        }`}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+            <BellDot className="h-4 w-4 text-[#C9A227]" />
+            {isAr ? "الإشعارات" : "Notifications"}
+            {hasUnread ? (
+              <span className="badge-chip border-[#C9A227]/35 bg-[#C9A227]/10 font-normal text-[#C9A227]">
+                {unreadCount} {isAr ? "غير مقروء" : "unread"}
+              </span>
+            ) : null}
+            {hasActionRequired ? (
+              <span className="badge-chip border-amber-400/40 bg-amber-400/10 font-normal text-amber-200">
+                {actionRequiredCount} {isAr ? "تحتاج إلى إجراء" : "need action"}
+              </span>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            aria-label={isAr ? "إغلاق الإشعارات" : "Close notifications"}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-[#9CA3AF] transition hover:border-white/30 hover:text-white"
+          >
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y]">
+          {isLoading ? <p className="empty-state-panel p-3 text-xs">{isAr ? "جاري التحميل..." : "Loading..."}</p> : null}
+          {error || loadError ? <ActionFeedback autoReveal={Boolean(error)} revealKey={errorFeedbackKey} as="p" role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error ?? loadError}</ActionFeedback> : null}
+          {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">{isAr ? "لا توجد إشعارات حتى الآن." : "No notifications yet."}</p> : null}
+          {renderedNotifications.map((notification) => {
+                const Icon = notificationIcon(notification);
+                const destination = resolveNotificationDestination(notification);
+                const actionRequired = isNotificationActionRequired(notification);
+                return (
+                  <div
+                    key={notification.id}
+                    data-notification-id={notification.id}
+                    className={`rounded-xl border p-3 text-xs ${
+                      actionRequired
+                        ? "border-amber-400/55 bg-amber-500/10 text-amber-50"
+                        : notification.isRead
+                        ? "border-white/10 bg-black/20 text-[#9CA3AF]"
+                        : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-medium text-white"><bdi dir="auto">{brandText(formatNotificationTitle(notification, locale))}</bdi></p>
+                          <span className="shrink-0 text-[11px] text-[#9CA3AF]"><bdi dir="auto">{formatNotificationRelativeTime(notification.createdAt, locale)}</bdi></span>
+                        </div>
+                        <p className="mt-1 line-clamp-2"><bdi dir="auto">{brandText(formatNotificationMessage(notification, locale))}</bdi></p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">{isAr ? "غير مقروء" : "Unread"}</span> : null}
+                          {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}
+                          {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</bdi></span>
+                            : null}
+                          {notification.relatedListingId || notification.relatedListingDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</bdi></span>
+                            : null}
+                          {notification.relatedSellerName ? (
+                            <span className="inline-flex max-w-full items-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] text-[#FDE68A]">
+                              <span className="truncate">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{notification.relatedSellerName}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{notification.relatedSellerUsername}</bdi></> : null}</span>
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {isTradeNotification(notification) && destination ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 px-2.5 text-[11px] transition-none hover:translate-y-0 active:scale-100"
+                              onMouseEnter={() => {
+                                if (!destination) return;
+                                const requestId = extractRequestIdFromTradeRoomHref(destination);
+                                if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
+                              }}
+                              onFocus={() => {
+                                if (!destination) return;
+                                const requestId = extractRequestIdFromTradeRoomHref(destination);
+                                if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
+                              }}
+                              onClick={() => void handleOpenNotification(notification)}
+                            >
+                              {resolveNotificationActionLabel(notification)}
+                            </Button>
+                          ) : null}
+                          {!isTradeNotification(notification) && destination ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 px-2.5 text-[11px]"
+                              onClick={() => void handleOpenNotification(notification)}
+                            >
+                              {resolveNotificationActionLabel(notification)}
+                            </Button>
+                          ) : null}
+                          {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`])}
+                                onClick={() => {
+                                  void handleDismissNotification(notification);
+                                }}
+                              >
+                                {actionLoading[`${notification.id}:dismiss`]
+                                  ? (isAr ? "جاري الحفظ..." : "Saving...")
+                                  : (isAr ? "لاحقاً" : "Later")}
+                              </Button>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  {isAr ? "تحديد كمقروء" : "Mark as read"}
+                                </Button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  {isAr ? "تحديد كمقروء" : "Mark as read"}
+                                </Button>
+                              ) : null}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-white/10 px-3 py-2">
+          <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllRead()} className="h-8 px-3 text-xs">
+            {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
+          </Button>
+          <Link href="/notifications" locale={locale} className="inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+            <CircleDot className="h-3 w-3" />
+            {isAr ? "عرض كل الإشعارات" : "View all notifications"}
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}

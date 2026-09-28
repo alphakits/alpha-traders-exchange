@@ -1,0 +1,463 @@
+export type TradeRoomSystemMessageLocale = "ar" | "en";
+
+export type TradeRoomSystemMessageSegment = {
+  value: string;
+  isolate?: boolean;
+};
+
+export type LocalizedTradeRoomSystemMessage = {
+  text: string;
+  segments: TradeRoomSystemMessageSegment[];
+  dir: "rtl" | "ltr" | "auto";
+  matched: boolean;
+};
+
+type LocalizedExactTemplate = Record<TradeRoomSystemMessageLocale, string>;
+
+const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
+  "Seller accepted the Face-to-Face trade. Buyer hands over the full cash total. Seller can confirm receipt without waiting for the buyer button, then sends the full USDT amount to the revealed wallet and completes the trade. No photo is required.": { en: "Seller accepted the Face-to-Face trade. Buyer hands over the full cash total. Seller can confirm receipt without waiting for the buyer button, then sends the full USDT amount to the revealed wallet and completes the trade. No photo is required.", ar: "وافق البائع على صفقة اللقاء الشخصي. يسلّم المشتري إجمالي النقد، ويمكن للبائع تأكيد الاستلام دون انتظار زر المشتري، ثم يرسل كامل USDT إلى المحفظة الظاهرة ويكمل الصفقة. لا يلزم رفع صورة." },
+  "Seller accepted the Face-to-Face trade. Buyer confirms handing over the cash. Seller confirms receiving it, sends the full USDT amount to the revealed wallet, then marks the trade completed. No buyer wait or photo is required.": { en: "Seller accepted the Face-to-Face trade. Buyer confirms handing over the cash. Seller confirms receiving it, sends the full USDT amount to the revealed wallet, then marks the trade completed. No buyer wait or photo is required.", ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ويؤكد البائع استلامه، ثم يرسل كامل USDT إلى المحفظة الظاهرة ويكمل الصفقة. لا يلزم انتظار المشتري أو رفع صورة." },
+  "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation.": { ar: "أكد البائع إرسال USDT. يمكنه الآن إكمال الصفقة دون انتظار تأكيد المشتري.", en: "Seller marked USDT as sent. The seller can now complete the trade without waiting for buyer confirmation." },
+  "Seller confirmed trade completed": { ar: "أكد البائع اكتمال الصفقة", en: "Seller confirmed trade completed" },
+  "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due.": { ar: "أكد البائع تسليم USDT وأكمل الصفقة. انتقلت الصفقة إلى السجل والتقييم وأصبحت عمولة البائع مستحقة.", en: "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due." },
+  "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.": { ar: "أكد البائع إرسال USDT ويمكنه إكمال الصفقة. تحقق من محفظتك؛ يمكنك أيضًا تأكيد الاستلام.", en: "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt." },
+  "You confirmed USDT was sent. Complete the trade now; no buyer confirmation is required.": { ar: "لقد أكدت إرسال USDT. أكمل الصفقة الآن دون انتظار تأكيد المشتري.", en: "You confirmed USDT was sent. Complete the trade now; no buyer confirmation is required." },
+  "You completed the trade. Check your commission due.": { ar: "أكملت الصفقة. راجع العمولة المستحقة عليك.", en: "You completed the trade. Check your commission due." },
+
+  "Seller accepted the trade request. Buyer can now upload the payment receipt.": {
+    ar: "وافق البائع على طلب الصفقة. يمكن للمشتري الآن رفع إيصال الدفع.",
+    en: "Seller accepted the trade request. Buyer can now upload the payment receipt.",
+  },
+  "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+  },
+  "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. على المشتري تسليم النقد وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد تأكيد البائع الاستلام، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+  },
+  "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+  },
+  "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. على المشتري إرسال رمز السحب وتأكيد ذلك بزر واحد؛ لا يلزم رفع صورة. بعد سحب البائع للنقد وتأكيده، تظهر محفظة المشتري ليؤكد البائع إرسال USDT ثم يُكمل الصفقة بزر منفصل.",
+    en: "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button.",
+  },
+  "Seller accepted request": {
+    ar: "وافق البائع على الطلب.",
+    en: "Seller accepted request.",
+  },
+  "Seller declined the trade request.": {
+    ar: "رفض البائع طلب الصفقة.",
+    en: "Seller declined the trade request.",
+  },
+  "The seller declined this trade request.": {
+    ar: "رفض البائع طلب الصفقة هذا.",
+    en: "The seller declined this trade request.",
+  },
+  "Seller declined request": {
+    ar: "رفض البائع الطلب.",
+    en: "Seller declined request.",
+  },
+  "Buyer cancelled the trade request.": {
+    ar: "ألغى المشتري طلب الصفقة.",
+    en: "Buyer cancelled the trade request.",
+  },
+  "The buyer cancelled this trade request.": {
+    ar: "ألغى المشتري طلب الصفقة هذا.",
+    en: "The buyer cancelled this trade request.",
+  },
+  "Buyer cancelled request": {
+    ar: "ألغى المشتري الطلب.",
+    en: "Buyer cancelled request.",
+  },
+  "Buyer uploaded the payment receipt.": {
+    ar: "رفع المشتري إيصال الدفع.",
+    en: "Buyer uploaded the payment receipt.",
+  },
+  "Buyer uploaded payment evidence": {
+    ar: "رفع المشتري إثبات الدفع.",
+    en: "Buyer uploaded payment evidence.",
+  },
+  "Seller attached release evidence.": {
+    ar: "أرفق البائع إثبات إرسال USDT.",
+    en: "Seller attached release evidence.",
+  },
+  "Seller uploaded USDT evidence": {
+    ar: "رفع البائع إثبات إرسال USDT.",
+    en: "Seller uploaded USDT evidence.",
+  },
+  "Buyer submitted payment. Seller should now confirm the money was received.": {
+    ar: "أرسل المشتري الدفع. يجب على البائع الآن تأكيد استلام الأموال.",
+    en: "Buyer submitted payment. Seller should now confirm the money was received.",
+  },
+  "Buyer confirmed the cardless withdrawal code was sent. Seller should collect the ATM cash, then confirm receipt.": {
+    ar: "أكد المشتري إرسال رمز السحب دون بطاقة. على البائع سحب النقد من الصراف ثم تأكيد الاستلام.",
+    en: "Buyer confirmed the cardless withdrawal code was sent. Seller should collect the ATM cash, then confirm receipt.",
+  },
+  "Buyer confirmed the cash was handed over. Seller should confirm receipt before sending USDT.": {
+    ar: "أكد المشتري تسليم النقد. على البائع تأكيد الاستلام قبل إرسال USDT.",
+    en: "Buyer confirmed the cash was handed over. Seller should confirm receipt before sending USDT.",
+  },
+  "Buyer confirmed the cardless withdrawal code was sent": {
+    ar: "أكد المشتري إرسال رمز السحب دون بطاقة.",
+    en: "Buyer confirmed the cardless withdrawal code was sent.",
+  },
+  "Buyer confirmed the cash was handed to the seller": {
+    ar: "أكد المشتري تسليم النقد للبائع.",
+    en: "Buyer confirmed the cash was handed to the seller.",
+  },
+  "Buyer marked payment sent": {
+    ar: "أكّد المشتري إرسال الدفع.",
+    en: "Buyer marked payment sent.",
+  },
+  "Seller confirmed the funds were received. USDT release is now unlocked.": {
+    ar: "أكّد البائع استلام الأموال. أصبح إرسال USDT متاحًا الآن.",
+    en: "Seller confirmed the funds were received. USDT release is now unlocked.",
+  },
+  "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required.": {
+    ar: "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وتأكيد الإرسال. لا يلزم رفع صورة.",
+    en: "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.",
+  },
+  "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.": {
+    ar: "أكد البائع استلام النقد. ظهرت محفظة المشتري للبائع الآن، وعليه إرسال USDT وتأكيد الإرسال. لا يلزم رفع صورة.",
+    en: "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required.",
+  },
+  "Seller confirmed ATM cash collected": {
+    ar: "أكد البائع سحب النقد من الصراف.",
+    en: "Seller confirmed ATM cash collected.",
+  },
+  "Seller confirmed cash received": {
+    ar: "أكد البائع استلام النقد.",
+    en: "Seller confirmed cash received.",
+  },
+  "Seller confirmed funds received": {
+    ar: "أكّد البائع استلام الأموال.",
+    en: "Seller confirmed funds received.",
+  },
+  "Seller started the 45-minute USDT release window.": {
+    ar: "بدأ البائع مهلة إرسال USDT ومدتها 45 دقيقة.",
+    en: "Seller started the 45-minute USDT release window.",
+  },
+  "Seller started USDT release": {
+    ar: "بدأ البائع إرسال USDT.",
+    en: "Seller started USDT release.",
+  },
+  "Seller marked USDT as sent. Buyer should now confirm receipt.": {
+    ar: "أكّد البائع إرسال USDT. يجب على المشتري الآن تأكيد الاستلام.",
+    en: "Seller marked USDT as sent. Buyer should now confirm receipt.",
+  },
+  "Seller marked USDT as sent. The seller should now complete the cash trade; no photo is required. Completion opens review and creates the seller commission.": {
+    ar: "أكد البائع إرسال USDT. على البائع الآن إكمال الصفقة النقدية؛ لا يلزم رفع صورة. يفتح الإكمال التقييم ويُسجّل عمولة البائع.",
+    en: "Seller marked USDT as sent. The seller should now complete the cash trade; no photo is required. Completion opens review and creates the seller commission.",
+  },
+  "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission.": {
+    ar: "أكّد البائع إرسال USDT. على البائع إكمال صفقة السحب دون بطاقة؛ لا يلزم رفع صورة. عند الإكمال تُفتح المراجعة وتُسجّل عمولة البائع.",
+    en: "Seller marked USDT as sent. The seller should complete the Cardless ATM trade; no photo is required. Completion opens review and records the seller commission.",
+  },
+  "Seller marked USDT sent": {
+    ar: "أكّد البائع إرسال USDT.",
+    en: "Seller marked USDT sent.",
+  },
+  "Buyer confirmed USDT receipt. The trade is complete and has moved to history.": {
+    ar: "أكّد المشتري استلام USDT. اكتملت الصفقة وانتقلت إلى السجل.",
+    en: "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
+  },
+  "Buyer confirmed trade completed": {
+    ar: "أكّد المشتري اكتمال الصفقة.",
+    en: "Buyer confirmed trade completed.",
+  },
+  "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ثم يؤكد البائع الاستلام، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Face-to-Face trade. The buyer confirms the cash handover, the seller confirms receipt, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
+  },
+  "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. يؤكد المشتري تسليم النقد، ثم يؤكد البائع الاستلام، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Face-to-Face trade. The buyer confirms the cash handover, the seller confirms receipt, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
+  },
+  "Seller accepted the Cardless ATM trade. After the seller collects the cash and sends the agreed USDT, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. يؤكد المشتري إرسال الرمز، ثم يؤكد البائع سحب النقد، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Cardless ATM trade. The buyer confirms sending the code, the seller confirms collecting the cash, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
+  },
+  "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission.": {
+    ar: "وافق البائع على صفقة السحب دون بطاقة. يؤكد المشتري إرسال الرمز، ثم يؤكد البائع سحب النقد، وبعدها يؤكد البائع إرسال USDT ويُكمل الصفقة بزر منفصل. لا يلزم رفع صورة.",
+    en: "Seller accepted the Cardless ATM trade. The buyer confirms sending the code, the seller confirms collecting the cash, then the seller confirms USDT sent and completes with a separate button. No photo is required.",
+  },
+  "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.": {
+    ar: "أنهى المشتري صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
+    en: "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.",
+  },
+  "Seller marked the Face-to-Face trade complete. The trade has moved to history and review.": {
+    ar: "أنهى البائع صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
+    en: "Seller marked the Face-to-Face trade complete. The trade has moved to history and review.",
+  },
+  "Buyer sent a reminder to continue this Trade Room.": {
+    ar: "أرسل المشتري تذكيرًا لمتابعة غرفة الصفقة.",
+    en: "Buyer sent a reminder to continue this Trade Room.",
+  },
+  "Seller sent a reminder to continue this Trade Room.": {
+    ar: "أرسل البائع تذكيرًا لمتابعة غرفة الصفقة.",
+    en: "Seller sent a reminder to continue this Trade Room.",
+  },
+  "Buyer inactivity warning sent.": {
+    ar: "تم إرسال تحذير للمشتري بسبب عدم النشاط.",
+    en: "Buyer inactivity warning sent.",
+  },
+  "The buyer received an inactivity reminder.": {
+    ar: "تلقّى المشتري تذكيرًا بسبب عدم النشاط.",
+    en: "The buyer received an inactivity reminder.",
+  },
+  "USDT release window expired — trade marked overdue.": {
+    ar: "انتهت مهلة إرسال USDT — تم تصنيف الصفقة كمتأخرة.",
+    en: "USDT release window expired — trade marked overdue.",
+  },
+  "Trade bank details viewed": {
+    ar: "تم عرض تفاصيل الحساب البنكي للصفقة.",
+    en: "Trade bank details viewed.",
+  },
+  "Trade bank details viewed in the trade room": {
+    ar: "تم عرض تفاصيل الحساب البنكي داخل غرفة الصفقة.",
+    en: "Trade bank details viewed in the trade room.",
+  },
+  "Review window unlocked": {
+    ar: "أصبح بإمكانك الآن إضافة تقييم.",
+    en: "Review window unlocked.",
+  },
+  "You can now leave a rating and review for this trade.": {
+    ar: "يمكنك الآن إضافة تقييم ومراجعة لهذه الصفقة.",
+    en: "You can now leave a rating and review for this trade.",
+  },
+  "A buyer submitted a review for a completed trade.": {
+    ar: "أرسل المشتري مراجعة لصفقة مكتملة.",
+    en: "A buyer submitted a review for a completed trade.",
+  },
+  "The seller responded to your completed trade review.": {
+    ar: "ردّ البائع على مراجعتك للصفقة المكتملة.",
+    en: "The seller responded to your completed trade review.",
+  },
+  "Dispute opened for this trade.": {
+    ar: "تم فتح نزاع لهذه الصفقة.",
+    en: "Dispute opened for this trade.",
+  },
+  "Trade locked": {
+    ar: "تم إغلاق الصفقة.",
+    en: "Trade locked.",
+  },
+  "Admin force-completed this trade": {
+    ar: "أكملت الإدارة هذه الصفقة إجباريًا.",
+    en: "Admin force-completed this trade.",
+  },
+  "Admin cancelled this trade": {
+    ar: "ألغت الإدارة هذه الصفقة.",
+    en: "Admin cancelled this trade.",
+  },
+  "Admin unlocked review window": {
+    ar: "أتاحت الإدارة إضافة مراجعة.",
+    en: "Admin unlocked review window.",
+  },
+};
+
+const STALE_CASH_POLICY_MESSAGES = new Set([
+  "Seller accepted the Face-to-Face trade. Buyer should hand over the cash and confirm it with one button; no photo is required. After the seller confirms receipt, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+  "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can send USDT and complete the trade.",
+  "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and complete the trade. No photo is required.",
+  "Seller marked USDT as sent. After the buyer receives the USDT, either buyer or seller can mark this Cardless ATM trade complete. Completion opens review and creates the 1% seller commission.",
+  "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.",
+  "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.",
+  "Seller accepted the Cardless ATM trade. After the seller collects the cash and sends the agreed USDT, either participant can mark the trade complete without uploading evidence. Completion moves the trade to review and creates the seller commission.",
+  "Seller accepted the Cardless ATM trade. Follow the protected cash-withdrawal and USDT-release steps. After both sides receive what they are owed, either participant can mark the trade complete without uploading additional evidence. Completion moves the trade to review and creates the 1% seller commission.",
+]);
+
+function plain(value: string): TradeRoomSystemMessageSegment {
+  return { value };
+}
+
+function isolated(value: string): TradeRoomSystemMessageSegment {
+  return { value, isolate: true };
+}
+
+function result(
+  locale: TradeRoomSystemMessageLocale,
+  segments: TradeRoomSystemMessageSegment[],
+  matched = true,
+): LocalizedTradeRoomSystemMessage {
+  const displaySegments = locale === "ar"
+    ? segments.flatMap((segment) => {
+        if (segment.isolate) return segment;
+        return segment.value
+          .split(/(USDT|Trade Room)/g)
+          .filter(Boolean)
+          .map((value) => (value === "USDT" || value === "Trade Room" ? isolated(value) : plain(value)));
+      })
+    : segments;
+  return {
+    text: displaySegments.map((segment) => segment.value).join(""),
+    segments: displaySegments,
+    dir: matched ? (locale === "ar" ? "rtl" : "ltr") : "auto",
+    matched,
+  };
+}
+
+type DynamicTemplate = {
+  pattern: RegExp;
+  render: (
+    locale: TradeRoomSystemMessageLocale,
+    captures: string[],
+  ) => TradeRoomSystemMessageSegment[];
+};
+
+const DYNAMIC_SYSTEM_MESSAGES: DynamicTemplate[] = [
+  {
+    pattern: /^(Buyer|Seller) marked the (Face-to-Face|Cardless ATM) trade complete\.$/,
+    render: (locale, [actor, method]) => {
+      if (locale === "en") return [plain(`${actor} marked the ${method} trade complete.`)];
+      const actorLabel = actor === "Seller" ? "البائع" : "المشتري";
+      const methodLabel = method === "Cardless ATM" ? "السحب دون بطاقة" : "اللقاء الشخصي";
+      return [plain(`سجّل ${actorLabel} صفقة ${methodLabel} كمكتملة.`)];
+    },
+  },
+  {
+    pattern: /^(Buyer|Seller) marked the (Face-to-Face|Cardless ATM) trade complete\. The trade has moved to history and review, and the seller commission is due\.$/,
+    render: (locale, [actor, method]) => {
+      if (locale === "en") return [plain(`${actor} marked the ${method} trade complete. The trade has moved to history and review, and the seller commission is due.`)];
+      const actorLabel = actor === "Seller" ? "البائع" : "المشتري";
+      const methodLabel = method === "Cardless ATM" ? "السحب دون بطاقة" : "اللقاء الشخصي";
+      return [plain(`سجّل ${actorLabel} صفقة ${methodLabel} كمكتملة. انتقلت الصفقة إلى السجل والمراجعة وأصبحت عمولة البائع مستحقة.`)];
+    },
+  },
+  {
+    pattern: /^Seller accepted the price offer of ₪(.+?) per USDT\. Buyer can now upload the payment receipt\.$/,
+    render: (locale, [price]) => locale === "ar"
+      ? [plain("وافق البائع على عرض السعر بقيمة ₪"), isolated(price), plain(" لكل USDT. يمكن للمشتري الآن رفع إيصال الدفع.")]
+      : [plain("Seller accepted the price offer of ₪"), isolated(price), plain(" per USDT. Buyer can now upload the payment receipt.")],
+  },
+  {
+    pattern: /^Trade closed manually: ([\s\S]+)$/,
+    render: (locale, [reason]) => locale === "ar"
+      ? [plain("تم إغلاق الصفقة يدويًا: "), isolated(reason)]
+      : [plain("Trade closed manually: "), isolated(reason)],
+  },
+  {
+    pattern: /^Trade was closed manually\. Reason: ([\s\S]+)$/,
+    render: (locale, [reasonAndExplanation]) => locale === "ar"
+      ? [plain("تم إغلاق الصفقة يدويًا. السبب: "), isolated(reasonAndExplanation)]
+      : [plain("Trade was closed manually. Reason: "), isolated(reasonAndExplanation)],
+  },
+  {
+    pattern: /^Inactivity warning sent after (.+) minutes without buyer progress\.$/,
+    render: (locale, [minutes]) => locale === "ar"
+      ? [plain("تم إرسال تحذير بسبب عدم إحراز المشتري أي تقدّم لمدة "), isolated(minutes), plain(" دقيقة.")]
+      : [plain("Inactivity warning sent after "), isolated(minutes), plain(" minutes without buyer progress.")],
+  },
+  {
+    pattern: /^Seller started the (.+)-minute USDT release window\.$/,
+    render: (locale, [minutes]) => locale === "ar"
+      ? [plain("بدأ البائع مهلة إرسال USDT ومدتها "), isolated(minutes), plain(" دقيقة.")]
+      : [plain("Seller started the "), isolated(minutes), plain("-minute USDT release window.")],
+  },
+  {
+    pattern: /^Commission due was created for the seller \((.+) USDT\)\.$/,
+    render: (locale, [amount]) => locale === "ar"
+      ? [plain("تم إنشاء عمولة مستحقة على البائع بقيمة "), isolated(amount), plain(" USDT.")]
+      : [plain("Commission due was created for the seller ("), isolated(amount), plain(" USDT).")],
+  },
+  {
+    pattern: /^Commission created \((.+) USDT\)\.$/,
+    render: (locale, [amount]) => locale === "ar"
+      ? [plain("تم إنشاء عمولة بقيمة "), isolated(amount), plain(" USDT.")]
+      : [plain("Commission created ("), isolated(amount), plain(" USDT).")],
+  },
+  {
+    pattern: /^Commission paid on-chain \((.+) USDT\)\.$/,
+    render: (locale, [amount]) => locale === "ar"
+      ? [plain("تم دفع العمولة على الشبكة بقيمة "), isolated(amount), plain(" USDT.")]
+      : [plain("Commission paid on-chain ("), isolated(amount), plain(" USDT).")],
+  },
+  {
+    pattern: /^Commission marked paid \((.+) USDT\)\.$/,
+    render: (locale, [amount]) => locale === "ar"
+      ? [plain("تم تأكيد دفع العمولة بقيمة "), isolated(amount), plain(" USDT.")]
+      : [plain("Commission marked paid ("), isolated(amount), plain(" USDT).")],
+  },
+  {
+    pattern: /^Commission for trade (.+) has been marked paid\.$/,
+    render: (locale, [tradeId]) => locale === "ar"
+      ? [plain("تم تأكيد دفع عمولة الصفقة "), isolated(tradeId), plain(".")]
+      : [plain("Commission for trade "), isolated(tradeId), plain(" has been marked paid.")],
+  },
+  {
+    pattern: /^Your commission payment for trade (.+) was verified\. Your account is now fully unlocked\.$/,
+    render: (locale, [tradeId]) => locale === "ar"
+      ? [plain("تم التحقق من دفع عمولة الصفقة "), isolated(tradeId), plain(". أصبح حسابك متاحًا بالكامل الآن.")]
+      : [plain("Your commission payment for trade "), isolated(tradeId), plain(" was verified. Your account is now fully unlocked.")],
+  },
+  {
+    pattern: /^Request (.+) was declined because the listing matched another buyer\.$/,
+    render: (locale, [requestId]) => locale === "ar"
+      ? [plain("تم رفض الطلب "), isolated(requestId), plain(" لأن الإعلان ارتبط بمشترٍ آخر.")]
+      : [plain("Request "), isolated(requestId), plain(" was declined because the listing matched another buyer.")],
+  },
+  {
+    pattern: /^Trade (.+) was cancelled by an admin listing action\.$/,
+    render: (locale, [tradeId]) => locale === "ar"
+      ? [plain("أُلغيت الصفقة "), isolated(tradeId), plain(" بسبب إجراء إداري على الإعلان.")]
+      : [plain("Trade "), isolated(tradeId), plain(" was cancelled by an admin listing action.")],
+  },
+  {
+    pattern: /^Trade (.+) completed\.$/,
+    render: (locale, [tradeId]) => locale === "ar"
+      ? [plain("اكتملت الصفقة "), isolated(tradeId), plain(".")]
+      : [plain("Trade "), isolated(tradeId), plain(" completed.")],
+  },
+  {
+    pattern: /^Review submitted for trade (.+)\.$/,
+    render: (locale, [tradeId]) => locale === "ar"
+      ? [plain("تم إرسال مراجعة للصفقة "), isolated(tradeId), plain(".")]
+      : [plain("Review submitted for trade "), isolated(tradeId), plain(".")],
+  },
+  {
+    pattern: /^(A dispute was opened|Dispute opened) for trade (.+)\.$/,
+    render: (locale, [prefix, tradeId]) => locale === "ar"
+      ? [plain("تم فتح نزاع للصفقة "), isolated(tradeId), plain(".")]
+      : [plain(prefix), plain(" for trade "), isolated(tradeId), plain(".")],
+  },
+  {
+    pattern: /^Bank details for trade (.+) were viewed\.$/,
+    render: (locale, [tradeId]) => locale === "ar"
+      ? [plain("تم عرض تفاصيل الحساب البنكي للصفقة "), isolated(tradeId), plain(".")]
+      : [plain("Bank details for trade "), isolated(tradeId), plain(" were viewed.")],
+  },
+  {
+    pattern: /^Seller accepted (.+)'s (.+) USDT request\. The trade is now active\.$/,
+    render: (locale, [buyerName, amount]) => locale === "ar"
+      ? [plain("وافق البائع على طلب "), isolated(buyerName), plain(" لشراء "), isolated(amount), plain(" USDT. الصفقة نشطة الآن.")]
+      : [plain("Seller accepted "), isolated(buyerName), plain("'s "), isolated(amount), plain(" USDT request. The trade is now active.")],
+  },
+];
+
+/**
+ * Localizes only recognized server-authored Trade Room messages. Unknown text
+ * is returned byte-for-byte so historical records and user-authored content
+ * are never guessed at or rewritten.
+ */
+export function localizeTradeRoomSystemMessage(
+  message: string,
+  locale: TradeRoomSystemMessageLocale,
+): LocalizedTradeRoomSystemMessage {
+  const exact = EXACT_SYSTEM_MESSAGES[message];
+  if (exact) {
+    const localized = locale === "ar" || STALE_CASH_POLICY_MESSAGES.has(message)
+      ? exact[locale]
+      : message;
+    return result(locale, [plain(localized)]);
+  }
+
+  for (const template of DYNAMIC_SYSTEM_MESSAGES) {
+    const match = message.match(template.pattern);
+    if (!match) continue;
+    return result(locale, template.render(locale, match.slice(1)));
+  }
+
+  return result(locale, [isolated(message)], false);
+}

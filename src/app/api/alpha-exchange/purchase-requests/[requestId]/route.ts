@@ -1,0 +1,282 @@
+import { after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { updateTradeTerms, recalculateCardlessTradeAmount, sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
+import { tradeDestination } from "@/lib/action-destinations";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
+
+type RouteContext = {
+  params: Promise<{ requestId: string }>;
+};
+
+const PRIVATE_NO_STORE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Pragma: "no-cache",
+};
+
+function isValidRequestStatus(value: string): value is "pending" | "accepted" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed" | "declined" | "cancelled" {
+  return value === "pending" || value === "accepted" || value === "payment_sent" || value === "funds_received" || value === "usdt_release_pending" || value === "usdt_sent" || value === "completed" || value === "declined" || value === "cancelled";
+}
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const routeDebug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+  const diagId = `patch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (routeDebug) {
+    console.log("[patch-diag] stage=entry", { diagId, method: request.method, url: request.url });
+  }
+
+  const { user, unauthorized } = await requireApiUser();
+  if (routeDebug) {
+    console.log("[patch-diag] stage=auth", { diagId, authenticated: Boolean(user), userId: user?.id });
+  }
+  if (!user) return unauthorized;
+
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (routeDebug) {
+    console.log("[patch-diag] stage=email-verification", { diagId, emailBlocked: Boolean(emailVerificationRequired) });
+  }
+  if (emailVerificationRequired) return emailVerificationRequired;
+
+  // A status transition already performs its durable write in the store. Do
+  // not put a separate shared-database limiter write in front of every Trade
+  // Room tap: it added latency, failed closed during database contention, and
+  // grouped unrelated customers behind the same carrier/NAT IP. Authenticated
+  // user IDs keep this guard isolated and synchronous.
+  const rate = checkRateLimit({
+    headers: request.headers,
+    key: "exchange:purchase-request-status:v2",
+    identifier: user.id,
+    maxRequests: 60,
+    windowMs: 60_000,
+  });
+  if (routeDebug) {
+    console.log("[patch-diag] stage=rate-limit", { diagId, allowed: rate.allowed });
+  }
+  if (!rate.allowed) {
+    return NextResponse.json({ error: "Too many status updates. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+  }
+
+  try {
+    const debug = routeDebug;
+    const startedAt = Date.now();
+    const { requestId } = await context.params;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch (parseErr) {
+      if (routeDebug) {
+        console.error("[patch-diag] stage=body-parse-failed", { diagId, requestId, error: String(parseErr) });
+      }
+      return NextResponse.json({ error: "Invalid request body.", stage: "body-parse", code: "invalid-body", diagId }, { status: 400 });
+    }
+    const rawBody = body as Record<string, unknown>;
+    const action = String(rawBody.action ?? "").trim();
+    if (["counter_offer", "propose_amount", "propose_ils_amount", "accept_amount", "decline_terms", "withdraw_terms"].includes(action)) {
+      const updated = await updateTradeTerms({ requestId: requestId, actorUserId: user.id, action: action as Parameters<typeof updateTradeTerms>[0]["action"], value: String(rawBody?.value ?? ""), proposalId: String(rawBody?.proposalId ?? ""), expectedUpdatedAt: String(rawBody?.expectedUpdatedAt ?? ""), safetyAcknowledged: rawBody?.safetyAcknowledged === true });
+      return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role) }, { headers: PRIVATE_NO_STORE_HEADERS });
+    }
+    if (action === "recalculate_cardless_amount") {
+      const updated = await recalculateCardlessTradeAmount({ requestId, actorUserId: user.id, ilsAmount: rawBody.ilsAmount == null ? undefined : String(rawBody.ilsAmount) });
+      return NextResponse.json({ request: sanitizePurchaseRequestForActor(updated, user.id, user.role), destination: tradeDestination(updated, user.id) }, { headers: PRIVATE_NO_STORE_HEADERS });
+    }
+    if (action && action !== "accept_counter_offer" && action !== "complete_cash_trade" && action !== "complete_trade" && action !== "complete_face_to_face" && action !== "submit_cardless_code") {
+      return NextResponse.json({ error: "Invalid trade action.", stage: "action-invalid", code: "invalid-action", diagId }, { status: 400 });
+    }
+    const isSellerCompletion = action === "complete_trade";
+    const isCashTradeCompletion = action === "complete_cash_trade" || action === "complete_face_to_face";
+    const isCardlessCodeSubmission = action === "submit_cardless_code";
+    const status = action === "accept_counter_offer" ? "accepted" : (isCashTradeCompletion || isSellerCompletion) ? "completed" : isCardlessCodeSubmission ? "payment_sent" : String(rawBody.status ?? "").trim();
+    const safetyAcknowledged = rawBody.safetyAcknowledged === true;
+    if (routeDebug) {
+      console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, action, parsedStatus: status, safetyAcknowledged });
+    }
+    const isUsdtSent = status === "usdt_sent";
+    const traceId = debug && isUsdtSent ? `usdt-sent:${requestId}:${Date.now()}` : undefined;
+    if (routeDebug) {
+      console.log("[trade-consistency] PATCH received", {
+        requestId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        nextStatus: status,
+        safetyAcknowledged,
+      });
+    }
+    if (debug && isUsdtSent) {
+      console.log("[usdt-sent-trace] route entry", { traceId, requestId, actorUserId: user.id });
+    }
+    if (!status) {
+      if (routeDebug) {
+        console.warn("[patch-diag] stage=early-return status-empty", { diagId, requestId, rawStatus: rawBody.status });
+      }
+      return NextResponse.json({ error: "Status is required.", stage: "status-empty", code: "status-required", diagId }, { status: 400 });
+    }
+    if (!isValidRequestStatus(status)) {
+      if (routeDebug) {
+        console.warn("[patch-diag] stage=early-return status-invalid", { diagId, requestId, status });
+      }
+      return NextResponse.json({ error: "Invalid purchase request status.", stage: "status-invalid", code: "invalid-status", receivedStatus: status, diagId }, { status: 400 });
+    }
+    if (routeDebug) {
+      console.log("[patch-diag] stage=calling-store", { diagId, requestId, status, actorUserId: user.id, actorRole: user.role });
+    }
+    if (debug) {
+      console.log("[trade-room-action] request", {
+        requestId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        payload: { status, safetyAcknowledged },
+      });
+    }
+
+    const { request: updated, metrics, deferredTrustWrite, additionallyDeclinedRequests = [], statusChanged = false } = await updatePurchaseRequestStatus({
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      nextStatus: status,
+      acceptCounterOfferId: action === "accept_counter_offer" ? String(rawBody.proposalId ?? "") : undefined,
+      completionMode: isSellerCompletion ? "seller" : isCashTradeCompletion ? "cash_trade" : undefined,
+      usdtSentConfirmed: rawBody?.usdtSentConfirmed === true,
+      safetyAcknowledged,
+      cardlessWithdrawalCode: isCardlessCodeSubmission ? String(rawBody.withdrawalCode ?? "") : undefined,
+      cardlessVerificationKind: isCardlessCodeSubmission ? String(rawBody.verificationKind ?? "") : undefined,
+      cardlessVerificationValue: isCardlessCodeSubmission ? String(rawBody.verificationValue ?? "") : undefined,
+      clientOperationId: isCardlessCodeSubmission ? String(rawBody.clientOperationId ?? "") : undefined,
+      traceId: isUsdtSent ? traceId : undefined,
+    });
+    if (deferredTrustWrite) {
+      after(async () => {
+        try {
+          await deferredTrustWrite();
+        } catch (err: unknown) {
+          logEvent("error", {
+            event: "trade_trust_deferred_write",
+            actorUserId: user.id,
+            resourceId: requestId,
+            outcome: "failed",
+            reason: "post_response_write_failed",
+            metadata: {
+              nextStatus: status,
+              errorType: err instanceof Error ? err.name : typeof err,
+            },
+          });
+        }
+      });
+    }
+    // Only fire lifecycle emails when an actual state transition occurred. Idempotent
+    // no-op updates (e.g. a retried/duplicated "completed" PATCH when the trade is already
+    // review_open/completed/locked) return statusChanged=false and must NOT re-send emails.
+    const emailEvent = statusChanged ? tradeEmailEventForStatus(status) : null;
+    if (emailEvent || additionallyDeclinedRequests.length > 0) {
+      after(async () => {
+        try {
+          const deliveries = await Promise.all([
+            ...additionallyDeclinedRequests.map((declinedRequest) =>
+              prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
+            ),
+            ...(emailEvent ? [prepareTradeEventEmails({ event: emailEvent, request: updated })] : []),
+          ]);
+          await Promise.allSettled(deliveries.map((deliverEmails) => deliverEmails()));
+        } catch (emailScheduleError) {
+          // Lifecycle state and realtime publication are already durable; all
+          // recipient/provider work remains outside the user's tap latency.
+          logEvent("error", {
+            event: "trade_lifecycle_email_schedule",
+            actorUserId: user.id,
+            actorRole: user.role,
+            resourceId: requestId,
+            outcome: "failed",
+            reason: "status_post_commit_schedule_failed",
+            metadata: {
+              nextStatus: status,
+              emailEvent,
+              errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError,
+            },
+          });
+        }
+      });
+    }
+    if (routeDebug) {
+      console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
+    }
+    if (debug && isUsdtSent) {
+      console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
+    }
+    const routeMs = Date.now() - startedAt;
+    const responseRequest = sanitizePurchaseRequestForActor(updated, user.id, user.role);
+    const responseBody = { request: responseRequest, metrics, statusChanged, destination: tradeDestination(responseRequest, user.id) };
+    const queueMs = Math.max(0, routeMs - metrics.totalMs);
+    // Always log server-side timings so production performance is visible in Vercel logs.
+    if (routeDebug) {
+      console.log("[trade-room-perf] server timings", {
+        requestId,
+        actorUserId: user.id,
+        nextStatus: status,
+        stateAfter: updated.status,
+        "queueMs (route arrival → store entry)": queueMs,
+        "readDbMs": metrics.readDbMs,
+        "timelineMs": metrics.timelineMs,
+        "chatMs": metrics.chatMs,
+        "notificationMs": metrics.notificationMs,
+        "sseMs": metrics.sseMs,
+        "writeDbMs": metrics.writeDbMs,
+        "trustMs": metrics.trustMs,
+        "totalDbMs": metrics.totalMs,
+        "routeMs (arrival → response)": routeMs,
+      });
+    }
+    return NextResponse.json(responseBody, {
+      headers: {
+        ...PRIVATE_NO_STORE_HEADERS,
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Queue-Ms": String(queueMs),
+        "X-Trade-Db-Ms": String(metrics.totalMs),
+        "X-Trade-Read-Ms": String(metrics.readDbMs),
+        "X-Trade-Timeline-Ms": String(metrics.timelineMs ?? 0),
+        "X-Trade-Chat-Ms": String(metrics.chatMs ?? 0),
+        "X-Trade-Notification-Ms": String(metrics.notificationMs ?? 0),
+        "X-Trade-Sse-Ms": String(metrics.sseMs ?? 0),
+        "X-Trade-Write-Ms": String(metrics.writeDbMs),
+        "X-Trade-Trust-Ms": String(metrics.trustMs),
+        "X-Trade-Status-Replayed": statusChanged ? "0" : "1",
+        "Server-Timing": `route;dur=${routeMs}, queue;dur=${queueMs}, db;dur=${metrics.totalMs}, read;dur=${metrics.readDbMs}, timeline;dur=${metrics.timelineMs ?? 0}, chat;dur=${metrics.chatMs ?? 0}, notify;dur=${metrics.notificationMs ?? 0}, sse;dur=${metrics.sseMs ?? 0}, write;dur=${metrics.writeDbMs}, trust;dur=${metrics.trustMs}`,
+      },
+    });
+  } catch (error) {
+    const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+    const { requestId } = await context.params;
+    const tradeError = error instanceof TradeBlockedError ? error : null;
+    const message = error instanceof Error ? error.message : "Failed to update request.";
+    const rejection = {
+      error: message,
+      code: tradeError?.code ?? "trade-status-update-failed",
+      requestId: tradeError?.purchaseRequestId ?? requestId,
+      details: tradeError?.details,
+      stage: "store-threw",
+    };
+    const responseStatus = tradeError ? 409 : 400;
+    logEvent("error", {
+      event: "trade_room_status_mutation",
+      actorUserId: user.id,
+      actorRole: user.role,
+      resourceId: requestId,
+      outcome: "failed",
+      reason: tradeError?.code ?? "status_update_failed",
+      metadata: {
+        blocked: Boolean(tradeError),
+        errorType: error instanceof Error ? error.name : typeof error,
+      },
+    });
+    if (debug) {
+      console.log("[trade-room-action] response", {
+        requestId,
+        actorUserId: user.id,
+        responseStatus,
+        responseBody: rejection,
+      });
+    }
+    return NextResponse.json(rejection, { status: responseStatus, headers: PRIVATE_NO_STORE_HEADERS });
+  }
+}

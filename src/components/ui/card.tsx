@@ -1,0 +1,28 @@
+import * as React from "react";
+import { cn } from "@/lib/utils";
+import { brandText } from "@/components/ui/currency-text";
+
+export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => <div ref={ref} className={cn("premium-card rounded-2xl backdrop-blur-sm", className)} {...props} />,
+);
+Card.displayName = "Card";
+
+export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("space-y-2 p-6", className)} {...props} />;
+}
+
+export function CardTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  return <h3 className={cn("text-lg font-semibold leading-snug tracking-tight md:text-xl", className)} {...props}>{brandText(children)}</h3>;
+}
+
+export function CardDescription({ className, children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+  return <p className={cn("text-sm text-[#9CA3AF]", className)} {...props}>{brandText(children)}</p>;
+}
+
+export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("p-6 pt-0", className)} {...props} />;
+}
+
+export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("flex items-center gap-3 p-6 pt-0", className)} {...props} />;
+}

@@ -1,0 +1,10 @@
+
+> alpha-traders@0.1.0 lint
+> eslint
+
+
+C:\Users\MARK\.copilot\chats\67ed60a9-852c-4a25-9cfa-539ba604ae17\alpha-traders\src\components\sections\usdt-exchange\usdt-exchange-page.tsx
+  130:10  warning  'sellerLevelRank' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 1 problem (0 errors, 1 warning)
+

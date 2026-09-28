@@ -1,0 +1,62 @@
+.page {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  padding-block: 1rem;
+}
+
+.atmosphere {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 26%, #231908 0%, #0c0a06 38%, #050505 76%);
+}
+
+.glow {
+  position: absolute;
+  inset: -10%;
+  opacity: .7;
+  background: radial-gradient(ellipse at 15% 30%, #d997192b, transparent 38%),
+    radial-gradient(ellipse at 90% 78%, #41c6bd14, transparent 35%);
+  animation: drift 12s ease-in-out infinite alternate;
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  opacity: .16;
+  background-image: linear-gradient(#d4af3726 1px, transparent 1px), linear-gradient(90deg, #d4af3726 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse, transparent 22%, black 100%);
+}
+
+.circuit { position: absolute; width: 100%; height: 100%; inset: 0; }
+.wires { stroke: #d4af37; stroke-width: 1; opacity: .16; }
+.energy { stroke: #ffd979; stroke-width: 1.7; stroke-linecap: round; stroke-dasharray: 2 23; opacity: .65; animation: signal 16s linear infinite; }
+.nodes { stroke: #b99436; fill: #161106; opacity: .48; }
+.nodes circle { fill: #f3cd6d; stroke: none; }
+
+.card {
+  position: relative;
+  border-color: #d4af3738;
+  background: linear-gradient(145deg, #19150ffa, #080909f7 60%);
+  box-shadow: 0 28px 90px #0009, 0 1px 0 #ffe6a014 inset;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0 16% auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #f7d57d, transparent);
+  opacity: .7;
+}
+
+@keyframes signal { to { stroke-dashoffset: -100; } }
+@keyframes drift { to { transform: translate3d(3%, 2%, 0); opacity: 1; } }
+@media (min-width: 1024px) { .page { padding-block: 2rem; } }
+@media (prefers-reduced-motion: reduce) {
+  .glow, .energy { animation: none; }
+}
