@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NewsPage } from "./news-page";
 import type { NewsEvent, NewsFeed } from "@/lib/economic-news/model";
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
 vi.mock("@/components/auth/canonical-session-provider", () => ({ useCanonicalSession: () => ({ user: null }) }));
 vi.mock("./news-preferences", () => ({ NewsPreferences: () => null }));
 const now = Date.parse("2026-09-23T12:00:00Z");
@@ -16,7 +18,7 @@ const feed: NewsFeed = { status: "ready", updatedAt: new Date(now).toISOString()
 
 describe("USD News page", () => {
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now); vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(feed)))); });
-  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
   it("renders compact upcoming USD news in Israel time with no made-up actual", () => {
     render(<NewsPage locale="en" initialFeed={feed} initialNow={now} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("USD news");
@@ -33,50 +35,40 @@ describe("USD News page", () => {
     expect(screen.getByText("تتضمن البيانات مراجعة من المصدر.")).toBeTruthy();
     expect(screen.getByText(/أعلى من المتوقع/)).toBeTruthy();
   });
-  it("shows the official calendar without advertising active alerts or polling an unconfigured API", async () => {
-    const { rerender } = render(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
-    const url = new URL(screen.getByTitle("TradingView USD economic calendar").getAttribute("src")!);
-    expect(url.origin).toBe("https://www.tradingview-widget.com");
-    expect(url.searchParams.get("locale")).toBe("en");
-    expect(JSON.parse(decodeURIComponent(url.hash.slice(1)))).toMatchObject({ countryFilter: "us", importanceFilter: "0,1" });
-    expect(screen.getByText(/notifications through the app bell and email are not active/)).toBeTruthy();
-    expect(screen.queryByRole("combobox")).toBeNull();
+  it("keeps unconfigured news inside Alpha Traders without external content or invented data", async () => {
+    render(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
+    expect(screen.getByRole("status").textContent).toContain("USD news is being prepared");
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(document.querySelector('a[href^="http"]')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/TradingView|Open news calendar/);
     expect(screen.queryByText(/No other events/)).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(fetch).not.toHaveBeenCalled();
-    rerender(<NewsPage key="stale" locale="en" initialFeed={{ ...feed, status: "stale" }} initialNow={now} />);
-    expect(screen.getByRole("status").textContent).toContain("delayed");
   });
-  it("offers a recovery link and reload when the Arabic calendar takes too long", async () => {
-    render(<NewsPage locale="ar" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
-    const frame = screen.getByTitle("تقويم أخبار الدولار من TradingView");
-    expect(new URL(frame.getAttribute("src")!).searchParams.get("locale")).toBe("ar_AE");
-    expect(frame.getAttribute("sandbox")).not.toContain("allow-top-navigation");
-    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
-    expect(screen.getByRole("status").textContent).toContain("يستغرق وقتًا أطول");
-    expect(screen.getByRole("link", { name: "فتح في TradingView" }).getAttribute("href")).toBe("https://ar.tradingview.com/economic-calendar/");
-    fireEvent.click(screen.getByRole("button", { name: "إعادة تحميل التقويم" }));
-    expect(screen.getByTitle("تقويم أخبار الدولار من TradingView")).not.toBe(frame);
-    fireEvent.load(screen.getByTitle("تقويم أخبار الدولار من TradingView"));
-    expect(screen.queryByRole("status")).toBeNull();
-  });
-  it("does not create a third-party frame before checking for the installed app shell", () => {
-    const html = renderToStaticMarkup(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
-    expect(html).not.toContain("<iframe");
-  });
-  it("gives installed apps an explicit browser action with the same filters instead of a blocked frame", () => {
+  it("renders the same first-party calendar in the installed app and browser", () => {
+    const browserHtml = renderToStaticMarkup(<NewsPage locale="ar" initialFeed={feed} initialNow={now} />);
     vi.stubGlobal("ReactNativeWebView", { postMessage: vi.fn() });
-    render(<NewsPage locale="ar" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
-    expect(document.querySelector("iframe")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
-    const link = screen.getByRole("link", { name: "فتح تقويم الأخبار" });
-    const url = new URL(link.getAttribute("href")!);
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(url.origin).toBe("https://www.tradingview-widget.com");
-    expect(url.searchParams.get("locale")).toBe("ar_AE");
-    expect(JSON.parse(decodeURIComponent(url.hash.slice(1)))).toMatchObject({ countryFilter: "us", importanceFilter: "0,1" });
+    const appHtml = renderToStaticMarkup(<NewsPage locale="ar" initialFeed={feed} initialNow={now} />);
+    expect(appHtml).toBe(browserHtml);
+    expect(appHtml).not.toContain("<iframe");
+    expect(appHtml).not.toContain('target="_blank"');
+    expect(appHtml).not.toContain('href="https:');
+    expect(appHtml).toContain("BLS");
     expect(window.ReactNativeWebView?.postMessage).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("can activate the first-party calendar through an explicit refresh", async () => {
+    render(<NewsPage locale="en" initialFeed={{ status: "not_configured", updatedAt: null, provider: null, events: [] }} initialNow={now} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh news" })); });
+    expect(screen.getByText("0.3%")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith("/api/news", expect.objectContaining({ cache: "no-store" }));
+  });
+  it.each([401, 403])("clears cached news and returns to sign-in after authorization fails with %s", async status => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status }));
+    render(<NewsPage locale="ar" initialFeed={feed} initialNow={now} eventId="te-1" />);
+    expect(screen.getByText("0.3%")).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "تحديث الأخبار" })); });
+    expect(screen.queryByText("0.3%")).toBeNull();
+    expect(navigation.replace).toHaveBeenCalledWith("/ar/login?redirectTo=%2Far%2Fnews%3Fevent%3Dte-1");
   });
   it("stops network polling in a hidden tab and refreshes released values on return", async () => {
     const visible = vi.spyOn(document, "visibilityState", "get");

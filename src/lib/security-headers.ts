@@ -38,7 +38,7 @@ export function buildSecurityHeaders(input: { isProduction: boolean }): Security
     "font-src 'self' data:",
     "connect-src 'self' https:",
     "media-src 'self' https: blob:",
-    "frame-src 'self' https://s.tradingview.com https://www.tradingview.com https://www.tradingview-widget.com",
+    "frame-src 'self' https://s.tradingview.com https://www.tradingview.com",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

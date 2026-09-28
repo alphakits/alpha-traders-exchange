@@ -4,7 +4,7 @@ export const APP_PAGE_PATH_HEADER = "x-alpha-page-path";
 
 export function isProtectedPage(pathname: string) {
   const path = pathname.split(/[?#]/, 1)[0].replace(/^\/(?:ar|en)(?=\/|$)/i, "");
-  return /^\/(?:academy|lessons|prop-firms|usdt-exchange|trade-room|trades|dashboard|profile|settings|admin|notifications|onboarding|verify-account)(?:\/|$)/i.test(path);
+  return /^\/(?:academy|lessons|prop-firms|news|usdt-exchange|trade-room|trades|dashboard|profile|settings|admin|notifications|onboarding|verify-account)(?:\/|$)/i.test(path);
 }
 
 export function isExchangePage(path: string) {

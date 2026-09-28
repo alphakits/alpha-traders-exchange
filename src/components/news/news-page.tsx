@@ -3,11 +3,12 @@
 import { brandText } from "@/components/ui/currency-text";
 
 import { useEffect, useState } from "react";
-import { ArrowUpRight, CalendarDays, Clock3, Folder, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CalendarDays, Clock3, Folder, RefreshCw } from "lucide-react";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Button } from "@/components/ui/button";
 import { NewsPreferences } from "./news-preferences";
-import { TradingViewNewsPage } from "./tradingview-news-page";
+import { getSignedOutPageDestination } from "@/lib/protected-page";
 import { NEWS_STALE_AFTER_MS, newsDayKey, newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
 
 type Filter = "upcoming" | "today" | "released";
@@ -58,9 +59,9 @@ function EventCard({ event, locale, timeZone, now, selected = false }: {
       </dl>
       {status === "released" ? <p className="mt-3 text-xs leading-relaxed text-[#BAC2CF]">{newsResultSummary(event, locale)}</p> : null}
       {event.revised !== null || event.corrected ? <p className="mt-2 text-xs text-amber-200">{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
-      {status === "no_numeric_result" ? <p className="mt-3 text-xs text-[#9CA3AF]">{isAr ? "هذا الحدث لا يتضمن نتيجة رقمية. افتح المصدر للاطلاع على البيان أو الخطاب عند نشره." : "This event has no numeric result. Open the source for the statement or speech when published."}</p> : null}
+      {status === "no_numeric_result" ? <p className="mt-3 text-xs text-[#9CA3AF]">{isAr ? "هذا الحدث لا يتضمن نتيجة رقمية. نص البيان أو الخطاب غير متاح في هذه التغذية." : "This event has no numeric result. The statement or speech text is not included in this feed."}</p> : null}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3 text-[11px] text-[#8F96A3]">
-        {event.sourceUrl ? <a href={event.sourceUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex min-h-7 items-center gap-1 hover:text-white ${FOCUS}`}>{event.source}<ArrowUpRight className="h-3 w-3" aria-hidden="true" /></a> : <span>{event.source}</span>}
+        <span>{event.source}</span>
         <span>{isAr ? "تحديث المصدر: " : "Source updated: "}{formatDate(event.providerUpdatedAt, locale, timeZone)}</span>
       </div>
     </article>
@@ -70,16 +71,8 @@ function EventCard({ event, locale, timeZone, now, selected = false }: {
 export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
   locale: NewsLocale; initialFeed: NewsFeed; initialNow: number; eventId?: string;
 }) {
-  if (initialFeed.status === "not_configured") {
-    return <TradingViewNewsPage locale={locale} eventId={eventId} />;
-  }
-  return <ConnectedNewsPage locale={locale} initialFeed={initialFeed} initialNow={initialNow} eventId={eventId} />;
-}
-
-function ConnectedNewsPage({ locale, initialFeed, initialNow, eventId }: {
-  locale: NewsLocale; initialFeed: NewsFeed; initialNow: number; eventId?: string;
-}) {
   const isAr = locale === "ar";
+  const router = useRouter();
   const { user } = useCanonicalSession();
   const [feed, setFeed] = useState(initialFeed);
   const [now, setNow] = useState(initialNow);
@@ -91,6 +84,9 @@ function ConnectedNewsPage({ locale, initialFeed, initialNow, eventId }: {
 
   useEffect(() => { setDeviceZone(Intl.DateTimeFormat().resolvedOptions().timeZone); }, []);
   useEffect(() => {
+    // An unconfigured feed has no live updates. An explicit refresh can check
+    // for activation without polling an inactive provider in the background.
+    if (initialFeed.status === "not_configured" && refreshKey === 0) return;
     let active: AbortController | null = null;
     let disposed = false;
     let inFlight = false;
@@ -102,7 +98,14 @@ function ConnectedNewsPage({ locale, initialFeed, initialNow, eventId }: {
       const timeout = setTimeout(() => active?.abort(), 12_000);
       try {
         const query = eventId ? `?event=${encodeURIComponent(eventId)}` : "";
-        const response = await fetch(`/api/news${query}`, { signal: active.signal });
+        const response = await fetch(`/api/news${query}`, { signal: active.signal, cache: "no-store" });
+        if (response.status === 401 || response.status === 403) {
+          if (!disposed) {
+            setFeed({ status: "unavailable", updatedAt: null, provider: null, events: [] });
+            router.replace(getSignedOutPageDestination(`/${locale}/news${query}`));
+          }
+          return;
+        }
         if (!response.ok) throw new Error("news");
         const data = await response.json() as NewsFeed;
         if (!disposed) { setFeed(data); setNow(Date.now()); }
@@ -119,7 +122,7 @@ function ConnectedNewsPage({ locale, initialFeed, initialNow, eventId }: {
     const timer = setInterval(() => { if (document.visibilityState !== "hidden") { setNow(Date.now()); void refresh(); } }, 30_000);
     document.addEventListener("visibilitychange", onVisible);
     return () => { disposed = true; active?.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
-  }, [eventId, refreshKey]);
+  }, [eventId, refreshKey, initialFeed.status, locale, router]);
 
   const stale = feed.status === "stale" || (feed.updatedAt !== null && now - Date.parse(feed.updatedAt) > NEWS_STALE_AFTER_MS);
   const available = feed.status === "ready" || feed.status === "stale";

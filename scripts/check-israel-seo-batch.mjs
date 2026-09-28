@@ -216,7 +216,7 @@ for (const locale of locales) {
     // a missing route by also deleting its generated regression test.
     // This freezes search policy, NOT an authentication/authorization decision.
     const expectedRoutes = [
-      'admin', 'academy', 'dashboard', 'lessons', 'prop-firms', 'profile', 'settings',
+      'admin', 'academy', 'dashboard', 'lessons', 'prop-firms', 'news', 'profile', 'settings',
       'notifications', 'trade-room', 'trades', 'usdt-exchange', 'seller',
       'onboarding', 'login', 'register', 'verify-account', 'verify-email',
       'forgot-password', 'reset-password',

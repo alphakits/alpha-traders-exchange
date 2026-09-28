@@ -55,9 +55,9 @@ describe("browser security headers", () => {
     expect(new Set(headers.map((header) => header.key)).size).toBe(headers.length);
   });
 
-  it("allows the official calendar frame without granting third-party scripts access to account pages", () => {
+  it("does not allow the removed external news widget or third-party account scripts", () => {
     const directives = cspDirectives(true);
-    expect(directives.get("frame-src")).toContain("https://www.tradingview-widget.com");
+    expect(directives.get("frame-src")).not.toContain("https://www.tradingview-widget.com");
     expect(directives.get("frame-src")).not.toContain("https:");
     expect(directives.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
   });

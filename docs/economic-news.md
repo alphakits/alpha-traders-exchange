@@ -2,15 +2,20 @@
 
 The Home tab opens the public locale homepage. News replaces the bottom
 Notifications tab; the notification bell and its View all link remain intact.
-The active iOS/Android website shell receives the same website navigation.
+News requires an active signed-in account on both the website and the active
+iOS/Android website shell. Both use the same first-party page and session.
+Middleware and the server page reject guest/invalid sessions before feed reads.
+The API uses the canonical session guard and private, no-store responses; News
+is excluded from search indexing. Expired client sessions clear displayed events
+and return to sign-in with the original event destination.
 
 ## Activation dependency
 
 The News page, normalized data API, scheduler, and opt-in in-app/email delivery
 are implemented. API ingestion and alerts are **disabled by default**. No provider
 account, purchase, data agreement, or API key is supplied by this change. While
-unconfigured, the page displays the official TradingView calendar described
-below; it never seeds production with demonstration events or fabricated results.
+unconfigured, the page shows an honest preparation state inside Alpha Traders;
+it never seeds production with demonstration events or fabricated results.
 
 The existing `docs/mobile/economic-calendar-post-release-plan.md` data-source
 rule remains applicable: do not scrape Forex Factory. Its weekly JSON export
@@ -61,8 +66,9 @@ News tables when activated. It never changes exchange schemas or trade rows.
 - Delivery uses bounded concurrency and retries in the new cron. News reads
   and syncs do not execute in trade actions, chat, payments, or seller workflows.
 - Event source revisions are retained in the News table and labeled in the UI.
-  Speeches have no invented numerical result: a source link is provided. The
-  current numeric calendar adapter does not supply speech transcripts/summaries.
+  Speeches have no invented numerical result. Publisher names remain plain
+  text; News never requires an external navigation. The current numeric
+  calendar adapter does not supply speech transcripts/summaries.
 - News links include `?event=<stable id>` and show that event first. Emails and
   notifications use bilingual factual comparisons, without market direction
   recommendations or predictions.
@@ -80,12 +86,25 @@ activation and real provider delivery cannot be certified without that key.
 
 Official API reference:
 https://docs.tradingeconomics.com/economic_calendar/country/
-## Public calendar display (TradingView)
+## First-party display and outstanding provider access
 
-When the licensed API is `not_configured`, `/en/news` and `/ar/news` show TradingView's official economic-calendar widget instead of the preparation placeholder. The official generator settings are `countryFilter: "us"`, `importanceFilter: "0,1"` (the generator's **Only high importance** option), dark theme, responsive width, and `en` / `ar_AE`. Importance follows TradingView's classification, not Forex Factory's. Some indicator names remain English in the Arabic widget.
+The owner rejected the TradingView widget and external-browser fallback on
+2026-09-29. They have been removed from News. There is no iframe, TradingView
+branding, outbound source link, or native-app-specific alternate screen. The
+existing installed app receives this change through its website shell, with no
+native permission expansion or replacement binary needed.
 
-The page uses the cross-origin iframe produced by TradingView's official generator, with attribution intact. The CSP allows the exact `https://www.tradingview-widget.com` frame origin while the application's script policy stays unchanged. The frame keeps its own origin so its browser storage/lock APIs work, without running vendor scripts in the Alpha Traders document. The wrapper offers reload and a direct TradingView link; a frame load event does not establish data freshness or release latency.
+A licensed feed must explicitly permit website/mobile display, translation,
+cache and result notification use, plus the requested presentation without
+provider branding or mandatory outbound links. TradingView Premium does not
+supply those API rights. Do not hide widget attribution or scrape a calendar to
+work around the missing feed. Trading Economics remains unconfigured pending
+its quote and licensed credentials. FXStreet offers a documented calendar API
+and B2B white-label products, but no license, quote, credentials or purchase has
+been obtained. No subscription or trial may be purchased without the owner's
+explicit written price approval.
 
-This display does not ingest or cache TradingView event data, expose it through `/api/news`, or generate notifications. API credentials, the existing licensing gate, scheduler, and opt-in alert channels remain unchanged. The page explicitly says Alpha Traders news-result alerts are not active. No TradingView account or Premium subscription is required. Once the separately licensed API is configured, the existing native news view is used again.
-
-The currently shipped native app shell blocks third-party subframes. The page checks for its existing `ReactNativeWebView` bridge before creating any iframe. Installed apps receive an explicit **Open news calendar** action that opens the same filtered calendar in the device browser, without an automatic external navigation or blank embed. Browser users receive the in-page widget. Rendering it inside an installed app requires a separately reviewed app update; this web release does not claim to distribute a new native binary.
+The interface, access gate and provider activation are distinct release states.
+Do not describe a preparation screen or successful UI/auth tests as live news
+or active alerts. Complete the licensed payload/release tests above before
+claiming full launch.

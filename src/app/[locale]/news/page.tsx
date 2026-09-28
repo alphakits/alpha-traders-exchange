@@ -1,6 +1,9 @@
 import { NewsPage } from "@/components/news/news-page";
 import { readNewsFeed } from "@/lib/economic-news/repository";
 import { buildPageMetadata } from "@/lib/seo";
+import { getCurrentSessionUser } from "@/lib/auth";
+import { getSignedOutPageDestination } from "@/lib/protected-page";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +21,14 @@ export default async function NewsRoute({ params, searchParams }: {
   const [{ locale }, search] = await Promise.all([params, searchParams]);
   const now = Date.now();
   const eventId = typeof search.event === "string" && /^te-\d{1,24}$/.test(search.event) ? search.event : undefined;
+  const language = locale === "ar" ? "ar" : "en";
+  // Resolve the actual session before reading or serializing any feed data.
+  // A fabricated/expired cookie must not bypass the middleware guest check.
+  const user = await getCurrentSessionUser();
+  if (!user) {
+    const destination = `/${language}/news${eventId ? `?event=${encodeURIComponent(eventId)}` : ""}`;
+    redirect(getSignedOutPageDestination(destination));
+  }
   const feed = await readNewsFeed(now, eventId);
-  return <NewsPage key={eventId ?? "news"} locale={locale === "ar" ? "ar" : "en"} initialFeed={feed} initialNow={now} eventId={eventId} />;
+  return <NewsPage key={eventId ?? "news"} locale={language} initialFeed={feed} initialNow={now} eventId={eventId} />;
 }

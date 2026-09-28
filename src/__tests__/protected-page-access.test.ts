@@ -12,7 +12,7 @@ import ExchangeRoute from "@/app/[locale]/usdt-exchange/page";
 
 const origin = "https://www.alphatraders.co.il";
 const privatePaths = ["dashboard", "dashboard/seller", "dashboard/seller/compliance-payment", "trade-room", "trade-room/test-trade", "trades", "profile", "settings", "notifications", "onboarding", "verify-account", "academy", "academy/course", "lessons", "lessons/example", "admin", "admin/alpha-exchange", "admin/discord"];
-privatePaths.push("prop-firms", "prop-firms/topstep", "prop-firms/my-funded-futures", "prop-firms/apex", "prop-firms/ftmo", "prop-firms/fundingpips");
+privatePaths.push("prop-firms", "prop-firms/topstep", "prop-firms/my-funded-futures", "prop-firms/apex", "prop-firms/ftmo", "prop-firms/fundingpips", "news");
 
 describe("signed-out page access", () => {
   it.each(["en", "ar"])("sends guest exchange visitors to %s login and retains marketplace filters", locale => {
@@ -44,10 +44,10 @@ describe("signed-out page access", () => {
     for (const unsafe of ["//example.com/academy", "https://example.com/academy", "/en/academy\\example.com", "/en/login"]) {
       expect(getSignedOutPageDestination(unsafe)).toBe("/en");
     }
-    expect(getSignedOutPageDestination("/ar/news")).toBe("/ar");
+    expect(getSignedOutPageDestination("/ar/news?event=te-1")).toBe("/ar/login?redirectTo=%2Far%2Fnews%3Fevent%3Dte-1");
   });
 
-  it.each(["/en", "/ar", "/en/login", "/en/register", "/en/news", "/en/privacy-policy", "/en/account-deletion", "/en/verify-email", "/en/exchange/seller/example"])("keeps the intended public route %s public", path => {
+  it.each(["/en", "/ar", "/en/login", "/en/register", "/en/newsletter", "/en/privacy-policy", "/en/account-deletion", "/en/verify-email", "/en/exchange/seller/example"])("keeps the intended public route %s public", path => {
     expect(isProtectedPage(path)).toBe(false);
   });
 
