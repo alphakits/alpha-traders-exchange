@@ -65,7 +65,9 @@ describe("explicit analytics fresh start", () => {
     await state.db.exec(activation);
     expect((await state.db.query("select * from alpha_exchange.traffic_events")).rows).toHaveLength(0);
     const result = await readOwnerLiveAnalytics();
-    expect(result.reportingStartedAt).toBe(await readOwnerAnalyticsStart());
+    expect(result.reportingStartedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(Date.parse(result.reportingStartedAt!)).toBe(Date.parse(await readOwnerAnalyticsStart()));
+    expect(parseLiveAnalytics(result)?.reportingStartedAt).toBe(result.reportingStartedAt);
     expect(result.presence).toMatchObject({ status: "ready", data: { onlineNow: 0, activeToday: 0, activeLast7Days: 0, activeLast30Days: 0 } });
     expect(result.traffic).toMatchObject({ status: "ready", data: {
       visitorsToday: 0, sessionsToday: 0, pageViewsToday: 0, webToday: 0, iosToday: 0,

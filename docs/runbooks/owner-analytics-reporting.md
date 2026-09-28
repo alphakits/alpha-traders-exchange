@@ -52,8 +52,8 @@ the zero-based report and remains deduplicated by account/section.
 `src/lib/owner-analytics-fresh-start.test.ts` exercises the actual activation SQL,
 deletion, zero counters, new visits, retries, late old records, unchanged public
 presence/business fixtures and storage permissions in an isolated database.
-These tests do not execute the production reset. Production activation and
-publication remain pending the final owner approval requested for this release.
+These tests do not execute the production reset. Production activation requires
+the owner's explicit approval; the durable period row records the actual start.
 
 Focused checks: `src/lib/traffic-analytics-store.test.ts` executes the actual
 report queries in PGlite, including the 90 → 91 → 91 example, multiple devices,

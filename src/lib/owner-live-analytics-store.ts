@@ -38,5 +38,7 @@ export async function readOwnerLiveAnalytics(): Promise<LiveAnalyticsSnapshot> {
     }),
     capture(() => readOwnerTrafficAnalytics(reportingStartedAt)),
   ]);
-  return { timeZone: LIVE_ANALYTICS_TIME_ZONE, reportingStartedAt, presence, traffic };
+  // Send a standard browser-safe timestamp; SQL filters above retain full precision.
+  return { timeZone: LIVE_ANALYTICS_TIME_ZONE,
+    reportingStartedAt: new Date(reportingStartedAt).toISOString(), presence, traffic };
 }
