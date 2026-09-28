@@ -31,6 +31,17 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
+  it.each(["/en/prop-firms", "/ar/prop-firms/topstep"])("removes %s guide content when the user signs out", async pathname => {
+    navigation.pathname = pathname;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ user }))));
+    renderPage(user);
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-signed-out")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    expect(replace).toHaveBeenCalledWith(`/${locale}/login?redirectTo=${encodeURIComponent(pathname)}`);
+  });
+
   it("never mounts protected content while unresolved or signed out and replaces the page with login", async () => {
     let finish!: (value: Response) => void;
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve; })));
