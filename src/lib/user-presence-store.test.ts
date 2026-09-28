@@ -16,7 +16,8 @@ beforeAll(async () => {
     create table alpha_exchange.sessions(token_hash text primary key, user_id text, expires_at timestamptz);
     insert into alpha_exchange.users values ('seller', '{}'), ('disabled', '{"disabled":true}');
     insert into alpha_exchange.sessions values ('web-a', 'seller', now() + interval '1 day'), ('web-b', 'seller', now() + interval '1 day'), ('disabled-session', 'disabled', now() + interval '1 day');`);
-});
+// Only fixture startup gets extra time for cold PGlite WASM initialization.
+}, 30_000);
 afterAll(async () => state.db?.close());
 
 describe("durable presence without trade/profile writes", () => {

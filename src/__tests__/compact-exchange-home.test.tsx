@@ -136,7 +136,9 @@ describe("compact Exchange home", () => {
     });
 
     render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
-    const placeholder = await screen.findByRole("heading", { name: locale === "ar" ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand" });
+    // The first render also compiles the lazy workspace module on cold test
+    // workers. Wait for that boundary before exercising the visibility observer.
+    const placeholder = await screen.findByRole("heading", { name: locale === "ar" ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand" }, { timeout: 10_000 });
     // The observer must attach after the lazy workspace module has mounted.
     await waitFor(() => expect(observe).toHaveBeenCalled());
     const target = observe.mock.calls[0][0] as HTMLElement;

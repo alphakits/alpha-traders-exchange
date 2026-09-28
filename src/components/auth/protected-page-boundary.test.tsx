@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
-  it.each(["/en/prop-firms", "/ar/prop-firms/topstep"])("removes %s guide content when the user signs out", async pathname => {
+  it.each(["/en/prop-firms", "/ar/prop-firms/topstep", "/en/news", "/ar/news"])("removes %s member content when the user signs out", async pathname => {
     navigation.pathname = pathname;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ user }))));
     renderPage(user);
@@ -78,7 +78,17 @@ describe("protected page access", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it.each(["/en", "/en/login", "/ar/register", "/en/news", "/en/privacy-policy"])("keeps public route %s accessible", async pathname => {
+  it.each(["/en/news", "/ar/news"])("never mounts %s for a signed-out visitor", async pathname => {
+    navigation.pathname = pathname;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: null })));
+    renderPage();
+    await waitFor(() => expect(replace).toHaveBeenCalled());
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    expect(replace).toHaveBeenCalledWith(`/${locale}/login?redirectTo=${encodeURIComponent(pathname)}`);
+    expect(privateMount).not.toHaveBeenCalled();
+  });
+
+  it.each(["/en", "/en/login", "/ar/register", "/en/privacy-policy"])("keeps public route %s accessible", async pathname => {
     navigation.pathname = pathname;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ user: null }))));
     renderPage();
