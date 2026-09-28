@@ -336,7 +336,8 @@ describe("CanonicalSessionProvider", () => {
       );
 
       await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
-      expect(replaceSpy).toHaveBeenCalledWith(`/en/login?redirectTo=${encodeURIComponent("/en/usdt-exchange?tab=sell#create-listing")}`);
+      // Navigation is a passive effect after the anonymous render commits.
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith(`/en/login?redirectTo=${encodeURIComponent("/en/usdt-exchange?tab=sell#create-listing")}`));
       expect(document.cookie).not.toContain("ALPHA_LOCALE_CHOICE=ar");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
