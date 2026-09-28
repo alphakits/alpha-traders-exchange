@@ -16,7 +16,7 @@ import { readOwnerAnalyticsStart } from "./owner-analytics-period-store";
 import { readOwnerLiveAnalytics } from "./owner-live-analytics-store";
 import { parseLiveAnalytics } from "./owner-live-analytics";
 
-const migration = readFileSync("supabase/migrations/20260928203450_owner_analytics_fresh_start.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260928204816_owner_analytics_fresh_start.sql", "utf8");
 const activation = readFileSync("scripts/sql/start-owner-analytics-period.sql", "utf8");
 
 beforeAll(async () => {

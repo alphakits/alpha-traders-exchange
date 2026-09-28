@@ -29,7 +29,7 @@ reloading a server nor redeploying creates or resets it. The period table is
 private, RLS-enabled and unavailable to anon/authenticated database roles.
 
 Apply the schema-only migration
-`supabase/migrations/20260928203450_owner_analytics_fresh_start.sql` as part of the
+`supabase/migrations/20260928204816_owner_analytics_fresh_start.sql` as part of the
 approved release. It does not delete records or start collection. Once the new
 application is ready, execute `scripts/sql/start-owner-analytics-period.sql`
 under the owner's explicit approval. In one transaction it briefly locks traffic
