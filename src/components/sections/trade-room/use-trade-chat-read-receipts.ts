@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import type { TradeChatMessage } from "@/types/alpha-exchange";
+import { runClientRequest } from "@/lib/client-request-deadline";
 
 export type TradeChatReceipt = Pick<TradeChatMessage, "id" | "readByUserIds" | "seenAt" | "deliveredAt">;
 
@@ -30,20 +31,21 @@ export function observeTradeChatReadReceipts(container: HTMLElement, requestId: 
     if (!messageIds.length) return;
     const controller = new AbortController();
     pending = controller;
-    const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}/read`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
-        body: JSON.stringify({ messageIds }), signal: controller.signal,
+      const payload = await runClientRequest(controller, 10_000, async (signal) => {
+        const response = await fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}/read`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store",
+          body: JSON.stringify({ messageIds }), signal,
+        });
+        if (!response.ok) return null;
+        return await response.json() as { messages: TradeChatReceipt[] };
       });
-      if (!response.ok) return;
-      const payload = await response.json() as { messages: TradeChatReceipt[] };
-      if (stopped || !Array.isArray(payload.messages)) return;
+      if (stopped || controller.signal.aborted || !Array.isArray(payload?.messages)) return;
       const receipts = payload.messages.filter(receipt => messageIds.includes(receipt.id));
       receipts.forEach(receipt => acknowledged.add(receipt.id));
       onReceipts(receipts);
     } catch { /* A later visible pass retries; reading never blocks the trade. */ }
-    finally { clearTimeout(timeout); pending = null; }
+    finally { pending = null; }
   };
   const schedule = () => {
     if (scheduled || stopped) return;

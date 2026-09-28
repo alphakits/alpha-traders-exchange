@@ -1,12 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TradeTermsPanel } from "./trade-terms-panel";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 const base = { id: "request-1", buyerId: "buyer", sellerId: "seller", status: "pending", priceMode: "buyer_offer", pricePerUsdt: "3.00", usdtAmount: "250", fiatAmount: "750.00", currency: "ILS", paymentMethod: "Bank Transfer", updatedAt: "2026-09-21T00:00:00Z" } as PurchaseRequest;
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("trade proposal controls", () => {
+  it.each(["fetch", "body"])("releases the shared trade lock after a stalled proposal %s without repeating it", async (phase) => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(() => phase === "fetch" ? new Promise(() => {})
+      : Promise.resolve({ ok: true, json: () => new Promise(() => {}) }));
+    vi.stubGlobal("fetch", fetch);
+    const updated = vi.fn(); const lock = vi.fn();
+    render(<TradeTermsPanel request={base} actorId="seller" isAr={false} onUpdated={updated} onBusyChange={lock} />);
+    fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+    fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send counter-offer" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(lock).toHaveBeenLastCalledWith(false);
+    expect(updated).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(false);
+  });
   it("sends a counter-offer from the seller's current request", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ request: base }) });
     vi.stubGlobal("fetch", fetch);

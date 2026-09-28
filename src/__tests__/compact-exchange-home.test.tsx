@@ -66,6 +66,7 @@ beforeEach(() => {
   }));
 });
 afterEach(async () => {
+  vi.useRealTimers();
   // Let the focus-restoration listener attach, then cancel its pending timers
   // before this test's document is disposed.
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
@@ -376,6 +377,30 @@ describe("compact Exchange home", () => {
     expect(screen.queryByText("You have no active trades right now.")).toBeNull();
     expect(push).not.toHaveBeenCalled();
     requestsUnavailable = false;
+    fireEvent.click(button);
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/trade-room/home-active-trade"));
+  });
+
+  it.each(["fetch", "body"])("releases a stalled Active Trades %s so a phone user can open the current trade", async (phase) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    viewportWidth = 390;
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let stalled = true;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (stalled && String(input).includes("/purchase-requests")) {
+        return phase === "fetch" ? new Promise<Response>(() => {})
+          : Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => new Promise(() => {}) } as Response);
+      }
+      return original(input, init);
+    });
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    const button = screen.getByRole("button", { name: /^Active Trades:/ });
+    fireEvent.click(button);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByText("We couldn't load your trades. Tap Active Trades to try again.")).toBeTruthy();
+    expect(screen.queryByText("You have no active trades right now.")).toBeNull();
+    expect(push).not.toHaveBeenCalled();
+    stalled = false;
     fireEvent.click(button);
     await waitFor(() => expect(push).toHaveBeenCalledWith("/trade-room/home-active-trade"));
   });

@@ -47,6 +47,7 @@ import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { groupOwnTrades } from "@/lib/trades-workspace";
+import { runClientRequest } from "@/lib/client-request-deadline";
 import { getCommissionWorkspaceAction, sortDashboardActivityNewestFirst } from "@/lib/dashboard-workspace";
 import {
   getExplicitNonTradeRoomNotificationDestination,
@@ -1909,17 +1910,18 @@ export function UsdtExchangePage({
     if (current?.userId === userId) return current.promise;
     current?.controller.abort();
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 15_000);
     const pending = { userId, controller, promise: Promise.resolve(null) as Promise<PurchaseRequest[] | null> };
     purchaseRequestsReadRef.current = pending;
     pending.promise = (async () => { try {
-      const response = await tracedReadFetch(
-        "Workspace data loading: purchase requests",
-        "/api/alpha-exchange/purchase-requests",
-        { cache: "no-store", signal: controller.signal },
-      );
-      if (!response.ok) throw new Error("Purchase requests unavailable");
-      const payload = (await response.json()) as { requests?: PurchaseRequest[] };
+      const payload = await runClientRequest(controller, 15_000, async (signal) => {
+        const response = await tracedReadFetch(
+          "Workspace data loading: purchase requests",
+          "/api/alpha-exchange/purchase-requests",
+          { cache: "no-store", signal },
+        );
+        if (!response.ok) throw new Error("Purchase requests unavailable");
+        return await response.json() as { requests?: PurchaseRequest[] };
+      });
       if (!Array.isArray(payload.requests)) throw new Error("Invalid purchase requests response");
       if (purchaseRequestsReadRef.current !== pending || controller.signal.aborted) return null;
       purchaseRequestsSnapshotRef.current = { userId, loadedAt: Date.now(), requests: payload.requests };
@@ -1934,7 +1936,6 @@ export function UsdtExchangePage({
       if (!desktopWorkspaceNavigation) setWorkspaceError(safeErrorMessage("workspace", isAr));
       return null;
     } finally {
-      window.clearTimeout(timer);
       if (purchaseRequestsReadRef.current === pending) purchaseRequestsReadRef.current = null;
     } })();
     return pending.promise;

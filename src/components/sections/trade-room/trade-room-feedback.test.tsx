@@ -49,6 +49,58 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it.each(["fetch", "body"])("confirms a committed trade action after a stalled %s without sending it twice", async (phase) => {
+  vi.useFakeTimers();
+  let current = room("Bank Transfer", "pending");
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+    if (init?.method === "PATCH") {
+      current = { ...current, request: { ...current.request, status: "accepted", updatedAt: "2026-09-22T00:00:01.000Z" } };
+      return phase === "fetch" ? new Promise<Response>(() => {})
+        : Promise.resolve({ ok: true, status: 200, json: () => new Promise(() => {}) } as Response);
+    }
+    return Promise.resolve(Response.json(current));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />); });
+  fireEvent.click(screen.getByRole("button", { name: "Accept Trade" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+  expect(screen.queryByRole("button", { name: "Processing..." })).toBeNull();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+});
+
+it.each(["missing", "wrong-message"])("keeps the draft and same message ID when a successful response has a %s acknowledgement", async (kind) => {
+  const current = room("Bank Transfer", "accepted");
+  const bodies: Array<{ message: string; clientMessageId: string }> = [];
+  let confirm = false;
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith("/messages") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)); bodies.push(body);
+      if (!confirm) return Promise.resolve(Response.json(kind === "missing" ? {} : { message: { id: "unrelated-message" } }));
+      return Promise.resolve(Response.json({ message: {
+        id: "confirmed-message", clientMessageId: body.clientMessageId, purchaseRequestId: current.request.id,
+        kind: "user", senderUserId: buyer.id, senderRole: buyer.role, message: body.message,
+        createdAt: "2026-09-22T00:00:02.000Z", readByUserIds: [buyer.id],
+      } }));
+    }
+    return Promise.resolve(Response.json(current));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+  const draft = await screen.findByPlaceholderText("Type a message...") as HTMLTextAreaElement;
+  fireEvent.change(draft, { target: { value: "Please confirm when you are ready." } });
+  fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
+  await waitFor(() => expect(draft.value).toBe("Please confirm when you are ready."));
+  expect(bodies).toHaveLength(2);
+  expect(new Set(bodies.map(body => body.clientMessageId)).size).toBe(1);
+  confirm = true;
+  fireEvent.click(screen.getByRole("button", { name: "Send Message" }));
+  await waitFor(() => expect(bodies).toHaveLength(3));
+  expect(new Set(bodies.map(body => body.clientMessageId)).size).toBe(1);
+  await waitFor(() => expect(draft.value).toBe(""));
+  expect(document.querySelector('[data-trade-message-id="confirmed-message"]')).toBeTruthy();
+});
+
 it.each([
   ["Face-to-Face (Meet in Person)", "funds_received"],
   ["Bank Transfer", "usdt_sent"],

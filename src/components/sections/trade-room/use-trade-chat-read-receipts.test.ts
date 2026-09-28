@@ -24,6 +24,17 @@ beforeEach(() => {
 afterEach(() => { stop?.(); stop = undefined; container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("visible chat read receipts", () => {
+  it.each(["fetch", "body"])("recovers from a stalled %s without inventing a Seen receipt", async (phase) => {
+    fetchMock.mockImplementationOnce(() => phase === "fetch" ? new Promise(() => {})
+      : Promise.resolve({ ok: true, json: () => new Promise(() => {}) }));
+    const onReceipts = vi.fn();
+    stop = observeTradeChatReadReceipts(container, "trade-1", ["message-1"], onReceipts);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onReceipts).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_300);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onReceipts).toHaveBeenCalledOnce();
+  });
   it("batches only visible messages and never acknowledges an offscreen or unknown message", async () => {
     const onReceipts = vi.fn();
     stop = observeTradeChatReadReceipts(container, "trade-1", ["message-1", "message-2"], onReceipts);

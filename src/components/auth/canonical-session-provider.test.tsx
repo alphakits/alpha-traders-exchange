@@ -26,6 +26,25 @@ function ErrorProbe() {
 }
 
 describe("CanonicalSessionProvider", () => {
+  it.each(["fetch", "body"])("recovers from a stalled %s even when abort is ignored", async (phase) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => phase === "fetch" ? new Promise(() => {})
+        : Promise.resolve({ ok: true, status: 200, json: () => new Promise(() => {}) }))
+      .mockResolvedValue({ ok: true, json: async () => ({ user: { id: "recovered-user" } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CanonicalSessionProvider initialSessionUser={null}><ErrorProbe /></CanonicalSessionProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(CANONICAL_SESSION_READ_TIMEOUT_MS); });
+    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByText("recovered-user:ok")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it("recognizes revoked access before reading an unresponsive error body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, json: () => new Promise(() => {}) }));
+    render(<CanonicalSessionProvider initialSessionUser={null}><Probe /></CanonicalSessionProvider>);
+    await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
+  });
   it("times out a stalled session read and recovers without treating the outage as logout", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = {
@@ -317,7 +336,8 @@ describe("CanonicalSessionProvider", () => {
       );
 
       await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
-      expect(replaceSpy).toHaveBeenCalledWith(`/en/login?redirectTo=${encodeURIComponent("/en/usdt-exchange?tab=sell#create-listing")}`);
+      // Navigation is a passive effect after the anonymous render commits.
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith(`/en/login?redirectTo=${encodeURIComponent("/en/usdt-exchange?tab=sell#create-listing")}`));
       expect(document.cookie).not.toContain("ALPHA_LOCALE_CHOICE=ar");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
