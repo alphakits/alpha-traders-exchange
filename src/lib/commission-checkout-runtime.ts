@@ -21,7 +21,9 @@ export async function getCommissionCheckoutRuntime() {
   if (!guard.rows[0]?.ready) throw new Error("Automatic checkout storage guards are unavailable");
   const repository = await getAlphaExchangeRepository();
   const workflow = createCommissionCheckoutWorkflow({
-    read: () => repository.loadSnapshot(),
+    // Read-only checkout state needs no trade history, attachments or sessions.
+    // Keep the complete canonical snapshot for mutations and their rebase below.
+    read: () => repository.loadSelectedSnapshot(["users", "commissions", "audit_logs"]),
     async atomic(mutation) {
       const snapshot = await repository.loadSnapshot();
       let result = mutation(snapshot);
@@ -49,7 +51,7 @@ export async function getCommissionCheckoutRuntime() {
   });
   return { ...workflow,
     async scan(deadline: number) {
-      const snapshot = await repository.loadSnapshot();
+      const snapshot = await repository.loadSelectedSnapshot(["commissions", "audit_logs"]);
       const pending = pendingCommissionCheckouts(snapshot);
       if (!pending.length) return { enabled: true, pendingCheckouts: 0, scanned: 0, verified: 0, errors: 0, complete: true };
       const since = Math.min(...pending.map((checkout) => Date.parse(checkout.createdAt)));

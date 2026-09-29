@@ -7,6 +7,7 @@ vi.mock("@/lib/commission-deposit-discovery", () => ({ verifyBinanceInternalComm
 vi.mock("@/lib/bep20-commission-verifier", () => ({ verifyBep20Commission: mocks.bep20 }));
 vi.mock("@/lib/commission-batch-tron-verifier", () => ({ verifyCommissionBatchTronReceipt: mocks.tron }));
 import { getCommissionBatchRuntime } from "./commission-batch-runtime";
+import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
 import { getSellerCommissionStatus, invalidateAlphaExchangeStoreCache } from "./alpha-exchange-store";
 const signature = "binance-deposit:123456789123456789";
 function seed() {
@@ -28,8 +29,29 @@ beforeEach(() => { vi.stubEnv("ALPHA_EXCHANGE_COMMISSION_BATCH_V1", "0"); vi.stu
   globalThis.__alphaExchangeMemorySnapshot = seed() as never; invalidateAlphaExchangeStoreCache();
   vi.clearAllMocks(); mocks.binance.mockResolvedValue({ verified: true, pending: false });
 });
-afterEach(() => { vi.unstubAllEnvs(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe("actual repository and batch runtime", () => {
+  it("keeps scheduled context, owner state and reconciliation reads independent of trade history", async () => {
+    const runtime = await getCommissionBatchRuntime();
+    await runtime.approve(input);
+    const expectedContext = await runtime.scanContext();
+    const expectedOwnerState = await runtime.ownerState();
+    const repository = await getAlphaExchangeRepository();
+    const canonical = await repository.loadSnapshot();
+    const projected = { ...seed(), users: canonical.users, commissionRecords: canonical.commissionRecords, auditLogs: canonical.auditLogs };
+    const read = vi.spyOn(repository, "loadSelectedSnapshot").mockResolvedValue(projected);
+    const fullRead = vi.spyOn(repository, "loadSnapshot").mockRejectedValue(new Error("Unrelated history must not be loaded"));
+    const write = vi.spyOn(repository, "saveSnapshot");
+
+    await expect(runtime.scanContext()).resolves.toEqual(expectedContext);
+    const ownerState = await runtime.ownerState();
+    expect({ ...ownerState, checkedAt: "now" }).toEqual({ ...expectedOwnerState, checkedAt: "now" });
+    await expect(runtime.reconcile({ deposits: [], deadline: Date.now() + 60_000 })).resolves.toMatchObject({ verified: 0, waiting: 1 });
+    expect(read).toHaveBeenCalledWith(["commissions", "audit_logs"]);
+    expect(read).toHaveBeenCalledWith(["users", "commissions", "audit_logs"]);
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
   it("settles an attributed 38 payment against 38.30 through the actual repository and clears the seller's dues", async () => {
     expect((await getSellerCommissionStatus("seller")).status).not.toBe("clear");
     const runtime = await getCommissionBatchRuntime(); await runtime.approve(input);

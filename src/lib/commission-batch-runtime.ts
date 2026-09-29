@@ -32,7 +32,9 @@ export async function getCommissionBatchRuntime() {
   }
   const repository = await getAlphaExchangeRepository();
   const workflow = createCommissionBatchWorkflow({
-    read: () => repository.loadSnapshot(),
+    // Batch eligibility and receipt ownership depend only on these collections.
+    // Atomic settlement still reloads and rebases the complete canonical state.
+    read: () => repository.loadSelectedSnapshot(["users", "commissions", "audit_logs"]),
     async atomic(mutation) {
       const snapshot = await repository.loadSnapshot();
       let result = mutation(snapshot);
@@ -70,13 +72,13 @@ export async function getCommissionBatchRuntime() {
   });
   return { ...workflow,
     async scanContext() {
-      const snapshot = await repository.loadSnapshot();
+      const snapshot = await repository.loadSelectedSnapshot(["commissions", "audit_logs"]);
       const pending = getPendingCommissionBatches(snapshot);
       return { pending, reserved: getCommissionBatchReceiptReservations(snapshot),
         earliestTimestamp: pending.length ? Math.min(...pending.flatMap((batch) => batch.expectedCommissions.map((item) => Date.parse(item.createdAt)))) : null };
     },
     async ownerState() {
-      const snapshot = await repository.loadSnapshot();
+      const snapshot = await repository.loadSelectedSnapshot(["users", "commissions", "audit_logs"]);
       const names = new Map(snapshot.users.map((user) => [user.id, user.fullName]));
       const attempts = snapshot.auditLogs.filter((entry) => object(entry.newValue)?.kind === "commission_batch_receipt_attempt_v1");
       const settled = snapshot.auditLogs.filter((entry) => object(entry.newValue)?.kind === "commission_batch_receipt_settled_v1");

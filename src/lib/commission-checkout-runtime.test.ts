@@ -32,12 +32,39 @@ beforeEach(async () => {
   mocks.binance.mockResolvedValue({ verified: true, pending: false });
   for (const scan of [mocks.scanBinance, mocks.scanTron, mocks.scanBsc]) scan.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [] });
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 async function prepared() {
   const service = await getCommissionCheckoutRuntime(); const checkout = await service.issue({ sellerId: "seller", network: "BEP20", desiredAmount: "38" });
   const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
   return { service, checkout, payment };
 }
+it("reads checkout status and scheduled scans without downloading unrelated platform history", async () => {
+  const { service, checkout } = await prepared();
+  const repository = await getAlphaExchangeRepository();
+  const canonical = await repository.loadSnapshot();
+  const projected = { ...seed(), users: canonical.users, commissionRecords: canonical.commissionRecords, auditLogs: canonical.auditLogs };
+  const read = vi.spyOn(repository, "loadSelectedSnapshot").mockResolvedValue(projected);
+  const fullRead = vi.spyOn(repository, "loadSnapshot").mockRejectedValue(new Error("Unrelated history must not be loaded"));
+  const write = vi.spyOn(repository, "saveSnapshot");
+
+  await expect(service.state("seller")).resolves.toMatchObject({ status: "waiting", checkout: { id: checkout.id }, pendingCount: 2 });
+  await expect(service.scan(Date.now() + 60_000)).resolves.toMatchObject({ pendingCheckouts: 1, verified: 0, complete: true });
+  expect(read).toHaveBeenCalledWith(["commissions", "audit_logs"]);
+  expect(read).toHaveBeenCalledWith(["users", "commissions", "audit_logs"]);
+  expect(fullRead).not.toHaveBeenCalled();
+  expect(write).not.toHaveBeenCalled();
+});
+it("an idle scheduled scan avoids full snapshots and provider calls", async () => {
+  const repository = await getAlphaExchangeRepository();
+  const read = vi.spyOn(repository, "loadSelectedSnapshot").mockResolvedValue({ ...seed(), users: [] });
+  const fullRead = vi.spyOn(repository, "loadSnapshot").mockRejectedValue(new Error("Unrelated history must not be loaded"));
+  const service = await getCommissionCheckoutRuntime();
+
+  await expect(service.scan(Date.now() + 60_000)).resolves.toMatchObject({ pendingCheckouts: 0, scanned: 0, complete: true });
+  expect(read).toHaveBeenCalledExactlyOnceWith(["commissions", "audit_logs"]);
+  expect(fullRead).not.toHaveBeenCalled();
+  for (const scan of [mocks.scanBinance, mocks.scanTron, mocks.scanBsc]) expect(scan).not.toHaveBeenCalled();
+});
 it("actual repository persists owner-free 38 for 38.30 and clears canonical seller dues", async () => {
   const { service, payment } = await prepared(); expect((await getSellerCommissionStatus("seller")).status).not.toBe("clear");
   expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(1);
