@@ -373,7 +373,7 @@ export function ContactForm({
           aria-describedby={[isLearningInterest ? `${emailId}-hint` : "", fieldErrors.email ? `${emailId}-err` : ""].filter(Boolean).join(" ") || undefined}
           required
         />
-        {isLearningInterest ? <p id={`${emailId}-hint`} className="text-xs leading-6 text-white/60">{locale === "ar" ? "استخدم بريدًا بتقدر تفتحه؛ الرد على استفسارك بيكون من خلاله. ما بتحتاج حساب بالموقع." : "Use an email you can access; replies to your enquiry go here. No website account is needed."}</p> : null}
+        {isLearningInterest ? <p id={`${emailId}-hint`} className="text-xs leading-6 text-white/60">{locale === "ar" ? "استخدم بريدًا بتقدر تفتحه؛ الرد على استفسارك بيكون من خلاله." : "Use an email you can access; replies to your enquiry go here."}</p> : null}
         {fieldErrors.email && (
           <ActionFeedback as="p" role="alert" id={`${emailId}-err`}  className="flex items-center gap-1 text-xs text-red-400">
             <AlertCircle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />

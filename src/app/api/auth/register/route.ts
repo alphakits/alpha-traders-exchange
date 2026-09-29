@@ -5,7 +5,7 @@ import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { logEvent } from "@/lib/structured-logging";
 import { assertNoDirectContactContent } from "@/lib/privacy-redaction";
-import { academyLoginPath } from "@/lib/academy-entry";
+import { academyLoginPath, mentorshipLoginPath } from "@/lib/academy-entry";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 const REGISTRATION_RESPONSE_FLOOR_MS = 450;
@@ -201,7 +201,9 @@ export async function POST(request: NextRequest) {
       email,
       password,
       options: {
-        emailRedirectTo: body.intent === "learn"
+        emailRedirectTo: body.intent === "mentorship"
+          ? new URL(mentorshipLoginPath(locale), getSupabaseEmailRedirectUrl(locale)).toString()
+          : body.intent === "learn"
           ? new URL(academyLoginPath(locale), getSupabaseEmailRedirectUrl(locale)).toString()
           : getSupabaseEmailRedirectUrl(locale),
         data: {

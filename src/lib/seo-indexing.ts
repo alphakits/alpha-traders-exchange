@@ -1,6 +1,6 @@
 /** Search metadata only. Authentication and authorization remain server-enforced. */
 export const PRIVATE_SEARCH_ROUTE_NAMES = [
-  "admin", "academy", "dashboard", "lessons", "prop-firms", "news", "profile", "settings",
+  "admin", "academy", "dashboard", "lessons", "learn-with-mark", "prop-firms", "news", "profile", "settings",
   "notifications", "trade-room", "trades", "usdt-exchange", "seller",
   "onboarding", "login", "register", "verify-account", "verify-email",
   "forgot-password", "reset-password",

@@ -6,6 +6,9 @@ import { PublicDiscoveryBreadcrumbs } from "@/components/seo/public-discovery-br
 import { buildBreadcrumbSchema } from "@/lib/seo-breadcrumb";
 import { buildFaqSchema, buildPageMetadata, serializeJsonLd } from "@/lib/seo";
 import { ICT_MENTORSHIP_OFFER, ictMentorshipOfferSummary, isIctMentorshipIntakeOpen } from "@/lib/ict-mentorship-offer";
+import { getCurrentSessionUser } from "@/lib/auth";
+import { getSignedOutPageDestination } from "@/lib/protected-page";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +23,22 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function LearnWithMarkPage({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
+export default async function LearnWithMarkPage({ params, searchParams }: {
+  params: Promise<{ locale: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ locale }, user] = await Promise.all([params, getCurrentSessionUser()]);
   const isAr = locale === "ar";
   const language = isAr ? "ar" : "en";
+  // Validate the actual session before serializing the course or referral offer.
+  // Middleware's cookie-presence check alone cannot reject expired sessions.
+  if (!user) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(await searchParams ?? {})) {
+      for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value]) query.append(key, entry);
+    }
+    redirect(getSignedOutPageDestination(`/${language}/learn-with-mark${query.size ? `?${query}` : ""}`));
+  }
   const t = (en: string, ar: string) => isAr ? ar : en;
   const intakeOpen = isIctMentorshipIntakeOpen();
   const offer = ictMentorshipOfferSummary(language);
@@ -34,7 +49,7 @@ export default async function LearnWithMarkPage({ params }: { params: Promise<{ 
     { question: t("Is ICT Mentorship the same as the free Academy?", "هل ICT Mentorship هو نفس الأكاديمية المجانية؟"), answer: t("The free Academy is a place to begin; lessons require an account with a verified email. ICT Mentorship is a separate programme with Mark and has a fee. An enquiry is free and does not reserve a place. Fees, duration, schedule, follow-up scope and cancellation terms are explained before any commitment.", "الأكاديمية المجانية متاحة كبداية، والدروس تتطلب حسابًا وبريدًا مؤكدًا. ICT Mentorship برنامج منفصل مع مارك برسوم. الاستفسار مجاني ولا يحجز مقعدًا؛ تُوضح الرسوم والمدة والمواعيد ونطاق المتابعة وشروط الإلغاء قبل أي التزام.") },
     { question: t("Who teaches the mentorship?", "مين يقدّم المنتورشيب؟"), answer: t("Mark, the founder of Alpha Traders, provides the teaching and follow-up. This is Alpha Traders’ independent programme teaching ICT concepts; it is not presented as an official ICT programme or certification.", "مارك، مؤسس Alpha Traders، يقدّم المنهج والمتابعة. هذا برنامج Alpha Traders المستقل الذي يدرّس مفاهيم ICT؛ لا يُقدَّم بوصفه برنامجًا رسميًا أو شهادة صادرة عن ICT.") },
     { question: t("I have studied before but still feel lost. Is this relevant?", "تعلّمت سابقًا وما زلت مشتتًا، هل يناسبني؟"), answer: t("Describe your experience and what you find difficult to understand or apply. The approach is to study concepts, document decisions and bring specific questions for review. You do not need to share balances or private financial information in your enquiry.", "احكِ عن خبرتك وما يصعب عليك فهمه أو تطبيقه. الهدف هو دراسة المفاهيم، توثيق القرارات وطرح أسئلة محدّدة للمراجعة. لا تحتاج لمشاركة أرصدتك أو تفاصيلك المالية في الاستفسار.") },
-    { question: t("Do I need previous experience or a website account to enquire?", "هل أحتاج خبرة سابقة أو حساب بالموقع عشان أستفسر؟"), answer: t("No. You can enquire as a beginner or with previous experience, without creating an account or completing the free Academy first. Describe your starting point and goals so Mark can discuss the programme and study commitment with you. The free Academy is an optional place to build your foundation; its lessons require an account with a verified email.", "لا. بتقدر تستفسر سواء بتبدأ من الصفر أو عندك خبرة، بدون إنشاء حساب أو إنهاء الأكاديمية المجانية أولًا. احكِ عن بدايتك وأهدافك حتى تناقش البرنامج والوقت المطلوب مع مارك. الأكاديمية المجانية خيار لبناء أساسك، ودروسها تحتاج حسابًا وبريدًا مؤكدًا.") },
+    { question: t("Do I need previous experience or a website account to enquire?", "هل أحتاج خبرة سابقة أو حساب بالموقع عشان أستفسر؟"), answer: t("Sign in to your account to access this page. You can enquire as a beginner or with previous experience, without completing the free Academy first. Describe your starting point and goals so Mark can discuss the programme and study commitment with you. The free Academy is an optional place to build your foundation; its lessons require an account with a verified email.", "لازم تسجّل دخول لحسابك حتى تفتح هذه الصفحة. بتقدر تستفسر سواء بتبدأ من الصفر أو عندك خبرة، بدون إنهاء الأكاديمية المجانية أولًا. احكِ عن بدايتك وأهدافك حتى تناقش البرنامج والوقت المطلوب مع مارك. الأكاديمية المجانية خيار لبناء أساسك، ودروسها تحتاج حسابًا وبريدًا مؤكدًا.") },
     { question: t("What does follow-up involve?", "كيف بتكون المتابعة؟"), answer: t("Bring questions from your own study and practice: the reasoning for an entry, a stop that was hit, or an exit before a target. The aim is to understand your decisions and build independence. Before joining, clarify the session format, question channel, access period and follow-up scope with Mark.", "ارجع بأسئلة من دراستك وتطبيقك: سبب الدخول، ستوب انضرب، أو خروج قبل الهدف. الهدف تفهم قراراتك وتبني استقلاليتك. قبل الانضمام، وضّح مع مارك صيغة اللقاءات، طريقة طرح الأسئلة، مدة الوصول ونطاق المتابعة.") },
     { question: t("What happens after I send an enquiry?", "شو بصير بعد ما أرسل الاستفسار؟"), answer: t("Your enquiry is saved privately for Mark to review. Use an email address you can access, and explain your experience, goal and available study time. You can keep exploring the free Academy and recording while awaiting a reply. You decide whether to join after reviewing the current programme details; an enquiry is not an enrolment.", "بينحفظ استفسارك بشكل خاص ليراجعه مارك. استخدم بريدًا بتقدر تفتحه، واشرح خبرتك وهدفك ووقتك المتاح. بتقدر تكمّل بالأكاديمية المجانية وتسمع التسجيل وأنت بانتظار الرد. بتقرر الانضمام بعد ما تشوف تفاصيل البرنامج الحالي؛ الاستفسار مش تسجيل بالبرنامج.") },
     { question: t("Are the prices and numbers in the recording the current offer?", "هل الأسعار والأرقام في التسجيل هي العرض الحالي؟"), answer: t("The original recording is from 7 September 2026 and includes historical prices, counts and personal experiences. These are not current enrolment terms or evidence of results you will achieve. The current tuition is listed in the programme section below; the remaining details are clarified before joining.", "التسجيل الأصلي من 7 سبتمبر 2026، وفيه أسعار وأعداد وتجارب سابقة. هذه ليست شروط التسجيل الحالية ولا دليلًا على نتيجة ستحصل عليها. الرسوم الحالية مذكورة بقسم البرنامج أدناه، وبقية التفاصيل تُوضح قبل الانضمام.") },
