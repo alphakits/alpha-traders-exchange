@@ -17,5 +17,5 @@ export default async function RegisterPage({ params, searchParams }: {
 }) {
   const { locale } = await params;
   const { intent } = await searchParams;
-  return <RegisterForm locale={locale as "ar" | "en"} learningIntent={intent === "learn"} />;
+  return <RegisterForm locale={locale as "ar" | "en"} learningIntent={intent === "learn"} mentorshipIntent={intent === "mentorship"} />;
 }

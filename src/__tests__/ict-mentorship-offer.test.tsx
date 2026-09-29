@@ -5,6 +5,7 @@ import { isIctMentorshipIntakeOpen } from "@/lib/ict-mentorship-offer";
 import { learningInformationReply } from "@/lib/learning-interest";
 
 vi.mock("@/i18n/navigation", () => ({ Link: (props: AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props} /> }));
+vi.mock("@/lib/auth", () => ({ getCurrentSessionUser: async () => ({ id: "signed-in-learner" }) }));
 import MentorshipPage from "@/app/[locale]/learn-with-mark/page";
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -14,7 +15,7 @@ it("uses the actual end of 2026 in Israel with no overlapping open/closed period
   expect(isIctMentorshipIntakeOpen(Date.parse("2026-12-31T22:00:00.000Z"))).toBe(false);
 });
 
-it.each(["en", "ar"] as const)("closes the %s public form and reply after the deadline while retaining free learning", async locale => {
+it.each(["en", "ar"] as const)("closes the %s member form and reply after the deadline while retaining free learning", async locale => {
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2027-01-01T00:00:00Z"));
   const html = renderToStaticMarkup(await MentorshipPage({ params: Promise.resolve({ locale }) }));
   expect(html).not.toContain('name="experience"');

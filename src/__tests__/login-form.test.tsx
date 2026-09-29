@@ -118,6 +118,8 @@ describe("LoginForm", () => {
     ["ar", undefined, "/ar/usdt-exchange"],
     ["ar", "/en/academy", "/ar/academy"],
     ["en", "/ar/academy", "/en/academy"],
+    ["en", "/en/learn-with-mark?utm_source=friend", "/en/learn-with-mark?utm_source=friend"],
+    ["ar", "/ar/learn-with-mark#mark-explains", "/ar/learn-with-mark#mark-explains"],
     ["ar", "/ar/usdt-exchange?mode=buy&sort=trust-desc", "/ar/usdt-exchange?mode=buy&sort=trust-desc"],
     ["ar", "/en/trade-room/trade-1?tab=messages#latest", "/ar/trade-room/trade-1?tab=messages#latest"],
   ] as const)("keeps the selected %s page language after login with destination %s", async (locale, redirectTo, expected) => {
@@ -163,6 +165,11 @@ describe("LoginForm", () => {
   it.each(["en", "ar"] as const)("carries the free Academy intent into %s account creation", locale => {
     render(<LoginForm locale={locale} redirectTo={`/${locale}/academy`} />);
     expect(document.querySelector('a[href="/register?intent=learn"]')).not.toBeNull();
+  });
+
+  it.each(["en", "ar"] as const)("carries the mentorship destination into %s account creation", locale => {
+    render(<LoginForm locale={locale} redirectTo={`/${locale}/learn-with-mark?utm_source=friend`} />);
+    expect(document.querySelector('a[href="/register?intent=mentorship"]')).not.toBeNull();
   });
 
   it.each(["/ar/trade-room/trade-1", "//outside.test", "/ar/login", "/login"])("restores a valid cookie session from Login with safe destination %s", async (redirectTo) => {

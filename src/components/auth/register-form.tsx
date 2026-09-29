@@ -24,7 +24,7 @@ type RegistrationErrorCode =
   | "PASSWORD_MISMATCH"
   | "REGISTRATION_FAILED";
 
-export function RegisterForm({ locale, learningIntent = false }: { locale: "ar" | "en"; learningIntent?: boolean }) {
+export function RegisterForm({ locale, learningIntent = false, mentorshipIntent = false }: { locale: "ar" | "en"; learningIntent?: boolean; mentorshipIntent?: boolean }) {
   const isAr = locale === "ar";
   const [form, setForm] = useState({
     fullName: "",
@@ -122,7 +122,7 @@ export function RegisterForm({ locale, learningIntent = false }: { locale: "ar" 
           "Content-Type": "application/json",
           "X-Locale": locale,
         },
-        body: JSON.stringify({ ...form, whatsappNumber, ...(learningIntent ? { intent: "learn" } : {}) }),
+        body: JSON.stringify({ ...form, whatsappNumber, ...(mentorshipIntent ? { intent: "mentorship" } : learningIntent ? { intent: "learn" } : {}) }),
       }, 30_000);
       if (!response.ok) {
         setErrorMessage(localizeRegistrationError(payload.error, payload.code));
@@ -183,7 +183,7 @@ export function RegisterForm({ locale, learningIntent = false }: { locale: "ar" 
 
         <p className="mt-5 text-sm text-[#9CA3AF]">
           {isAr ? "لديك حساب بالفعل؟" : "Already have an account?"}{" "}
-          <Link href={learningIntent ? `/login?${new URLSearchParams({ redirectTo: `/${locale}/academy` })}` : "/login"} className="text-[#C9A227] hover:underline">
+          <Link href={mentorshipIntent ? `/login?${new URLSearchParams({ redirectTo: `/${locale}/learn-with-mark` })}` : learningIntent ? `/login?${new URLSearchParams({ redirectTo: `/${locale}/academy` })}` : "/login"} className="text-[#C9A227] hover:underline">
             {isAr ? "تسجيل الدخول" : "Login"}
           </Link>
         </p>

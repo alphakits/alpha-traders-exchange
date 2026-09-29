@@ -18,7 +18,7 @@ import styles from "./login-atmosphere.module.css";
 import appStyles from "./app-login-network.module.css";
 import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
 import { isExchangePage } from "@/lib/protected-page";
-import { isAcademyEntry } from "@/lib/academy-entry";
+import { isAcademyEntry, isMentorshipEntry } from "@/lib/academy-entry";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
@@ -382,7 +382,7 @@ export function LoginForm({
 
             <p className={`${isNativeApp ? appStyles.register : ""} mt-6 text-sm text-[#9CA3AF]`}>
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}
-              <Link href={isAcademyEntry(redirectTo) ? "/register?intent=learn" : "/register"} className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
+              <Link href={isMentorshipEntry(redirectTo) ? "/register?intent=mentorship" : isAcademyEntry(redirectTo) ? "/register?intent=learn" : "/register"} className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                 {isAr ? "أنشئ حسابًا" : "Create Account"}
               </Link>
             </p>

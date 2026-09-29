@@ -45,12 +45,16 @@ const mentorshipOffer = load("src/lib/ict-mentorship-offer.ts");
 const robots = load("src/app/robots.ts", { "@/lib/seo-indexing": indexing }).default();
 const sitemap = load("src/app/sitemap.ts").default();
 const pages = ["start", "learn-trading-free", "buy-usdt-israel", "learn-with-mark"];
+const publicPages = pages.filter(name => name !== "learn-with-mark");
 const variants = ["en", "ar"];
 const learningNextStep = load("src/components/academy/learning-next-step.tsx", {
   "@/i18n/navigation": { Link: "test-link" },
   "@/components/ui/button": { buttonVariants: () => "test-button" },
 });
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
+  "@/lib/auth": { getCurrentSessionUser: async () => ({ id: "signed-in-learner" }) },
+  "@/lib/protected-page": { getSignedOutPageDestination: () => { throw new Error("Authenticated fixture must not redirect"); } },
+  "next/navigation": { redirect: () => { throw new Error("Authenticated fixture must not redirect"); } },
   "@/lib/ict-mentorship-offer": mentorshipOffer,
   "@/lib/seo": seo,
   "@/lib/seo-breadcrumb": breadcrumb,
@@ -85,7 +89,7 @@ for (const route of indexing.PRIVATE_SEARCH_ROUTE_NAMES) {
   });
 }
 test("route policy does not hide similarly named public pages", () => {
-  for (const path of ["", "/", "/en", "/ar", "/seller-disclaimer", "/academy-guide", ...pages.map((p) => `/${p}`)]) {
+  for (const path of ["", "/", "/en", "/ar", "/seller-disclaimer", "/academy-guide", ...publicPages.map((p) => `/${p}`)]) {
     assert.equal(indexing.isPrivateSearchPath(path), false, path);
   }
   assert.equal(indexing.isPrivateSearchPath("/api/private"), true);
@@ -99,7 +103,7 @@ for (const locale of variants) {
       assert.equal(metadata.alternates.languages.ar, `${site}/ar/${name}`);
       assert.equal(metadata.alternates.languages.en, `${site}/en/${name}`);
       assert.equal(metadata.alternates.languages["x-default"], `${site}/en/${name}`);
-      assert.notEqual(metadata.robots?.index, false);
+      assert.equal(metadata.robots?.index === false, name === "learn-with-mark");
       assert.equal(/[\u0600-\u06ff]/u.test(metadata.description), locale === "ar");
       assert.ok(metadata.title.length > 10 && metadata.description.length > 30);
     });
@@ -141,14 +145,14 @@ test("sitemap contains unique official public URLs and all six discovery variant
     assert.equal(parsed.origin, site);
     assert.equal(indexing.isPrivateSearchPath(parsed.pathname), false, url);
   }
-  for (const locale of variants) for (const name of pages) assert.ok(urls.includes(`${site}/${locale}/${name}`));
+  for (const locale of variants) for (const name of publicPages) assert.ok(urls.includes(`${site}/${locale}/${name}`));
 });
 test("crawler policy retains private exclusions and the public discovery allowance", () => {
   assert.equal(robots.sitemap, `${site}/sitemap.xml`);
   assert.ok(robots.rules.some((rule) => rule.userAgent === "*" && rule.allow === "/"));
   const ai = robots.rules.find((rule) => rule.userAgent === "OAI-SearchBot");
   assert.ok(ai);
-  for (const locale of variants) for (const name of pages) assert.ok(ai.allow.includes(`/${locale}/${name}`));
+  for (const locale of variants) for (const name of publicPages) assert.ok(ai.allow.includes(`/${locale}/${name}`));
   for (const rule of robots.rules) assert.ok(rule.disallow.includes("/api/"));
 });
 test("JSON-LD serialization prevents script-breakout text", () => {
@@ -232,7 +236,7 @@ test("AI public directory lists canonical sitemap pages; account entry stays sep
     assert.ok(sitemap.some((entry) => entry.url === url), url);
     assert.equal(indexing.isPrivateSearchPath(new URL(url).pathname), false);
   }
-  for (const locale of variants) for (const name of pages) assert.ok(urls.includes(`${site}/${locale}/${name}`));
+  for (const locale of variants) for (const name of publicPages) assert.ok(urls.includes(`${site}/${locale}/${name}`));
   assert.doesNotMatch(directory, /\/usdt-ils\b|\/p2p-usdt-israel\b|\/usdt-exchange\b/);
   assert.match(text.split("## Access model")[1] ?? "", /Marketplace entry \(sign-in required\): https:\/\/www\.alphatraders\.co\.il\/en\/usdt-exchange/);
   assert.match(text, /sign-in with a verified email/);
