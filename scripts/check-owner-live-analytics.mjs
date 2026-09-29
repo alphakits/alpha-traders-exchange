@@ -29,10 +29,12 @@ const reporting = load("src/lib/owner-analytics-reporting.ts");
 const model = load("src/lib/owner-live-analytics.ts", { "@/lib/owner-analytics-reporting": reporting });
 const now = Date.parse("2026-09-25T04:40:00Z");
 const unavailable = () => ({ status: "unavailable", asOf: null, data: null });
+const overview = () => ({ visitors: 2, accounts: 2, guests: 0, returningVisitors: 1, sessions: 3, pageViews: 5_000, web: 1, ios: 1, android: 1, mobile: 2, desktop: 1 });
 const traffic = () => ({ visitorsToday: 2, sessionsToday: 3, pageViewsToday: 5_000,
   webToday: 1, iosToday: 1, androidToday: 1, mobileToday: 2, desktopToday: 1,
+  periods: { all: overview(), today: overview() }, allTimeSources: [],
   topPages: [{ path: "/start", uniqueVisitors: 2, views: 5_000 }],
-  allTimePages: [{ path: "/start", uniqueVisitors: 2, views: 5_000 }], sources: [{ source: "Direct", sessions: 3 }] });
+  allTimePages: [{ path: "/start", uniqueVisitors: 2, views: 5_000 }], sources: [{ source: "Direct", sessions: 3, uniqueVisitors: 2 }] });
 const presence = () => ({ onlineNow: 0, activeToday: 5, activeLast7Days: 10, activeLast30Days: 10 });
 const ready = (data, time = now) => ({ status: "ready", asOf: new Date(time).toISOString(), data });
 const snapshot = () => ({ timeZone: "Asia/Jerusalem", reportingStartedAt: new Date(now - 60_000).toISOString(), presence: ready(presence()), traffic: ready(traffic()) });
@@ -277,6 +279,7 @@ function renderPanel(locale, state, open = true) {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
     "@/lib/owner-live-analytics": model,
     "@/lib/owner-live-analytics-poller": {},
+    "@/components/admin/owner-visitor-activity": { OwnerVisitorActivity: () => null },
   });
   return component.OwnerLiveAnalyticsPanel({ locale });
 }
@@ -284,7 +287,7 @@ for (const locale of ["en", "ar"]) {
   test(`${locale} panel renders formatted counts, reporting timezone and no financial controls`, () => {
     const text = flatten(renderPanel(locale, { ...model.initialLiveAnalyticsState(), snapshot: snapshot() }));
     assert.match(text, /5,000/); assert.match(text, /Asia\/Jerusalem/);
-    assert.match(text, locale === "en" ? /Recorded traffic today/ : /الزيارات المسجلة اليوم/);
+    assert.match(text, locale === "en" ? /Visitors without duplicates/ : /الزوار بدون تكرار/);
   });
 }
 test("panel distinguishes unavailable from zero and clears unauthorized data", () => {

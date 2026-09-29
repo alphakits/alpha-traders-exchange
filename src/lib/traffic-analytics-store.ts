@@ -25,25 +25,13 @@ export async function recordTrafficEvent(i: {
   // An HTTP success must mean a row was inserted, not a missing database no-op.
   return result.rowCount === 1;
 }
-export type OwnerTrafficAnalytics = {
-  visitorsToday: number;
-  sessionsToday: number;
-  pageViewsToday: number;
-  webToday: number;
-  iosToday: number;
-  androidToday: number;
-  mobileToday: number;
-  desktopToday: number;
-  topPages: Array<{ path: string; uniqueVisitors: number; views: number }>;
-  allTimePages: Array<{ path: string; uniqueVisitors: number; views: number }>;
-  sources: Array<{ source: string; sessions: number }>;
-};
+export type OwnerTrafficAnalytics = import("@/lib/owner-live-analytics").TrafficCounts;
 
 // Resolve identity at read time within the current reporting period only.
 // Account IDs come from the verified server session, never the event payload.
 // A browser used by several accounts cannot safely identify signed-out visits:
 // keep those anonymous, without merging distinct signed-in accounts together.
-const IDENTIFIED_TRAFFIC = `with visitor_accounts as (
+export const IDENTIFIED_TRAFFIC = `with visitor_accounts as (
   select visitor_key, min(nullif(user_id,'')) as user_id
   from alpha_exchange.traffic_events
   where occurred_at <= now() and ($1::timestamptz is null or occurred_at >= $1::timestamptz)
@@ -58,22 +46,36 @@ const IDENTIFIED_TRAFFIC = `with visitor_accounts as (
 
 export async function readOwnerTrafficAnalytics(startedAt?: string): Promise<OwnerTrafficAnalytics> {
   const db = await pool();
+  const emptyOverview = { visitors: 0, accounts: 0, guests: 0, returningVisitors: 0,
+    sessions: 0, pageViews: 0, web: 0, ios: 0, android: 0, mobile: 0, desktop: 0 };
   if (!db) return { visitorsToday: 0, sessionsToday: 0, pageViewsToday: 0,
     webToday: 0, iosToday: 0, androidToday: 0, mobileToday: 0, desktopToday: 0,
-    topPages: [], allTimePages: [], sources: [] };
+    periods: { all: emptyOverview, today: emptyOverview },
+    topPages: [], allTimePages: [], sources: [], allTimeSources: [] };
   const today = `date_trunc('day',now(),'${OWNER_ANALYTICS_TIME_ZONE}')`;
   const [summary, sections, sources] = await Promise.all([
-    db.query(`select * from (${IDENTIFIED_TRAFFIC}
-      select count(distinct person_key)::int visitors_today,
-        count(distinct session_key)::int sessions_today,
-        count(*) filter(where event_name='page_view')::int page_views_today,
-        count(distinct session_key) filter(where platform='web')::int web_today,
-        count(distinct session_key) filter(where platform='ios')::int ios_today,
-        count(distinct session_key) filter(where platform='android')::int android_today,
-        count(distinct session_key) filter(where device_type='mobile')::int mobile_today,
-        count(distinct session_key) filter(where device_type='desktop')::int desktop_today
-      from identified_traffic where occurred_at >= ${today}
-    ) as daily_summary`, [startedAt ?? null]),
+    db.query(`select * from (${IDENTIFIED_TRAFFIC}, periods(period) as (values ('all'),('today')),
+      people as (
+        select period, person_key, count(distinct session_key) sessions,
+          count(*) filter(where event_name='page_view') views,
+          bool_or(platform='web') web, bool_or(platform='ios') ios, bool_or(platform='android') android,
+          bool_or(device_type='mobile') mobile, bool_or(device_type='desktop') desktop
+        from periods join identified_traffic on period='all' or occurred_at >= ${today}
+        group by period, person_key
+      )
+      select p.period, count(person_key)::int visitors,
+        count(person_key) filter(where person_key like 'user:%')::int accounts,
+        count(person_key) filter(where person_key like 'visitor:%')::int guests,
+        count(person_key) filter(where sessions > 1)::int returning_visitors,
+        (select count(distinct e.session_key)::int from identified_traffic e where p.period='all' or e.occurred_at >= ${today}) sessions,
+        coalesce(sum(views),0)::int page_views,
+        count(person_key) filter(where web)::int web,
+        count(person_key) filter(where ios)::int ios,
+        count(person_key) filter(where android)::int android,
+        count(person_key) filter(where mobile)::int mobile,
+        count(person_key) filter(where desktop)::int desktop
+      from periods p left join people using(period) group by p.period
+    ) as period_summary`, [startedAt ?? null]),
     db.query(`select * from (${IDENTIFIED_TRAFFIC}, section_visits as (
       select person_key, occurred_at,
         '/' || split_part(trim(both '/' from regexp_replace(
@@ -87,27 +89,38 @@ export async function readOwnerTrafficAnalytics(startedAt?: string): Promise<Own
         count(*) filter(where occurred_at >= ${today})::int views_today
       from section_visits group by section_path
     ) as section_totals order by unique_visitors desc, path`, [startedAt ?? null]),
-    db.query(`select coalesce(nullif(referrer_host,''),'Direct') source,
-      count(distinct session_key)::int sessions from alpha_exchange.traffic_events
-      where occurred_at >= ${today} and occurred_at <= now()
-        and ($1::timestamptz is null or occurred_at >= $1::timestamptz)
-      group by 1 order by sessions desc, source limit 8`, [startedAt ?? null]),
+    db.query(`select * from (${IDENTIFIED_TRAFFIC}
+      select coalesce(nullif(referrer_host,''),'Direct') source,
+        count(distinct person_key)::int unique_visitors,
+        count(distinct session_key)::int sessions,
+        count(distinct person_key) filter(where occurred_at >= ${today})::int unique_today,
+        count(distinct session_key) filter(where occurred_at >= ${today})::int sessions_today
+      from identified_traffic group by 1
+    ) as source_totals order by unique_visitors desc, source`, [startedAt ?? null]),
   ]);
-  const s = summary.rows[0] ?? {};
+  const overview = (period: string) => {
+    const s = summary.rows.find(row => row.period === period) ?? {};
+    return { visitors: Number(s.visitors ?? 0), accounts: Number(s.accounts ?? 0),
+      guests: Number(s.guests ?? 0), returningVisitors: Number(s.returning_visitors ?? 0),
+      sessions: Number(s.sessions ?? 0), pageViews: Number(s.page_views ?? 0),
+      web: Number(s.web ?? 0), ios: Number(s.ios ?? 0), android: Number(s.android ?? 0),
+      mobile: Number(s.mobile ?? 0), desktop: Number(s.desktop ?? 0) };
+  };
+  const daily = overview('today');
   return {
-    visitorsToday: Number(s.visitors_today ?? 0),
-    sessionsToday: Number(s.sessions_today ?? 0),
-    pageViewsToday: Number(s.page_views_today ?? 0),
-    webToday: Number(s.web_today ?? 0),
-    iosToday: Number(s.ios_today ?? 0),
-    androidToday: Number(s.android_today ?? 0),
-    mobileToday: Number(s.mobile_today ?? 0),
-    desktopToday: Number(s.desktop_today ?? 0),
+    visitorsToday: daily.visitors, sessionsToday: daily.sessions, pageViewsToday: daily.pageViews,
+    webToday: daily.web, iosToday: daily.ios, androidToday: daily.android,
+    mobileToday: daily.mobile, desktopToday: daily.desktop,
+    periods: { all: overview('all'), today: daily },
     topPages: sections.rows.filter((r) => Number(r.views_today) > 0)
       .map((r) => ({ path: String(r.path), uniqueVisitors: Number(r.unique_today), views: Number(r.views_today) }))
       .sort((a, b) => b.uniqueVisitors - a.uniqueVisitors || a.path.localeCompare(b.path)).slice(0, 8),
     allTimePages: sections.rows.slice(0, 100)
       .map((r) => ({ path: String(r.path), uniqueVisitors: Number(r.unique_visitors), views: Number(r.views) })),
-    sources: sources.rows.map((r) => ({ source: String(r.source), sessions: Number(r.sessions) })),
+    sources: sources.rows.filter(r => Number(r.unique_today) > 0)
+      .map(r => ({ source: String(r.source), uniqueVisitors: Number(r.unique_today), sessions: Number(r.sessions_today) }))
+      .sort((a,b) => b.uniqueVisitors - a.uniqueVisitors || a.source.localeCompare(b.source)).slice(0,8),
+    allTimeSources: sources.rows.slice(0,8)
+      .map(r => ({ source: String(r.source), uniqueVisitors: Number(r.unique_visitors), sessions: Number(r.sessions) })),
   };
 }

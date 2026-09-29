@@ -12,7 +12,11 @@ const report = () => ({
     iosToday: 0, androidToday: 0, mobileToday: 0, desktopToday: 12,
     topPages: [{ path: "/usdt-exchange", uniqueVisitors: 10, views: 30 }],
     allTimePages: [{ path: "/usdt-exchange", uniqueVisitors: 91, views: 140 }, { path: "/prop-firms", uniqueVisitors: 5, views: 15 }],
-    sources: [],
+    periods: {
+      all: { visitors: 91, accounts: 90, guests: 1, returningVisitors: 4, sessions: 100, pageViews: 155, web: 91, ios: 1, android: 0, mobile: 10, desktop: 90 },
+      today: { visitors: 10, accounts: 9, guests: 1, returningVisitors: 2, sessions: 12, pageViews: 30, web: 10, ios: 1, android: 0, mobile: 1, desktop: 10 },
+    },
+    sources: [], allTimeSources: [],
   } },
 });
 vi.mock("@/lib/owner-live-analytics-poller", () => ({ startOwnerAnalyticsPolling: ({ onChange }: { onChange: (state: LiveAnalyticsState) => void }) => {
@@ -42,6 +46,21 @@ describe("section visitors presentation", () => {
     expect(screen.getByRole("row", { name: "الشركات المموّلة 5 15" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "اليوم" }));
     expect(screen.getByRole("row", { name: "Alpha Exchange 10 30" })).toBeTruthy();
+  });
+
+  it("keeps sessions out of headline platform counts and applies one period to all cards", () => {
+    render(<OwnerLiveAnalyticsPanel locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: /Live User Analytics/ }));
+    const metricValue = (label: string) => screen.getByText(label, { selector: "dt" }).parentElement?.querySelector("dd")?.textContent;
+    expect(metricValue("Unique visitors")).toBe("91");
+    expect(metricValue("iOS app visitors")).toBe("1");
+    expect(metricValue("Web visitors")).toBe("91");
+    expect(screen.queryByText("iOS app sessions")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Today" }));
+    expect(metricValue("Unique visitors")).toBe("10");
+    expect(metricValue("Web visitors")).toBe("10");
+    expect(metricValue("iOS app visitors")).toBe("1");
+    expect(metricValue("App opens / browser tabs")).toBe("12");
   });
 
   it("does not present old visit totals or malformed counts as unique visitors", () => {

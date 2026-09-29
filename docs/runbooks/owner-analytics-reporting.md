@@ -18,8 +18,10 @@ counts once across devices. Ambiguous shared-browser guest visits remain guests.
 Cleared browser storage and guests on different devices cannot reliably be
 deduplicated. Counts cover the observed tracking history, not earlier activity.
 
-Deduplication happens in the reporting query. Only aggregate counts reach the
-owner endpoint. Old responses without explicit unique counts and a reporting
+Deduplication happens in the reporting query. Only aggregate counts reach the live summary endpoint. A separate owner-guarded
+`/api/admin/visitor-activity` endpoint provides the explicitly requested private
+visitor directory and timeline. It selects only names, canonical AT IDs, page
+visits and audit action names, never raw account or audit payloads. Old responses without explicit unique counts and a reporting
 start fail validation instead of being mislabeled as the new statistics.
 
 ## Owner-requested fresh start
@@ -83,3 +85,35 @@ Authorized read-only inspection confirmed saved traffic records, the expected ha
 Signed-in owner-screen acceptance and real installed iOS/Android attribution are not established by these local checks. The live panel displays the reporting timezone and source-specific unavailable/stale indicators. Production database errors propagate rather than return successful zero data; missing-database production configuration is rejected by `getRuntimePostgresPool`.
 
 Guest visitor IDs represent browser storage, not verified people; known accounts are deduplicated as described above. Presence history and traffic collection began at different times; seven/thirty-day labels do not prove a full period of collection. A zero native count is not evidence that installed-app attribution has passed.
+
+
+## September 29: consistent people counts and private journeys
+
+The single Today / Since the new start filter now controls every traffic summary,
+platform/device counter, section, referrer and visitor directory. All headline
+platform/device/referrer values count distinct resolved people, not session keys.
+The same account appearing in web and iOS contributes one person to each group
+and one to the overall total. Platform totals overlap and must not be summed.
+Accounts and guest browsers are shown separately. Session/open counts and repeat
+page visits remain available in an explicit repeat-activity disclosure.
+Returning visitors means people with more than one recorded session in that period.
+The existing fresh-start boundary is retained; deployment performs no new reset.
+
+People & activity loads only when expanded. The directory shows one record per
+resolved identity with owner-only name + AT ID, platforms, page/visit counts and
+last visit. The timeline shows page visits and existing audit actions by that
+account (actor_user_id, never target_user_id). It is not a recording of every tap,
+chat message, input or failed request. Guest attribution has the same limits as
+the summary. Deleted or unlinked names are not invented.
+
+Directory and timeline reads use 25/50-row pages with timestamp + stable-key
+cursors, preserving database microseconds across page boundaries. All reads are
+parameterized, bounded by the reporting start and selected period, and protected
+by requireApiOwner with private/no-store responses. Optional reporting errors
+remain separate from trade controls; no schema, authentication or trade mutations
+are introduced.
+
+Regression coverage includes one iOS account reopened nine times staying at one
+visitor, period alignment across midnight, shared browsers, source deduplication,
+owner-only fields, actor/target separation, microsecond pagination, denied access,
+malformed filters and database failure handling.

@@ -114,7 +114,7 @@ describe("explicit analytics fresh start", () => {
     expect(result.traffic.data?.visitorsToday).toBe(1);
     expect(result.traffic.data?.pageViewsToday).toBe(1);
     expect(result.traffic.data?.allTimePages).toEqual([{ path: "/usdt-exchange", uniqueVisitors: 1, views: 1 }]);
-    expect(result.traffic.data?.sources).toEqual([{ source: "Direct", sessions: 1 }]);
+    expect(result.traffic.data?.sources).toEqual([{ source: "Direct", sessions: 1, uniqueVisitors: 1 }]);
   });
 
   it("does not expose reporting-period storage to public clients", async () => {

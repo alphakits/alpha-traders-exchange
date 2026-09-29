@@ -52,7 +52,7 @@ describe("unique section visitors using the actual PostgreSQL queries", () => {
     expect(result.visitorsToday).toBe(1);
     expect(result.topPages[0]).toEqual({ path: "/usdt-exchange", uniqueVisitors: 1, views: 4 });
     expect(result.sessionsToday).toBe(4);
-    expect([result.webToday, result.iosToday, result.androidToday]).toEqual([2, 1, 1]);
+    expect([result.webToday, result.iosToday, result.androidToday]).toEqual([1, 1, 1]);
   });
 
   it("counts returning guests once using their saved browser identity", async () => {
@@ -127,5 +127,31 @@ describe("unique section visitors using the actual PostgreSQL queries", () => {
     await visit();
     const report = JSON.stringify(await readOwnerTrafficAnalytics());
     for (const secret of ["account-a", "browser-a", "tab-a", "person_key", "visitor_key", "user_id"]) expect(report).not.toContain(secret);
+  });
+});
+
+
+describe("consistent unique people across every summary", () => {
+  it("keeps one iOS person after seven opens, then eight and nine", async () => {
+    for (let index=0; index<9; index++) {
+      await visit({ platform: "ios", deviceType: "mobile", sessionKey: `open-${index}` });
+      const report = await readOwnerTrafficAnalytics();
+      expect(report.periods.all.visitors).toBe(1);
+      expect(report.periods.all.ios).toBe(1);
+      expect(report.periods.all.mobile).toBe(1);
+      expect(report.periods.today.ios).toBe(1);
+      expect(report.periods.all.sessions).toBe(index+1);
+      expect(report.allTimeSources[0].uniqueVisitors).toBe(1);
+    }
+  });
+  it("uses the same period and guest/account split across summaries and sources", async () => {
+    await visit();
+    await state.db.exec("update alpha_exchange.traffic_events set occurred_at=date_trunc('day',now(),'Asia/Jerusalem')-interval '1 second'");
+    await visit({ userId: null, visitorKey: "guest", sessionKey: "guest-open", platform: "ios", deviceType: "mobile" });
+    const report = await readOwnerTrafficAnalytics();
+    expect(report.periods.all).toMatchObject({ visitors: 2, accounts: 1, guests: 1, web: 1, ios: 1 });
+    expect(report.periods.today).toMatchObject({ visitors: 1, accounts: 0, guests: 1, web: 0, ios: 1 });
+    expect(report.allTimeSources[0].uniqueVisitors).toBe(2);
+    expect(report.sources[0].uniqueVisitors).toBe(1);
   });
 });

@@ -5,6 +5,7 @@ import {
   displayAnalyticsCount, initialLiveAnalyticsState, LIVE_ANALYTICS_TIME_ZONE,
   sourceDisplay, type LiveAnalyticsState,
 } from "@/lib/owner-live-analytics";
+import { OwnerVisitorActivity } from "@/components/admin/owner-visitor-activity";
 import { startOwnerAnalyticsPolling } from "@/lib/owner-live-analytics-poller";
 
 export function OwnerLiveAnalyticsPanel({ locale }: { locale: "ar" | "en" }) {
@@ -43,6 +44,8 @@ export function OwnerLiveAnalyticsPanel({ locale }: { locale: "ar" | "en" }) {
   const presence = sourceDisplay(state.snapshot?.presence, state.failed, now);
   const traffic = sourceDisplay(state.snapshot?.traffic, state.failed, now);
   const sectionPages = sectionPeriod === "today" ? traffic.data?.topPages : traffic.data?.allTimePages;
+  const totals = traffic.data?.periods[sectionPeriod];
+  const sources = sectionPeriod === "today" ? traffic.data?.sources : traffic.data?.allTimeSources;
   const sectionLabel = (path: string) => ({
     "/": t("Home", "الرئيسية"),
     "/usdt-exchange": "Alpha Exchange",
@@ -108,28 +111,41 @@ export function OwnerLiveAnalyticsPanel({ locale }: { locale: "ar" | "en" }) {
                 </dl>
               </div>
               <div className="space-y-3">
-                <h2 className="font-semibold text-white">{t("Recorded traffic today", "الزيارات المسجلة اليوم")}</h2>
+                <h2 className="font-semibold text-white">{t("Visitors without duplicates", "الزوار بدون تكرار")}</h2>
                 <p className="text-xs text-[#9CA3AF]">{statusLabel(traffic.status)} · {t("Last successful read", "آخر قراءة ناجحة")}: {readTime(traffic.asOf)}</p>
+                <div className="flex flex-wrap gap-2" role="group" aria-label={t("Reporting period", "فترة الإحصاءات")}>
+                  {(["all", "today"] as const).map(period => <button key={period} type="button" aria-pressed={sectionPeriod === period}
+                    onClick={() => setSectionPeriod(period)} className={`min-h-11 rounded-lg border px-3 py-2 text-sm ${sectionPeriod === period ? "border-[#D4AF37] bg-[#D4AF37]/10 text-[#F4D978]" : "border-white/20 text-[#D1D5DB]"}`}>
+                    {period === "all" ? t("Since the new start", "من البداية الجديدة") : t("Today", "اليوم")}
+                  </button>)}
+                </div>
+                <p className="text-sm leading-6 text-[#D1D5DB]">{t("Every visitor counts once in this period. Reopening the app does not add another person. This filter applies to all traffic cards, sections, referrers and people below.", "كل زائر يُحسب مرة واحدة خلال الفترة. إعادة فتح التطبيق لا تضيف شخصًا جديدًا. الفترة المختارة تشمل كل عدادات الزيارات والأقسام والمصادر والأشخاص أدناه.")}</p>
                 <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                  {metric(t("Unique visitors", "الزوار بدون تكرار"), traffic.data?.visitorsToday)}
-                  {metric(t("Tab sessions", "جلسات علامات التبويب"), traffic.data?.sessionsToday)}
-                  {metric(t("Total page visits (includes repeats)", "إجمالي زيارات الصفحات (يشمل التكرار)"), traffic.data?.pageViewsToday)}
-                  {metric(t("Web sessions", "جلسات الموقع"), traffic.data?.webToday)}
-                  {metric(t("iOS app sessions", "جلسات تطبيق iOS"), traffic.data?.iosToday)}
-                  {metric(t("Android app sessions", "جلسات تطبيق Android"), traffic.data?.androidToday)}
-                  {metric(t("Mobile sessions", "جلسات الهاتف"), traffic.data?.mobileToday)}
-                  {metric(t("Desktop sessions", "جلسات الحاسوب"), traffic.data?.desktopToday)}
+                  {metric(t("Unique visitors", "الزوار بدون تكرار"), totals?.visitors)}
+                  {metric(t("Signed-in accounts", "حسابات مسجّلة"), totals?.accounts)}
+                  {metric(t("Guest browsers", "متصفحات الضيوف"), totals?.guests)}
+                  {metric(t("Returning visitors", "زوار عادوا مجددًا"), totals?.returningVisitors)}
                 </dl>
+                <h3 className="text-sm font-semibold text-white">{t("People by platform & device", "الأشخاص حسب المنصة والجهاز")}</h3>
+                <dl className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                  {metric(t("Web visitors", "زوار الموقع"), totals?.web)}
+                  {metric(t("iOS app visitors", "زوار تطبيق iOS"), totals?.ios)}
+                  {metric(t("Android app visitors", "زوار تطبيق Android"), totals?.android)}
+                  {metric(t("Mobile visitors", "زوار الهاتف"), totals?.mobile)}
+                  {metric(t("Desktop visitors", "زوار الحاسوب"), totals?.desktop)}
+                </dl>
+                <p className="text-xs leading-5 text-[#9CA3AF]">{t("A person using both the website and app appears once in each platform, and once in the overall total. Platform counts should not be added together.", "الشخص الذي يستخدم الموقع والتطبيق يظهر مرة في كل منصة، ومرة واحدة في الإجمالي. لا تُجمع عدادات المنصات مع بعضها.")}</p>
+                <details className="rounded-xl border border-white/10 p-4">
+                  <summary className="min-h-11 cursor-pointer text-sm text-[#D1D5DB]">{t("Repeat activity · opens and page visits", "النشاط المتكرر · مرات الفتح وزيارات الصفحات")}</summary>
+                  <dl className="mt-3 grid grid-cols-2 gap-3">
+                    {metric(t("App opens / browser tabs", "مرات فتح التطبيق / تبويبات المتصفح"), totals?.sessions)}
+                    {metric(t("Total page visits (includes repeats)", "إجمالي زيارات الصفحات (يشمل التكرار)"), totals?.pageViews)}
+                  </dl>
+                  <p className="mt-2 text-xs text-[#9CA3AF]">{t("These measure repeat activity. They are not additional people. Returning visitors have more than one recorded open / tab.", "هذه أرقام الحركة المتكررة ولا تعني أشخاصًا إضافيين. الزائر العائد لديه أكثر من مرة فتح أو تبويب مسجّل.")}</p>
+                </details>
                 <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                   <div className="min-w-0 rounded-xl border border-white/10 p-4">
                     <h3 className="font-semibold text-white">{t("Unique visitors by section", "زوار كل قسم بدون تكرار")}</h3>
-                    <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={t("Section reporting period", "فترة إحصاءات الأقسام")}>
-                      {(["all", "today"] as const).map((period) => <button key={period} type="button"
-                        aria-pressed={sectionPeriod === period} onClick={() => setSectionPeriod(period)}
-                        className={`min-h-11 rounded-lg border px-3 py-2 text-sm ${sectionPeriod === period ? "border-[#D4AF37] bg-[#D4AF37]/10 text-[#F4D978]" : "border-white/20 text-[#D1D5DB]"}`}>
-                        {period === "all" ? t("Since the new start", "من البداية الجديدة") : t("Today", "اليوم")}
-                      </button>)}
-                    </div>
                     <p className="mt-2 text-xs leading-5 text-[#9CA3AF]">{sectionPeriod === "all"
                       ? t("Each person counts once per section since the new start. Returning does not add another person.", "يُحسب كل شخص مرة واحدة لكل قسم من البداية الجديدة. الرجوع للقسم لا يضيف شخصًا جديدًا.")
                       : t("Each person counts once per section today. Repeat visits and language changes do not add another person.", "يُحسب كل شخص مرة واحدة لكل قسم اليوم. تكرار الزيارة وتغيير اللغة لا يضيفان شخصًا جديدًا.")}</p>
@@ -150,14 +166,15 @@ export function OwnerLiveAnalyticsPanel({ locale }: { locale: "ar" | "en" }) {
                       : <p className="mt-2 text-sm text-[#9CA3AF]">{statusLabel(traffic.status)}</p>}
                   </div>
                   <div className="min-w-0 rounded-xl border border-white/10 p-4">
-                    <h3 className="font-semibold text-white">{t("Recorded referrers · tab sessions", "مصادر الإحالة المسجلة · جلسات علامات التبويب")}</h3>
-                    {traffic.data ? traffic.data.sources.length ? <ul className="mt-3 space-y-2">{traffic.data.sources.map((row, index) =>
-                      <li key={`${index}:${row.source}`} className="flex min-w-0 justify-between gap-3 text-sm text-[#D1D5DB]"><span className="min-w-0 break-all">{row.source === "Direct" ? t("Direct / referrer not provided", "مباشر / مصدر الإحالة غير متاح") : row.source}</span><span className="shrink-0" dir="ltr">{displayAnalyticsCount(row.sessions)}</span></li>
-                    )}</ul> : <p className="mt-2 text-sm text-[#9CA3AF]">{t("No referrers recorded today.", "لم تُسجّل مصادر إحالة اليوم.")}</p>
+                    <h3 className="font-semibold text-white">{t("Referrers · unique visitors", "مصادر الزيارات · زوار بدون تكرار")}</h3>
+                    {traffic.data ? sources?.length ? <ul className="mt-3 space-y-2">{sources.map((row, index) =>
+                      <li key={`${index}:${row.source}`} className="flex min-w-0 justify-between gap-3 text-sm text-[#D1D5DB]"><span className="min-w-0 break-all">{row.source === "Direct" ? t("Direct / referrer not provided", "مباشر / مصدر الإحالة غير متاح") : row.source}</span><span className="shrink-0" dir="ltr">{displayAnalyticsCount(row.uniqueVisitors)}</span></li>
+                    )}</ul> : <p className="mt-2 text-sm text-[#9CA3AF]">{t("No referrers recorded in this period.", "لم تُسجّل مصادر إحالة خلال هذه الفترة.")}</p>
                       : <p className="mt-2 text-sm text-[#9CA3AF]">{statusLabel(traffic.status)}</p>}
                   </div>
                 </div>
               </div>
+              <OwnerVisitorActivity key={sectionPeriod} period={sectionPeriod} locale={locale} revision={traffic.asOf} />
               <p className="text-xs leading-6 text-[#9CA3AF]">{t(
                 "Unique visitors use the signed-in account across devices, or the saved browser identity for guests. Guest visits are linked only when that browser is associated with one account in the new period. Shared browsers, cleared storage and guests on different devices can limit deduplication. Arabic and English pages belong to the same section. Total visits include repeats; sessions count browser tabs. Daily, 7-day and 30-day counts include activity since the new start only. Privacy settings and blocked tracking can reduce coverage. Referrer groups can overlap; platform labels do not prove device testing.",
                 "يعتمد عدّ الزوار بدون تكرار على الحساب المسجّل عبر الأجهزة، أو هوية المتصفح المحفوظة للضيف. تُربط زيارات الضيف بالحساب فقط عندما يرتبط المتصفح بحساب واحد خلال الفترة الجديدة. المتصفحات المشتركة ومسح التخزين وزيارة الضيف من أجهزة مختلفة قد تحدّ من منع التكرار. الصفحات العربية والإنجليزية تتبع القسم نفسه. إجمالي الزيارات يشمل التكرار؛ والجلسات تحسب علامات التبويب. عدادات اليوم و7 و30 يوم تشمل النشاط من البداية الجديدة فقط. إعدادات الخصوصية وحظر التتبع قد تقللان التغطية، وقد تتداخل مصادر الإحالة؛ وتصنيف المنصة ليس إثباتًا لاختبار الجهاز.",

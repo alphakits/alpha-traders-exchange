@@ -11,6 +11,19 @@ export type PresenceCounts = {
   activeLast7Days: number;
   activeLast30Days: number;
 };
+export type TrafficOverview = {
+  visitors: number;
+  accounts: number;
+  guests: number;
+  returningVisitors: number;
+  sessions: number;
+  pageViews: number;
+  web: number;
+  ios: number;
+  android: number;
+  mobile: number;
+  desktop: number;
+};
 export type TrafficCounts = {
   visitorsToday: number;
   sessionsToday: number;
@@ -20,9 +33,11 @@ export type TrafficCounts = {
   androidToday: number;
   mobileToday: number;
   desktopToday: number;
+  periods: { all: TrafficOverview; today: TrafficOverview };
   topPages: Array<{ path: string; uniqueVisitors: number; views: number }>;
   allTimePages: Array<{ path: string; uniqueVisitors: number; views: number }>;
-  sources: Array<{ source: string; sessions: number }>;
+  sources: Array<{ source: string; sessions: number; uniqueVisitors: number }>;
+  allTimeSources: Array<{ source: string; sessions: number; uniqueVisitors: number }>;
 };
 export type AnalyticsSource<T> =
   | { status: "ready"; asOf: string; data: T }
@@ -56,13 +71,20 @@ function validTraffic(value: unknown): value is TrafficCounts {
   const validPage = (row: unknown) => object(row) && typeof row.path === "string"
     && row.path.length <= 240 && count(row.uniqueVisitors) && count(row.views)
     && (row.uniqueVisitors as number) <= (row.views as number);
+  const overviewKeys = ["visitors", "accounts", "guests", "returningVisitors", "sessions", "pageViews", "web", "ios", "android", "mobile", "desktop"];
+  const validOverview = (row: unknown) => object(row) && overviewKeys.every(key => count(row[key]))
+    && Number(row.accounts) + Number(row.guests) === row.visitors
+    && ["returningVisitors", "web", "ios", "android", "mobile", "desktop"].every(key => Number(row[key]) <= Number(row.visitors));
+  const validSources = (rows: unknown) => Array.isArray(rows) && rows.length <= 8
+    && rows.every(row => object(row) && typeof row.source === "string" && row.source.length <= 180
+      && count(row.sessions) && count(row.uniqueVisitors));
   return object(value) && trafficKeys.every((key) => count(value[key]))
+    && object(value.periods) && validOverview(value.periods.all) && validOverview(value.periods.today)
     && Array.isArray(value.topPages) && value.topPages.length <= 8
     && value.topPages.every(validPage)
     && Array.isArray(value.allTimePages) && value.allTimePages.length <= 100
     && value.allTimePages.every(validPage)
-    && Array.isArray(value.sources) && value.sources.length <= 8
-    && value.sources.every((row) => object(row) && typeof row.source === "string" && row.source.length <= 180 && count(row.sessions));
+    && validSources(value.sources) && validSources(value.allTimeSources);
 }
 function source<T>(value: unknown, valid: (input: unknown) => input is T, now: number): AnalyticsSource<T> {
   if (object(value) && value.status === "ready" && typeof value.asOf === "string"
