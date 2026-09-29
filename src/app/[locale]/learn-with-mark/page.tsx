@@ -172,7 +172,7 @@ export default async function LearnWithMarkPage({ params }: { params: Promise<{ 
           </section>
         </div>
       </details>
-      <LearningShareActions locale={language} />
+      <LearningShareActions locale={language} referralReward={intakeOpen} />
       <p className="text-sm leading-7 text-[#D1D5DB]">{t("Also interested in buying or selling USDT for Israeli shekels?", "مهتم أيضًا بشراء أو بيع USDT مقابل الشيكل؟")} <Link href="/usdt-exchange" className="text-[#E5CA77] underline underline-offset-4">{t("Explore Alpha Exchange", "تعرّف على Alpha Exchange")}</Link></p>
     </div>
   </section>;
