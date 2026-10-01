@@ -19,7 +19,7 @@ export function BuyerContactPrompt({ locale }: { locale: "en" | "ar" }) {
   const [savedFor, setSavedFor] = useState<string | null>(null);
   const isAr = locale === "ar";
   // Essential account/legal support remains accessible while a contact is missing.
-  const supportPath = /\/(account-deletion|support|help-center|privacy-policy|terms)(?:\/|$)/.test(pathname);
+  const supportPath = /\/(verify-account|verify-email|account-deletion|support|help-center|privacy-policy|terms)(?:\/|$)/.test(pathname);
   const required = !supportPath && needsBuyerContact(session?.user) && savedFor !== session?.user?.id;
 
   useEffect(() => {

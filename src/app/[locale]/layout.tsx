@@ -23,6 +23,7 @@ import { NativeAppBridge } from "@/components/mobile/native-app-bridge";
 import { SessionUnavailable } from "@/components/auth/session-unavailable";
 import { logEvent } from "@/lib/structured-logging";
 import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { marketplacePhoneVerificationDestination } from "@/lib/phone-verification";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -85,10 +86,12 @@ export default async function LocaleLayout({
     return <SessionUnavailable locale={appLocale} />;
   }
   const sessionUser = sessionResult.user;
+  const pagePath = (await headers()).get(APP_PAGE_PATH_HEADER) ?? "";
   if (!sessionUser) {
-    const pagePath = (await headers()).get(APP_PAGE_PATH_HEADER) ?? "";
     if (isProtectedPage(pagePath)) redirect(getSignedOutPageDestination(pagePath));
   }
+  const phoneVerificationDestination = marketplacePhoneVerificationDestination(sessionUser, pagePath, appLocale);
+  if (phoneVerificationDestination) redirect(phoneVerificationDestination);
 
   return (
     <NextIntlClientProvider messages={messages}>

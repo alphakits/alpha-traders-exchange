@@ -19,9 +19,10 @@ export async function POST(request: NextRequest) {
   }
   const rate = await checkSharedRateLimit({
     headers: request.headers,
-    key: `auth:buyer-otp-send:${user.id}`,
+    key: "phone-otp-send",
+    identifier: user.id,
     maxRequests: 5,
-    windowMs: 24 * 60 * 60 * 1000,
+    windowMs: 60 * 60 * 1000,
   });
   if (!rate.allowed) {
     logEvent("warn", {

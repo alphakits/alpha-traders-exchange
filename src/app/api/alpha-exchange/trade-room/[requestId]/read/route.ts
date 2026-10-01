@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getTradeRoomData } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ re
   if (!hasTrustedSameOrigin(request)) return NextResponse.json({ error: "Invalid origin." }, { status: 403, headers });
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const verification = requireEmailVerificationForTrading(user);
+  const verification = requireMarketplaceVerificationForTrading(user);
   if (verification) return verification;
   let parsed: ReturnType<typeof bodySchema.safeParse>;
   try {

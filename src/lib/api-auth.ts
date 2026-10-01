@@ -4,7 +4,7 @@ import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE
 import { hasRole } from "@/lib/roles";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 
 export async function requireApiUser() {
@@ -66,9 +66,8 @@ export function hasPhoneVerification(user: { email?: string; verifiedPhone?: str
 }
 
 /**
- * Buyer-facing marketplace actions require a verified email address. Phone
- * verification is deliberately not part of this rule: it remains an optional
- * account feature and any seller-only phone policy is enforced separately.
+ * Email verification remains independently required. Marketplace routes use
+ * requireMarketplaceVerificationForTrading to add the reviewed SMS rollout.
  *
  * This gate uses the server-resolved session user only. It has no cookie,
  * client-state, or environment-flag bypass.
@@ -94,17 +93,12 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
 /**
  * Returns null (bypass) when:
  *   - User is admin or owner (always bypass)
- *   - phone verification is not explicitly enabled (the default email-only mode)
+ *   - mandatory phone verification is not explicitly enabled
  *   - User has an already-verified phone number
  * Otherwise returns a 403 response requiring phone verification.
  */
 export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
-  // Admin and owner always bypass phone verification.
-  const isAdminOrOwner = user.role === "admin" || user.role === "owner" || (user.roles ?? []).includes("admin") || (user.roles ?? []).includes("owner");
-  if (isAdminOrOwner) return null;
-  // Email-only mode never requires a phone. Phone enforcement is opt-in.
-  if (!isMarketplacePhoneVerificationEnabled()) return null;
-  if (hasPhoneVerification(user)) return null;
+  if (!needsMarketplacePhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",
     actorUserId: user.id,
@@ -119,6 +113,13 @@ export function requirePhoneVerificationForTrading(user: { id: string; role: str
     },
     { status: 403 },
   );
+}
+
+export function requireMarketplaceVerificationForTrading(user: {
+  id: string; role: string; roles?: string[]; email?: string;
+  emailVerified?: boolean; verifiedPhone?: string; phoneVerifiedAt?: string;
+}) {
+  return requireEmailVerificationForTrading(user) ?? requirePhoneVerificationForTrading(user);
 }
 
 export async function requireApiAdmin() {
@@ -177,6 +178,8 @@ export async function requireApiBuyer() {
       unauthorized: NextResponse.json({ error: "Buyer verification required." }, { status: 403 }),
     };
   }
+  const verification = requirePhoneVerificationForTrading(user);
+  if (verification) return { user: null, unauthorized: verification };
   return { user, unauthorized: null };
 }
 
@@ -215,6 +218,8 @@ export async function requireApiSeller() {
       unauthorized: NextResponse.json({ error: "Approved seller access required." }, { status: 403 }),
     };
   }
+  const verification = requirePhoneVerificationForTrading(user);
+  if (verification) return { user: null, unauthorized: verification };
   return { user, unauthorized: null };
 }
 
@@ -222,7 +227,7 @@ export async function requireApiSellerWorkspaceActor() {
   const result = await requireApiUser();
   if (!result.user) return result;
   const user = result.user;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) {
     return { user: null, unauthorized: emailVerificationRequired };
   }

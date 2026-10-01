@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { activateBuyerOnboardingWithoutPhone } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   const rate = await checkSharedRateLimit({ headers: request.headers, key: "auth:onboarding-buyer-activate", maxRequests: 10, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);

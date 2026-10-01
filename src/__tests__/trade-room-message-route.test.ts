@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   postTradeRoomMessage: vi.fn(),
   prepareTradeRoomConversationEmail: vi.fn(),
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -19,7 +19,7 @@ vi.mock("next/server", async (importOriginal) => {
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -84,7 +84,7 @@ describe("Trade Room message email scheduling", () => {
     mocks.after.mockImplementation(() => undefined);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
   });
 
   it("schedules only the first recipient/trade message email in the server-owned two-minute burst", async () => {
@@ -191,7 +191,7 @@ describe("Trade Room message email scheduling", () => {
   });
 
   it("denies an unverified email before reading or sending a Trade Room message", async () => {
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
     const response = await POST(createMessageRequest(), routeContext());
     expect(response.status).toBe(403);
     expect(mocks.postTradeRoomMessage).not.toHaveBeenCalled();

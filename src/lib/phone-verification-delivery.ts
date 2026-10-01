@@ -2,7 +2,7 @@ import "server-only";
 
 import {
   getBilingualOtpSms,
-  isTwilioSendEnabled,
+  isTwilioOtpSendEnabled,
   normalizeE164,
   sendTwilioMessageWithRetry,
 } from "@/lib/notification-platform";
@@ -41,7 +41,7 @@ export function getPhoneVerificationProvider(
   const configured = env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase();
   if (!configured || configured === "disabled") return "disabled";
   if (configured === "whatsapp") return "whatsapp";
-  if (configured === "twilio") return isTwilioSendEnabled(env) ? "twilio" : "disabled";
+  if (configured === "twilio") return isTwilioOtpSendEnabled(env) ? "twilio" : "disabled";
   return null;
 }
 
@@ -117,6 +117,10 @@ export async function sendPhoneVerificationCode(input: {
   const result = await sendTwilioMessageWithRetry({
     to: phone,
     body: getBilingualOtpSms(input.code),
+    purpose: "verification",
+    // A timeout may happen after Twilio accepted the message. Resend only on
+    // the user's explicit request, avoiding duplicate SMS charges and codes.
+    maxAttempts: 1,
   });
   if (result.ok) return { ok: true, provider, channel: "sms" };
   return {

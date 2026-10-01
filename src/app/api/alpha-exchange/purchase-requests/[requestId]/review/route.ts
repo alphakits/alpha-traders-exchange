@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitBuyerTradeReview, submitSellerReviewResponse, submitSellerBuyerReview } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -23,14 +23,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     return unauthorized;
   }
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) {
     logEvent("warn", {
       event: "trade_review_submission",
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "denied",
-      reason: "email_verification_required",
+      reason: "marketplace_verification_required",
     });
     return emailVerificationRequired;
   }

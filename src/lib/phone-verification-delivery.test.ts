@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/notification-platform", () => ({
   getBilingualOtpSms: mocks.getBilingualOtpSms,
-  isTwilioSendEnabled: (env: NodeJS.ProcessEnv = process.env) => (
+  isTwilioOtpSendEnabled: (env: NodeJS.ProcessEnv = process.env) => (
+    env.ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED?.trim().toLowerCase() === "true"
+    ||
     env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED?.trim().toLowerCase() === "true"
   ),
   normalizeE164: (phone: string) => /^\+[1-9]\d{7,14}$/.test(phone) ? phone : null,
@@ -80,6 +82,8 @@ describe("phone verification delivery selection", () => {
     expect(mocks.sendTwilioMessageWithRetry).toHaveBeenCalledWith({
       to: "+15557654321",
       body: "verification:482901",
+      purpose: "verification",
+      maxAttempts: 1,
     });
     expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).not.toHaveBeenCalled();
   });

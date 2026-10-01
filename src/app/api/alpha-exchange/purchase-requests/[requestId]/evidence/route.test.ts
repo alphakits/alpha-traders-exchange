@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   logEvent: vi.fn(),
   prepareTradeEventEmails: vi.fn(),
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   uploadTradeEvidence: vi.fn(),
 }));
 
@@ -20,7 +20,7 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getTradeEvidenceForRequest: mocks.getTradeEvidenceForRequest,
@@ -72,7 +72,7 @@ describe("trade evidence route privacy and post-commit reliability", () => {
       user: { id: "buyer-1", role: "buyer" },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.getTradeEvidenceForRequest.mockResolvedValue({ id: "request-1", status: "payment_sent" });
     mocks.uploadTradeEvidence.mockResolvedValue({
@@ -157,7 +157,7 @@ describe("trade evidence route privacy and post-commit reliability", () => {
     expect(unauthorized.status).toBe(401);
     expectPrivateNoStore(unauthorized);
 
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(
       NextResponse.json({ error: "Email verification required" }, { status: 403 }),
     );
     const unverified = await POST(evidenceRequest(), routeContext);

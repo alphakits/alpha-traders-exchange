@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   canPublishListings: vi.fn(),
   createMarketplaceListing: vi.fn(),
   getMarketplaceListings: vi.fn(),
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -53,7 +53,7 @@ function createRequest() {
 describe("listing create session boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.canPublishListings.mockReturnValue(true);
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.fetchUsdIlsMarketRate.mockResolvedValue("3.05");

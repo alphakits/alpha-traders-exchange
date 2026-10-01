@@ -16,7 +16,7 @@ import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "crypto";
 import { cache } from "react";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -6251,22 +6251,38 @@ function hashPhoneOtp(phone: string, code: string, salt: string) {
 
 export async function beginProfilePhoneVerification(input: { userId: string; phone: string }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
-  const phone = normalizeE164(input.phone);
+  const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
   if (!phone) throw new Error("Enter a valid international E.164 phone number.");
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  if (db.users.some((user) => user.id !== input.userId && user.verifiedPhone === phone)) {
-    throw new Error("This phone number is already linked to another account.");
-  }
-  const code = String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
+  const db = await readDbForSelectedTables(["users"]);
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const salt = randomBytes(16).toString("hex");
-  const now = nowIso();
-  db.users[index] = {
-    ...db.users[index], phoneOtpPhone: phone, phoneOtpSalt: salt, phoneOtpHash: hashPhoneOtp(phone, code, salt),
-    phoneOtpExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), phoneOtpAttempts: 0, updatedAt: now,
+  const issueCode = (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = snapshot.users[index];
+    if (snapshot.users.some(item => item.id !== user.id && item.verifiedPhone === phone)) {
+      throw new Error("This phone number is already linked to another account.");
+    }
+    const now = Date.now();
+    const requestedAt = Date.parse(user.phoneOtpRequestedAt ?? "");
+    if (Number.isFinite(requestedAt) && now - requestedAt < 60_000) {
+      throw new Error("Please wait 60 seconds before requesting another verification code.");
+    }
+    const today = formatIsraelCalendarDateKey(now);
+    const sendsToday = user.phoneOtpSendsDate === today ? Math.max(0, Number(user.phoneOtpSendsToday ?? 0)) : 0;
+    if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
+    snapshot.users[index] = {
+      ...user, phoneOtpPhone: phone, phoneOtpSalt: salt, phoneOtpHash: hashPhoneOtp(phone, code, salt),
+      phoneOtpExpiresAt: new Date(now + 10 * 60_000).toISOString(), phoneOtpAttempts: 0,
+      phoneOtpRequestedAt: new Date(now).toISOString(), phoneOtpSendsDate: today, phoneOtpSendsToday: sendsToday + 1,
+      updatedAt: new Date(now).toISOString(),
+    };
+    return snapshot;
   };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  issueCode(db);
+  // Recheck under the repository's transaction lock if another instance wrote
+  // first. The cooldown and daily counter apply across every OTP endpoint.
+  await writeDb(db, { selectedTables: ["users"], rebaseTables: ["users"], rebaseOnLatest: issueCode, cacheResult: false });
   return { phone, code };
 }
 
@@ -6274,30 +6290,41 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
   if (!phone || !/^\d{6}$/.test(input.code)) throw new Error("Invalid verification code.");
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const expiresAt = new Date(user.phoneOtpExpiresAt ?? 0).getTime();
-  const attempts = Number(user.phoneOtpAttempts ?? 0);
-  if (user.phoneOtpPhone !== phone || !user.phoneOtpHash || !user.phoneOtpSalt || !Number.isFinite(expiresAt) || expiresAt < Date.now() || attempts >= 5) {
-    throw new Error("Verification code expired or invalid. Request a new code.");
-  }
-  const expected = Buffer.from(user.phoneOtpHash, "hex");
-  const actual = Buffer.from(hashPhoneOtp(phone, input.code, user.phoneOtpSalt), "hex");
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    db.users[index] = { ...user, phoneOtpAttempts: attempts + 1, updatedAt: nowIso() };
-    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-    throw new Error("Invalid verification code.");
-  }
-  if (db.users.some((item) => item.id !== user.id && item.verifiedPhone === phone)) throw new Error("This phone number is already linked to another account.");
-  db.users[index] = {
-    ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(),
-    phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpAttempts: undefined,
-    updatedAt: nowIso(),
+  const db = await readDbForSelectedTables(["users"]);
+  let committedUser: AlphaExchangeUser | undefined;
+  let accepted = false;
+  const checkCode = (snapshot: AlphaExchangeDb) => {
+    accepted = false;
+    const index = snapshot.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = snapshot.users[index];
+    const expiresAt = Date.parse(user.phoneOtpExpiresAt ?? "");
+    const attempts = Math.max(0, Number(user.phoneOtpAttempts ?? 0));
+    if (user.phoneOtpPhone !== phone || !user.phoneOtpHash || !user.phoneOtpSalt || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || attempts >= 5) {
+      throw new Error("Verification code expired or invalid. Request a new code.");
+    }
+    const expected = Buffer.from(user.phoneOtpHash, "hex");
+    const actual = Buffer.from(hashPhoneOtp(phone, input.code, user.phoneOtpSalt), "hex");
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      snapshot.users[index] = { ...user, phoneOtpAttempts: attempts + 1, updatedAt: nowIso() };
+      return snapshot;
+    }
+    if (snapshot.users.some(item => item.id !== user.id && item.verifiedPhone === phone)) {
+      throw new Error("This phone number is already linked to another account.");
+    }
+    snapshot.users[index] = {
+      ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(), whatsappNumber: phone,
+      phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpAttempts: undefined,
+      updatedAt: nowIso(),
+    };
+    accepted = true;
+    committedUser = snapshot.users[index];
+    return snapshot;
   };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+  checkCode(db);
+  await writeDb(db, { selectedTables: ["users"], rebaseTables: ["users"], rebaseOnLatest: checkCode, cacheResult: false });
+  if (!accepted || !committedUser) throw new Error("Invalid verification code.");
+  return committedUser;
 }
 
 export async function grantStudentRole(userId: string) {
@@ -6928,13 +6955,24 @@ export async function updateUserSellerSettings(input: {
       throw new ProfileNameCooldownError(nextAllowedAt);
     }
     previousOnlineStatus = user.onlineStatus;
+    const nextContact = input.whatsappNumber !== undefined
+      ? normalizePrivateContact(input.whatsappNumber, requiresBuyerContact(user))
+      : user.whatsappNumber;
+    const verifiedPhoneChanged = input.whatsappNumber !== undefined
+      && Boolean(user.verifiedPhone)
+      && normalizeE164(nextContact) !== user.verifiedPhone;
     snapshot.users[index] = {
       ...user,
       fullName: nextFullName,
       profileNameChangedAt: nameChanged ? timestamp : user.profileNameChangedAt,
-      whatsappNumber: input.whatsappNumber !== undefined
-        ? normalizePrivateContact(input.whatsappNumber, requiresBuyerContact(user))
-        : user.whatsappNumber,
+      whatsappNumber: nextContact,
+      verifiedPhone: verifiedPhoneChanged ? undefined : user.verifiedPhone,
+      phoneVerifiedAt: verifiedPhoneChanged ? undefined : user.phoneVerifiedAt,
+      buyerVerificationStatus: verifiedPhoneChanged ? "not_started" : user.buyerVerificationStatus,
+      phoneOtpHash: verifiedPhoneChanged ? undefined : user.phoneOtpHash,
+      phoneOtpSalt: verifiedPhoneChanged ? undefined : user.phoneOtpSalt,
+      phoneOtpPhone: verifiedPhoneChanged ? undefined : user.phoneOtpPhone,
+      phoneOtpExpiresAt: verifiedPhoneChanged ? undefined : user.phoneOtpExpiresAt,
       preferredNetworks: input.preferredNetworks ?? user.preferredNetworks,
       profilePhotoUrl: input.profilePhotoUrl?.trim() ?? user.profilePhotoUrl,
       coverBannerUrl: input.coverBannerUrl?.trim() ?? user.coverBannerUrl,

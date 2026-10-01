@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTradeRoomBankDetails } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -9,7 +9,7 @@ type RouteContext = {
 export async function POST(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
 
   try {

@@ -64,6 +64,10 @@ export async function GET() {
       sameSite: "lax",
       path: "/",
     });
+  } else {
+    cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "", {
+      httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0,
+    });
   }
   const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({

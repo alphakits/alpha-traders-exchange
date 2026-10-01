@@ -83,6 +83,7 @@ export type TwilioSendResult =
 type TwilioSendInput = {
   to: string;
   body: string;
+  purpose?: "verification";
   statusCallback?: string;
   timeoutMs?: number;
 };
@@ -93,8 +94,13 @@ export function isTwilioSendEnabled(
   return env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED?.trim().toLowerCase() === "true";
 }
 
+export function isTwilioOtpSendEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return env.ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED?.trim().toLowerCase() === "true"
+    || isTwilioSendEnabled(env);
+}
+
 export async function sendTwilioMessage(input: TwilioSendInput): Promise<TwilioSendResult> {
-  if (!isTwilioSendEnabled()) {
+  if (!(input.purpose === "verification" ? isTwilioOtpSendEnabled() : isTwilioSendEnabled())) {
     return { ok: false, retryable: false, error: "Twilio SMS is disabled." };
   }
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -119,7 +125,7 @@ export async function sendTwilioMessage(input: TwilioSendInput): Promise<TwilioS
       signal: controller.signal,
     });
     const json = await response.json().catch(() => ({})) as { sid?: string; status?: number | string; code?: number | string };
-    if (!response.ok || !json.sid) {
+    if (!response.ok || !json.sid || ["failed", "undelivered", "canceled"].includes(String(json.status))) {
       const providerCode = json.code === undefined ? undefined : String(json.code);
       const providerStatus = json.status === undefined ? undefined : String(json.status);
       return {

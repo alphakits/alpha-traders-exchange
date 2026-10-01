@@ -3,6 +3,26 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runEnvValidation, validateEnv } from "@/lib/env-validation";
 
 describe("production environment safety validation", () => {
+  it("rejects a mandatory requirement without enabled phone verification", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
+    expect(validateEnv().errors.join("\n")).toContain("Mandatory phone verification requires ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true");
+  });
+
+  it("allows OTP-only Twilio delivery without enabling trade alert SMS", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "twilio");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "configured-sid");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "configured-token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    expect(validateEnv().errors.filter(error => /Twilio|TWILIO/.test(error))).toEqual([]);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();

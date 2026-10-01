@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => {
     postTradeRoomPoke: vi.fn(),
     prepareTradeRoomConversationEmail: vi.fn(),
     requireApiUser: vi.fn(),
-    requireEmailVerificationForTrading: vi.fn(),
+    requireMarketplaceVerificationForTrading: vi.fn(),
     TradeRoomPokeError: TestTradeRoomPokeError,
   };
 });
@@ -33,7 +33,7 @@ vi.mock("next/server", async (importOriginal) => {
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -72,7 +72,7 @@ describe("Trade Room Poke route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({ user: { id: "buyer-1", role: "buyer", emailVerified: true }, unauthorized: null });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.postTradeRoomPoke.mockResolvedValue({
       message: { id: "poke-message-1" },
       poke: { available: true, canPoke: false, cooldownUntil: "2026-08-22T10:05:00.000Z", cooldownRemainingSeconds: 300, counterpartRole: "seller" },
@@ -138,7 +138,7 @@ describe("Trade Room Poke route", () => {
   });
 
   it("denies an unverified email before accepting a Poke", async () => {
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
     const response = await POST(request(), context());
     expect(response.status).toBe(403);
     expect(mocks.postTradeRoomPoke).not.toHaveBeenCalled();

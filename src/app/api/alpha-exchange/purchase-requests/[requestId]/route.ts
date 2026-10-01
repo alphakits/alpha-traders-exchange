@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { updateTradeTerms, recalculateCardlessTradeAmount, sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
@@ -34,7 +34,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   if (!user) return unauthorized;
 
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (routeDebug) {
     console.log("[patch-diag] stage=email-verification", { diagId, emailBlocked: Boolean(emailVerificationRequired) });
   }

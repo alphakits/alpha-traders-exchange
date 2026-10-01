@@ -1,6 +1,7 @@
 import type { NextRequest, NextResponse } from "next/server";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { findUserById } from "@/lib/alpha-exchange-store";
+import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { mobileAuthService, type MobileAuthService } from "@/lib/mobile-auth";
 import {
   mobileClientVersionError,
@@ -64,6 +65,13 @@ export async function requireMobileApiUser(
         metadata.locale,
         user?.disabled ? 403 : 401,
       ),
+    };
+  }
+  if (/^\/api\/mobile\/v1\/(?:marketplace|trades|seller)(?:\/|$)/.test(request.nextUrl.pathname)
+    && needsMarketplacePhoneVerification(user)) {
+    return {
+      user: null, accessToken: null,
+      unauthorized: mobileError("PHONE_VERIFICATION_REQUIRED", requestId, metadata.locale, 403),
     };
   }
   return { user, accessToken, unauthorized: null };

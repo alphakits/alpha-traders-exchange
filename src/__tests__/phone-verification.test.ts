@@ -25,6 +25,7 @@ describe("marketplace phone verification flag", () => {
 
   it("requires phone verification only when the feature is explicitly enabled", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
 
     expect(isMarketplacePhoneVerificationEnabled()).toBe(true);
     expect(requirePhoneVerificationForTrading(buyer)?.status).toBe(403);
@@ -39,6 +40,7 @@ describe("marketplace phone verification flag", () => {
 
   it("allows the local test bypass without marking the phone verified", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION", "1");
 
     expect(requirePhoneVerificationForTrading(buyer)).toBeNull();
@@ -50,6 +52,7 @@ describe("marketplace phone verification flag", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION", "1");
     vi.stubEnv("PHOTO_VERIFICATION_BYPASS_EMAILS", "buyer@example.com");
 
