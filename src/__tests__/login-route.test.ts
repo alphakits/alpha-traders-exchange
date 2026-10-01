@@ -120,6 +120,21 @@ beforeEach(() => {
 
 describe("POST /api/auth/login", () => {
   it.each([
+    { error: { message: "private provider failure", status: 503 }, status: 503 },
+    { error: { message: "email rate limit exceeded", status: 429 }, status: 429 },
+  ])("distinguishes a provider failure from invalid credentials ($status)", async ({ error, status }) => {
+    supabaseAuthMocks.signInWithPassword.mockResolvedValue({ data: null, error });
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.test", password: "test-password" }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(status);
+    const payload = await response.json();
+    expect(payload.error).not.toContain("private provider");
+    expect(payload.error).not.toBe("Invalid credentials.");
+    expect(mockCreateUserSession).not.toHaveBeenCalled();
+  });
+  it.each([
     ["local", true], ["local", false], ["supabase", true], ["supabase", false],
   ] as const)("honors remember-me cookies for %s with rememberMe=%s", async (provider, rememberMe) => {
     if (provider === "local") {

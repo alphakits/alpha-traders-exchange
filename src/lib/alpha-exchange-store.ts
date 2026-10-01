@@ -7308,6 +7308,13 @@ export async function deleteSessionByToken(token: string) {
   syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
 }
 
+export async function deleteSessionsForUser(userId: string) {
+  const repository = await getAlphaExchangeRepository();
+  await repository.deleteAuthSessionsForUser(userId);
+  const cachedSessions = dbCache?.value.authSessions ?? [];
+  syncCachedAuthSessions(cachedSessions.filter((session) => session.userId !== userId));
+}
+
 export async function createPasswordResetToken(userId: string, rawToken: string, durationMinutes = 30) {
   const db = await readDb();
   const createdAt = new Date();

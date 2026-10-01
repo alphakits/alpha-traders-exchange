@@ -3,6 +3,7 @@ import { authenticateLocalUser } from "@/lib/auth";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import { isAuthProviderRateLimitError, isAuthProviderUnavailableError } from "@/lib/auth-provider-errors";
 
 export type MobileCredentialResult =
   | { status: "authenticated"; user: AlphaExchangeUser }
@@ -36,6 +37,7 @@ export async function authenticateMobileCredentials(
   const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    if (isAuthProviderRateLimitError(error) || isAuthProviderUnavailableError(error)) throw error;
     return error.message.toLowerCase().includes("email not confirmed")
       ? { status: "email_unverified" }
       : { status: "invalid" };

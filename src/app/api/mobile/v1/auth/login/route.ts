@@ -14,6 +14,7 @@ import {
 import { toMobileSessionUser } from "@/lib/mobile-session-user";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
+import { isAuthProviderRateLimitError } from "@/lib/auth-provider-errors";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -94,6 +95,9 @@ export async function POST(request: NextRequest) {
       tokens: issued.tokens,
     }, requestId);
   } catch (error) {
+    if (error instanceof Error && isAuthProviderRateLimitError(error)) {
+      return mobileError("RATE_LIMITED", requestId, locale, 429, { retryAfterSeconds: 60 });
+    }
     if (error instanceof MobileAccountDisabledError) {
       return mobileError("ACCOUNT_DISABLED", requestId, locale, 403);
     }

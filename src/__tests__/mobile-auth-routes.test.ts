@@ -116,6 +116,19 @@ afterEach(() => {
 });
 
 describe("mobile v1 authentication routes", () => {
+  it.each([
+    { providerStatus: 503, expectedStatus: 503, expectedCode: "SERVICE_UNAVAILABLE" },
+    { providerStatus: 429, expectedStatus: 429, expectedCode: "RATE_LIMITED" },
+  ])("reports a native provider failure safely ($providerStatus)", async ({ providerStatus, expectedStatus, expectedCode }) => {
+    mocks.authenticateMobileCredentials.mockRejectedValue(Object.assign(new Error("private provider failure"), { status: providerStatus }));
+    const response = await login(new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/auth/login", {
+      method: "POST", headers: headers(),
+      body: JSON.stringify({ email: user.email, password: "valid-password" }),
+    }));
+    expect(response.status).toBe(expectedStatus);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: expectedCode } });
+    expect(mocks.issueSession).not.toHaveBeenCalled();
+  });
   it("rejects login before credential work when native client headers are missing", async () => {
     const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/auth/login", {
       method: "POST",
