@@ -118,4 +118,17 @@ describe("RegisterForm localization", () => {
     await waitFor(() => expect(screen.getByText(/إذا كان البريد صالحًا للتسجيل/)).toBeTruthy());
     expect(screen.queryByText("Unexpected server success copy")).toBeNull();
   });
+
+  it.each(["en", "ar"] as const)("shows weak-password feedback and retains the registration fields in %s", async locale => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ code: "WEAK_PASSWORD" }),
+    }));
+    render(<RegisterForm locale={locale} />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(locale === "ar" ? "اختر كلمة مرور أقوى" : "Choose a stronger, unique password"));
+    expect((screen.getByLabelText(/البريد الإلكتروني|Email/) as HTMLInputElement).value).toBe("test@example.com");
+    expect(screen.queryByText(/If this email can be registered|إذا كان البريد صالحًا للتسجيل/)).toBeNull();
+  });
 });

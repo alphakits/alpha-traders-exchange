@@ -3889,6 +3889,23 @@ export class AlphaExchangeRepository {
     }
   }
 
+  async deleteAuthSessionsForUser(userId: string) {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      current.authSessions = current.authSessions.filter((session) => session.userId !== userId);
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(current, getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+      return;
+    }
+    try {
+      await pool.query("delete from alpha_exchange.sessions where user_id = $1", [userId]);
+    } finally {
+      syncFallbackAuthSessions((sessions) => sessions.filter((session) => session.userId !== userId));
+    }
+  }
+
   async readEvidenceContent(evidenceId: string) {
     const storageKey = resolveDurableEvidenceStorageKey(evidenceId);
     await this.ensureReady();

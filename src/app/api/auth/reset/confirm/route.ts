@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
+import { AUTH_WEAK_PASSWORD_COPY, isWeakPasswordError } from "@/lib/auth-provider-errors";
+import { deleteSessionsForUser, findUserByEmail, updateUserPassword } from "@/lib/alpha-exchange-store";
+import { mobileAuthService } from "@/lib/mobile-auth";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -13,6 +16,7 @@ export async function POST(request: NextRequest) {
   const clientIp = resolveClientIp(request.headers);
   try {
     const body = await request.json();
+    const locale = body?.locale === "ar" ? "ar" : "en";
     const tokenHash = String(body?.tokenHash ?? body?.token_hash ?? body?.token ?? "").trim();
     const tokenType = String(body?.type ?? "recovery").trim().toLowerCase();
     const accessTokenInput = String(body?.accessToken ?? body?.access_token ?? "").trim();
@@ -29,6 +33,9 @@ export async function POST(request: NextRequest) {
     }
     if (newPassword.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (newPassword.length > 256) {
+      return NextResponse.json({ error: "Password must not exceed 256 characters." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (newPassword !== confirmPassword) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
@@ -80,11 +87,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "This reset link is invalid or expired. Please request a new one." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const { error: sessionError } = await supabase.auth.setSession({
+    const { data: recoveryData, error: sessionError } = await supabase.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
     if (sessionError) {
+      return NextResponse.json({ error: "Unable to validate reset session. Please request a new reset link." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    const recoveryEmail = recoveryData?.user?.email;
+    if (!recoveryEmail) {
       return NextResponse.json({ error: "Unable to validate reset session. Please request a new reset link." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
@@ -92,12 +103,33 @@ export async function POST(request: NextRequest) {
       password: newPassword,
     });
     if (updateError) {
+      const weakPassword = isWeakPasswordError(updateError);
+      const samePassword = updateError.code === "same_password";
+      if (weakPassword || samePassword) {
+        // The one-use recovery link has already been exchanged. Keep the
+        // authenticated recovery session available to this form for a retry.
+        return NextResponse.json({
+          code: weakPassword ? "WEAK_PASSWORD" : "PASSWORD_UNCHANGED",
+          error: weakPassword ? AUTH_WEAK_PASSWORD_COPY[locale] : "Choose a different password from your current password.",
+          recoverySession: { accessToken, refreshToken },
+        }, { status: 422, headers: AUTH_RESPONSE_HEADERS });
+      }
       return NextResponse.json({ error: "Unable to update password. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
+    const localUser = await findUserByEmail(recoveryEmail);
+    if (localUser) {
+      // Older accounts may still carry a local password. Remove it after the
+      // provider password changes so the previous password cannot remain valid.
+      if (localUser.passwordHash) await updateUserPassword(localUser.id, "");
+      await Promise.all([
+        deleteSessionsForUser(localUser.id),
+        mobileAuthService.revokeAllUserSessions(localUser.id, "password_reset"),
+      ]);
+    }
     await supabase.auth.signOut();
     return NextResponse.json({ ok: true, message: "Your password has been updated successfully. Please sign in." }, { headers: AUTH_RESPONSE_HEADERS });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to reset password." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+  } catch {
+    return NextResponse.json({ error: "Unable to reset password. Please try again." }, { status: 503, headers: AUTH_RESPONSE_HEADERS });
   }
 }

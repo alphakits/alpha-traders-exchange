@@ -99,18 +99,18 @@ describe("auth register route", () => {
   });
 
   it.each([
-    { locale: "en" as const, message: "If this email can be registered, you will receive a confirmation message. If you already have an account, sign in or reset your password." },
-    { locale: "ar" as const, message: "إذا كان البريد صالحًا للتسجيل، فستصلك رسالة تأكيد. إذا كان لديك حساب بالفعل، فسجّل الدخول أو أعد تعيين كلمة المرور." },
+    { locale: "en" as const, message: "Registration failed. Please try again." },
+    { locale: "ar" as const, message: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى." },
   ])("normalizes unexpected provider errors in $locale", async ({ locale, message }) => {
     mocks.inferLocaleFromRequest.mockReturnValue(locale);
     mocks.signUp.mockRejectedValue(new Error("internal provider connection details"));
     const response = await POST(makeRequest("provider-error@example.com", locale));
     const payload = await response.json() as { ok?: boolean; message?: string };
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(payload).toEqual({
-      ok: true,
-      message,
+      code: "REGISTRATION_FAILED",
+      error: message,
     });
   });
 
@@ -197,16 +197,16 @@ describe("auth register route", () => {
     expect(mocks.upsertUserProfileForAuth.mock.calls[0][0]).not.toHaveProperty("phoneVerifiedAt");
   });
 
-  it("normalizes provider rate limits so they cannot reveal an unknown address", async () => {
+  it("shows a retryable provider rate limit without claiming an email was sent", async () => {
     mocks.signUp.mockResolvedValue({
       data: null,
       error: { message: "email rate limit exceeded" },
     });
     const response = await POST(makeRequest("ratelimited@example.com", "en"));
-    const payload = await response.json() as { ok?: boolean; message?: string };
-    expect(response.status).toBe(200);
-    expect(payload.ok).toBe(true);
-    expect(payload.message).toContain("If this email can be registered");
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    await expect(response.json()).resolves.toMatchObject({ code: "REGISTRATION_RATE_LIMITED" });
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
   });
 
   it("uses composite ip+email key for retry-friendly legitimate registrations", async () => {
@@ -255,7 +255,7 @@ describe("auth register route", () => {
     expect(mocks.signUp).not.toHaveBeenCalled();
   });
 
-  it("returns the same provider failure for existing and unknown valid emails", async () => {
+  it("preserves duplicate signup handling while reporting a failed new signup", async () => {
     mocks.signUp.mockResolvedValue({
       data: null,
       error: { message: "provider unavailable" },
@@ -273,13 +273,41 @@ describe("auth register route", () => {
     const unknownResponse = await POST(makeRequest("unknown@example.com", "en"));
     const unknownPayload = await unknownResponse.json();
 
-    expect({ status: existingResponse.status, payload: existingPayload }).toEqual({
-      status: unknownResponse.status,
-      payload: unknownPayload,
-    });
+    expect(existingResponse.status).toBe(200);
+    expect(unknownResponse.status).toBe(503);
+    expect(unknownPayload).toEqual({ code: "REGISTRATION_FAILED", error: "Registration failed. Please try again." });
     expect(existingPayload).toEqual({
       ok: true,
       message: "If this email can be registered, you will receive a confirmation message. If you already have an account, sign in or reset your password.",
     });
+  });
+
+  it.each(["en", "ar"])("reports rejected compromised passwords clearly in %s without creating a profile", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    mocks.signUp.mockResolvedValue({ data: { user: null }, error: {
+      name: "AuthWeakPasswordError", code: "weak_password", status: 422,
+      message: "Password is known to be weak and easy to guess, please choose a different one.",
+    } });
+    const response = await POST(makeRequest("weak-password@example.com", locale));
+    expect(response.status).toBe(422);
+    const payload = await response.json();
+    expect(payload.code).toBe("WEAK_PASSWORD");
+    expect(payload.error).toContain(locale === "ar" ? "اختر كلمة مرور أقوى" : "Choose a stronger, unique password");
+    expect(payload.ok).toBeUndefined();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
+  it("recognizes the provider's password rejection even without an error code", async () => {
+    mocks.signUp.mockResolvedValue({ data: null, error: { message: "Password is known to be weak and easy to guess, please choose a different one." } });
+    const response = await POST(makeRequest("weak-password@example.com"));
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: "WEAK_PASSWORD" });
+  });
+
+  it("does not accept an empty signup result as an email delivery", async () => {
+    mocks.signUp.mockResolvedValue({ data: { user: null }, error: null });
+    const response = await POST(makeRequest("empty-result@example.com"));
+    expect(response.status).toBe(503);
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
   });
 });

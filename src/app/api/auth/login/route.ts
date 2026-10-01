@@ -11,6 +11,7 @@ import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { authProviderLogMetadata, isAuthProviderRateLimitError, isAuthProviderUnavailableError } from "@/lib/auth-provider-errors";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 type LoginTimelineStep = {
@@ -305,6 +306,21 @@ export async function POST(request: NextRequest) {
     pushTimelineStep(timeline, "Password hashing / verification", supabaseAuthStartedAt, supabaseAuthEndedAt, { provider: "supabase" });
     if (error) {
       clearAuthCookies(cookieStore, secureCookies);
+      if (isAuthProviderRateLimitError(error) || isAuthProviderUnavailableError(error)) {
+        const rateLimited = isAuthProviderRateLimitError(error);
+        logEvent("warn", {
+          event: "auth_login",
+          outcome: "failed",
+          reason: rateLimited ? "provider_rate_limit" : "provider_unavailable",
+          metadata: authProviderLogMetadata(error),
+        });
+        return NextResponse.json({ error: rateLimited
+          ? "Too many login attempts. Please try again shortly."
+          : "Unable to sign in. Please try again." }, {
+          status: rateLimited ? 429 : 503,
+          headers: { ...AUTH_RESPONSE_HEADERS, ...(rateLimited ? { "Retry-After": "60" } : {}) },
+        });
+      }
       if (error.message.toLowerCase().includes("email not confirmed")) {
         return NextResponse.json(
           {

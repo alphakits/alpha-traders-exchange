@@ -7,6 +7,15 @@ afterEach(() => {
 });
 
 describe("auth email branding", () => {
+  it("handles a network or timeout failure without reporting delivery", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "notifications@example.com");
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network unavailable"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendAuthEmailViaResend({ to: "buyer@example.com", subject: "Reset", html: "reset", text: "reset" }))
+      .resolves.toEqual({ ok: false, reason: "resend_request_failed" });
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
   it.each([
     ["verification", "en"],
     ["verification", "ar"],

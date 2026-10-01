@@ -10,6 +10,7 @@ import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AUTH_WEAK_PASSWORD_COPY } from "@/lib/auth-provider-errors";
 
 type RegistrationErrorCode =
   | "REGISTRATION_RATE_LIMITED"
@@ -21,6 +22,7 @@ type RegistrationErrorCode =
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
   | "PASSWORD_TOO_SHORT"
+  | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
   | "REGISTRATION_FAILED";
 
@@ -81,6 +83,7 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
         ar: "كلمتا المرور غير متطابقتين.",
         en: "Passwords do not match.",
       },
+      WEAK_PASSWORD: AUTH_WEAK_PASSWORD_COPY,
       REGISTRATION_FAILED: {
         ar: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى.",
         en: "Registration failed. Please try again.",

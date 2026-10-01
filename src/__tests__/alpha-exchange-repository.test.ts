@@ -56,6 +56,18 @@ function createEmptyDb(): AlphaExchangeDb {
 }
 
 describe("AlphaExchangeRepository", () => {
+  it("invalidates every session for the recovering account while preserving another account's sessions", async () => {
+    const snapshot = createEmptyDb();
+    snapshot.authSessions = [
+      { token: "reset-browser", userId: "reset-user", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z" },
+      { token: "reset-device", userId: "reset-user", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z" },
+      { token: "other-browser", userId: "other-user", createdAt: "2026-01-01T00:00:00Z", expiresAt: "2030-01-01T00:00:00Z" },
+    ];
+    globalThis.__alphaExchangeMemorySnapshot = snapshot;
+    const repository = new AlphaExchangeRepository(null);
+    await repository.deleteAuthSessionsForUser("reset-user");
+    expect(globalThis.__alphaExchangeMemorySnapshot.authSessions).toEqual([snapshot.authSessions[2]]);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK = "1";

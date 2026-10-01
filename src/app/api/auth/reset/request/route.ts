@@ -4,6 +4,8 @@ import { getSiteUrl } from "@/lib/site-url";
 import { createSupabaseAdminClient, createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 import { logEvent } from "@/lib/structured-logging";
+import { randomBytes } from "node:crypto";
+import { findUserByEmail } from "@/lib/alpha-exchange-store";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -18,12 +20,23 @@ function resetGenericMessage(locale: "ar" | "en") {
     : "If an account exists for this email, we've sent password reset instructions.";
 }
 
+function resetFailureResponse(locale: "ar" | "en", retryAfterSeconds?: number) {
+  const rateLimited = retryAfterSeconds !== undefined;
+  const error = rateLimited
+    ? (locale === "ar" ? "طلبات كثيرة جدًا. يُرجى المحاولة مرة أخرى بعد قليل." : "Too many requests. Please try again shortly.")
+    : (locale === "ar" ? "تعذر إرسال رسالة إعادة تعيين كلمة المرور الآن. يُرجى المحاولة مرة أخرى بعد قليل." : "We could not send a password reset email right now. Please try again shortly.");
+  return NextResponse.json({ error }, {
+    status: rateLimited ? 429 : 503,
+    headers: { ...AUTH_RESPONSE_HEADERS, ...(rateLimited ? { "Retry-After": String(retryAfterSeconds) } : {}) },
+  });
+}
+
 function logResetRequest(reason: string, details: Record<string, string | number | boolean | null>) {
   if (process.env.NODE_ENV === "test") return;
   const { provider, retryAfterSeconds } = details;
-  logEvent("warn", {
+  logEvent(reason === "fallback_email_sent" ? "info" : "warn", {
     event: "auth_reset_request",
-    outcome: reason.includes("limit") ? "denied" : "failed",
+    outcome: reason === "fallback_email_sent" ? "success" : reason.includes("limit") ? "denied" : "failed",
     reason,
     metadata: {
       provider: typeof provider === "string" ? provider : undefined,
@@ -56,10 +69,7 @@ export async function POST(request: NextRequest) {
         ip: clientIp,
         retryAfterSeconds: ipRate.retryAfterSeconds,
       });
-      return NextResponse.json(
-        { ok: true, message: resetGenericMessage(locale) },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+      return resetFailureResponse(locale, ipRate.retryAfterSeconds);
     }
 
     const ipEmailRate = await checkSharedRateLimit({
@@ -75,13 +85,32 @@ export async function POST(request: NextRequest) {
         email,
         retryAfterSeconds: ipEmailRate.retryAfterSeconds,
       });
-      return NextResponse.json(
-        { ok: true, message: resetGenericMessage(locale) },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+      return resetFailureResponse(locale, ipEmailRate.retryAfterSeconds);
     }
 
     const redirectTo = `${getSiteUrl()}/${locale}/reset-password`;
+    const localUser = await findUserByEmail(email);
+    if (localUser?.passwordHash && localUser.emailVerified === true) {
+      // Recover verified legacy accounts that predate provider-backed signup.
+      // The random migration password is never exposed or delivered; the user
+      // must still prove email ownership through the normal recovery link.
+      const admin = createSupabaseAdminClient();
+      const existing = await admin.auth.admin.generateLink({ type: "recovery", email, options: { redirectTo } });
+      if (existing.error) {
+        if (existing.error.code !== "user_not_found" && !/user.*not found/i.test(existing.error.message)) {
+          return resetFailureResponse(locale);
+        }
+        const created = await admin.auth.admin.createUser({
+          email,
+          password: randomBytes(32).toString("base64url"),
+          email_confirm: true,
+          user_metadata: { full_name: localUser.fullName, preferred_locale: locale },
+        });
+        if (created.error && created.error.code !== "email_exists" && created.error.code !== "user_already_exists") {
+          return resetFailureResponse(locale);
+        }
+      }
+    }
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
@@ -91,6 +120,9 @@ export async function POST(request: NextRequest) {
         ok: true,
         message: resetGenericMessage(locale),
       }, { headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (error.code === "user_not_found" || /user.*not found|not.*registered/i.test(error.message)) {
+      return NextResponse.json({ ok: true, message: resetGenericMessage(locale) }, { headers: AUTH_RESPONSE_HEADERS });
     }
 
     const reason = isAuthRateLimitError(error.message) ? "provider_rate_limit" : "provider_error";
@@ -102,7 +134,7 @@ export async function POST(request: NextRequest) {
 
     let linkResult: {
       data?: { properties?: { action_link?: string | null } | null } | null;
-      error?: { message?: string } | null;
+      error?: { message?: string; code?: string } | null;
     } | null = null;
     try {
       const adminSupabase = createSupabaseAdminClient();
@@ -119,22 +151,22 @@ export async function POST(request: NextRequest) {
         email,
         provider: "supabase_admin",
       });
-      return NextResponse.json(
-        { ok: true, message: resetGenericMessage(locale) },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+      return resetFailureResponse(locale);
     }
 
     if (!linkResult || linkResult.error) {
+      // A missing account still receives the same accepted response as a
+      // successful recovery request; infrastructure failures must be visible.
+      if (linkResult?.error?.code === "user_not_found"
+        || /user.*not found|not.*registered/i.test(linkResult?.error?.message ?? "")) {
+        return NextResponse.json({ ok: true, message: resetGenericMessage(locale) }, { headers: AUTH_RESPONSE_HEADERS });
+      }
       logResetRequest("provider_generate_link_failed", {
         ip: clientIp,
         email,
         provider: "supabase_admin",
       });
-      return NextResponse.json(
-        { ok: true, message: resetGenericMessage(locale) },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+      return resetFailureResponse(locale);
     }
 
     const actionLink = linkResult.data?.properties?.action_link;
@@ -144,10 +176,7 @@ export async function POST(request: NextRequest) {
         email,
         provider: "supabase_admin",
       });
-      return NextResponse.json(
-        { ok: true, message: resetGenericMessage(locale) },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+      return resetFailureResponse(locale);
     }
 
     const mail = buildAuthEmail("recovery", locale, actionLink);
@@ -163,10 +192,7 @@ export async function POST(request: NextRequest) {
         email,
         provider: "resend",
       });
-      return NextResponse.json(
-        { ok: true, message: resetGenericMessage(locale) },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+      return resetFailureResponse(locale);
     }
 
     logResetRequest("fallback_email_sent", {
@@ -175,7 +201,7 @@ export async function POST(request: NextRequest) {
       provider: "resend",
     });
     return NextResponse.json({ ok: true, message: resetGenericMessage(locale) }, { headers: AUTH_RESPONSE_HEADERS });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to request password reset." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+  } catch {
+    return resetFailureResponse(locale);
   }
 }

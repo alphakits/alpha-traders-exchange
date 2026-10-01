@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AUTH_WEAK_PASSWORD_COPY } from "@/lib/auth-provider-errors";
 
 export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
@@ -44,7 +45,11 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
     if (hashRefreshToken) setRefreshToken(hashRefreshToken);
   }, [searchParams]);
 
-  function localizeResetError(message?: string) {
+  function localizeResetError(message?: string, code?: string) {
+    if (code === "WEAK_PASSWORD") return AUTH_WEAK_PASSWORD_COPY[locale];
+    if (code === "PASSWORD_UNCHANGED") return isAr
+      ? "اختر كلمة مرور مختلفة عن كلمة المرور الحالية."
+      : "Choose a different password from your current password.";
     const normalized = String(message ?? "").toLowerCase();
     if (normalized.includes("invalid") || normalized.includes("expired")) {
       return isAr
@@ -74,7 +79,10 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
     }
     setIsSubmitting(true);
     try {
-      const { response, payload } = await fetchClientJson<{ error?: string; message?: string }>("/api/auth/reset/confirm", {
+      const { response, payload } = await fetchClientJson<{
+        error?: string; message?: string; code?: string;
+        recoverySession?: { accessToken: string; refreshToken: string };
+      }>("/api/auth/reset/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -89,7 +97,13 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
         }),
       }, 30_000);
       if (!response.ok) {
-        setErrorMessage(localizeResetError(payload.error));
+        if (payload.recoverySession?.accessToken && payload.recoverySession?.refreshToken) {
+          setAccessToken(payload.recoverySession.accessToken);
+          setRefreshToken(payload.recoverySession.refreshToken);
+          setTokenHash("");
+          setAuthCode("");
+        }
+        setErrorMessage(localizeResetError(payload.error, payload.code));
         return;
       }
       setPassword("");

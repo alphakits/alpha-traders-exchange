@@ -6,6 +6,7 @@ import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromR
 import { logEvent } from "@/lib/structured-logging";
 import { assertNoDirectContactContent } from "@/lib/privacy-redaction";
 import { academyLoginPath, mentorshipLoginPath } from "@/lib/academy-entry";
+import { AUTH_WEAK_PASSWORD_COPY, authProviderLogMetadata, isAuthProviderRateLimitError, isWeakPasswordError } from "@/lib/auth-provider-errors";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 const REGISTRATION_RESPONSE_FLOOR_MS = 450;
@@ -20,6 +21,7 @@ type RegistrationErrorCode =
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
   | "PASSWORD_TOO_SHORT"
+  | "WEAK_PASSWORD"
   | "PASSWORD_MISMATCH"
   | "REGISTRATION_FAILED";
 
@@ -64,6 +66,7 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
     ar: "كلمتا المرور غير متطابقتين.",
     en: "Passwords do not match.",
   },
+  WEAK_PASSWORD: AUTH_WEAK_PASSWORD_COPY,
   REGISTRATION_FAILED: {
     ar: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى.",
     en: "Registration failed. Please try again.",
@@ -141,7 +144,7 @@ export async function POST(request: NextRequest) {
     if (!fullName || !email || !password || !confirmPassword) {
       return registrationErrorResponse(locale, "REQUIRED_FIELDS", 400);
     }
-    if (fullName.length > 100 || whatsappInput.length > 30 || email.length > 254) {
+    if (fullName.length > 100 || whatsappInput.length > 30 || email.length > 254 || password.length > 256) {
       return registrationErrorResponse(locale, "FIELD_TOO_LONG", 400);
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -223,20 +226,23 @@ export async function POST(request: NextRequest) {
         });
         return registrationAcceptedResponse(locale, validRegistrationStartedAt);
       }
-      logRegistrationRateLimit(
-        error.message.toLowerCase().includes("rate limit")
-          ? "provider_rate_limit"
-          : "provider_signup_failed",
-        {
-          ip: clientIp,
-          email,
-          provider: "supabase",
-        },
-      );
-      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+      const weakPassword = isWeakPasswordError(error);
+      const rateLimited = isAuthProviderRateLimitError(error);
+      logEvent("warn", {
+        event: "auth_registration",
+        outcome: "failed",
+        reason: weakPassword ? "weak_password" : rateLimited ? "provider_rate_limit" : "provider_signup_failed",
+        metadata: authProviderLogMetadata(error),
+      });
+      if (weakPassword) return registrationErrorResponse(locale, "WEAK_PASSWORD", 422);
+      if (rateLimited) return registrationErrorResponse(locale, "REGISTRATION_RATE_LIMITED", 429, {
+        ...AUTH_RESPONSE_HEADERS,
+        "Retry-After": "60",
+      });
+      return registrationErrorResponse(locale, "REGISTRATION_FAILED", 503);
     }
     if (!data.user) {
-      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+      return registrationErrorResponse(locale, "REGISTRATION_FAILED", 503);
     }
     if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
       return registrationAcceptedResponse(locale, validRegistrationStartedAt);
@@ -251,11 +257,14 @@ export async function POST(request: NextRequest) {
     });
 
     return registrationAcceptedResponse(locale, validRegistrationStartedAt);
-  } catch {
+  } catch (error) {
     // Provider, storage, and validation internals must not leak into the UI.
-    if (validRegistrationStartedAt !== null) {
-      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
-    }
-    return registrationErrorResponse(locale, "REGISTRATION_FAILED", 400);
+    logEvent("error", {
+      event: "auth_registration",
+      outcome: "failed",
+      reason: "unexpected_error",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+    });
+    return registrationErrorResponse(locale, "REGISTRATION_FAILED", validRegistrationStartedAt !== null ? 503 : 400);
   }
 }
