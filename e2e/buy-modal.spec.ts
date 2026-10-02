@@ -187,7 +187,7 @@ test.afterAll(async () => {
 test.describe("Direct Buy USDT modal", () => {
   test.beforeEach(async ({ page }) => {
     await seedSellerAndListing(page.request);
-    await makeBuyerEmailVerifiedWithoutPhone(page.request);
+    await restoreBuyerPhoneFixture(page.request);
     await login(page, buyerFixture!.email, buyerFixture!.password);
   });
 
@@ -228,7 +228,10 @@ test.describe("Direct Buy USDT modal", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/en/usdt-exchange");
 
-    const offerButton = page.getByRole("button", { name: /Make a price offer to E2E Modal Seller/i }).first();
+    const publicListings = await (await page.request.get("/api/alpha-exchange/listings")).json() as { listings: Array<{ id: string; sellerDisplayName: string }> };
+    const listing = publicListings.listings.find(item => item.id === listingId);
+    expect(listing).toBeDefined();
+    const offerButton = page.getByRole("button", { name: "Make a price offer to " + listing!.sellerDisplayName, exact: true });
     await offerButton.scrollIntoViewIfNeeded();
     await offerButton.click();
 
@@ -254,7 +257,8 @@ test.describe("Direct Buy USDT modal", () => {
       pricePerUsdt: "3.25",
       priceMode: "buyer_offer",
       priceOfferDiscount: "0.35",
-      fiatAmount: "325.00",
+      fiatAmount: "328.25",
+      feePolicyVersion: "buyer_seller_1pct_v1",
       status: "pending",
     });
   });
@@ -279,7 +283,8 @@ test.describe("Direct Buy USDT modal", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("lets a verified-email Buyer without a verified phone create a trade without contact fields", async ({ page }) => {
+  test("blocks a buyer with missing private contact before creating a trade", async ({ page }) => {
+    await makeBuyerEmailVerifiedWithoutPhone(page.request);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/en/usdt-exchange");
     const listingsResponse = await page.request.get("/api/alpha-exchange/listings");
@@ -288,13 +293,15 @@ test.describe("Direct Buy USDT modal", () => {
     expect(listingsPayload).not.toContain("+972500000055");
     expect(listingsPayload).not.toContain(sellerPrivateEmail);
 
-    const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
-    await buyButton.scrollIntoViewIfNeeded();
-    await buyButton.click();
-    await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
-    await Promise.all([
-      page.waitForURL(new RegExp(`/en/trade-room/`)),
-      page.getByRole("button", { name: /^Start Trade$/i }).click(),
-    ]);
+    const contact = page.getByRole("dialog", { name: "A number to reach you when needed" });
+    await expect(contact).toBeVisible();
+    await expect(contact.getByLabel("Phone or WhatsApp number (required)")).toHaveAttribute("required", "");
+    const denied = await page.request.post("/api/alpha-exchange/purchase-requests", {
+      data: { listingId, usdtAmount: "100", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", paymentMethod: "Bank Transfer", feePolicyVersion: "buyer_seller_1pct_v1" },
+    });
+    expect(denied.status()).toBe(400);
+    expect(await denied.json()).toMatchObject({ code: "PRIVATE_CONTACT_REQUIRED" });
+    const db = await readRuntimeDb(page.request);
+    expect((db.purchaseRequests as Array<Record<string, unknown>>).filter(item => item.listingId === listingId)).toEqual([]);
   });
 });

@@ -89,3 +89,9 @@ is revoked or a cached page is restored. Authenticated listing, seller-profile,
 and marketplace-pulse reads enforce the same phone rule before reading data.
 Exemption is a separate server-resolved policy result: exempt accounts are not
 marked as having a verified phone, and no exception list is sent to the browser.
+
+Run `npm run test:e2e:phone-verification` for the isolated mandatory-gate profile.
+It enables the phone requirement with all provider sends disabled and checks
+five non-exempt roles, the three exact email exceptions, genuine verified buyer
+and seller access, recovery access, and revocation after a phone change.
+These browser checks do not prove SMS receipt or authorize production activation.

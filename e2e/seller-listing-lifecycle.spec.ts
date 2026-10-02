@@ -551,7 +551,7 @@ test("listing publish failures stay visible beside the mobile submit action", as
   await chooseCreatePayoutBankAccountByLast4(seller.page, payoutAccount.accountLast4);
 
   const payoutBankButton = createListing.getByRole("button", { name: new RegExp(payoutAccount.bankName, "i") });
-  await expect(payoutBankButton).toContainText("Selected");
+  await expect(payoutBankButton).toHaveAttribute("aria-pressed", "true");
   const commissionCheckbox = createListing.getByRole("checkbox", { name: /1% commission policy/i });
   if (!(await commissionCheckbox.isChecked())) await commissionCheckbox.check();
 
@@ -1305,7 +1305,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await Promise.all([seller.context.close(), buyer.context.close()]);
 });
 
-test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
+test("owner dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
   test.setTimeout(300_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -1327,7 +1327,7 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   const extendCandidate = await createListing(seller.page.request, { availableAmount: "222", price: "3.12" });
   await waitForPersistence();
 
-  const admin = await createSession(browser, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const admin = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
   const page = admin.page;
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(renewCandidate.listing.id)}`);
   await expect(page.getByRole("heading", { name: "Marketplace Listings" })).toBeVisible({ timeout: 60_000 });

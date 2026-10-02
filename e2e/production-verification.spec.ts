@@ -211,7 +211,9 @@ test.describe("Marketplace Pulse", () => {
       totalUsdtAvailable: number; completedTrades: number; lastCompletedTrade: { network: string } | null; recentActivity: unknown[];
     };
     expect(api.activeListings).toBeGreaterThanOrEqual(6);
-    expect(api.sellersOnline).toBeGreaterThanOrEqual(2);
+    // Only PV Online has an active listing and fresh presence. Other sellers
+    // may legitimately expire from presence during this sequential suite.
+    expect(api.sellersOnline).toBeGreaterThanOrEqual(1);
     expect(api.activeTrades).toBeGreaterThanOrEqual(1);
     expect(api.completedTrades).toBeGreaterThanOrEqual(1);
     expect(api.lastCompletedTrade).not.toBeNull();
@@ -347,8 +349,8 @@ test.describe("Journeys", () => {
     await expect(page.getByRole("heading", { name: /Create Listing/i }).first()).toBeVisible({ timeout: 30000 });
   });
 
-  test("admin reaches Listing Reliability panel", async ({ page }) => {
-    await login(page.request, adminEmail, adminPassword);
+  test("owner reaches Listing Reliability panel", async ({ page }) => {
+    await login(page.request, process.env.E2E_OWNER_EMAIL!, process.env.E2E_OWNER_PASSWORD!);
     await page.goto("/en/admin/alpha-exchange");
     await page.getByRole("button", { name: /Listing Reliability/ }).click();
     await expect(page.getByText("Sellers tracked")).toBeVisible({ timeout: 15000 });

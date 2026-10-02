@@ -34,6 +34,10 @@ const ADMIN = {
   email: "e2e-global-admin@example.test",
   password: "E2eAdmin!Launch2026",
 };
+const OWNER = {
+  email: "e2e-global-owner@example.test",
+  password: "E2eOwner!Launch2026",
+};
 
 let originalSnapshot: AlphaExchangeDb | null = null;
 
@@ -54,7 +58,7 @@ async function writeState(api: APIRequestContext, db: AlphaExchangeDb) {
   expect(response.ok()).toBeTruthy();
 }
 
-async function login(api: APIRequestContext, account = BUYER) {
+async function login(api: APIRequestContext, account: Pick<typeof BUYER, "email" | "password"> = BUYER) {
   const response = await api.post("/api/auth/login", {
     headers: { "x-forwarded-for": "198.51.100.77" },
     data: { email: account.email, password: account.password, rememberMe: true },
@@ -198,7 +202,7 @@ test("buyer without phone verification can submit and retain a pending seller ap
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
 });
 
-test("manual admin approval requires a complete identity attestation before the applicant becomes a seller", async () => {
+test("owner approval requires an audit reason and does not fabricate phone or identity verification", async () => {
   const buyerApi = await request.newContext({ baseURL: E2E_BASE_URL });
   const state = await readState(buyerApi);
   const application = state.sellerApplications.find((item) => item.userId === BUYER.id);
@@ -207,29 +211,35 @@ test("manual admin approval requires a complete identity attestation before the 
 
   const adminApi = await request.newContext({ baseURL: E2E_BASE_URL });
   await login(adminApi, ADMIN);
-  const incompleteApproval = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application!.id)}/approve`, {
-    data: { reason: "E2E incomplete manual approval" },
-  });
-  expect(incompleteApproval.status()).toBe(400);
-  const approval = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application!.id)}/approve`, {
+  const approvalPath = "/api/alpha-exchange/admin/seller-applications/" + encodeURIComponent(application!.id) + "/approve";
+  const denied = await adminApi.post(approvalPath, { data: { reason: "E2E admin must not approve" } });
+  expect(denied.status()).toBe(403);
+  await adminApi.dispose();
+  const ownerApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  await login(ownerApi, OWNER);
+  const missingReason = await ownerApi.post(approvalPath, { data: {} });
+  expect(missingReason.status()).toBe(400);
+  const approval = await ownerApi.post(approvalPath, {
     data: {
       reason: "E2E manual approval",
       verification: COMPLETE_SELLER_APPROVAL_CHECKLIST,
     },
   });
   expect(approval.ok(), await approval.text()).toBeTruthy();
-  await adminApi.dispose();
+  await ownerApi.dispose();
 
   const verifyApi = await request.newContext({ baseURL: E2E_BASE_URL });
   const approvedState = await readState(verifyApi);
   const approvedUser = approvedState.users.find((user) => user.id === BUYER.id);
   const approvedApplication = approvedState.sellerApplications.find((item) => item.userId === BUYER.id);
   expect(approvedApplication?.status).toBe("approved");
-  expect(approvedApplication?.verification).toMatchObject({
-    method: "manual_authorized_reviewer_v1",
-    verifiedByUserId: expect.any(String),
-    ...COMPLETE_SELLER_APPROVAL_CHECKLIST,
-  });
+  expect(approvedApplication?.verification).toBeUndefined();
+  expect(approvedUser?.sellerApprovalVerification).toBeUndefined();
+  expect(approvedUser?.verifiedPhone).toBeUndefined();
+  expect(approvedUser?.phoneVerifiedAt).toBeUndefined();
+  expect(approvedState.auditLogs).toEqual(expect.arrayContaining([
+    expect.objectContaining({ action: "seller_approved", targetUserId: BUYER.id, actorUserId: "e2e-global-owner", reason: "E2E manual approval" }),
+  ]));
   expect(approvedUser?.sellerStatus).toBe("approved_seller");
   expect(approvedUser?.roles).toEqual(expect.arrayContaining(["buyer", "approved_seller"]));
   expect(approvedUser?.roles).not.toContain("pending_seller_approval");
@@ -251,7 +261,7 @@ test("manual rejection leaves the applicant a buyer and permits a later resubmis
   await applicantApi.dispose();
 
   const adminApi = await request.newContext({ baseURL: E2E_BASE_URL });
-  await login(adminApi, ADMIN);
+  await login(adminApi, OWNER);
   const rejection = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application.id)}/reject`, {
     data: { reason: "E2E manual rejection" },
   });

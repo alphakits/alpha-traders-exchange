@@ -21,6 +21,7 @@
     "test:owner-analytics": "node scripts/check-owner-live-analytics.mjs && node scripts/check-owner-analytics-reporting.mjs && node scripts/check-owner-analytics-finalization.mjs",
     "test:watch": "node ./node_modules/vitest/vitest.mjs",
     "test:e2e": "node ./node_modules/playwright/cli.js test",
+    "test:e2e:phone-verification": "node ./node_modules/playwright/cli.js test --config=playwright.phone-verification.config.ts",
     "test:coverage": "node ./node_modules/vitest/vitest.mjs run --coverage",
     "verify:release": "node scripts/release-safety-gate.mjs",
     "verify:release:full": "node scripts/release-safety-gate.mjs --with-e2e",

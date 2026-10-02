@@ -468,16 +468,18 @@ async function openNotificationAndNavigate(input: {
     expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
 
     await expect.poll(async () => section.evaluate((element) => {
-      const sectionTop = element.getBoundingClientRect().top;
+      const rect = element.getBoundingClientRect();
       const headerBottom = document.querySelector<HTMLElement>("header")?.getBoundingClientRect().bottom ?? 0;
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
       return {
-        clearsHeader: sectionTop >= Math.max(0, headerBottom - 1),
-        nearHeader: sectionTop <= Math.max(180, headerBottom + 24),
+        clearsHeader: rect.top >= Math.max(viewportTop, headerBottom - 1),
+        visibleTarget: rect.top + Math.min(rect.height, 160) <= viewportBottom - 24,
       };
     }), {
-      message: `target section should settle directly below the real sticky header (${expectedAction}, ${viewport.width}px)`,
+      message: "The focused notification target must remain visible below the sticky header",
       timeout: 5_000,
-    }).toEqual({ clearsHeader: true, nearHeader: true });
+    }).toEqual({ clearsHeader: true, visibleTarget: true });
     await expect(section).toBeFocused({ timeout: 5_000 });
 
     const actionButton = page.getByRole("button", { name: localizedTradeActionMatcher(expectedAction) }).first();

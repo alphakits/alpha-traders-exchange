@@ -45,7 +45,7 @@ test.describe("Navigation hardening", () => {
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
 
-    const tradeRequests = main.getByRole("button", { name: /^My Trade Requests:/ });
+    const tradeRequests = main.getByRole("button", { name: "My Trade Requests", exact: true });
     const tradeHistory = main.locator("#my-trade-requests-section");
     await expect(tradeRequests).toHaveCount(1);
     await expect(tradeHistory).toBeVisible();
@@ -55,8 +55,8 @@ test.describe("Navigation hardening", () => {
     await expect(page).toHaveURL(/\/en\/dashboard$/);
     await expect(tradeHistory).toBeFocused();
 
-    await main.getByRole("button", { name: /^Browse Marketplace:/ }).click();
-    await expect(page).toHaveURL(/\/en\/usdt-exchange#marketplace$/);
+    await main.getByRole("button", { name: "Browse Sellers", exact: true }).click();
+    await expect(page).toHaveURL(/\/en\/usdt-exchange#buyer-marketplace-listings$/);
   });
 
   test("buyer direct /trade-room navigation resolves to a stable non-dashboard destination", async ({ page }) => {
@@ -89,7 +89,7 @@ test.describe("Navigation hardening", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
     await page.goto("/en/dashboard/seller");
     const main = page.getByRole("main");
-    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();
     await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /Seller Dashboard/i })).toHaveCount(0);
@@ -103,7 +103,7 @@ test.describe("Navigation hardening", () => {
     await page.reload({ waitUntil: "commit" });
 
     await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
-    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
     await manageListings.focus();

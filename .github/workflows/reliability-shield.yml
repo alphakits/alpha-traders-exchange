@@ -79,3 +79,35 @@ jobs:
             test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  phone-verification-gate:
+    name: Mandatory phone gates and owner exceptions
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+      - name: Verify mandatory phone gates and exact owner exceptions
+        run: npm run test:e2e:phone-verification
+      - name: Preserve failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandatory-phone-verification-playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7

@@ -232,7 +232,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard/seller",
-        readyLocator: page.getByText(/seller status/i).first(),
+        readyLocator: page.getByRole("heading", { name: "Approved Seller", exact: true }),
         viewport,
         disallowPathnames: ["/login"],
       });
@@ -340,7 +340,7 @@ test.describe("Final hardening audit", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
 
     await page.goto("/en/dashboard/seller");
-    await expect(page.getByText(/seller status/i).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();
     await page.getByRole("button", { name: /^My Listings:/ }).first().click();
     await expect(page.locator("#my-listings-section")).toBeVisible();
 
@@ -435,7 +435,7 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: "My Trade Requests", exact: true })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
@@ -450,7 +450,7 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: "Create Listing", exact: true })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toHaveCount(1);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
