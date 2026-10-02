@@ -603,9 +603,27 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
     viewport,
   });
 
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
-  await expect(page.getByText(/Waiting for Buyer Confirmation|بانتظار تأكيد المشتري/i).first()).toBeVisible({ timeout: 20_000 });
+  const acceptedConfirmations: string[] = [];
+  const confirmAcceptance = async (dialog: import("@playwright/test").Dialog) => {
+    acceptedConfirmations.push(dialog.message());
+    await dialog.accept();
+  };
+  // Face-to-face acceptance requires the terms confirmation and the separate
+  // safe-meeting acknowledgement. A once handler dismisses the second dialog.
+  page.on("dialog", confirmAcceptance);
+  try {
+    const [accepted] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+        && response.request().method() === "PATCH"),
+      page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click(),
+    ]);
+    expect(accepted.ok(), await accepted.text()).toBeTruthy();
+    expect(acceptedConfirmations).toHaveLength(2);
+    expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
+  } finally {
+    page.off("dialog", confirmAcceptance);
+  }
+  await expect(page.getByText(/Receive the Cash, Then Confirm|استلم النقد ثم أكد/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);

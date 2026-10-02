@@ -147,8 +147,10 @@ async function gotoMarketplace(page: Page) {
   await page.goto("/en/usdt-exchange");
   await page.getByRole("button", { name: /Buy USDT from/i }).first().waitFor({ state: "visible", timeout: 30000 });
 }
-function cardFor(page: Page, sellerName: string) {
-  return page.locator(".seller-listing-shell").filter({ hasText: sellerName }).first();
+function cardFor(page: Page, listingId: string) {
+  // Marketplace identity is public AT identity, rather than the seller's
+  // private name. The persisted listing ID identifies the exact card.
+  return page.locator(`#listing-${listingId}`);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -246,10 +248,10 @@ test.describe("Seller cards", () => {
   test("presence: online green / recent / offline grey", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, "PV Online").locator(".seller-presence--online")).toBeVisible();
-    await expect(cardFor(page, "PV Recent").locator(".seller-presence--recent")).toBeVisible();
-    await expect(cardFor(page, "PV Recent").getByText(/Active \d+ min ago/)).toBeVisible();
-    await expect(cardFor(page, "PV Offline").locator(".seller-presence--idle")).toBeVisible();
+    await expect(cardFor(page, ids.lUrgent).locator(".seller-presence--online")).toBeVisible();
+    await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toBeVisible();
+    await expect(cardFor(page, ids.lRecent).getByText(/Active \d+ min ago/)).toBeVisible();
+    await expect(cardFor(page, ids.lOffline).locator(".seller-presence--idle")).toBeVisible();
   });
 
   test("countdown: urgent <4h, neutral 4-12h, hidden >12h", async ({ page }) => {
@@ -257,20 +259,20 @@ test.describe("Seller cards", () => {
     await gotoMarketplace(page);
     await expect(page.locator(".seller-listing-countdown--urgent").first()).toBeVisible();
     await expect(page.locator(".seller-listing-countdown--neutral").first()).toBeVisible();
-    await expect(cardFor(page, "PV Offline").locator(".seller-listing-countdown")).toHaveCount(0);
+    await expect(cardFor(page, ids.lOffline).locator(".seller-listing-countdown")).toHaveCount(0);
   });
 
   test("Verified Email badge only when verified", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, "PV Online").getByText("Verified Email")).toBeVisible();
-    await expect(cardFor(page, "PV Unverified").getByText("Verified Email")).toHaveCount(0);
+    await expect(cardFor(page, ids.lUrgent).getByText("Verified Email")).toBeVisible();
+    await expect(cardFor(page, ids.lUnverif).getByText("Verified Email")).toHaveCount(0);
   });
 
   test("Approved Seller badge present on visible listings", async ({ page }) => {
     await login(page.request, buyer!.email, buyer!.password);
     await gotoMarketplace(page);
-    await expect(cardFor(page, "PV Online").getByText(/Approved Seller/i).first()).toBeVisible();
+    await expect(cardFor(page, ids.lUrgent).getByText(/Approved Seller/i).first()).toBeVisible();
   });
 });
 

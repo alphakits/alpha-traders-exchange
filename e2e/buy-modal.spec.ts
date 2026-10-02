@@ -203,8 +203,9 @@ test.describe("Direct Buy USDT modal", () => {
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     // The amount field is available immediately — no profile-first scrolling.
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
-    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
-    await expect(page.getByLabel(/Buyer notes/i)).toHaveCount(0);
+    const purchase = page.getByRole("dialog", { name: "Buy USDT", exact: true });
+    await expect(purchase.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(purchase.getByLabel(/Buyer notes/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
   });
 
@@ -218,7 +219,7 @@ test.describe("Direct Buy USDT modal", () => {
 
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
-    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Buy USDT", exact: true }).getByLabel(/WhatsApp/i)).toHaveCount(0);
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);

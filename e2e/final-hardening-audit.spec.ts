@@ -103,6 +103,11 @@ function collectDiagnostics(page: Page): DiagnosticCapture {
   page.on("console", (message) => {
     const text = message.text();
     if (message.type() === "error") {
+      // The isolated trading repository has no PostgreSQL telemetry sink.
+      // Analytics deliberately returns 503 instead of acknowledging an
+      // unpersisted event; keep trading and hydration errors in this audit.
+      if (message.location().url.endsWith("/api/analytics/event")
+        && /Failed to load resource.*503/.test(text)) return;
       firstPartyConsoleErrors.push(text);
       if (/hydration|did not match|server-rendered html|content does not match/i.test(text)) {
         hydrationWarnings.push(text);
@@ -196,6 +201,7 @@ async function assertRefreshStability(input: {
 
   const firstPartyFailuresExcludingSse = diagnostics.firstPartyFailures.filter((item) => {
     if (item.url.endsWith("/notifications/stream")) return false;
+    if (item.url === "/api/analytics/event" && item.status === 503) return false;
     if (item.status === 403 && (item.url === "/api/alpha-exchange/my-listings" || item.url === "/api/alpha-exchange/discord-sharing")) {
       // Buyer session intentionally receives seller-only endpoint denials.
       return false;

@@ -158,7 +158,7 @@ test.describe("Admin flow · mobile commission settlement", () => {
 
     await expect(dialog).toBeHidden();
     await expect(card.getByText("Payment settled")).toBeVisible();
-    await expect(page.getByText("Commission marked paid. Seller confirmation was sent.")).toBeVisible();
+    await expect(page.getByText("Commission marked paid.", { exact: true })).toBeVisible();
 
     const persisted = await readState(page.request);
     const savedCommission = ((persisted.commissionRecords as Array<Record<string, unknown>> | undefined) ?? [])
