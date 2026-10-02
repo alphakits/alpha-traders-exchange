@@ -10206,7 +10206,9 @@ export async function updateTradeTerms(input: {
   value?: string; proposalId?: string; expectedUpdatedAt?: string; safetyAcknowledged?: boolean;
 }) {
   let committed: PurchaseRequest | undefined;
+  let notificationPublication: DeferredNotificationPublication | null = null;
   const apply = async (snapshot: AlphaExchangeDb) => {
+    if (notificationPublication && !snapshot.notifications.some((item) => item.id === notificationPublication?.notification.id)) notificationPublication = null;
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
     if (!request || ![request.sellerId, request.buyerId].includes(input.actorUserId)) throw new TradeBlockedError("trade-terms-invalid", "Trade not found.", input.requestId);
     if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new TradeBlockedError("trade-terms-invalid", "Resolve the dispute before changing trade terms.", input.requestId);
@@ -10275,7 +10277,7 @@ export async function updateTradeTerms(input: {
     }
     request.updatedAt = now;
     appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message, createdAt: now });
-    pushNotification(snapshot, { userId: seller ? request.buyerId : request.sellerId, category: "trade", title: creating ? "Trade proposal — your response needed" : "Trade proposal updated", message, relatedRequestId: request.id, relatedTradeId: request.tradeId, relatedHref: requestDetailsHref(request.id), forceInApp: true });
+    notificationPublication = pushNotification(snapshot, { userId: seller ? request.buyerId : request.sellerId, category: "trade", title: creating ? "Trade proposal — your response needed" : "Trade proposal updated", message, relatedRequestId: request.id, relatedTradeId: request.tradeId, relatedHref: requestDetailsHref(request.id), whatsappEvent: "trade_update", forceInApp: true, deferRealtime: true });
     await appendAuditLog(snapshot, { action: "admin_override", actorUserId: input.actorUserId, purchaseRequestId: request.id, details: message });
     committed = request;
     return snapshot;
@@ -10287,6 +10289,7 @@ export async function updateTradeTerms(input: {
     await writeDb(db, { selectedTables: ["purchase_requests", "notifications", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
   }
   if (!committed) throw new TradeBlockedError("trade-terms-invalid", "Could not confirm the trade proposal.", input.requestId);
+  publishNotificationPublication(notificationPublication);
   const request = committed as PurchaseRequest;
   publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: request.id, request, status: request.status, timeline: request.timeline, publishedAtEpochMs: Date.now() } });
   return request;
@@ -10295,7 +10298,9 @@ export async function updateTradeTerms(input: {
 /** Recalculate only from the buyer's cash amount and the locked agreed rate. */
 export async function recalculateCardlessTradeAmount(input: { requestId: string; actorUserId: string; ilsAmount?: string }) {
   let committed: PurchaseRequest | undefined;
+  let notificationPublication: DeferredNotificationPublication | null = null;
   const apply = async (snapshot: AlphaExchangeDb) => {
+    if (notificationPublication && !snapshot.notifications.some((item) => item.id === notificationPublication?.notification.id)) notificationPublication = null;
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
     if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
     if (request.termsProposal?.status === "pending") throw new Error("Respond to the pending proposal first.");
@@ -10321,6 +10326,14 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
       request.fiatAmount = Number(cashAmount).toFixed(2);
       request.updatedAt = nowIsoAfter(request.updatedAt);
       appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message: `USDT amount adjusted to ${amount} for ILS ${request.fiatAmount} at the agreed rate ${request.pricePerUsdt}.`, createdAt: request.updatedAt });
+      notificationPublication = pushNotification(snapshot, {
+        userId: request.buyerId, category: "trade", title: "Trade amount updated",
+        message: "The seller updated the trade amount. Open the Trade Room to review it.",
+        relatedRequestId: request.id, relatedTradeId: request.tradeId,
+        relatedListingId: request.listingId, relatedHref: requestDetailsHref(request.id),
+        whatsappEvent: "trade_update",
+        deferRealtime: true,
+      });
       await appendAuditLog(snapshot, { action: "admin_override", actorUserId: input.actorUserId, purchaseRequestId: request.id, details: "Seller recalculated cardless USDT from the buyer cash amount at the locked trade price." });
     }
     committed = request;
@@ -10330,9 +10343,10 @@ export async function recalculateCardlessTradeAmount(input: { requestId: string;
   if (!focused) {
     const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
     await apply(db);
-    await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
+    await writeDb(db, { selectedTables: ["purchase_requests", "notifications", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
   }
   if (!committed) throw new Error("Trade adjustment could not be confirmed.");
+  publishNotificationPublication(notificationPublication);
   const request = committed as PurchaseRequest;
   publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: request.id, request, status: request.status, timeline: request.timeline, publishedAtEpochMs: Date.now() } });
   return request;
@@ -13973,9 +13987,18 @@ async function updatePurchaseRequestStatusAttempt(
     next.status = preparedCredential ? "payment_sent" : "accepted";
     if (preparedCredential) {
       appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: request.buyerId, actorRole: "buyer", message: "Prepared withdrawal details shared after seller acceptance", createdAt: now });
-      pushNotification(db, { userId: request.sellerId, category: "trade", title: "Cardless withdrawal code ready", message: "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room.", relatedTradeId: next.tradeId, relatedRequestId: request.id, relatedHref: requestDetailsHref(request.id) });
+      pushNotification(db, { userId: request.sellerId, category: "trade", title: "Cardless withdrawal code ready", message: "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room.", relatedTradeId: next.tradeId, relatedRequestId: request.id, relatedHref: requestDetailsHref(request.id), whatsappEvent: "trade_update" });
     }
     const isPriceOffer = next.priceMode === "buyer_offer";
+    if (acceptingCounter) {
+      pushNotification(db, {
+        userId: request.sellerId, category: "trade", title: "Counter-offer accepted",
+        message: "The buyer accepted your counter-offer. Open the Trade Room to continue.",
+        relatedRequestId: request.id, relatedTradeId: next.tradeId,
+        relatedListingId: request.listingId, relatedHref: requestDetailsHref(request.id),
+        whatsappEvent: "trade_update",
+      });
+    }
     if (isPriceOffer) {
       next.priceOfferAcceptedAt = now;
     }
@@ -17706,6 +17729,7 @@ export async function openTradeDispute(input: {
   const db = await readDb();
   const priorSmsCount = db.smsDeliveries?.length ?? 0;
   let committed: { dispute: TradeDisputeCase; request: PurchaseRequest; created: boolean } | null = null;
+  let notificationPublications: DeferredNotificationPublication[] = [];
 
   const applyDisputeToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
     const request = snapshot.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
@@ -17729,6 +17753,7 @@ export async function openTradeDispute(input: {
         throw new Error("An open dispute already exists for this trade.");
       }
       committed = { dispute: existingOpen, request, created: false };
+      notificationPublications = notificationPublications.filter((publication) => snapshot.notifications.some((item) => item.id === publication.notification.id));
       return snapshot;
     }
 
@@ -17776,22 +17801,29 @@ export async function openTradeDispute(input: {
         destinationPath: adminPurchaseRequestsDestination(request.id),
       });
     }
-    pushNotification(snapshot, {
+    notificationPublications = [];
+    const buyerPublication = pushNotification(snapshot, {
       userId: request.buyerId,
       category: "dispute",
       title: "Dispute opened",
       message: `A dispute was opened for trade ${dispute.tradeId}.`,
       relatedTradeId: dispute.tradeId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
+      deferRealtime: true,
     });
-    pushNotification(snapshot, {
+    const sellerPublication = pushNotification(snapshot, {
       userId: request.sellerId,
       category: "dispute",
       title: "Dispute opened",
       message: `A dispute was opened for trade ${dispute.tradeId}.`,
       relatedTradeId: dispute.tradeId,
       relatedHref: requestDetailsHref(request.id),
+      whatsappEvent: "trade_update",
+      deferRealtime: true,
     });
+    if (buyerPublication) notificationPublications.push(buyerPublication);
+    if (sellerPublication) notificationPublications.push(sellerPublication);
     pushActivityLog(snapshot, {
       userId: input.openedByUserId,
       category: "dispute",
@@ -17813,6 +17845,7 @@ export async function openTradeDispute(input: {
     result = committed as { dispute: TradeDisputeCase; request: PurchaseRequest; created: boolean } | null;
     if (!result) throw new Error("Failed to save trade dispute.");
   }
+  for (const publication of notificationPublications) publishNotificationPublication(publication);
   if (result.created) {
     publishRealtimeEvent({
       type: "trade.status_changed",
@@ -17839,6 +17872,7 @@ export async function resolveTradeDisputeByAdmin(input: {
 
   const db = await readDb({ bypassCache: true });
   let committed: { dispute: TradeDisputeCase; request: PurchaseRequest; changed: boolean } | null = null;
+  let notificationPublications: DeferredNotificationPublication[] = [];
   const applyResolutionToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
     const actor = snapshot.users.find((candidate) => candidate.id === input.actorUserId);
     if (!actor || (!hasRole(actor, "admin") && !hasRole(actor, "owner"))) {
@@ -17851,6 +17885,7 @@ export async function resolveTradeDisputeByAdmin(input: {
     if (!request) throw new Error("Trade not found.");
     if (dispute.status === "resolved") {
       committed = { dispute, request, changed: false };
+      notificationPublications = notificationPublications.filter((publication) => snapshot.notifications.some((item) => item.id === publication.notification.id));
       return snapshot;
     }
 
@@ -17872,8 +17907,9 @@ export async function resolveTradeDisputeByAdmin(input: {
       createdAt: resolvedAt,
     });
     request.updatedAt = resolvedAt;
+    notificationPublications = [];
     for (const userId of new Set([request.buyerId, request.sellerId])) {
-      pushNotification(snapshot, {
+      const publication = pushNotification(snapshot, {
         userId,
         category: "dispute",
         title: "Dispute review resolved",
@@ -17884,8 +17920,11 @@ export async function resolveTradeDisputeByAdmin(input: {
         relatedHref: requestDetailsHref(request.id),
         actionHref: requestDetailsHref(request.id),
         actionLabel: "Open Trade Room",
+        whatsappEvent: "trade_update",
         forceInApp: true,
+        deferRealtime: true,
       });
+      if (publication) notificationPublications.push(publication);
     }
     await appendAuditLog(snapshot, {
       action: "trade_dispute_resolved",
@@ -17913,6 +17952,7 @@ export async function resolveTradeDisputeByAdmin(input: {
     result = committed as { dispute: TradeDisputeCase; request: PurchaseRequest; changed: boolean } | null;
     if (!result) throw new Error("Failed to save dispute resolution.");
   }
+  for (const publication of notificationPublications) publishNotificationPublication(publication);
   if (result.changed) {
     publishRealtimeEvent({
       type: "trade.status_changed",

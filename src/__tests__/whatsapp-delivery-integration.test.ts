@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
 import type { AlphaExchangeNotification, AlphaExchangeUser, PurchaseRequest } from "@/types/alpha-exchange";
 
 const mocks = vi.hoisted(() => ({
@@ -72,6 +73,7 @@ class FakeWhatsAppPool {
   newerStopExists = false;
   deliveries = new Map<string, DeliveryRow>();
   notifications = new Map<string, AlphaExchangeNotification>();
+  recoveryQuery: { sql: string; params: unknown[] } | null = null;
 
   constructor(
     readonly user: AlphaExchangeUser,
@@ -180,6 +182,7 @@ class FakeWhatsAppPool {
       return { rows, rowCount: rows.length };
     }
     if (sql.includes("join alpha_exchange.whatsapp_subscriptions") && sql.includes("as notification_payload")) {
+      this.recoveryQuery = { sql: String(sqlValue), params };
       const rows = [...this.notifications.values()]
         .filter((notification) => {
           const key = this.deliveryKey(notification.id, whatsappNotificationRevision(notification), notification.userId);
@@ -332,6 +335,7 @@ describe("WhatsApp durable delivery integration", () => {
     const recovered = {
       ...notification,
       id: "notification-recovered",
+      category: "dispute" as const,
       whatsappEventAt: "2026-09-12T00:05:00.000Z",
       whatsappEventKey: "wae-00000000-0000-4000-8000-000000000013",
     };
@@ -380,5 +384,39 @@ describe("WhatsApp durable delivery integration", () => {
     expect(pool.deliveries.has(
       `${recoveryUnderBacklog.id}:${recoveryUnderBacklog.whatsappEventKey}:${user.id}`,
     )).toBe(true);
-  });
+
+    // Execute the actual recovery SQL against PostgreSQL semantics, including
+    // the newly eligible dispute category and unrelated/old/duplicate rows.
+    const postgres = await PGlite.create();
+    try {
+      await postgres.exec(`
+        create schema alpha_exchange;
+        create table alpha_exchange.users (id text primary key);
+        create table alpha_exchange.notifications (id text primary key, user_id text, category text, payload jsonb);
+        create table alpha_exchange.whatsapp_subscriptions (user_id text, active boolean, consent_version text);
+        create table alpha_exchange.whatsapp_deliveries (notification_id text, notification_revision text, recipient_user_id text);
+      `);
+      await postgres.query("insert into alpha_exchange.users values ($1)", [user.id]);
+      await postgres.query("insert into alpha_exchange.whatsapp_subscriptions values ($1, true, $2)", [user.id, CURRENT_WHATSAPP_CONSENT_VERSION]);
+      const eventAt = new Date().toISOString();
+      const fixtures = [
+        { ...notification, id: "db-trade", whatsappEventAt: eventAt },
+        { ...notification, id: "db-dispute", category: "dispute", whatsappEventAt: eventAt },
+        { ...notification, id: "db-system", category: "system", whatsappEventAt: eventAt },
+        { ...notification, id: "db-old-dispute", category: "dispute", whatsappEventAt: "2020-01-01T00:00:00.000Z" },
+        { ...notification, id: "db-untagged", category: "dispute", whatsappEvent: undefined, whatsappEventAt: eventAt },
+        { ...notification, id: "db-malformed", category: "dispute", whatsappEventAt: "not-an-event-time" },
+        { ...notification, id: "db-duplicate", category: "dispute", whatsappEventAt: eventAt },
+      ];
+      for (const fixture of fixtures) {
+        await postgres.query("insert into alpha_exchange.notifications values ($1, $2, $3, $4::jsonb)", [fixture.id, user.id, fixture.category, JSON.stringify(fixture)]);
+      }
+      await postgres.query("insert into alpha_exchange.whatsapp_deliveries values ($1, $2, $3)", ["db-duplicate", notification.whatsappEventKey, user.id]);
+      expect(pool.recoveryQuery).not.toBeNull();
+      const result = await postgres.query<{ notification_payload: AlphaExchangeNotification }>(pool.recoveryQuery!.sql, pool.recoveryQuery!.params);
+      expect(result.rows.map((row) => row.notification_payload.id).sort()).toEqual(["db-dispute", "db-trade"]);
+    } finally {
+      await postgres.close();
+    }
+  }, 15_000);
 });

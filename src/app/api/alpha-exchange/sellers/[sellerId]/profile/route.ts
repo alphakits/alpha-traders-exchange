@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getPremiumSellerProfile } from "@/lib/alpha-exchange-store";
+import { requirePhoneVerificationForTrading } from "@/lib/api-auth";
 
 type RouteContext = {
   params: Promise<{ sellerId: string }>;
@@ -10,6 +11,8 @@ export async function GET(_: Request, context: RouteContext) {
   try {
     const { sellerId } = await context.params;
     const viewer = await getCurrentSessionUser();
+    const phoneVerification = viewer && requirePhoneVerificationForTrading(viewer);
+    if (phoneVerification) return phoneVerification;
     const profile = await getPremiumSellerProfile({
       sellerId,
       viewerUserId: viewer?.id,

@@ -92,6 +92,7 @@ describe("WhatsApp notification delivery policy", () => {
     expect(classifyWhatsAppNotification(notification({ whatsappEvent: "request_accepted" }))).toBe("request_accepted");
     expect(classifyWhatsAppNotification(notification({ whatsappEvent: "request_declined" }))).toBe("request_declined");
     expect(classifyWhatsAppNotification(notification({ whatsappEvent: "trade_update" }))).toBe("trade_update");
+    expect(classifyWhatsAppNotification(notification({ category: "dispute", whatsappEvent: "trade_update" }))).toBe("trade_update");
     expect(classifyWhatsAppNotification(notification({ whatsappEvent: "trade_completed", title: "Trade completed by admin" }))).toBe("trade_completed");
     expect(classifyWhatsAppNotification(notification({ whatsappEvent: "trade_cancelled" }))).toBe("trade_cancelled");
     expect(classifyWhatsAppNotification(notification({ whatsappEvent: "trade_room_message" }))).toBe("trade_room_message");
@@ -108,6 +109,7 @@ describe("WhatsApp notification delivery policy", () => {
     expect(classifyWhatsAppNotification(notification({ title: "New trade request", whatsappEvent: undefined }))).toBeNull();
     expect(classifyWhatsAppNotification(notification({ title: "Listing unavailable", whatsappEvent: undefined }))).toBeNull();
     expect(classifyWhatsAppNotification(notification({ category: "system" }))).toBeNull();
+    expect(classifyWhatsAppNotification(notification({ category: "dispute", whatsappEvent: undefined }))).toBeNull();
     expect(classifyWhatsAppNotification(notification({ relatedRequestId: undefined, relatedTradeId: undefined }))).toBeNull();
   });
 
@@ -141,6 +143,14 @@ describe("WhatsApp notification delivery policy", () => {
     expect(isWhatsAppEventApplicableToRequest("request_declined", request("declined"))).toBe(true);
     expect(isWhatsAppEventApplicableToRequest("trade_cancelled", request("cancelled"))).toBe(true);
     expect(isWhatsAppEventApplicableToRequest("trade_completed", request("review_open", { completedAt: "2026-09-12T00:00:00.000Z" }))).toBe(true);
+  });
+
+  it("delivers proposal responses while the request is pending, but suppresses closed requests", () => {
+    const termsProposal = { id: "proposal-1", kind: "counter_offer", status: "pending" } as PurchaseRequest["termsProposal"];
+    expect(isWhatsAppEventApplicableToRequest("trade_update", request("pending", { termsProposal }))).toBe(true);
+    expect(isWhatsAppEventApplicableToRequest("trade_update", request("pending"))).toBe(false);
+    expect(isWhatsAppEventApplicableToRequest("trade_update", request("cancelled", { termsProposal }))).toBe(false);
+    expect(isWhatsAppEventApplicableToRequest("trade_room_message", request("pending", { termsProposal }))).toBe(false);
   });
 
   it("keeps durable WhatsApp rows independent from snapshot-table rewrites", () => {

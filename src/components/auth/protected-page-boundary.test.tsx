@@ -14,9 +14,9 @@ const replace = vi.fn();
 const originalLocation = window.location;
 const privateMount = vi.fn();
 function PrivatePage() { privateMount(); return <p>Private trade history</p>; }
-function renderPage(initialSessionUser: ClientSessionUser | null = null) {
+function renderPage(initialSessionUser: ClientSessionUser | null = null, phoneVerificationRequired = false) {
   return render(<CanonicalSessionProvider initialSessionUser={initialSessionUser}>
-    <ProtectedPageBoundary locale="en"><PrivatePage /></ProtectedPageBoundary>
+    <ProtectedPageBoundary locale="en" phoneVerificationRequired={phoneVerificationRequired}><PrivatePage /></ProtectedPageBoundary>
   </CanonicalSessionProvider>);
 }
 beforeEach(() => {
@@ -31,6 +31,50 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
+  it.each(["buyer", "approved_seller", "pending_seller_approval", "admin", "owner"] as const)("never mounts exchange content for an unverified %s", async role => {
+    const account = { ...user, role, roles: [role] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: account })));
+    renderPage(account, true);
+    await act(async () => {});
+    expect(privateMount).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledWith("/en/verify-account?redirectTo=%2Fen%2Fusdt-exchange");
+  });
+  it.each([{ isPhotoVerified: true }, { phoneVerificationExempt: true }])("allows the server-resolved access result %j", async verified => {
+    const account = { ...user, ...verified };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: account })));
+    renderPage(account, true);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+  it("removes cached exchange content when a canonical refresh revokes phone verification", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ user: { ...user, isPhotoVerified: true } }))
+      .mockResolvedValueOnce(Response.json({ user: { ...user, isPhotoVerified: false } })));
+    renderPage({ ...user, isPhotoVerified: true }, true);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-changed")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(replace).toHaveBeenCalledWith("/en/verify-account?redirectTo=%2Fen%2Fusdt-exchange");
+  });
+  it.each(["/en/verify-account", "/en/support", "/ar/account-deletion"])("keeps %s reachable for an unverified account", async pathname => {
+    navigation.pathname = pathname;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user })));
+    renderPage(user, true);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+  it("keeps a student outside the exchange unaffected", async () => {
+    navigation.pathname = "/en/academy";
+    const account = { ...user, role: "student" as const, roles: ["student" as const], sellerStatus: "buyer" as const };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: account })));
+    renderPage(account, true);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
   it.each(["/en/prop-firms", "/ar/prop-firms/topstep", "/en/news", "/ar/news"])("removes %s member content when the user signs out", async pathname => {
     navigation.pathname = pathname;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ user }))));

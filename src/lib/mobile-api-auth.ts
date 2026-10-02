@@ -67,7 +67,7 @@ export async function requireMobileApiUser(
       ),
     };
   }
-  if (/^\/api\/mobile\/v1\/(?:marketplace|trades|seller)(?:\/|$)/.test(request.nextUrl.pathname)
+  if (/^\/api\/mobile\/v1\/(?:marketplace|trades|seller|admin)(?:\/|$)/.test(request.nextUrl.pathname)
     && needsMarketplacePhoneVerification(user)) {
     return {
       user: null, accessToken: null,

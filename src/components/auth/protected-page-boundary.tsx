@@ -4,12 +4,16 @@ import { useEffect, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { phoneVerificationDestinationForPage } from "@/lib/phone-verification-page";
 import type { AppLocale } from "@/i18n/routing";
 
-export function ProtectedPageBoundary({ children, locale }: { children: ReactNode; locale: AppLocale }) {
+export function ProtectedPageBoundary({ children, locale, phoneVerificationRequired = false }: { children: ReactNode; locale: AppLocale; phoneVerificationRequired?: boolean }) {
   const pathname = usePathname();
   const { user, isResolving, isRestoring, error, refresh } = useCanonicalSession();
   const protectedPage = isProtectedPage(pathname ?? "/");
+  const phoneDestination = phoneVerificationRequired && user && user.isPhotoVerified !== true && user.phoneVerificationExempt !== true
+    ? phoneVerificationDestinationForPage(user, pathname ?? "/", locale)
+    : null;
 
   useEffect(() => {
     if (protectedPage && !user && !isResolving && !error) {
@@ -18,7 +22,13 @@ export function ProtectedPageBoundary({ children, locale }: { children: ReactNod
     }
   }, [pathname, protectedPage, user, isResolving, error]);
 
-  if (!protectedPage || (user && !isRestoring)) return children;
+  useEffect(() => {
+    if (!phoneDestination || isRestoring || error || !user) return;
+    const destination = phoneVerificationDestinationForPage(user, `${pathname}${window.location.search}${window.location.hash}`, locale);
+    if (destination) window.location.replace(destination);
+  }, [phoneDestination, pathname, user, isRestoring, error, locale]);
+
+  if (!phoneDestination && (!protectedPage || (user && !isRestoring))) return children;
   // Never mount account components with an anonymous or unresolved principal.
   // A network outage is recoverable and must not be mistaken for a logout.
   return (

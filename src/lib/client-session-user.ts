@@ -14,6 +14,7 @@ import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 import { isVerified } from "@/lib/verification-bypass";
+import { isMarketplacePhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -50,6 +51,8 @@ export type ClientSessionUser = {
   isFoundingSeller?: boolean;
   emailVerified?: boolean;
   isPhotoVerified?: boolean;
+  /** Server-resolved exception; never substitutes for an actually verified phone. */
+  phoneVerificationExempt?: boolean;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   onboardingSelection?: OnboardingSelection;
   onboardingCompletedAt?: string;
@@ -176,6 +179,7 @@ export function toClientSessionUser(
     isFoundingSeller: user.isFoundingSeller,
     emailVerified: user.emailVerified === true,
     isPhotoVerified: options.isPhotoVerified ?? isVerified(user),
+    phoneVerificationExempt: isMarketplacePhoneVerificationExempt(user),
     buyerVerificationStatus: user.buyerVerificationStatus,
     onboardingSelection: user.onboardingSelection,
     onboardingCompletedAt: user.onboardingCompletedAt,

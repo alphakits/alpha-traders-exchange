@@ -6,19 +6,18 @@ intentionally fail-closed: deploying the code or adding credentials cannot
 send a message unless the relevant send switch, policy acknowledgement,
 approval reference, and approved-template gate are all enabled.
 
-## Current email-only baseline
+## Current staged SMS baseline
 
-Account verification currently uses email only. Keep
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=false` and
-`ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER=disabled` in production. Phone
-verification endpoints and phone-code delivery remain unavailable in this
-state.
+SMS phone-code delivery is configured separately through Twilio. Keep the
+mandatory phone requirement off until a real SMS/code-confirmation test passes;
+see `sms-phone-verification.md`. Email verification alone will not satisfy that
+phone requirement. WhatsApp delivery remains disabled until its own sender,
+credentials, template approvals, and account enrolment are complete.
 
-Twilio is independently fail-closed. Keep
-`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false`; stored `TWILIO_*` credentials alone
-cannot enable SMS or phone-code delivery. Remove unused Twilio credentials from
-the production environment when operational access is available, but do not
-treat credential removal as the kill switch.
+Twilio trade-notification SMS is independent from verification-code SMS. Keep
+`ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=false` while testing the separately enabled
+`ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED` gate. Preserve the production credentials
+needed for the verification test.
 
 ## Policy gate
 
@@ -47,7 +46,7 @@ Submit both `en_US` and `ar` translations.
 | `alpha_new_request` | You have a new request. Open Alpha Traders to review it. |
 | `alpha_request_accepted` | Your request was accepted. Open Alpha Traders to continue. |
 | `alpha_request_declined` | Your request was declined. Open Alpha Traders for details. |
-| `alpha_trade_update` | Your active Trade Room has a new status update. Open Alpha Traders. |
+| `alpha_trade_update` | Your request or Trade Room has a new status update. Open Alpha Traders. |
 | `alpha_trade_room_message` | A new message is waiting in your active Trade Room. Open Alpha Traders to read it. |
 | `alpha_trade_room_reminder` | A participant is waiting in your active Trade Room. Open Alpha Traders. |
 | `alpha_request_completed` | Your request is complete. Open Alpha Traders for details. |
@@ -56,6 +55,18 @@ Submit both `en_US` and `ar` translations.
 Keep the approved Meta templates synchronized with
 `src/lib/whatsapp-platform.ts`. Do not add amounts, chat content, wallet or bank
 details, contact details, or payment instructions.
+
+Initial requests and price offers notify the listing's canonical seller using
+`alpha_new_request`. Counter-offer proposals, buyer responses, amount updates,
+payment/evidence steps, prepared withdrawal details, and dispute open/resolution
+use `alpha_trade_update`. Acceptance/decline, cancellation, completion, chat,
+and action reminders retain their dedicated events. Delivery runs after the
+database commit and is independent of email and in-app notification delivery.
+
+The owner's existing WhatsApp Business app is not an API sender merely because
+its display name is Alpha Traders. Preserve the current app/account while
+checking an eligible Coexistence onboarding route. Do not delete the existing
+WhatsApp account or migrate its number as part of unattended configuration.
 
 ## Authentication template to submit
 
