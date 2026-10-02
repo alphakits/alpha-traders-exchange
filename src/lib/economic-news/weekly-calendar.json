@@ -3,6 +3,8 @@
   "verifiedAt": "2026-10-02T20:40:57Z",
   "coverageStart": "2026-09-25T00:00:00Z",
   "coverageEnd": "2026-11-07T00:00:00Z",
+  "weekStart": "2026-10-05",
+  "weekEnd": "2026-10-12",
   "events": [
     {
       "id": "official-dol-initial-claims-20261001",

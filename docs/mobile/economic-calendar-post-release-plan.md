@@ -2,7 +2,7 @@
 
 **Current scope, 2 October 2026:** the owner authorized a free weekly USD
 calendar and rejected provider fees. The website and existing app shell now
-use a curated official-source snapshot refreshed every Friday. See
+use a curated official-source snapshot refreshed every Sunday. See
 `docs/economic-news.md` for its sources, maintenance and verification contract.
 It preserves canonical sign-in, bilingual display and IANA timezones; it does
 not offer consensus forecasts or live result alerts. The broader licensed-feed

@@ -8,7 +8,8 @@ const sourceNames = { bls: "U.S. Bureau of Labor Statistics", bea: "U.S. Bureau 
   dol: "U.S. Department of Labor", fed: "Federal Reserve", census: "U.S. Census Bureau" };
 
 export function weeklyNewsFeed(calendar: WeeklyCalendar, now: number, eventId?: string): NewsFeed {
-  const base = { mode: "weekly" as const, updatedAt: calendar.verifiedAt, provider: null, coverageEnd: calendar.coverageEnd };
+  const base = { mode: "weekly" as const, updatedAt: calendar.verifiedAt, provider: null,
+    coverageEnd: calendar.coverageEnd, weekStart: calendar.weekStart, weekEnd: calendar.weekEnd };
   // Expired coverage and snapshots from the future never masquerade as current.
   if (Date.parse(calendar.verifiedAt) > now + 5 * 60_000 || now >= Date.parse(calendar.coverageEnd)) {
     return { ...base, status: "unavailable", events: [] };

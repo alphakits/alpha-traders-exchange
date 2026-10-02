@@ -33,12 +33,20 @@ export const weeklyCalendarSchema = z.object({
   verifiedAt: utc,
   coverageStart: utc,
   coverageEnd: utc,
+  weekStart: z.iso.date(),
+  weekEnd: z.iso.date(),
   events: z.array(eventSchema).min(1).max(150),
 }).strict().superRefine((calendar, ctx) => {
   const start = Date.parse(calendar.coverageStart);
   const end = Date.parse(calendar.coverageEnd);
   const verified = Date.parse(calendar.verifiedAt);
   const day = 86_400_000;
+  const weekStart = Date.parse(`${calendar.weekStart}T00:00:00Z`);
+  const weekEnd = Date.parse(`${calendar.weekEnd}T00:00:00Z`);
+  if (new Date(weekStart).getUTCDay() !== 1 || weekEnd - weekStart !== 7 * day
+    || calendar.weekStart < calendar.coverageStart.slice(0, 10) || calendar.weekEnd > calendar.coverageEnd.slice(0, 10)) {
+    ctx.addIssue({ code: "custom", message: "Week must cover Monday through Sunday within snapshot coverage" });
+  }
   if (start > verified || end <= verified || end - start > 45 * day) {
     ctx.addIssue({ code: "custom", message: "Invalid snapshot coverage" });
   }

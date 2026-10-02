@@ -34,7 +34,7 @@ describe("free weekly official calendar", () => {
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt) - 1).events[0].actual).toBeNull();
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt)).events[0].actual).toBe("0");
   });
-  it.each(["duplicate", "source", "malformed URL", "agency", "future actual", "offset", "forecast", "coverage"])("rejects invalid %s data before deployment", (problem) => {
+  it.each(["duplicate", "source", "malformed URL", "agency", "future actual", "offset", "forecast", "coverage", "week length", "week start"])("rejects invalid %s data before deployment", (problem) => {
     const data = clone();
     if (problem === "duplicate") data.events.push({ ...data.events[0] });
     if (problem === "source") data.events[0].sourceUrl = "https://www.bls.gov.evil.example/release";
@@ -44,6 +44,8 @@ describe("free weekly official calendar", () => {
     if (problem === "offset") data.events[0].scheduledAt = "2026-10-01T08:30:00-04:00";
     if (problem === "forecast") Object.assign(data.events[0], { forecast: "1%" });
     if (problem === "coverage") data.coverageEnd = data.coverageStart;
+    if (problem === "week length") data.weekEnd = data.weekStart;
+    if (problem === "week start") data.weekStart = new Date(Date.parse(`${data.weekStart}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
     expect(weeklyCalendarSchema.safeParse(data).success).toBe(false);
   });
   it("uses UTC instants across different U.S. and Israeli daylight saving transitions", () => {

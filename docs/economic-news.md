@@ -12,7 +12,7 @@ and return to sign-in with the original event destination.
 ## Free weekly calendar — 2 October 2026
 
 The owner rejected recurring provider fees and authorized a free weekly
-calendar refreshed every Friday. Without licensed-feed configuration, News now
+calendar refreshed every Sunday for the complete coming Monday–Sunday week. Without licensed-feed configuration, News now
 serves a curated snapshot from `src/lib/economic-news/weekly-calendar.json`.
 It uses public release schedules and confirmed figures from BLS, BEA, the U.S.
 Department of Labor, the Federal Reserve and the Census Bureau. This path
@@ -28,7 +28,7 @@ English and Arabic, polls its private API every five minutes while visible,
 and retains Israel/device timezone selection. Expired sessions still clear
 the data and redirect to sign-in. The existing app displays the same screen.
 
-Friday maintenance is performed by the owner's scheduled Codex automation,
+Sunday maintenance is performed by the owner's scheduled Codex automation,
 using official public sources and the connected GitHub repository. Update only
 the JSON on current `main` after reading its file SHA; the existing Git/Vercel
 integration builds the update. Retain seven days of recent events and about
@@ -37,7 +37,7 @@ converted from `America/New_York` using IANA DST rules. Do not infer dates from
 last month's weekday, fabricate release times, forecasts or actuals, or mark
 old values as newly released. Exclude an unconfirmed exact time or use
 `timing: tentative`; uncertain numeric values stay null. Do not advance
-`verifiedAt` unless the source dates/results were actually checked.
+`verifiedAt` unless the source dates/results were actually checked. Set `weekStart` to the coming Monday calendar date and `weekEnd` to the following Monday (exclusive), as YYYY-MM-DD. The default Week tab shows this entire week, including already-passed scheduled events; Upcoming retains the broader future window.
 
 Each actual needs a confirmed `publishedAt` no later than verification and no
 earlier than its release. An unknown actual stays null. Prior/revised values

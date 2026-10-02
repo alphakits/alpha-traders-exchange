@@ -28,6 +28,8 @@ export type NewsFeed = {
   events: NewsEvent[];
   mode?: "weekly";
   coverageEnd?: string;
+  weekStart?: string;
+  weekEnd?: string;
 };
 
 export type NewsPreferences = { inApp: boolean; email: boolean };
