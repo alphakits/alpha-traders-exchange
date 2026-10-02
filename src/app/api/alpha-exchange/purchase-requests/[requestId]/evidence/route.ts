@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { getTradeEvidenceForRequest, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -40,7 +40,7 @@ function normalizeBase64Payload(value: string) {
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return withPrivateNoStoreHeaders(unauthorized);
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return withPrivateNoStoreHeaders(emailVerificationRequired);
   try {
     const { requestId } = await context.params;
@@ -61,7 +61,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return withPrivateNoStoreHeaders(unauthorized);
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return withPrivateNoStoreHeaders(emailVerificationRequired);
   const rate = await checkSharedRateLimit({
     headers: request.headers,

@@ -13,6 +13,7 @@ import type {
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
+import { isVerified } from "@/lib/verification-bypass";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -174,7 +175,7 @@ export function toClientSessionUser(
     isFoundingMember: user.isFoundingMember,
     isFoundingSeller: user.isFoundingSeller,
     emailVerified: user.emailVerified === true,
-    isPhotoVerified: options.isPhotoVerified ?? Boolean(user.verifiedPhone && user.phoneVerifiedAt),
+    isPhotoVerified: options.isPhotoVerified ?? isVerified(user),
     buyerVerificationStatus: user.buyerVerificationStatus,
     onboardingSelection: user.onboardingSelection,
     onboardingCompletedAt: user.onboardingCompletedAt,

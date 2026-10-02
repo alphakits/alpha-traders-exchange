@@ -16,7 +16,7 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: () => null,
+  requireMarketplaceVerificationForTrading: () => null,
 }));
 vi.mock("@/lib/roles", () => ({ hasRole: () => true }));
 vi.mock("@/lib/rate-limit", () => ({

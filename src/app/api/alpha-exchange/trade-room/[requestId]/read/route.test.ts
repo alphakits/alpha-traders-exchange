@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 const mocks = vi.hoisted(() => ({ user: vi.fn(), room: vi.fn(), limit: vi.fn() }));
-vi.mock("@/lib/api-auth", () => ({ requireApiUser: mocks.user, requireEmailVerificationForTrading: () => null }));
+vi.mock("@/lib/api-auth", () => ({ requireApiUser: mocks.user, requireMarketplaceVerificationForTrading: () => null }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ getTradeRoomData: mocks.room }));
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.limit }));
 import { POST } from "./route";

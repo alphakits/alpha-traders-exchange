@@ -2,7 +2,7 @@ import { PrivateContactError } from "@/lib/buyer-contact";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 import { after, NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests, sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
@@ -12,7 +12,7 @@ import { tradeDestination } from "@/lib/action-destinations";
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   const requests = await getMyPurchaseRequests(user.id, user.role);
   return NextResponse.json({ requests }, {
@@ -64,15 +64,16 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ code: "PURCHASE_REQUEST_FAILED", message: error, details: null, requestId }, { status: 500, headers: withRequestIdHeaders() });
   };
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
-  if (emailVerificationRequired) {
+  const verificationRequired = requireMarketplaceVerificationForTrading(user);
+  if (verificationRequired) {
+    const verification = await verificationRequired.json() as { error: string; code: string };
     return denied(
-      "Email verification is required before marketplace actions.",
-      403,
-      "EMAIL_VERIFICATION_REQUIRED",
+      verification.error,
+      verificationRequired.status,
+      verification.code,
       undefined,
       undefined,
-      { gate: "requireEmailVerificationForTrading" },
+      { gate: "requireMarketplaceVerificationForTrading" },
     );
   }
   if (!hasRole(user, "buyer") && !hasRole(user, "approved_seller") && !hasRole(user, "admin")) {

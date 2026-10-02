@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.authorize,
   requireApiSellerWorkspaceActor: mocks.authorize,
-  requireEmailVerificationForTrading: () => null,
+  requireMarketplaceVerificationForTrading: () => null,
 }));
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getNotificationsForUser: mocks.notifications,

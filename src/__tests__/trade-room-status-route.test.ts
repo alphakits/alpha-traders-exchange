@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   logEvent: vi.fn(),
   prepareTradeEventEmails: vi.fn(),
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   updatePurchaseRequestStatus: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.checkRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
@@ -67,7 +67,7 @@ describe("Trade Room status route post-commit reliability", () => {
       user: { id: "seller-1", role: "approved_seller", emailVerified: true },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.updatePurchaseRequestStatus.mockResolvedValue({
       request: {

@@ -225,6 +225,7 @@ describe("requireApiSeller", () => {
 describe("requirePhoneVerificationForTrading", () => {
   it("allows configured bypass email even without verified phone", () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
     const denied = requirePhoneVerificationForTrading({
       id: "user-1",
@@ -238,6 +239,7 @@ describe("requirePhoneVerificationForTrading", () => {
 
   it("still denies non-whitelisted accounts without verified phone", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
     process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
     const denied = requirePhoneVerificationForTrading({
       id: "user-2",

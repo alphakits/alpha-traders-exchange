@@ -107,6 +107,28 @@ describe("notification platform", () => {
     expect(validateTwilioSignature({ signature: "wrong", url, params })).toBe(false);
   });
 
+  it("allows requested OTP messages without enabling trade notification SMS", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "queued" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await sendTwilioMessageWithRetry({ to: "+15557654321", body: "OTP", purpose: "verification", maxAttempts: 1 })).ok).toBe(true);
+    expect((await sendTwilioMessageWithRetry({ to: "+15557654321", body: "Trade alert" })).ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat an immediately failed Twilio message as a successful send", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "failed" }), { status: 201 })));
+    expect((await sendTwilioMessageWithRetry({ to: "+15557654321", body: "OTP", maxAttempts: 1 })).ok).toBe(false);
+  });
+
   it("retries transient Twilio failures once", async () => {
     vi.useFakeTimers();
     vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "true");

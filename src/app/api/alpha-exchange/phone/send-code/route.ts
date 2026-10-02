@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       supportCode: "OTP_PROVIDER_CONFIGURATION",
     }, { status: 503 });
   }
-  const rate = await checkSharedRateLimit({ headers: request.headers, key: `profile-phone-send:${user.id}`, maxRequests: 5, windowMs: 60 * 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, identifier: user.id, key: "phone-otp-send", maxRequests: 5, windowMs: 60 * 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   try {
     const body = await request.json();

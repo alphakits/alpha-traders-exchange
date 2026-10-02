@@ -150,6 +150,9 @@ export interface AlphaExchangeUser {
   phoneOtpExpiresAt?: string;
   phoneOtpAttempts?: number;
   phoneOtpPhone?: string;
+  phoneOtpRequestedAt?: string;
+  phoneOtpSendsDate?: string;
+  phoneOtpSendsToday?: number;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   buyerVerificationAttempts?: number;
   buyerVerificationWindowStartedAt?: string;

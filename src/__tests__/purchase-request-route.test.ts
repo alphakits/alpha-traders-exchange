@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   after: vi.fn(),
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   checkRateLimit: vi.fn(),
   createPurchaseRequest: vi.fn(),
   getMyPurchaseRequests: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock("next/server", async (importOriginal) => {
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -61,7 +61,7 @@ import { TradeBlockedError } from "@/lib/alpha-exchange-store";
 describe("purchase request route", () => {
   beforeEach(() => {
     mocks.requireApiUser.mockReset();
-    mocks.requireEmailVerificationForTrading.mockReset();
+    mocks.requireMarketplaceVerificationForTrading.mockReset();
     mocks.checkRateLimit.mockReset();
     mocks.createPurchaseRequest.mockReset();
     mocks.getMyPurchaseRequests.mockReset();
@@ -84,7 +84,7 @@ describe("purchase request route", () => {
       },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.hasRole.mockImplementation((_user: unknown, role: string) => role === "buyer");
     mocks.isVerified.mockReturnValue(true);
@@ -203,9 +203,12 @@ describe("purchase request route", () => {
     expect(raw).not.toContain("Seller Secret");
   });
 
-  it("denies an unverified-email session before mutating a purchase request", async () => {
-    const denied = new Response(JSON.stringify({ code: "EMAIL_VERIFICATION_REQUIRED" }), { status: 403 });
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(denied);
+  it.each([
+    ["EMAIL_VERIFICATION_REQUIRED", "Email verification is required before marketplace actions."],
+    ["PHONE_VERIFICATION_REQUIRED", "Phone verification is required before marketplace actions."],
+  ])("preserves %s before mutating a purchase request", async (code, error) => {
+    const denied = new Response(JSON.stringify({ code, error }), { status: 403 });
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(denied);
     const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
       method: "POST",
       body: JSON.stringify({ listingId: "listing-1" }),
@@ -215,6 +218,9 @@ describe("purchase request route", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(403);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ code, message: error });
+    expect(response.headers.get("X-Request-Id")).toBe(payload.requestId);
     expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
   });
 

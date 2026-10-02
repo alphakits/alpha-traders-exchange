@@ -7,13 +7,16 @@ import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { LogoutButton } from "@/components/auth/logout-button";
 
 type Props = {
   locale: "ar" | "en";
   redirectTo?: string;
   initialEmail: string;
   initialName: string;
+  initialPhone?: string;
   phoneVerificationEnabled: boolean;
+  phoneVerificationRequired?: boolean;
 };
 
 type ApiErrorPayload = {
@@ -36,7 +39,9 @@ export function AccountVerificationGate({
   redirectTo,
   initialEmail,
   initialName,
+  initialPhone = "",
   phoneVerificationEnabled,
+  phoneVerificationRequired = false,
 }: Props) {
   const isAr = locale === "ar";
   const { user, isResolving: loading, error: sessionError, refresh } = useCanonicalSession();
@@ -47,12 +52,20 @@ export function AccountVerificationGate({
     firstName: initialName.split(" ")[0] ?? "",
     lastName: initialName.split(" ").slice(1).join(" ") ?? "",
     displayName: initialName,
-    phone: "",
+    phone: initialPhone,
     token: "",
   });
   const [sendingOtp, setSendingOtp] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
+  const [sentPhone, setSentPhone] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = window.setTimeout(() => setCooldownSeconds(value => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldownSeconds]);
 
   const target = useMemo(() => normalizeRedirectPath(redirectTo, locale), [redirectTo, locale]);
   const emailVerified = user?.emailVerified === true;
@@ -75,39 +88,36 @@ export function AccountVerificationGate({
       firstName: prev.firstName || firstName,
       lastName: prev.lastName || lastName,
       displayName: prev.displayName || user.fullName || "",
+      phone: prev.phone || user.whatsappNumber || "",
     }));
   }, [user]);
 
   useEffect(() => {
-    if (!loading && !sessionError && emailVerified) {
+    if (!loading && !sessionError && emailVerified && (!phoneVerificationRequired || phoneVerified)) {
       window.location.replace(`/${locale}${target === "/" ? "" : target}`);
     }
-  }, [loading, sessionError, emailVerified, locale, target]);
+  }, [loading, sessionError, emailVerified, phoneVerificationRequired, phoneVerified, locale, target]);
 
   async function sendOtp() {
+    if (sendingOtp || verifyingOtp || cooldownSeconds > 0) return;
     setSendingOtp(true);
     setError(null);
     setStatus(null);
     try {
-      const sourceName = [phoneForm.firstName, phoneForm.lastName].filter(Boolean).join(" ").trim() || user?.fullName?.trim() || initialName.trim();
-      const nameParts = sourceName.split(/\s+/).filter(Boolean);
-      const firstName = (phoneForm.firstName || nameParts[0] || "").trim();
-      const lastName = (phoneForm.lastName || nameParts.slice(1).join(" ") || "").trim();
-      if (!firstName || !lastName || !phoneForm.phone.trim()) {
+      const phone = phoneForm.phone.trim();
+      if (!phone) {
         throw new Error(isAr ? "يرجى إدخال رقم هاتف صالح قبل إرسال رمز التحقق." : "Please enter a valid phone number before sending a verification code.");
       }
-      const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
+      const res = await fetch("/api/alpha-exchange/phone/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify({
-          firstName,
-          lastName,
-          displayName: user?.fullName?.trim() || phoneForm.displayName || sourceName,
-          phone: phoneForm.phone.trim(),
-        }),
+        body: JSON.stringify({ phone }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
+      setSentPhone(phone);
+      setPhoneForm(previous => ({ ...previous, token: "" }));
+      setCooldownSeconds(60);
       setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
@@ -120,14 +130,15 @@ export function AccountVerificationGate({
   }
 
   async function verifyOtp() {
+    if (sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
     setVerifyingOtp(true);
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch("/api/auth/onboarding/buyer/verify-otp", {
+      const res = await fetch("/api/alpha-exchange/phone/verify-code", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify({ phone: phoneForm.phone, token: phoneForm.token }),
+        body: JSON.stringify({ phone: sentPhone, code: phoneForm.token }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "فشل التحقق من الرمز." : "Verification failed.", isAr));
@@ -177,7 +188,11 @@ export function AccountVerificationGate({
                   : "Complete verification to access Alpha Exchange"}
               </h1>
               <p className="mt-2 text-sm text-[#D1D5DB]">
-                {phoneVerificationEnabled
+                {phoneVerificationRequired
+                  ? (isAr
+                    ? "يجب تأكيد البريد الإلكتروني ورقم الهاتف برسالة نصية قبل استخدام حساب المشتري أو البائع."
+                    : "Verify your email and phone by SMS before using your buyer or seller account.")
+                  : phoneVerificationEnabled
                   ? (isAr
                     ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
                     : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading.")
@@ -239,7 +254,7 @@ export function AccountVerificationGate({
                   </span>
                 ) : (
                   <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-300">
-                    {isAr ? "اختياري" : "Optional"}
+                    {phoneVerificationRequired ? (isAr ? "مطلوب" : "Required") : (isAr ? "اختياري" : "Optional")}
                   </span>
                 )
               ) : (
@@ -253,15 +268,25 @@ export function AccountVerificationGate({
                 <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تم التحقق من رقم هاتفك." : "Your phone number is verified."}</p>
               ) : (
                 <div className="mt-3 grid gap-3">
-                  <p className="text-xs text-[#9CA3AF]">
+                  <p className="text-sm text-[#9CA3AF]">
                     {isAr
-                      ? "التحقق من الهاتف اختياري. سيصل الرمز عبر قناة التحقق الآمنة المفعّلة حاليًا."
-                      : "Phone verification is optional. The code arrives through the currently enabled secure verification channel."}
+                      ? "اضغط إرسال رمز التحقق لتصلك رسالة تحقق من Alpha Traders. الرمز صالح لمدة 10 دقائق."
+                      : "Tap Send verification code to receive a verification message from Alpha Traders. The code expires in 10 minutes."}
                   </p>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input
                       value={phoneForm.phone}
-                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, phone: event.target.value }))}
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      dir="ltr"
+                      maxLength={30}
+                      disabled={sendingOtp || verifyingOtp}
+                      onChange={(event) => {
+                        setPhoneForm((prev) => ({ ...prev, phone: event.target.value, token: "" }));
+                        setSentPhone(null);
+                        setStatus(null);
+                      }}
                       placeholder={isAr ? "رقم الهاتف (+972 / 05...)" : "Phone (+972 / 05...)"}
                       aria-label={isAr ? "رقم الهاتف" : "Phone"}
                     />
@@ -270,16 +295,23 @@ export function AccountVerificationGate({
                       className="w-full sm:w-auto sm:min-w-[196px]"
                       loading={sendingOtp}
                       loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                      disabled={!phoneForm.phone.trim()}
+                      disabled={!phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0}
                       onClick={() => void sendOtp()}
                     >
-                      {isAr ? "إرسال رمز التحقق" : "Send verification code"}
+                      {cooldownSeconds > 0
+                        ? (isAr ? `أعد الإرسال بعد ${cooldownSeconds} ثانية` : `Resend in ${cooldownSeconds}s`)
+                        : (isAr ? "إرسال رمز التحقق" : "Send verification code")}
                     </Button>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input
                       value={phoneForm.token}
-                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value }))}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      dir="ltr"
+                      maxLength={6}
+                      disabled={!sentPhone || sendingOtp || verifyingOtp}
+                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value.replace(/\D/g, "").slice(0, 6) }))}
                       placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
                       aria-label={isAr ? "رمز التحقق" : "Verification code"}
                     />
@@ -289,14 +321,14 @@ export function AccountVerificationGate({
                       variant="secondary"
                       loading={verifyingOtp}
                       loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                      disabled={phoneForm.token.length !== 6 || !phoneForm.phone.trim()}
+                      disabled={!/^\d{6}$/.test(phoneForm.token) || !sentPhone || sendingOtp}
                       onClick={() => void verifyOtp()}
                     >
                       {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
                     </Button>
                   </div>
-                  <p className="text-[11px] text-[#6CAEFF]">
-                    {isAr ? "لن يُشارك رقمك مع طرف التداول الآخر." : "Your number is not shared with the other trade participant."}
+                  <p className="text-sm text-[#6CAEFF]">
+                    {isAr ? "رقمك خاص. لا يراه إلا أنت ومالك المنصة، ولا يظهر للمشترين أو البائعين." : "Your number is private. Only you and the owner can see it. It is hidden from buyers and sellers."}
                   </p>
                 </div>
               )
@@ -315,6 +347,15 @@ export function AccountVerificationGate({
         {status ? <p className="mt-4 text-sm text-emerald-300">{status}</p> : null}
 
         <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-[#9CA3AF]">
+          {phoneVerificationRequired ? (
+            <>
+              <Link href="/support" className="text-[#C9A227] hover:underline">
+                {isAr ? "الحصول على مساعدة" : "Get help"}
+              </Link>
+              <LogoutButton locale={locale} variant="ghost" idleLabel={isAr ? "تسجيل الخروج" : "Sign out"} />
+            </>
+          ) : (
+            <>
           <Link href="/onboarding" className="text-[#C9A227] hover:underline">
             {isAr ? "العودة إلى الإعداد الأولي" : "Back to onboarding"}
           </Link>
@@ -322,6 +363,8 @@ export function AccountVerificationGate({
           <Link href="/profile" className="text-[#C9A227] hover:underline">
             {isAr ? "فتح الملف الشخصي" : "Open profile"}
           </Link>
+            </>
+          )}
         </div>
       </div>
     </section>

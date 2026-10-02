@@ -1,0 +1,38 @@
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ findUserById: vi.fn() }));
+vi.mock("@/lib/alpha-exchange-store", () => ({ findUserById: mocks.findUserById }));
+import { requireMobileApiUser } from "@/lib/mobile-api-auth";
+const user = { id: "buyer-test", role: "buyer", roles: ["buyer"], emailVerified: true };
+const metadata = { appVersion: "999.0.0", buildNumber: "999", platform: "ios" as const, deviceId: "device-test", locale: "en" as const };
+const service = { validateAccessToken: vi.fn(), revokeDevice: vi.fn() };
+beforeEach(() => {
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+  vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
+  vi.stubEnv("ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION", "");
+  vi.stubEnv("PHOTO_VERIFICATION_BYPASS_EMAILS", "");
+  mocks.findUserById.mockReset().mockResolvedValue(user);
+  service.validateAccessToken.mockReset().mockResolvedValue({ status: "valid", session: { userId: user.id } });
+  service.revokeDevice.mockReset();
+});
+afterEach(() => vi.unstubAllEnvs());
+function request(path: string) { return new NextRequest(`https://example.test/api/mobile/v1/${path}`, { headers: { Authorization: "Bearer test-access-token" } }); }
+
+describe("mobile routes cannot bypass the SMS requirement", () => {
+  it.each(["marketplace/listings", "trades", "seller/listings"])("blocks %s while preserving the authenticated device session", async path => {
+    const result = await requireMobileApiUser(request(path), "request-test", metadata, service as never);
+    expect(result.unauthorized?.status).toBe(403);
+    expect(await result.unauthorized?.json()).toMatchObject({ error: { code: "PHONE_VERIFICATION_REQUIRED" } });
+    expect(service.revokeDevice).not.toHaveBeenCalled();
+  });
+  it.each(["settings/phone/send-code", "settings/phone/verify-code", "auth/me", "auth/logout"])("keeps %s accessible for verification and recovery", async path => {
+    const result = await requireMobileApiUser(request(path), "request-test", metadata, service as never);
+    expect(result.user).toMatchObject({ id: user.id });
+    expect(result.unauthorized).toBeNull();
+  });
+  it("allows a canonically verified buyer", async () => {
+    mocks.findUserById.mockResolvedValue({ ...user, verifiedPhone: "+972521234567", phoneVerifiedAt: "2026-10-01T12:00:00.000Z" });
+    const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
+    expect(result.unauthorized).toBeNull();
+  });
+});

@@ -46,7 +46,9 @@ const ENV_VARS: EnvVar[] = [
   { key: "TWILIO_AUTH_TOKEN", required: false, description: "Twilio auth token for server-side SMS delivery and callback validation" },
   { key: "TWILIO_PHONE_NUMBER", required: false, description: "Twilio E.164 sender number for server-side SMS delivery" },
   { key: "ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", required: false, description: "Explicitly enable all outbound Twilio SMS" },
+  { key: "ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", required: false, description: "Enable requested verification SMS without enabling trade notification SMS" },
   { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", required: false, description: "Explicitly enable optional phone verification" },
+  { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", required: false, description: "Require buyer and seller phone verification only after live SMS testing" },
   { key: "ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", required: false, description: "Phone verification transport: disabled, twilio, or whatsapp" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED", required: false, description: "Expose explicit WhatsApp notification consent controls after Meta policy clearance" },
   { key: "ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED", required: false, description: "Enable approved WhatsApp Cloud API template delivery" },
@@ -234,13 +236,17 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
     const whatsappAuthTemplateApproved = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED);
     const whatsappPolicyApproved = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED);
     const twilioSendEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_TWILIO_SEND_ENABLED);
+    const twilioOtpSendEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED);
     const phoneVerificationEnabled = isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED);
+    if (isExplicitlyEnabled(process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED) && !phoneVerificationEnabled) {
+      errors.push("Mandatory phone verification requires ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED=true.");
+    }
     const phoneVerificationProvider = process.env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase() || "disabled";
     const whatsappPhoneVerificationSelected = phoneVerificationProvider === "whatsapp";
     if (!["disabled", "twilio", "whatsapp"].includes(phoneVerificationProvider)) {
       errors.push("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER must be disabled, twilio, or whatsapp.");
     }
-    if (twilioSendEnabled) {
+    if (twilioSendEnabled || twilioOtpSendEnabled) {
       const missingTwilio = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"]
         .filter((key) => !process.env[key]?.trim());
       if (missingTwilio.length > 0) {
@@ -250,8 +256,8 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
     if (phoneVerificationEnabled && phoneVerificationProvider === "disabled") {
       errors.push("Phone verification requires an explicit twilio or whatsapp provider.");
     }
-    if (phoneVerificationEnabled && phoneVerificationProvider === "twilio" && !twilioSendEnabled) {
-      errors.push("Twilio phone verification requires ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=true.");
+    if (phoneVerificationEnabled && phoneVerificationProvider === "twilio" && !twilioSendEnabled && !twilioOtpSendEnabled) {
+      errors.push("Twilio phone verification requires ALPHA_EXCHANGE_TWILIO_SEND_ENABLED=true or ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED=true.");
     }
     if (phoneVerificationEnabled && whatsappPhoneVerificationSelected && !whatsappAuthSendEnabled) {
       errors.push(

@@ -28,5 +28,9 @@ type VerificationState = {
 export function isVerified(user: VerificationState | null | undefined) {
   if (!user) return false;
   if (isPhotoVerificationBypassed(user.email)) return true;
-  return Boolean(user.verifiedPhone && user.phoneVerifiedAt);
+  return Boolean(
+    /^\+[1-9]\d{7,14}$/.test(user.verifiedPhone ?? "")
+    && user.phoneVerifiedAt
+    && Number.isFinite(Date.parse(user.phoneVerifiedAt)),
+  );
 }

@@ -3,13 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   getTradeRoomData: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -29,7 +29,7 @@ describe("Trade Room email verification gate", () => {
       user: { id: "buyer-1", role: "buyer", emailVerified: true, verifiedPhone: "", phoneVerifiedAt: "" },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.getTradeRoomData.mockResolvedValue({
       request: { id: "request-1", status: "accepted" },
       listing: null,
@@ -63,7 +63,7 @@ describe("Trade Room email verification gate", () => {
   });
 
   it("denies an unverified email before loading any Trade Room data", async () => {
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(
       NextResponse.json({ code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 }),
     );
     const response = await GET(

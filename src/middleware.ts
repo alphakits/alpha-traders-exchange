@@ -2,8 +2,7 @@ import createMiddleware from "next-intl/middleware";
 import { NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
 import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
-import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 import { allowsLocalTestSupportRequest } from "@/lib/runtime-safety";
 import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
@@ -85,8 +84,6 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
   const isTradeRoomRoute = /^\/(ar|en)\/trade-room(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
-  const phoneVerificationRequired = isMarketplacePhoneVerificationEnabled();
-  const hasVerifiedPhone = request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
 
   if (isProtectedRoute && !hasSession) {
     const response = NextResponse.redirect(new URL(getSignedOutPageDestination(`${pathname}${request.nextUrl.search}`), request.url));
@@ -94,7 +91,9 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
     response.headers.set("Vary", "Cookie");
     return response;
   }
-  if (isSellerWorkspaceRoute && hasSession && (!hasVerifiedEmail || (phoneVerificationRequired && !hasVerifiedPhone))) {
+  // Phone enforcement happens in the server layout using canonical user data,
+  // so stale or forged cookies cannot bypass it or cause an owner redirect loop.
+  if (isSellerWorkspaceRoute && hasSession && !hasVerifiedEmail) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";
     const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
     verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);

@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const rate = await checkSharedRateLimit({
       headers: request.headers,
       identifier: auth.user.id,
-      key: "mobile:phone-verification:verify",
+      key: "phone-otp-verify",
       maxRequests: 5,
       windowMs: 60 * 60_000,
     });

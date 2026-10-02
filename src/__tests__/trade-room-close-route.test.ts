@@ -3,14 +3,14 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   checkRateLimit: vi.fn(),
   closePurchaseRequestManually: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -26,7 +26,7 @@ import { PATCH } from "@/app/api/alpha-exchange/trade-room/[requestId]/close/rou
 describe("trade room manual close route", () => {
   beforeEach(() => {
     mocks.requireApiUser.mockReset();
-    mocks.requireEmailVerificationForTrading.mockReset();
+    mocks.requireMarketplaceVerificationForTrading.mockReset();
     mocks.checkRateLimit.mockReset();
     mocks.closePurchaseRequestManually.mockReset();
 
@@ -34,7 +34,7 @@ describe("trade room manual close route", () => {
       user: { id: "buyer-1", role: "buyer", emailVerified: true },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.closePurchaseRequestManually.mockResolvedValue({ id: "req-1", status: "cancelled", closeReason: "Buyer requested close" });
   });
@@ -77,7 +77,7 @@ describe("trade room manual close route", () => {
   });
 
   it("denies an unverified email before closing the trade", async () => {
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
     const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/close", {
       method: "PATCH",
       body: JSON.stringify({ reason: "Busy" }),

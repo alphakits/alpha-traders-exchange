@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openTradeDispute } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 const PRIVATE_NO_STORE_HEADERS = {
@@ -11,7 +11,7 @@ const PRIVATE_NO_STORE_HEADERS = {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  const emailVerificationRequired = requireMarketplaceVerificationForTrading(user);
   if (emailVerificationRequired) return emailVerificationRequired;
   const rate = await checkSharedRateLimit({
     headers: request.headers,

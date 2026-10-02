@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requireEmailVerificationForTrading: vi.fn(),
+  requireMarketplaceVerificationForTrading: vi.fn(),
   activateBuyerOnboardingWithoutPhone: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   createRateLimitResponse: vi.fn(),
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
+  requireMarketplaceVerificationForTrading: mocks.requireMarketplaceVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -32,7 +32,7 @@ describe("buyer onboarding activation", () => {
       user: { id: "buyer-1", role: "buyer", emailVerified: true, verifiedPhone: "", phoneVerifiedAt: "" },
       unauthorized: null,
     });
-    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValue(null);
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.activateBuyerOnboardingWithoutPhone.mockResolvedValue({
       id: "buyer-1",
@@ -60,7 +60,7 @@ describe("buyer onboarding activation", () => {
   });
 
   it("rejects an unverified email before changing Buyer onboarding state", async () => {
-    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(
+    mocks.requireMarketplaceVerificationForTrading.mockReturnValueOnce(
       NextResponse.json({ code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 }),
     );
     const response = await POST(new NextRequest("http://localhost/api/auth/onboarding/buyer/activate", {
