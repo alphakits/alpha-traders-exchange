@@ -112,7 +112,10 @@ export function newsEventStatus(event: NewsEvent, now: number) {
 }
 
 export function newsDayKey(iso: string, timeZone: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(iso));
+  // Calendar filtering compares ISO dates. Locale punctuation/order can vary
+  // between browser ICU versions, including the installed iOS app's WebView.
+  return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value).join("-");
 }
 
 export function newsResultSummary(event: NewsEvent, locale: NewsLocale) {
