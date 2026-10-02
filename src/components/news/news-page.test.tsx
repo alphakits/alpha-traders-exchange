@@ -27,6 +27,38 @@ describe("USD News page", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify(feed))));
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+  it.each(["en", "ar"] as const)("shows the weekly calendar honestly without live controls in %s", async locale => {
+    session.user = { id: "weekly-user" };
+    const weekly: NewsFeed = { ...feed, mode: "weekly", updatedAt: new Date(now - 86_400_000).toISOString(),
+      events: [{ ...event, forecast: null }], coverageEnd: new Date(now + 10 * 86_400_000).toISOString() };
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify(weekly)));
+    render(<NewsPage locale={locale} initialFeed={weekly} initialNow={now} />);
+    expect(screen.getByText(locale === "ar" ? "تقويم أسبوعي · تحديث كل جمعة" : "Weekly calendar · Updated every Friday")).toBeTruthy();
+    expect(screen.queryByText(locale === "ar" ? "المتوقع" : "Forecast")).toBeNull();
+    expect(screen.queryByText(/News updates are delayed|تحديث الأخبار متأخر|may be out of date/)).toBeNull();
+    expect(document.querySelector('a[href^="http"]')).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(299_999); });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/news", expect.objectContaining({ cache: "no-store" }));
+  });
+  it("shows verified weekly results and labels a passed schedule without inventing a result", () => {
+    const released = { ...event, scheduledAt: "2026-09-23T11:30:00Z", actual: "0%", forecast: null };
+    const passed = { ...event, id: "official-bls-pending-20260923", scheduledAt: "2026-09-23T11:45:00Z", forecast: null };
+    render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [released, passed] }} initialNow={now} />);
+    expect(screen.getByText("Scheduled time passed")).toBeTruthy();
+    expect(screen.queryByText("Awaiting result")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    expect(screen.getByText("Confirmed result")).toBeTruthy();
+    expect(screen.getByText("0%")).toBeTruthy();
+    expect(screen.queryByText("Forecast")).toBeNull();
+  });
+  it("hides expired weekly coverage even before a successful API refresh", () => {
+    render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", coverageEnd: new Date(now).toISOString() }} initialNow={now} />);
+    expect(screen.getByText("News is temporarily unavailable")).toBeTruthy();
+    expect(screen.queryByText("CPI m/m")).toBeNull();
+  });
   it("renders compact upcoming USD news in Israel time with no made-up actual", () => {
     render(<NewsPage locale="en" initialFeed={feed} initialNow={now} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("USD news");

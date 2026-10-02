@@ -9,7 +9,7 @@ import { useCanonicalSession } from "@/components/auth/canonical-session-provide
 import { Button } from "@/components/ui/button";
 import { NewsPreferences } from "./news-preferences";
 import { getSignedOutPageDestination } from "@/lib/protected-page";
-import { NEWS_STALE_AFTER_MS, newsDayKey, newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
+import { newsFeedStaleAfterMs, newsDayKey, newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
 
 type Filter = "upcoming" | "today" | "released";
 type RefreshFeedback = "preparing" | "updated" | "unavailable" | "failed";
@@ -32,34 +32,38 @@ function countdown(iso: string, now: number, locale: NewsLocale) {
   return isAr ? `خلال ${Math.floor(hours / 24)} يوم و${hours % 24} ساعة` : `In ${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-function EventCard({ event, locale, timeZone, now, selected = false }: {
-  event: NewsEvent; locale: NewsLocale; timeZone: string; now: number; selected?: boolean;
+function EventCard({ event, locale, timeZone, now, selected = false, weekly = false }: {
+  event: NewsEvent; locale: NewsLocale; timeZone: string; now: number; selected?: boolean; weekly?: boolean;
 }) {
   const isAr = locale === "ar";
   const status = newsEventStatus(event, now);
   const labels = isAr ? {
     released: "صدرت النتيجة", scheduled: "قادم", awaiting: "بانتظار النتيجة", tentative: "موعد مبدئي", no_numeric_result: "حدث دون نتيجة رقمية",
   } : { released: "Released", scheduled: "Upcoming", awaiting: "Awaiting result", tentative: "Tentative time", no_numeric_result: "No numeric result" };
+  if (weekly) {
+    labels.released = isAr ? "نتيجة مؤكدة" : "Confirmed result";
+    labels.awaiting = isAr ? "انتهى الموعد المجدول" : "Scheduled time passed";
+  }
   return (
     <article id={`event-${event.id}`} className={`scroll-mt-24 rounded-2xl border bg-[#0B0C0E]/90 p-4 sm:p-5 ${selected ? "border-[#D4AF37]/70" : "border-white/10"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <span className="inline-flex items-center gap-2 font-medium text-red-300"><Folder className="h-3.5 w-3.5 fill-red-400/20" aria-hidden="true" />USD · {isAr ? "تأثير مرتفع" : "High impact"}</span>
+        <span className="inline-flex items-center gap-2 font-medium text-red-300"><Folder className="h-3.5 w-3.5 fill-red-400/20" aria-hidden="true" />USD · {weekly ? (isAr ? "حدث رئيسي" : "Major event") : (isAr ? "تأثير مرتفع" : "High impact")}</span>
         <span className={`rounded-full px-2.5 py-1 ${status === "released" ? "bg-emerald-400/10 text-emerald-300" : "bg-white/5 text-[#C7CDD6]"}`}>{labels[status]}</span>
       </div>
       <h2 className="mt-3 text-base font-semibold text-white sm:text-lg" dir="auto">{newsEventTitle(event, locale)}</h2>
       {isAr && event.titleAr !== event.title ? <p className="mt-1 text-xs text-[#8F96A3]" dir="ltr">{event.title}</p> : null}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#9CA3AF]">
-        <time dateTime={event.scheduledAt}>{formatDate(event.scheduledAt, locale, timeZone)}</time>
+        <time dateTime={event.scheduledAt}>{formatDate(event.scheduledAt, locale, timeZone, event.timing === "exact")}</time>
         {status === "scheduled" ? <span className="text-[#D4AF37]">{countdown(event.scheduledAt, now, locale)}</span> : null}
         {event.reference ? <span dir="auto">{event.reference}</span> : null}
       </div>
-      <dl className="mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/[0.07] bg-white/[0.025] py-3" dir="ltr">
+      {!weekly || event.previous !== null || status === "released" ? <dl className={`mt-4 grid ${weekly ? "grid-cols-2" : "grid-cols-3"} divide-x divide-white/10 rounded-xl border border-white/[0.07] bg-white/[0.025] py-3`} dir="ltr">
         {[
           { label: isAr ? "السابق" : "Previous", value: event.previous, gold: false },
-          { label: isAr ? "المتوقع" : "Forecast", value: event.forecast, gold: false },
+          ...(!weekly ? [{ label: isAr ? "المتوقع" : "Forecast", value: event.forecast, gold: false }] : []),
           { label: isAr ? "النتيجة" : "Actual", value: status === "released" ? event.actual : null, gold: status === "released" },
         ].map((item) => <div key={item.label} className="min-w-0 px-2 text-center"><dt className="text-[11px] text-[#9CA3AF]">{item.label}</dt><dd className={`mt-1 break-words text-base font-semibold tabular-nums ${item.gold ? "text-[#E6C66A]" : "text-white"}`}>{item.value ?? "—"}</dd></div>)}
-      </dl>
+      </dl> : null}
       {status === "released" ? <p className="mt-3 text-xs leading-relaxed text-[#BAC2CF]">{newsResultSummary(event, locale)}</p> : null}
       {event.revised !== null || event.corrected ? <p className="mt-2 text-xs text-amber-200">{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
       {status === "no_numeric_result" ? <p className="mt-3 text-xs text-[#9CA3AF]">{isAr ? "هذا الحدث لا يتضمن نتيجة رقمية. نص البيان أو الخطاب غير متاح في هذه التغذية." : "This event has no numeric result. The statement or speech text is not included in this feed."}</p> : null}
@@ -86,6 +90,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshFeedback, setRefreshFeedback] = useState<RefreshFeedback | null>(null);
   const feedStatusRef = useRef(initialFeed.status);
+  const feedModeRef = useRef(initialFeed.mode);
 
   useEffect(() => { setDeviceZone(Intl.DateTimeFormat().resolvedOptions().timeZone); }, []);
   useEffect(() => {
@@ -116,6 +121,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         const data = await response.json() as NewsFeed;
         if (!disposed) {
           feedStatusRef.current = data.status;
+          feedModeRef.current = data.mode;
           setFeed(data);
           setNow(Date.now());
           setRefreshFeedback(manual
@@ -140,7 +146,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     const timer = setInterval(() => {
       if (document.visibilityState === "hidden") return;
       setNow(Date.now());
-      const interval = feedStatusRef.current === "not_configured" ? ACTIVATION_CHECK_INTERVAL_MS : LIVE_CHECK_INTERVAL_MS;
+      const interval = feedStatusRef.current === "not_configured" || feedModeRef.current === "weekly" ? ACTIVATION_CHECK_INTERVAL_MS : LIVE_CHECK_INTERVAL_MS;
       if (Date.now() - lastCheckStartedAt >= interval) void refresh();
     }, LIVE_CHECK_INTERVAL_MS);
     document.addEventListener("visibilitychange", onVisible);
@@ -154,8 +160,10 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     };
   }, [eventId, refreshKey, locale, router]);
 
-  const stale = feed.status === "stale" || (feed.updatedAt !== null && now - Date.parse(feed.updatedAt) > NEWS_STALE_AFTER_MS);
-  const available = feed.status === "ready" || feed.status === "stale";
+  const weekly = feed.mode === "weekly";
+  const stale = feed.status === "stale" || (feed.updatedAt !== null && now - Date.parse(feed.updatedAt) > newsFeedStaleAfterMs(feed));
+  const available = (feed.status === "ready" || feed.status === "stale")
+    && (!weekly || !feed.coverageEnd || now < Date.parse(feed.coverageEnd));
   const selected = eventId ? feed.events.find((event) => event.id === eventId) : undefined;
   const next = feed.events.find((event) => newsEventStatus(event, now) === "scheduled");
   const today = newsDayKey(new Date(now).toISOString(), timeZone);
@@ -187,26 +195,27 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         </div>
         {refreshFeedback ? <p role="status" className={`mt-3 text-sm ${refreshFeedback === "failed" ? "text-amber-200" : "text-[#C7CDD6]"}`}>{refreshMessages[refreshFeedback]}</p> : null}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-y border-white/10 py-3 text-xs">
-          <span className="inline-flex items-center gap-2 text-red-300"><Folder className="h-4 w-4 fill-red-400/20" aria-hidden="true" />USD · {isAr ? "تأثير مرتفع فقط" : "High impact only"}</span>
+          <span className="inline-flex items-center gap-2 text-red-300"><Folder className="h-4 w-4 fill-red-400/20" aria-hidden="true" />USD · {weekly ? (isAr ? "أحداث رئيسية مختارة" : "Selected major events") : (isAr ? "تأثير مرتفع فقط" : "High impact only")}</span>
           <label className="flex items-center gap-2 text-[#9CA3AF]"><Clock3 className="h-3.5 w-3.5" aria-hidden="true" /><span>{isAr ? "التوقيت" : "Timezone"}</span><select value={timeZone} onChange={(e) => setTimeZone(e.target.value)} className={`min-h-9 max-w-[13rem] rounded-lg border border-white/15 bg-[#101114] px-2 text-white ${FOCUS}`}><option value="Asia/Jerusalem">{isAr ? "توقيت إسرائيل" : "Israel time"}</option>{deviceZone !== "Asia/Jerusalem" ? <option value={deviceZone}>{isAr ? "توقيت الجهاز" : "Device time"} · {deviceZone}</option> : null}</select></label>
         </div>
-        {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data."}</p> : null}
+        {weekly ? <div className="mt-4 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 p-3 text-sm leading-relaxed text-[#C7CDD6]"><p className="font-medium text-[#E6C66A]">{isAr ? "تقويم أسبوعي · تحديث كل جمعة" : "Weekly calendar · Updated every Friday"}</p><p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "مواعيد مختارة من المصادر الرسمية المجانية. النتائج هي آخر أرقام مؤكدة وقت التحديث الأسبوعي، وليست تحديثات لحظية. لا يشمل توقعات السوق المجمّعة." : "Selected releases from free official sources. Results are the last confirmed figures at the weekly update, not a live feed. Consensus forecasts are not included."}</p></div> : null}
+        {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{weekly ? (isAr ? "قد يكون التقويم الأسبوعي قديمًا. المعروض هو آخر تحديث تم التحقق منه." : "The weekly calendar may be out of date. This is the last verified snapshot.") : (isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data.")}</p> : null}
         {!available ? (
           <div role="status" className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-10 text-center"><CalendarDays className="mx-auto h-7 w-7 text-[#D4AF37]" aria-hidden="true" /><h2 className="mt-3 font-semibold">{feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable")}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[#9CA3AF]">{feed.status === "not_configured"
             ? (isAr ? "تحديثات الأخبار المباشرة لم تبدأ بعد. تفحص الصفحة التفعيل تلقائيًا، وستظهر المواعيد والنتائج هنا عند بدء الخدمة." : "Live news updates have not started yet. This page checks automatically and will show schedules and results here when the service is activated.")
             : (isAr ? "ستظهر هنا المواعيد والنتائج المؤكدة عند توفر تحديثات الأخبار." : "Verified schedules and results will appear here when news updates are available.")}</p></div>
         ) : (
           <>
-            {selected ? <div className="mt-5"><EventCard event={selected} locale={locale} timeZone={timeZone} now={now} selected /></div> : eventId ? <p role="status" className="mt-4 text-sm text-[#9CA3AF]">{isAr ? "هذا الخبر غير متاح حاليًا." : "This event is currently unavailable."}</p> : next ? (
+            {selected ? <div className="mt-5"><EventCard event={selected} locale={locale} timeZone={timeZone} now={now} selected weekly={weekly} /></div> : eventId ? <p role="status" className="mt-4 text-sm text-[#9CA3AF]">{isAr ? "هذا الخبر غير متاح حاليًا." : "This event is currently unavailable."}</p> : next ? (
               <a href={`#event-${next.id}`} onClick={() => setFilter("upcoming")} className={`mt-5 flex items-center justify-between gap-4 rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-[#C9A227]/10 to-transparent p-4 sm:p-5 ${FOCUS}`}><div><p className="text-xs text-[#D4AF37]">{isAr ? "الخبر القادم" : "Next release"}</p><p className="mt-1 font-semibold" dir="auto">{newsEventTitle(next, locale)}</p><p className="mt-1 text-xs text-[#9CA3AF]">{formatDate(next.scheduledAt, locale, timeZone)}</p></div><span className="shrink-0 text-sm font-semibold text-[#E6C66A]">{countdown(next.scheduledAt, now, locale)}</span></a>
             ) : null}
             <div className="mt-5 flex gap-1 rounded-xl border border-white/10 bg-black/20 p-1" role="group" aria-label={isAr ? "عرض الأخبار" : "News view"}>{(["upcoming", "today", "released"] as const).map((item) => <button key={item} type="button" aria-pressed={filter === item} onClick={() => setFilter(item)} className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-medium transition-colors ${FOCUS} ${filter === item ? "bg-white/10 text-white" : "text-[#9CA3AF] hover:text-white"}`}>{filterLabels[item]}</button>)}</div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-2">{filtered.map((event) => <EventCard key={event.id} event={event} locale={locale} timeZone={timeZone} now={now} />)}</div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">{filtered.map((event) => <EventCard key={event.id} event={event} locale={locale} timeZone={timeZone} now={now} weekly={weekly} />)}</div>
             {!filtered.length ? <p className="py-10 text-center text-sm text-[#9CA3AF]">{isAr ? "لا توجد أحداث أخرى مطابقة لهذا العرض." : "No other events match this view."}</p> : null}
           </>
         )}
-        {feed.updatedAt ? <p className="mt-4 text-xs text-[#8F96A3]">{isAr ? "آخر مزامنة: " : "Last synced: "}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}
-        {user ? <div className="mt-6"><NewsPreferences key={`${user.id}:${available}`} locale={locale} /></div> : null}
+        {feed.updatedAt ? <p className="mt-4 text-xs text-[#8F96A3]">{weekly ? (isAr ? "آخر تحقق أسبوعي: " : "Last weekly verification: ") : (isAr ? "آخر مزامنة: " : "Last synced: ")}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}
+        {user && !weekly ? <div className="mt-6"><NewsPreferences key={`${user.id}:${available}`} locale={locale} /></div> : null}
         <p className="mt-5 text-xs leading-relaxed text-[#737C8C]">{isAr ? "قد تتغير مواعيد الإصدار. النتائج معلومات اقتصادية ولا تضمن اتجاه حركة السوق." : "Release times may change. Results are economic information and do not guarantee a market direction."}</p>
       </div>
     </div>

@@ -26,14 +26,21 @@ export type NewsFeed = {
   updatedAt: string | null;
   provider: string | null;
   events: NewsEvent[];
+  mode?: "weekly";
+  coverageEnd?: string;
 };
 
 export type NewsPreferences = { inApp: boolean; email: boolean };
 export const NEWS_STALE_AFTER_MS = 3 * 60_000;
+export const WEEKLY_NEWS_STALE_AFTER_MS = 8 * 86_400_000;
 export const NEWS_RELEASE_ALERT_WINDOW_MS = 15 * 60_000;
 
 export function newsEventId(raw: unknown): string | undefined {
-  return typeof raw === "string" && /^(?:te-\d{1,24}|fxs-[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12})$/.test(raw) ? raw : undefined;
+  return typeof raw === "string" && /^(?:te-\d{1,24}|fxs-[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}|official-(?:bls|bea|dol|fed|census)-[a-z0-9-]{1,64})$/.test(raw) ? raw : undefined;
+}
+
+export function newsFeedStaleAfterMs(feed: NewsFeed) {
+  return feed.mode === "weekly" ? WEEKLY_NEWS_STALE_AFTER_MS : NEWS_STALE_AFTER_MS;
 }
 
 const ARABIC_TITLES: Record<string, string> = {

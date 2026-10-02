@@ -1,5 +1,14 @@
 # High-impact economic calendar — post-release plan
 
+**Current scope, 2 October 2026:** the owner authorized a free weekly USD
+calendar and rejected provider fees. The website and existing app shell now
+use a curated official-source snapshot refreshed every Friday. See
+`docs/economic-news.md` for its sources, maintenance and verification contract.
+It preserves canonical sign-in, bilingual display and IANA timezones; it does
+not offer consensus forecasts or live result alerts. The broader licensed-feed
+plan below remains an optional future extension, not a requirement for the
+free calendar. Do not purchase or enable any paid service.
+
 This is the controlled plan for the requested market-events feature after the
 core Alpha Traders app, full Exchange, push delivery, and real-device flows are
 approved and stable. It is deliberately not part of the first release

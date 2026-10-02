@@ -20,7 +20,7 @@ describe("private economic news API", () => {
     expect(await response.json()).not.toHaveProperty("events");
   });
 
-  it.each(["te-123", "fxs-4fe1bd69-acce-4b24-9d54-f45c81708d29"])("serves %s to signed-in users with no public/CDN caching", async eventId => {
+  it.each(["te-123", "fxs-4fe1bd69-acce-4b24-9d54-f45c81708d29", "official-bls-nfp-20261002"])("serves %s to signed-in users with no public/CDN caching", async eventId => {
     const feed = { status: "not_configured", updatedAt: null, provider: null, events: [] };
     mocks.auth.mockResolvedValue({ user: { id: "fixture-member" }, unauthorized: null });
     mocks.feed.mockResolvedValue(feed);

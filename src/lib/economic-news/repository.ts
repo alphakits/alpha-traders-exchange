@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { NEWS_STALE_AFTER_MS, shouldAlertForRelease, type NewsEvent, type NewsFeed, type NewsPreferences } from "./model";
 import { configuredNewsProvider, newsProviderConfigured, newsProviderPrefix } from "./config";
+import { readWeeklyNewsFeed } from "./weekly";
 
 // These tables belong only to News. Exchange snapshots and trade rows are never written here.
 const SCHEMA = `
@@ -68,7 +69,7 @@ async function initializeNewsStorage(): Promise<Pool> {
 
 export async function readNewsFeed(now = Date.now(), eventId?: string): Promise<NewsFeed> {
   const provider = configuredNewsProvider();
-  if (!provider) return { status: "not_configured", updatedAt: null, provider: null, events: [] };
+  if (!provider) return readWeeklyNewsFeed(now, eventId);
   try {
     const pool = await newsPool();
     const [sync, rows] = await Promise.all([
