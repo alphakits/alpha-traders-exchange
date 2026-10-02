@@ -589,7 +589,7 @@ export function whatsappNotificationRevision(notification: AlphaExchangeNotifica
 export function classifyWhatsAppNotification(
   notification: AlphaExchangeNotification,
 ): WhatsAppEventType | null {
-  if (notification.category !== "trade") return null;
+  if (notification.category !== "trade" && notification.category !== "dispute") return null;
   if (!notification.relatedRequestId && !notification.relatedTradeId) return null;
   const event = notification.whatsappEvent;
   return event && isWhatsAppEventType(event) ? event : null;
@@ -618,7 +618,11 @@ export function isWhatsAppEventApplicableToRequest(event: WhatsAppEventType, req
     "usdt_sent",
   ]);
   if (event === "new_request") return request.status === "pending";
-  if (event === "request_accepted" || event === "trade_update") {
+  if (event === "trade_update") {
+    return activeStatuses.has(request.status)
+      || (request.status === "pending" && Boolean(request.termsProposal));
+  }
+  if (event === "request_accepted") {
     return activeStatuses.has(request.status);
   }
   if (event === "trade_room_message" || event === "trade_room_reminder") {
@@ -1195,10 +1199,10 @@ export async function runWhatsAppDeliverySweep() {
       and subscription.active = true
       and subscription.consent_version = $1
      join alpha_exchange.users recipient on recipient.id = notification.user_id
-     where notification.category = 'trade'
+     where notification.category in ('trade', 'dispute')
        and notification.payload ->> 'whatsappEvent' = any($4::text[])
        and notification.payload ->> 'whatsappEventAt'
-             ~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
+             ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
        and notification.payload ->> 'whatsappEventKey'
              ~ '^wae-[0-9a-fA-F-]{36}$'
        and notification.payload ->> 'whatsappEventAt' >= $2

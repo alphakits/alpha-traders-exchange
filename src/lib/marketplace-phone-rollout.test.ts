@@ -37,9 +37,18 @@ describe("reviewed SMS requirement rollout", () => {
     const blocked = requireMarketplaceVerificationForTrading({ ...base, ...verified, emailVerified: false });
     expect(await blocked?.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
   });
-  it.each(["owner", "admin"])("preserves canonical %s access without a phone", role => {
-    expect(requireMarketplaceVerificationForTrading({ ...base, role, roles: [role] })).toBeNull();
-    expect(marketplacePhoneVerificationDestination({ ...base, role, roles: [role] }, "/en/dashboard/seller", "en")).toBeNull();
+  it.each(["owner", "admin"])("does not exempt an unlisted %s account", role => {
+    expect(requireMarketplaceVerificationForTrading({ ...base, role, roles: [role] })?.status).toBe(403);
+    expect(marketplacePhoneVerificationDestination({ ...base, role, roles: [role] }, "/en/dashboard/seller", "en")).toContain("/en/verify-account");
+  });
+  it.each(["Alphatradersai@gmail.com", " Claudiahttps11@gmail.com ", "Jozenmark834@yahoo.com"])("exempts only the canonical approved account %s without fabricating verification", email => {
+    const account = { ...base, email };
+    expect(requireMarketplaceVerificationForTrading(account)).toBeNull();
+    expect(marketplacePhoneVerificationDestination(account, "/en/dashboard/seller", "en")).toBeNull();
+    expect(account).not.toHaveProperty("verifiedPhone");
+  });
+  it.each(["alphatradersai@gmail.com.example", "other+jozenmark834@yahoo.com", "claudiahttps11+alias@gmail.com", ""])("does not exempt a lookalike account %j", email => {
+    expect(requireMarketplaceVerificationForTrading({ ...base, email })?.status).toBe(403);
   });
   it("redirects existing participants and keeps their intended destination", () => {
     expect(marketplacePhoneVerificationDestination(base, "/ar/trade-room/request-test?view=chat", "ar"))

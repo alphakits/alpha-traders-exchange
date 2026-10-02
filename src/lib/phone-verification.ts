@@ -1,5 +1,7 @@
 import { allowsTestOnlyRuntime } from "@/lib/runtime-safety";
 import { isVerified } from "@/lib/verification-bypass";
+import { isMarketplacePhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
+import { phoneVerificationDestinationForPage } from "@/lib/phone-verification-page";
 
 function isExplicitlyEnabled(value: string | undefined) {
   return value?.trim().toLowerCase() === "true";
@@ -36,8 +38,7 @@ type MarketplaceVerificationUser = {
 
 export function needsMarketplacePhoneVerification(user: MarketplaceVerificationUser | null | undefined) {
   if (!user || !isMarketplacePhoneVerificationRequired()) return false;
-  const roles = [user.role, ...(user.roles ?? [])];
-  if (roles.includes("owner") || roles.includes("admin")) return false;
+  if (isMarketplacePhoneVerificationExempt(user)) return false;
   return !isVerified(user);
 }
 
@@ -47,14 +48,6 @@ export function marketplacePhoneVerificationDestination(
   pagePath: string,
   locale: "en" | "ar",
 ) {
-  if (!user || !needsMarketplacePhoneVerification(user) || !pagePath.startsWith("/") || pagePath.includes("\\")) return null;
-  const path = pagePath.split(/[?#]/, 1)[0].replace(/^\/(?:ar|en)(?=\/|$)/, "");
-  // Keep verification, recovery, sign-out support, and legal pages reachable.
-  if (/^\/(?:verify-account|verify-email|login|register|forgot-password|reset-password|auth|account-deletion|support|help-center|privacy-policy|terms|contact|safety-trust|report-abuse)(?:\/|$)/.test(path)) return null;
-  const roles = [user.role, ...(user.roles ?? [])];
-  const participant = roles.some(role => ["buyer", "approved_seller", "pending_seller_approval"].includes(role))
-    || ["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus ?? "");
-  const exchangePage = /^\/(?:usdt-exchange|trade-room|trades|dashboard\/(?:buyer|seller))(?:\/|$)/.test(path);
-  if (!participant && !exchangePage) return null;
-  return `/${locale}/verify-account?redirectTo=${encodeURIComponent(pagePath)}`;
+  if (!user || !needsMarketplacePhoneVerification(user)) return null;
+  return phoneVerificationDestinationForPage(user, pagePath, locale);
 }

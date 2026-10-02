@@ -65,8 +65,8 @@ export const WHATSAPP_EVENT_TEMPLATES = Object.freeze({
     name: "alpha_trade_update",
     languageCodes: Object.freeze({ ar: "ar", en: "en_US" }),
     previews: Object.freeze({
-      ar: "يوجد تحديث جديد في غرفة المتابعة النشطة. افتح Alpha Traders.",
-      en: "Your active Trade Room has a new status update. Open Alpha Traders.",
+      ar: "يوجد تحديث جديد على طلبك أو في غرفة المتابعة. افتح Alpha Traders.",
+      en: "Your request or Trade Room has a new status update. Open Alpha Traders.",
     }),
   }),
   trade_room_message: Object.freeze({

@@ -18,6 +18,7 @@ import {
   getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   openTradeDispute,
+  resolveTradeDisputeByAdmin,
   reportSeller,
   submitBuyerTradeReview,
   submitSellerReviewResponse,
@@ -358,6 +359,8 @@ describe("Trade content policy", () => {
     expect(saved.disputes).toHaveLength(1);
     expect(saved.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "dispute_opened")).toHaveLength(1);
     expect(saved.notifications.filter((entry) => entry.title === "Dispute opened")).toHaveLength(3);
+    expect(saved.notifications.filter((entry) => entry.title === "Dispute opened" && entry.whatsappEvent === "trade_update").map((entry) => entry.userId).sort())
+      .toEqual([BUYER_ID, SELLER_ID].sort());
     expect(saved.activityLog.filter((entry) => entry.title === "Dispute opened")).toHaveLength(1);
     expect(vi.mocked(publishRealtimeEvent).mock.calls.filter(([event]) => (
       event.type === "trade.status_changed" && event.payload.request?.id === REQUEST_ID
@@ -394,6 +397,21 @@ describe("Trade content policy", () => {
     expect(vi.mocked(publishRealtimeEvent).mock.calls.filter(([event]) => (
       event.type === "trade.status_changed" && event.payload.request?.id === REQUEST_ID
     ))).toHaveLength(1);
+  });
+
+  it("alerts both participants once when an admin resolves their active trade dispute", async () => {
+    for (const account of snapshot().users) {
+      account.notificationPreferences = { inApp: true, email: false, sms: false };
+    }
+    snapshot().purchaseRequests[0]!.status = "payment_sent";
+    reloadStoreFromSnapshot();
+    const dispute = await openTradeDispute({ purchaseRequestId: REQUEST_ID, openedByUserId: BUYER_ID, reason: "Payment needs review" });
+    const input = { disputeId: dispute.id, actorUserId: OWNER_ID, actorRole: "owner" as const, resolutionNotes: "Review complete; continue in the Trade Room" };
+    await resolveTradeDisputeByAdmin(input);
+    await resolveTradeDisputeByAdmin(input);
+    const alerts = snapshot().notifications.filter((entry) => entry.title === "Dispute review resolved");
+    expect(alerts.map((entry) => entry.userId).sort()).toEqual([BUYER_ID, SELLER_ID].sort());
+    expect(alerts.every((entry) => entry.whatsappEvent === "trade_update" && entry.relatedRequestId === REQUEST_ID)).toBe(true);
   });
 
   it("redacts legacy close and review content in counterparty workspace, Trade Room, and public seller profile", async () => {

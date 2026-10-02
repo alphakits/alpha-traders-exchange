@@ -92,7 +92,7 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
 
 /**
  * Returns null (bypass) when:
- *   - User is admin or owner (always bypass)
+ *   - The canonical account email is in the owner's explicit exception list
  *   - mandatory phone verification is not explicitly enabled
  *   - User has an already-verified phone number
  * Otherwise returns a 403 response requiring phone verification.
@@ -140,6 +140,8 @@ export async function requireApiAdmin() {
       unauthorized: NextResponse.json({ error: "Admin access required." }, { status: 403 }),
     };
   }
+  const phoneVerification = requirePhoneVerificationForTrading(user);
+  if (phoneVerification) return { user: null, unauthorized: phoneVerification };
   return { user, unauthorized: null };
 }
 
@@ -159,6 +161,8 @@ export async function requireApiOwner() {
       unauthorized: NextResponse.json({ error: "Owner access required." }, { status: 403 }),
     };
   }
+  const phoneVerification = requirePhoneVerificationForTrading(user);
+  if (phoneVerification) return { user: null, unauthorized: phoneVerification };
   return { user, unauthorized: null };
 }
 

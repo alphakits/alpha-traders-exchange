@@ -34,8 +34,10 @@ are needed.
 Only after Stage 1 passes, set
 `ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED=true` in the reviewed production
 deployment. Existing unverified buyers and sellers are directed to
-`/verify-account`; email verification remains required. Owner/admin access,
-support, legal, account deletion, and verification endpoints remain reachable.
+`/verify-account`; email verification remains required. Only the owner's three
+explicitly approved account emails are exempt from the phone requirement.
+An owner/admin role alone grants no exemption. Support, legal, account deletion,
+and verification endpoints remain reachable.
 Pure student/guest browsing outside exchange pages is unaffected.
 
 Website marketplace actions, seller/buyer role helpers, and mobile marketplace
@@ -61,7 +63,8 @@ needs to stop. Preserve the independent trade-notification setting.
 ## Validation
 
 Focused tests cover requirement defaults and strict enablement, buyer/seller
-authorization, owner/admin exemptions, non-exchange student access, recovery
+authorization, the three explicit account exemptions, unverified admin/owner
+roles, non-exchange student access, recovery
 routes, both phone endpoint flows, failed delivery, secure cookies, persistence,
 code expiry and replay, simultaneous guesses, simultaneous duplicate-number
 claims, resend limits, contact changes, mobile API enforcement, and OTP-only
@@ -80,3 +83,9 @@ cookie, invalid-code rejection, confirmation persistence, role preservation,
 and access after logout/login. Those HTTP checks seeded only a local OTP
 challenge with delivery disabled; they did not send an SMS or modify production
 accounts. Real carrier delivery and production activation remain pending.
+
+The browser boundary also hides exchange content after canonical verification
+is revoked or a cached page is restored. Authenticated listing, seller-profile,
+and marketplace-pulse reads enforce the same phone rule before reading data.
+Exemption is a separate server-resolved policy result: exempt accounts are not
+marked as having a verified phone, and no exception list is sent to the browser.

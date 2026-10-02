@@ -490,6 +490,10 @@ describe("guided cash-trade completion", () => {
     expect(result.request.termsProposal?.status).toBe("accepted");
     expect((await updatePurchaseRequestStatus(accept)).statusChanged).toBe(false);
     expect(currentSnapshot().marketplaceListings[0].activeTradeRequestId).toBe(offer.id);
+    expect(currentSnapshot().notifications.filter((entry) => entry.userId === BUYER_ID && entry.title === "Trade proposal — your response needed"))
+      .toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: offer.id })]);
+    expect(currentSnapshot().notifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Counter-offer accepted"))
+      .toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: offer.id })]);
   });
 
   it("requires buyer approval for amount corrections and resumes the trade", async () => {
@@ -503,6 +507,8 @@ describe("guided cash-trade completion", () => {
     expect(accepted.usdtAmount).toBe("275.25");
     expect(accepted.fiatAmount).toBe("880.80");
     expect((await updateTradeTerms(input)).usdtAmount).toBe("275.25");
+    expect(currentSnapshot().notifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Trade proposal updated"))
+      .toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: proposed.id })]);
     await updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "funds_received" });
     const sent = await updatePurchaseRequestStatus({ requestId: proposed.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "usdt_sent" });
     expect(sent.request.status).toBe("usdt_sent");
@@ -514,6 +520,18 @@ describe("guided cash-trade completion", () => {
     const result = await updateTradeTerms({ requestId: proposed.id, actorUserId: BUYER_ID, action: "decline_terms", proposalId: proposed.termsProposal!.id });
     expect(result.usdtAmount).toBe("250");
     expect(result.termsProposal?.status).toBe("declined");
+  });
+
+  it("alerts the buyer once when the seller repairs a legacy cardless amount before payment", async () => {
+    seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request.usdtAmount = "200";
+    const input = { requestId: request.id, actorUserId: SELLER_ID };
+    const corrected = await recalculateCardlessTradeAmount(input);
+    expect(corrected.usdtAmount).toBe("250");
+    await recalculateCardlessTradeAmount(input);
+    expect(currentSnapshot().notifications.filter((entry) => entry.title === "Trade amount updated"))
+      .toEqual([expect.objectContaining({ userId: BUYER_ID, whatsappEvent: "trade_update", relatedRequestId: request.id })]);
   });
 
   it("rejects stale proposal acceptance after withdrawal and replacement", async () => {
@@ -618,6 +636,10 @@ describe("guided cash-trade completion", () => {
     expect(JSON.stringify(currentSnapshot())).not.toContain("482913");
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
     await expect(updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" })).resolves.toMatchObject({ statusChanged: false });
+    const codeAlerts = currentSnapshot().notifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Cardless withdrawal code ready");
+    expect(codeAlerts).toEqual([expect.objectContaining({ whatsappEvent: "trade_update", relatedRequestId: request.id })]);
+    expect(JSON.stringify(codeAlerts)).not.toContain("482913");
+    expect(JSON.stringify(codeAlerts)).not.toContain("1995-08-25");
     let room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
     expect(room.request.network).toBe("BEP20");
     expect(room.request.status).toBe("payment_sent");

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
@@ -22,6 +22,8 @@ function isValidNetwork(value: unknown): value is SupportedNetwork {
 
 export async function GET() {
   const viewer = await getCurrentSessionUser();
+  const phoneVerification = viewer && requirePhoneVerificationForTrading(viewer);
+  if (phoneVerification) return phoneVerification;
   const listings = await getMarketplaceListings(undefined, undefined, viewer?.id);
   return NextResponse.json(
     { listings },

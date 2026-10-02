@@ -4,6 +4,13 @@ import { toAdminSellerSummary, toAdminUserSummary, toClientSessionUser } from "@
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
 describe("toClientSessionUser", () => {
+  it("exposes the exception as a separate boolean and never fabricates a verified phone", () => {
+    const account = { id: "exempt", role: "buyer", sellerStatus: "buyer", email: "Alphatradersai@gmail.com" } as AlphaExchangeUser;
+    expect(toClientSessionUser(account)).toMatchObject({ phoneVerificationExempt: true, isPhotoVerified: false });
+    const ordinary = { ...account, email: "other@example.test", role: "admin" as const };
+    expect(toClientSessionUser(ordinary)).toMatchObject({ phoneVerificationExempt: false, isPhotoVerified: false });
+    expect(JSON.stringify(toClientSessionUser(ordinary))).not.toContain("alphatradersai@gmail.com");
+  });
   it("runtime-allowlists the client session and excludes present and future persistence-only fields", () => {
     const user = {
       id: "user-1", fullName: "Buyer", email: "buyer@example.test", passwordHash: "secret-password-hash", whatsappNumber: "+972500000000",

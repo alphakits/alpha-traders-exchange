@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMarketplacePulse } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const verification = requireMarketplaceVerificationForTrading(user);
+  if (verification) return verification;
 
   const pulse = await getMarketplacePulse();
 

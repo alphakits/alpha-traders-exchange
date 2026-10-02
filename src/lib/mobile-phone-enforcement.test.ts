@@ -19,7 +19,7 @@ afterEach(() => vi.unstubAllEnvs());
 function request(path: string) { return new NextRequest(`https://example.test/api/mobile/v1/${path}`, { headers: { Authorization: "Bearer test-access-token" } }); }
 
 describe("mobile routes cannot bypass the SMS requirement", () => {
-  it.each(["marketplace/listings", "trades", "seller/listings"])("blocks %s while preserving the authenticated device session", async path => {
+  it.each(["marketplace/listings", "trades", "seller/listings", "admin/overview"])("blocks %s while preserving the authenticated device session", async path => {
     const result = await requireMobileApiUser(request(path), "request-test", metadata, service as never);
     expect(result.unauthorized?.status).toBe(403);
     expect(await result.unauthorized?.json()).toMatchObject({ error: { code: "PHONE_VERIFICATION_REQUIRED" } });
@@ -34,5 +34,15 @@ describe("mobile routes cannot bypass the SMS requirement", () => {
     mocks.findUserById.mockResolvedValue({ ...user, verifiedPhone: "+972521234567", phoneVerifiedAt: "2026-10-01T12:00:00.000Z" });
     const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
     expect(result.unauthorized).toBeNull();
+  });
+  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("allows the explicitly exempt account %s", async email => {
+    mocks.findUserById.mockResolvedValue({ ...user, email });
+    const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
+    expect(result.unauthorized).toBeNull();
+  });
+  it.each(["admin", "owner", "approved_seller"])("does not let a %s role bypass phone verification", async role => {
+    mocks.findUserById.mockResolvedValue({ ...user, role, roles: [role] });
+    const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
+    expect(result.unauthorized?.status).toBe(403);
   });
 });
