@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   sendWhatsAppAuthenticationCodeWithRetry: vi.fn(),
   sendTwilioMessageWithRetry: vi.fn(),
   getBilingualOtpSms: vi.fn((code: string) => `verification:${code}`),
+  logEvent: vi.fn(),
 }));
+
+vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 
 vi.mock("@/lib/notification-platform", () => ({
   getBilingualOtpSms: mocks.getBilingualOtpSms,
@@ -36,6 +39,7 @@ describe("phone verification delivery selection", () => {
     mocks.sendWhatsAppAuthenticationCodeWithRetry.mockReset();
     mocks.sendTwilioMessageWithRetry.mockReset();
     mocks.getBilingualOtpSms.mockClear();
+    mocks.logEvent.mockReset();
   });
 
   afterEach(() => {
@@ -86,6 +90,20 @@ describe("phone verification delivery selection", () => {
       maxAttempts: 1,
     });
     expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).not.toHaveBeenCalled();
+  });
+
+  it("records provider failure diagnostics without the recipient, OTP, credentials, or raw error", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "twilio");
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACprivate");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "private-token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    mocks.sendTwilioMessageWithRetry.mockResolvedValue({ ok: false, httpStatus: 401, providerCode: "20003", attempts: 1, retryable: false, error: "private provider message +972541234567 482901" });
+    await sendPhoneVerificationCode({ phone: "+972541234567", code: "482901" });
+    expect(mocks.logEvent).toHaveBeenCalledWith("warn", expect.objectContaining({ metadata: { provider: "twilio", httpStatus: 401, providerErrorNumber: 20003, attempts: 1, retryable: false } }));
+    const logged = JSON.stringify(mocks.logEvent.mock.calls);
+    for (const privateValue of ["+972541234567", "+15551234567", "482901", "ACprivate", "private-token", "private provider message"]) expect(logged).not.toContain(privateValue);
   });
 
   it("uses only direct Meta WhatsApp when explicitly selected and ready", async () => {
