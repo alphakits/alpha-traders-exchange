@@ -9,7 +9,7 @@ import { useCanonicalSession } from "@/components/auth/canonical-session-provide
 import { Button } from "@/components/ui/button";
 import { NewsPreferences } from "./news-preferences";
 import { getSignedOutPageDestination } from "@/lib/protected-page";
-import { newsFeedStaleAfterMs, newsDayKey, newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
+import { newsFeedStaleAfterMs, newsDayKey, newsWeekRange, newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
 
 type Filter = "week" | "upcoming" | "today" | "released";
 type RefreshFeedback = "preparing" | "updated" | "unavailable" | "failed";
@@ -168,14 +168,32 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
   const selected = eventId ? feed.events.find((event) => event.id === eventId) : undefined;
   const next = feed.events.find((event) => newsEventStatus(event, now) === "scheduled");
   const today = newsDayKey(new Date(now).toISOString(), timeZone);
-  const filtered = feed.events.filter((event) => event.id !== selected?.id && (
-    filter === "week" && feed.weekStart && feed.weekEnd ? newsDayKey(event.scheduledAt, timeZone) >= feed.weekStart && newsDayKey(event.scheduledAt, timeZone) < feed.weekEnd
-      : filter === "today" ? newsDayKey(event.scheduledAt, timeZone) === today
-      : filter === "released" ? newsEventStatus(event, now) === "released"
-        : newsEventStatus(event, now) !== "released" && (Date.parse(event.scheduledAt) > now || newsDayKey(event.scheduledAt, timeZone) === today)
-  ));
+  const thisWeek = newsWeekRange(now, timeZone);
+  const thisWeekSunday = new Date(Date.parse(`${thisWeek.end}T12:00:00Z`) - 86_400_000).toISOString();
+  const nextFilter: Filter = weekly && next && newsDayKey(next.scheduledAt, timeZone) < thisWeek.end ? "week" : "upcoming";
+  const filtered = feed.events.filter((event) => {
+    if (event.id === selected?.id) return false;
+    const day = newsDayKey(event.scheduledAt, timeZone);
+    if (filter === "week") return day >= thisWeek.start && day < thisWeek.end;
+    if (filter === "today") return day === today;
+    if (filter === "released") return newsEventStatus(event, now) === "released";
+    return newsEventStatus(event, now) !== "released"
+      && (Date.parse(event.scheduledAt) > now || day === today)
+      && (!weekly || day >= thisWeek.end);
+  });
   if (filter === "released") filtered.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
-  const filterLabels: Record<Filter, string> = isAr ? { week: "الأسبوع", upcoming: "القادمة", today: "اليوم", released: "النتائج" } : { week: "Week", upcoming: "Upcoming", today: "Today", released: "Results" };
+  const emptyMessages: Record<Filter, string> = isAr ? {
+    week: "لا توجد أحداث اقتصادية مدرجة لهذا الأسبوع.",
+    upcoming: "لم تتوفر بعد مواعيد مؤكّدة للأسابيع التالية.",
+    today: "لا توجد أحداث مجدولة اليوم.",
+    released: "لا توجد نتائج مؤكّدة حاليًا.",
+  } : {
+    week: "No economic events are listed for this week.",
+    upcoming: "No later events have been confirmed yet.",
+    today: "No events are scheduled for today.",
+    released: "No confirmed results are available yet.",
+  };
+  const filterLabels: Record<Filter, string> = isAr ? { week: "هذا الأسبوع", upcoming: "القادمة", today: "اليوم", released: "النتائج" } : { week: "This week", upcoming: "Upcoming", today: "Today", released: "Results" };
   const filters: Filter[] = weekly ? ["week", "upcoming", "today", "released"] : ["upcoming", "today", "released"];
   const refreshMessages: Record<RefreshFeedback, string> = isAr ? {
     preparing: "تم التحقق. لم تبدأ تحديثات الأخبار المباشرة بعد.",
@@ -193,7 +211,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     <div className="section-container py-6 sm:py-9" dir={isAr ? "rtl" : "ltr"}>
       <div className="mx-auto max-w-5xl">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D4AF37]">{brandText("ALPHA TRADERS")}</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{isAr ? "أخبار الدولار" : "USD news"}</h1><p className="mt-2 max-w-xl text-sm leading-relaxed text-[#9CA3AF]">{isAr ? "الأحداث الاقتصادية ذات التأثير المرتفع ومواعيدها ونتائجها، في مكان واحد." : "High-impact economic events, upcoming releases and published results, in one place."}</p></div>
+          <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#D4AF37]">{brandText("ALPHA TRADERS")}</p><h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">{isAr ? "أخبار الدولار" : "USD news"}</h1><p className="mt-2 max-w-xl text-sm leading-relaxed text-[#9CA3AF]">{isAr ? "أهم الأحداث الاقتصادية للدولار، مواعيد الإصدار والنتائج المؤكّدة، في مكان واحد." : "Key USD economic events, release times and confirmed results, in one place."}</p></div>
           <Button variant="secondary" size="sm" className="shrink-0" loading={refreshing} loadingLabel={isAr ? "جارٍ التحقق…" : "Checking…"} aria-label={isAr ? "تحديث الأخبار" : "Refresh news"} onClick={() => { setRefreshFeedback(null); setRefreshKey((value) => value + 1); }}><span className="inline-flex items-center gap-2"><RefreshCw className="h-4 w-4" aria-hidden="true" />{isAr ? "تحديث" : "Refresh"}</span></Button>
         </div>
         {refreshFeedback ? <p role="status" className={`mt-3 text-sm ${refreshFeedback === "failed" ? "text-amber-200" : "text-[#C7CDD6]"}`}>{refreshMessages[refreshFeedback]}</p> : null}
@@ -201,7 +219,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
           <span className="inline-flex items-center gap-2 text-red-300"><Folder className="h-4 w-4 fill-red-400/20" aria-hidden="true" />USD · {weekly ? (isAr ? "أحداث رئيسية مختارة" : "Selected major events") : (isAr ? "تأثير مرتفع فقط" : "High impact only")}</span>
           <label className="flex max-w-full items-center gap-2 text-[#9CA3AF]"><Clock3 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /><span className="shrink-0">{isAr ? "التوقيت" : "Timezone"}</span><select value={timeZone} onChange={(e) => setTimeZone(e.target.value)} className={`min-h-9 min-w-0 max-w-[13rem] rounded-lg border border-white/15 bg-[#101114] px-2 text-white ${FOCUS}`}><option value="Asia/Jerusalem">{isAr ? "توقيت إسرائيل" : "Israel time"}</option>{deviceZone !== "Asia/Jerusalem" ? <option value={deviceZone}>{isAr ? "توقيت الجهاز" : "Device time"} · {deviceZone}</option> : null}</select></label>
         </div>
-        {weekly ? <div className="mt-4 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 p-3 text-sm leading-relaxed text-[#C7CDD6]"><p className="font-medium text-[#E6C66A]">{isAr ? "أخبار الأسبوع القادم · تحديث كل أحد" : "Week ahead · Updated every Sunday"}</p>{feed.weekStart && feed.weekEnd ? <p className="mt-1 text-xs font-medium">{formatDate(`${feed.weekStart}T12:00:00Z`, locale, "UTC", false)} — {formatDate(new Date(Date.parse(`${feed.weekEnd}T12:00:00Z`) - 86_400_000).toISOString(), locale, "UTC", false)}</p> : null}<p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "نجهّز كل أحد مواعيد الأسبوع القادم من الاثنين إلى الأحد، من المصادر الرسمية المجانية. النتائج هي آخر أرقام مؤكدة وقت التحديث الأسبوعي، وليست تحديثات لحظية. لا يشمل توقعات السوق المجمّعة." : "Every Sunday we prepare the coming week, Monday through Sunday, from free official sources. Results are the last confirmed figures at the weekly update, not a live feed. Consensus forecasts are not included."}</p></div> : null}
+        {weekly ? <div className="mt-4 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 p-3 text-sm leading-relaxed text-[#C7CDD6]"><p className="font-medium text-[#E6C66A]">{isAr ? "التقويم الأسبوعي · تحديث كل أحد" : "Weekly calendar · Updated every Sunday"}</p><p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "نجهّز كل أحد مواعيد الأسبوع القادم من الاثنين إلى الأحد، من المصادر الرسمية المجانية. النتائج هي آخر أرقام مؤكدة وقت التحديث الأسبوعي، وليست تحديثات لحظية. لا يشمل توقعات السوق المجمّعة." : "Every Sunday we prepare the coming week, Monday through Sunday, from free official sources. Results are the last confirmed figures at the weekly update, not a live feed. Consensus forecasts are not included."}</p></div> : null}
         {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{weekly ? (isAr ? "قد يكون التقويم الأسبوعي قديمًا. المعروض هو آخر تحديث تم التحقق منه." : "The weekly calendar may be out of date. This is the last verified snapshot.") : (isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data.")}</p> : null}
         {!available ? (
           <div role="status" className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-10 text-center"><CalendarDays className="mx-auto h-7 w-7 text-[#D4AF37]" aria-hidden="true" /><h2 className="mt-3 font-semibold">{feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable")}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[#9CA3AF]">{feed.status === "not_configured"
@@ -210,11 +228,13 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         ) : (
           <>
             {selected ? <div className="mt-5"><EventCard event={selected} locale={locale} timeZone={timeZone} now={now} selected weekly={weekly} /></div> : eventId ? <p role="status" className="mt-4 text-sm text-[#9CA3AF]">{isAr ? "هذا الخبر غير متاح حاليًا." : "This event is currently unavailable."}</p> : next ? (
-              <a href={`#event-${next.id}`} onClick={() => setFilter("upcoming")} className={`mt-5 flex items-center justify-between gap-4 rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-[#C9A227]/10 to-transparent p-4 sm:p-5 ${FOCUS}`}><div><p className="text-xs text-[#D4AF37]">{isAr ? "الخبر القادم" : "Next release"}</p><p className="mt-1 font-semibold" dir="auto">{newsEventTitle(next, locale)}</p><p className="mt-1 text-xs text-[#9CA3AF]">{formatDate(next.scheduledAt, locale, timeZone)}</p></div><span className="shrink-0 text-sm font-semibold text-[#E6C66A]">{countdown(next.scheduledAt, now, locale)}</span></a>
+              <a href={`#event-${next.id}`} onClick={() => setFilter(nextFilter)} className={`mt-5 flex items-center justify-between gap-4 rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-[#C9A227]/10 to-transparent p-4 sm:p-5 ${FOCUS}`}><div><p className="text-xs text-[#D4AF37]">{isAr ? "الخبر القادم" : "Next release"}</p><p className="mt-1 font-semibold" dir="auto">{newsEventTitle(next, locale)}</p><p className="mt-1 text-xs text-[#9CA3AF]">{formatDate(next.scheduledAt, locale, timeZone)}</p></div><span className="shrink-0 text-sm font-semibold text-[#E6C66A]">{countdown(next.scheduledAt, now, locale)}</span></a>
             ) : null}
             <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black/20 p-1 min-[360px]:flex" role="group" aria-label={isAr ? "عرض الأخبار" : "News view"}>{filters.map((item) => <button key={item} type="button" aria-pressed={filter === item} onClick={() => setFilter(item)} className={`min-h-11 min-w-0 flex-1 rounded-lg px-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm ${FOCUS} ${filter === item ? "bg-white/10 text-white" : "text-[#9CA3AF] hover:text-white"}`}>{filterLabels[item]}</button>)}</div>
+            {weekly && filter === "week" ? <p className="mt-3 text-xs text-[#9CA3AF]">{formatDate(`${thisWeek.start}T12:00:00Z`, locale, "UTC", false)} — {formatDate(thisWeekSunday, locale, "UTC", false)}{isAr ? " · أحداث الأسبوع الحالي ونتائجه المؤكدة." : " · This week's events and confirmed results."}</p> : null}
+            {weekly && filter === "upcoming" ? <p className="mt-3 text-xs text-[#9CA3AF]">{isAr ? "من " : "From "}{formatDate(`${thisWeek.end}T12:00:00Z`, locale, "UTC", false)}{isAr ? " · أحداث الأسابيع التالية." : " · Events after this week."}</p> : null}
             <div className="mt-4 grid gap-3 lg:grid-cols-2">{filtered.map((event) => <EventCard key={event.id} event={event} locale={locale} timeZone={timeZone} now={now} weekly={weekly} />)}</div>
-            {!filtered.length ? <p className="py-10 text-center text-sm text-[#9CA3AF]">{isAr ? "لا توجد أحداث أخرى مطابقة لهذا العرض." : "No other events match this view."}</p> : null}
+            {!filtered.length && !selected ? <p className="py-10 text-center text-sm text-[#9CA3AF]">{emptyMessages[filter]}</p> : null}
           </>
         )}
         {feed.updatedAt ? <p className="mt-4 text-xs text-[#8F96A3]">{weekly ? (isAr ? "آخر تحقق أسبوعي: " : "Last weekly verification: ") : (isAr ? "آخر مزامنة: " : "Last synced: ")}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}

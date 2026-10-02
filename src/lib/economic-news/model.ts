@@ -118,6 +118,15 @@ export function newsDayKey(iso: string, timeZone: string) {
   return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value).join("-");
 }
 
+export function newsWeekRange(now: number, timeZone: string) {
+  // Work with local calendar dates, so DST never turns a week into 6 or 8 days.
+  const date = new Date(`${newsDayKey(new Date(now).toISOString(), timeZone)}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+  const start = date.toISOString().slice(0, 10);
+  date.setUTCDate(date.getUTCDate() + 7);
+  return { start, end: date.toISOString().slice(0, 10) };
+}
+
 export function newsResultSummary(event: NewsEvent, locale: NewsLocale) {
   if (event.actual === null) return "";
   const isAr = locale === "ar";

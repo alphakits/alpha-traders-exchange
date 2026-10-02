@@ -37,7 +37,12 @@ converted from `America/New_York` using IANA DST rules. Do not infer dates from
 last month's weekday, fabricate release times, forecasts or actuals, or mark
 old values as newly released. Exclude an unconfirmed exact time or use
 `timing: tentative`; uncertain numeric values stay null. Do not advance
-`verifiedAt` unless the source dates/results were actually checked. Set `weekStart` to the coming Monday calendar date and `weekEnd` to the following Monday (exclusive), as YYYY-MM-DD. The default Week tab shows this entire week, including already-passed scheduled events; Upcoming retains the broader future window.
+`verifiedAt` unless the source dates/results were actually checked. Set `weekStart` to the coming Monday calendar date and `weekEnd` to the following Monday (exclusive), as YYYY-MM-DD. These fields record the verified prepared week. The default This week tab uses
+the current Monday–Sunday calendar week in the selected timezone, including
+already-passed events and confirmed results. Upcoming shows later weeks,
+starting the following Monday, so it does not repeat This week's events.
+The displayed date range changes at local Monday without waiting for a new
+snapshot. The Next release shortcut opens whichever tab contains its event.
 
 Each actual needs a confirmed `publishedAt` no later than verification and no
 earlier than its release. An unknown actual stays null. Prior/revised values

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { newsDayKey, newsEventStatus, newsResultSummary, shouldAlertForRelease } from "./model";
+import { newsDayKey, newsWeekRange, newsEventStatus, newsResultSummary, shouldAlertForRelease } from "./model";
 import { newsProviderConfigured, normalizeEconomicNews } from "./provider";
 
 const now = new Date("2026-09-23T12:31:00Z");
@@ -52,6 +52,15 @@ describe("USD economic news data", () => {
     expect(newsDayKey("2026-07-01T21:30:00Z", "Asia/Jerusalem")).toBe("2026-07-02");
     expect(newsDayKey("2026-01-01T21:30:00Z", "Asia/Jerusalem")).toBe("2026-01-01");
     expect(newsDayKey("2026-07-01T21:30:00Z", "America/New_York")).toBe("2026-07-01");
+  });
+  it("starts a new week at Monday in the selected timezone", () => {
+    const sundayUtc = Date.parse("2026-10-04T21:30:00Z");
+    expect(newsWeekRange(sundayUtc, "Asia/Jerusalem")).toEqual({ start: "2026-10-05", end: "2026-10-12" });
+    expect(newsWeekRange(sundayUtc, "America/New_York")).toEqual({ start: "2026-09-28", end: "2026-10-05" });
+  });
+  it("keeps Monday–Sunday dates intact across DST and year changes", () => {
+    expect(newsWeekRange(Date.parse("2026-10-25T12:00:00Z"), "Asia/Jerusalem")).toEqual({ start: "2026-10-19", end: "2026-10-26" });
+    expect(newsWeekRange(Date.parse("2027-01-01T12:00:00Z"), "Asia/Jerusalem")).toEqual({ start: "2026-12-28", end: "2027-01-04" });
   });
   it("keeps speeches without numeric results separate from awaited numerical releases", () => {
     const speech = normalizeEconomicNews([{ ...row, Event: "FOMC Press Conference", Actual: "" }], now)[0];
