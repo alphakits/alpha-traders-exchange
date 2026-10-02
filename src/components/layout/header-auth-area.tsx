@@ -53,12 +53,12 @@ export function HeaderAuthArea({
   const adminDashboardAccess = useMemo(() => canAccessAdminDashboard(sessionUser), [sessionUser]);
 
   return (
-    <div className="flex min-w-0 items-center gap-1 max-[389px]:shrink-0 sm:gap-2 [&_summary]:h-11 [&_summary]:w-11">
+    <div data-header-account-controls className="ms-auto flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2 [&_summary]:h-11 [&_summary]:w-11">
       <div className="shrink-0 [&>button]:h-11">
         <LocaleSwitcher />
       </div>
       {sessionUser ? (
-        <div className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] sm:inline-flex">
+        <div className="hidden shrink-0 items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] lg:inline-flex">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
           <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
         </div>
@@ -70,7 +70,7 @@ export function HeaderAuthArea({
       ) : null}
       {sellerWorkspaceAccess ? (
         <CreateListingQuickLink
-          className="hidden items-center gap-1.5 rounded-full border border-[#C9A227]/50 bg-gradient-to-r from-[#C9A227]/20 to-[#D4AF37]/10 px-3 py-1.5 text-xs font-semibold text-[#F4D87A] shadow-[0_4px_16px_rgba(201,162,39,0.25)] transition hover:border-[#C9A227]/70 hover:shadow-[0_6px_20px_rgba(201,162,39,0.35)] md:inline-flex"
+          className="hidden shrink-0 items-center gap-1.5 rounded-full border border-[#C9A227]/50 bg-gradient-to-r from-[#C9A227]/20 to-[#D4AF37]/10 px-3 py-1.5 text-xs font-semibold text-[#F4D87A] shadow-[0_4px_16px_rgba(201,162,39,0.25)] transition hover:border-[#C9A227]/70 hover:shadow-[0_6px_20px_rgba(201,162,39,0.35)] lg:inline-flex"
           label={labels.createListing}
         />
       ) : null}
@@ -105,7 +105,7 @@ export function HeaderAuthArea({
           ))}
           <div className="border-t border-white/10 pt-2">
             {sessionUser ? (
-              <div className="rounded-lg px-3 py-2 text-xs text-[#9CA3AF]">
+              <div className="rounded-lg px-3 py-2 text-xs text-[#9CA3AF] [overflow-wrap:anywhere]">
                 {sessionUser.fullName}
               </div>
             ) : null}

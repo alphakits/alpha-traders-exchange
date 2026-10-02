@@ -34,6 +34,14 @@ html {
   scroll-padding-top: calc(5rem + var(--safe-area-top));
 }
 
+/* Desktop navigation now occupies a second header row. Keep anchored content
+   clear of both sticky rows without hiding navigation overflow. */
+@media (min-width: 80rem) {
+  html {
+    scroll-padding-top: calc(8rem + var(--safe-area-top));
+  }
+}
+
 .global-chain-bg {
   position: fixed;
   inset: 0;
