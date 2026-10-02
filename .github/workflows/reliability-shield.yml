@@ -80,6 +80,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Preserve failure summaries
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-shield-playwright-summaries
+          path: test-results/**/error-context.md
+          if-no-files-found: ignore
+          retention-days: 7
+
   phone-verification-gate:
     name: Mandatory phone gates and owner exceptions
     needs: quality-gate

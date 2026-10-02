@@ -410,7 +410,8 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   await main.locator("#create-min-trade").fill("50");
   await main.locator("#create-max-trade").fill(expectedListing.availableAmount);
   await page.getByRole("button", { name: /Bank Hapoalim/i }).click();
-  const commissionCheckbox = page.getByRole("checkbox", { name: /1% commission policy/i });
+  const commissionCheckbox = page.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }
@@ -552,7 +553,8 @@ test("listing publish failures stay visible beside the mobile submit action", as
 
   const payoutBankButton = createListing.getByRole("button", { name: new RegExp(payoutAccount.bankName, "i") });
   await expect(payoutBankButton).toHaveAttribute("aria-pressed", "true");
-  const commissionCheckbox = createListing.getByRole("checkbox", { name: /1% commission policy/i });
+  const commissionCheckbox = createListing.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) await commissionCheckbox.check();
 
   const submitButton = createListing.getByRole("button", { name: "Submit Listing" });
@@ -598,7 +600,8 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("1000");
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
-  const commissionCheckbox = seller.page.getByRole("checkbox", { name: /1% commission policy/i });
+  const commissionCheckbox = seller.page.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }

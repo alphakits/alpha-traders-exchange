@@ -441,7 +441,10 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: "My Trade Requests", exact: true })).toHaveCount(1);
+      await expect(main.getByRole("button", {
+        name: viewport.width >= 1024 ? "My Trade Requests" : /^My Trade Requests:/,
+        exact: viewport.width >= 1024,
+      })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
@@ -456,7 +459,10 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: "Create Listing", exact: true })).toHaveCount(1);
+      await expect(main.getByRole("button", {
+        name: viewport.width >= 1024 ? "Create Listing" : /^Create Listing:/,
+        exact: viewport.width >= 1024,
+      })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
       await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toHaveCount(1);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

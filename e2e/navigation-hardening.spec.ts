@@ -106,7 +106,10 @@ test.describe("Navigation hardening", () => {
     await page.keyboard.press("Enter");
     await expect(main.locator("#purchase-requests-section")).toBeFocused();
 
+    const reloadedSession = page.waitForResponse(response =>
+      new URL(response.url()).pathname === "/api/auth/me" && response.ok());
     await page.reload({ waitUntil: "commit" });
+    await reloadedSession;
 
     await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
     await expect(main.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();

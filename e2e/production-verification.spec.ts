@@ -96,7 +96,7 @@ async function provision(request: APIRequestContext) {
     ...(Array.isArray(db.users) ? db.users : []),
     mkUser(ids.sellerOnline, "PV Online", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: true, passwordHash: sellerHash }),
     mkUser(ids.sellerForms, "PV Forms", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: true, passwordHash: formsHash }),
-    mkUser(ids.sellerRecent, "PV Recent", { onlineStatus: "offline", lastActiveAt: iso(-25 * 60 * 1000), emailVerified: true }),
+    mkUser(ids.sellerRecent, "PV Recent", { onlineStatus: "offline", lastActiveAt: iso(-25 * 60 * 1000), emailVerified: true, passwordHash: sellerHash }),
     mkUser(ids.sellerOffline, "PV Offline", { onlineStatus: "offline", lastActiveAt: iso(-3 * 24 * 60 * 60 * 1000), emailVerified: true }),
     mkUser(ids.sellerUnverified, "PV Unverified", { onlineStatus: "online", lastActiveAt: iso(-30 * 1000), emailVerified: false }),
     mkUser(ids.admin, "PV Admin", { role: "admin", roles: ["admin"], sellerStatus: "buyer", lastActiveAt: iso(-60 * 1000), passwordHash: adminHash }),
@@ -246,12 +246,37 @@ test.describe("Marketplace Pulse", () => {
 // ── SELLER CARDS ─────────────────────────────────────────────────────────────
 test.describe("Seller cards", () => {
   test("presence: online green / recent / offline grey", async ({ page }) => {
-    await login(page.request, buyer!.email, buyer!.password);
-    await gotoMarketplace(page);
-    await expect(cardFor(page, ids.lUrgent).locator(".seller-presence--online")).toBeVisible();
-    await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toBeVisible();
-    await expect(cardFor(page, ids.lRecent).getByText(/Active \d+ min ago/)).toBeVisible();
-    await expect(cardFor(page, ids.lOffline).locator(".seller-presence--idle")).toBeVisible();
+    const online = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    const recent = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    try {
+      // Only authenticated heartbeat rows may make someone green. Profile
+      // onlineStatus/lastActiveAt fields are not presence evidence.
+      await login(online, sellerEmail, sellerPassword);
+      await login(recent, `${ids.sellerRecent}@example.test`, sellerPassword);
+      const clientId = randomUUID();
+      const active = { clientId, sequence: 1, active: true, activity: true };
+      expect((await online.post("/api/alpha-exchange/presence", { data: active })).ok()).toBeTruthy();
+      expect((await recent.post("/api/alpha-exchange/presence", { data: active })).ok()).toBeTruthy();
+      expect((await recent.post("/api/alpha-exchange/presence", {
+        data: { clientId, sequence: 2, active: false, activity: false },
+      })).ok()).toBeTruthy();
+      await login(page.request, buyer!.email, buyer!.password);
+      const presence = await (await page.request.get("/api/alpha-exchange/presence?ids="
+        + [ids.sellerOnline, ids.sellerRecent, ids.sellerOffline].join(","))).json();
+      expect(presence.users[ids.sellerOnline].onlineStatus).toBe("online");
+      expect(presence.users[ids.sellerRecent]).toMatchObject({ onlineStatus: "offline", lastActiveAt: expect.any(String) });
+      expect(presence.users[ids.sellerOffline]).toMatchObject({ onlineStatus: "offline", lastActiveAt: null });
+      await gotoMarketplace(page);
+      await expect(cardFor(page, ids.lUrgent).locator(".seller-presence--online")).toBeVisible();
+      await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toBeVisible();
+      await expect(cardFor(page, ids.lRecent).getByText(/Active (just now|\d+ min ago)/)).toBeVisible();
+      await expect(cardFor(page, ids.lOffline).locator(".seller-presence--idle")).toBeVisible();
+    } finally {
+      await online.post("/api/auth/logout");
+      await recent.post("/api/auth/logout");
+      await online.dispose();
+      await recent.dispose();
+    }
   });
 
   test("countdown: urgent <4h, neutral 4-12h, hidden >12h", async ({ page }) => {
