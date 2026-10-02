@@ -162,6 +162,7 @@ export function AccountSettingsPanel({
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneVerificationEditing, setPhoneVerificationEditing] = useState(false);
   const [phoneMessage, setPhoneMessage, phoneMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
@@ -548,6 +549,8 @@ export function AccountSettingsPanel({
     const data = await response.json().catch(() => ({}));
     if (response.ok) {
       setPhoneVerified(true);
+      setPhoneVerificationEditing(false);
+      setPhoneCode("");
       setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل قنوات الهاتف المتاحة." : "Phone verified. You can now enable available phone notification channels.");
     } else {
       setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
@@ -1029,10 +1032,11 @@ export function AccountSettingsPanel({
                 </div> : null}
                 {phoneVerificationEnabled ? <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
                   <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل خدمات الهاتف المتاحة." : "Verify an E.164 phone number to enable available phone services.")}</p>
-                  {!phoneVerified && <div className="flex flex-wrap gap-2">
-                    <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+15551234567" className="max-w-xs" />
+                  {phoneVerified && !phoneVerificationEditing ? <Button type="button" variant="secondary" onClick={() => { setPhoneVerificationEditing(true); setPhone(""); setPhoneCode(""); setPhoneMessage(null); }}>{isAr ? "إعادة التحقق من الهاتف" : "Reverify phone"}</Button> : null}
+                  {(!phoneVerified || phoneVerificationEditing) && <div className="flex flex-wrap gap-2">
+                    <Input type="tel" autoComplete="tel" aria-label={isAr ? "رقم الهاتف" : "Phone number"} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+972 50 123 4567" className="max-w-xs" />
                     <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>{isAr ? "إرسال الرمز" : "Send code"}</Button>
-                    <Input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
+                    <Input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} aria-label={isAr ? "رمز التحقق" : "Verification code"} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
                     <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
                   </div>}
                   {phoneMessage && <ActionFeedback revealKey={phoneMessageFeedbackKey} as="p" className="text-xs text-[#C9A227]">{phoneMessage}</ActionFeedback>}

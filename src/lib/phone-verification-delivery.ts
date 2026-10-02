@@ -7,6 +7,7 @@ import {
   sendTwilioMessageWithRetry,
 } from "@/lib/notification-platform";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { logEvent } from "@/lib/structured-logging";
 import {
   getWhatsAppAuthenticationReadiness,
   sendWhatsAppAuthenticationCodeWithRetry,
@@ -123,6 +124,18 @@ export async function sendPhoneVerificationCode(input: {
     maxAttempts: 1,
   });
   if (result.ok) return { ok: true, provider, channel: "sms" };
+  logEvent("warn", {
+    event: "phone_verification_delivery_failed",
+    outcome: "failed",
+    reason: "Twilio verification message rejected or unavailable",
+    metadata: {
+      provider: "twilio",
+      httpStatus: result.httpStatus ?? null,
+      providerErrorNumber: /^\d{1,6}$/.test(result.providerCode ?? "") ? Number(result.providerCode) : null,
+      attempts: result.attempts,
+      retryable: result.retryable,
+    },
+  });
   return {
     ok: false,
     provider,
