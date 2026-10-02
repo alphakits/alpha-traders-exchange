@@ -9,13 +9,60 @@ The API uses the canonical session guard and private, no-store responses; News
 is excluded from search indexing. Expired client sessions clear displayed events
 and return to sign-in with the original event destination.
 
-## Activation dependency
+## Free weekly calendar — 2 October 2026
+
+The owner rejected recurring provider fees and authorized a free weekly
+calendar refreshed every Friday. Without licensed-feed configuration, News now
+serves a curated snapshot from `src/lib/economic-news/weekly-calendar.json`.
+It uses public release schedules and confirmed figures from BLS, BEA, the U.S.
+Department of Labor, the Federal Reserve and the Census Bureau. This path
+requires no provider subscription, API key, database migration or native app
+release. Sources remain visible as plain text inside Alpha Traders.
+
+The calendar covers selected major USD releases, rather than promising every
+event or reproducing a supplier's impact ratings. The weekly update checks
+recent results and upcoming dates; values remain the last confirmed snapshot
+through the week. Consensus forecasts and instantaneous result alerts are not
+included. The UI identifies this mode and the last verification time in both
+English and Arabic, polls its private API every five minutes while visible,
+and retains Israel/device timezone selection. Expired sessions still clear
+the data and redirect to sign-in. The existing app displays the same screen.
+
+Friday maintenance is performed by the owner's scheduled Codex automation,
+using official public sources and the connected GitHub repository. Update only
+the JSON on current `main` after reading its file SHA; the existing Git/Vercel
+integration builds the update. Retain seven days of recent events and about
+35 days of verified upcoming dates, with stable IDs and actual UTC instants
+converted from `America/New_York` using IANA DST rules. Do not infer dates from
+last month's weekday, fabricate release times, forecasts or actuals, or mark
+old values as newly released. Exclude an unconfirmed exact time or use
+`timing: tentative`; uncertain numeric values stay null. Do not advance
+`verifiedAt` unless the source dates/results were actually checked.
+
+Each actual needs a confirmed `publishedAt` no later than verification and no
+earlier than its release. An unknown actual stays null. Prior/revised values
+must use the same series, units and adjustment as the current value. The
+schema rejects duplicate IDs, non-UTC instants, extra forecast fields,
+unapproved source hosts and out-of-coverage records. `npm run test:news-calendar`
+runs before every production build. A snapshot older than eight days is
+clearly marked possibly outdated; expired coverage is unavailable. These
+snapshots never queue live release emails or in-app alerts.
+
+Reference sources:
+
+- https://www.bls.gov/schedule/
+- https://www.bea.gov/news/schedule
+- https://www.dol.gov/ui/data.pdf
+- https://www.federalreserve.gov/newsevents/calendar.htm
+- https://www.census.gov/economic-indicators/calendar-listview.html
+
+## Optional licensed feed
 
 The News page, normalized data API, scheduler, and opt-in in-app/email delivery
-are implemented. API ingestion and alerts are **disabled by default**. No provider
-account, purchase, data agreement, or API key is supplied by this change. While
-unconfigured, the page shows an honest preparation state inside Alpha Traders;
-it never seeds production with demonstration events or fabricated results.
+are implemented. Paid API ingestion and alerts remain **disabled by default**.
+No provider account, purchase, data agreement, or API key is supplied by this
+change. The free weekly snapshot works independently; configured licensed
+feeds retain their existing ingestion and alert behavior.
 
 The existing `docs/mobile/economic-calendar-post-release-plan.md` data-source
 rule remains applicable: do not scrape Forex Factory. Its weekly JSON export
@@ -64,7 +111,7 @@ constant-time Bearer-secret check as the existing cron routes. It performs no
 database, feed, or delivery work while unconfigured. It creates only isolated
 News tables when activated. It never changes exchange schemas or trade rows.
 
-## Timing and behavior
+## Licensed-feed timing and behavior
 
 - Cron reads a bounded past/next seven-day window once per minute. Visible News
   pages refresh every 30 seconds; hidden pages stop polling. Delivery is not
@@ -137,9 +184,10 @@ been obtained. No subscription or trial may be purchased without the owner's
 explicit written price approval.
 
 The interface, access gate and provider activation are distinct release states.
-Do not describe a preparation screen or successful UI/auth tests as live news
-or active alerts. Complete the licensed payload/release tests above before
-claiming full launch.
+The free weekly calendar is available independently of provider access. Do not
+describe a weekly snapshot or successful UI/auth tests as a live provider feed
+or active release alerts. Complete the licensed payload/release tests above
+before claiming those optional capabilities.
 
 ## FXStreet preparation and contact status — 29 September 2026
 

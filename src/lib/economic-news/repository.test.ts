@@ -2,6 +2,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NewsEvent } from "./model";
+import weeklySnapshot from "./weekly-calendar.json";
 
 const state = vi.hoisted(() => ({ db: null as unknown as PGlite, calls: 0 }));
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => {
@@ -42,9 +43,12 @@ afterEach(() => { vi.unstubAllEnvs(); });
 afterAll(async () => { await state.db?.close(); });
 
 describe("news storage and provider isolation (real PostgreSQL)", () => {
-  it("does no storage work when licensing is not confirmed", async () => {
+  it("serves the free weekly calendar without storage work when a paid feed is not configured", async () => {
     vi.stubEnv("ECONOMIC_NEWS_DATA_LICENSE_CONFIRMED", "false");
-    expect(await readNewsFeed()).toMatchObject({ status: "not_configured", events: [] });
+    const weekly = await readNewsFeed(Date.parse(weeklySnapshot.verifiedAt));
+    expect(weekly).toMatchObject({ mode: "weekly", status: "ready", provider: null });
+    expect(weekly.events.length).toBeGreaterThan(0);
+    expect(weekly.events.every((event) => event.id.startsWith("official-") && event.forecast === null)).toBe(true);
     expect(state.calls).toBe(0);
   });
   it("queues one release per channel, preserves revisions and never replays an older sync", async () => {

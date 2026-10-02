@@ -24,7 +24,7 @@ describe("economic news page access", () => {
     expect(mocks.feed).not.toHaveBeenCalled();
   });
 
-  it.each(["te-123", "fxs-4fe1bd69-acce-4b24-9d54-f45c81708d29"])("reads %s only after a real signed-in session resolves", async eventId => {
+  it.each(["te-123", "fxs-4fe1bd69-acce-4b24-9d54-f45c81708d29", "official-bls-nfp-20261002"])("reads %s only after a real signed-in session resolves", async eventId => {
     const feed = { status: "not_configured", updatedAt: null, provider: null, events: [] };
     mocks.session.mockResolvedValue({ id: "fixture-member" });
     mocks.feed.mockResolvedValue(feed);
