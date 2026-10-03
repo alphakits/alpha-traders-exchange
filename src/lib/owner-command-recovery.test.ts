@@ -68,12 +68,12 @@ it("verifies clearing an override against automatic state, not the old rank", as
   expect(result.verified).toBe(1);
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ clearOverride: true });
 });
-it("bounds read bodies and does not wait for an authorization error body", async () => {
+it.each(["/api/alpha-exchange/admin-prep", "/api/admin/system-health"] as const)("bounds %s bodies and does not wait for an authorization error body", async (path) => {
   const json = vi.fn(() => new Promise(() => {}));
-  const denied = await readOwnerDashboardJson("/api/alpha-exchange/admin-prep", vi.fn().mockResolvedValue({ ok: false, status: 401, json }));
+  const denied = await readOwnerDashboardJson(path, vi.fn().mockResolvedValue({ ok: false, status: 401, json }));
   expect(denied.status).toBe(401); expect(json).not.toHaveBeenCalled();
   vi.useFakeTimers();
-  const pending = readOwnerDashboardJson("/api/alpha-exchange/admin-prep", vi.fn().mockResolvedValue({ ok: true, status: 200, json }), 20);
+  const pending = readOwnerDashboardJson(path, vi.fn().mockResolvedValue({ ok: true, status: 200, json }), 20);
   const assertion = expect(pending).rejects.toThrow("timed out");
   await vi.advanceTimersByTimeAsync(21); await assertion;
 });
