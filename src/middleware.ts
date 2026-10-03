@@ -6,12 +6,15 @@ import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constant
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 import { allowsLocalTestSupportRequest } from "@/lib/runtime-safety";
 import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
+import { enforceNetworkAccess } from "@/lib/network-access";
 
 const intlMiddleware = createMiddleware(routing);
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const EXTERNAL_CALLBACK_PATHS = new Set([
   "/api/discord/marketplace-events",
   "/api/twilio/status",
+  "/api/twilio/whatsapp/webhook",
+  "/api/meta/whatsapp/webhook",
 ]);
 
 function isExternalCallbackPath(pathname: string) {
@@ -44,7 +47,7 @@ function rejectUntrustedApiMutation() {
   );
 }
 
-export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
+export default async function middleware(request: Parameters<typeof intlMiddleware>[0]) {
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith("/api/");
 
@@ -62,8 +65,12 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
     ) {
       return rejectUntrustedApiMutation();
     }
-    return NextResponse.next();
+    const networkDenied = await enforceNetworkAccess(request);
+    return networkDenied ?? NextResponse.next();
   }
+
+  const networkDenied = await enforceNetworkAccess(request);
+  if (networkDenied) return networkDenied;
 
   if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
     // This cookie is written only by the explicit language switcher. Honour
