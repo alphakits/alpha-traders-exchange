@@ -402,6 +402,7 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
 }
 
 async function submitListingFromSellerWorkspace(page: Page, expectedListing: { availableAmount: string; price: string }) {
+  const beforeSubmission = page.url();
   const submitButton = page.getByRole("button", { name: "Submit Listing" });
   const main = page.getByRole("main");
   await expect(main.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
@@ -435,7 +436,9 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   }
   await expect(page.getByRole("heading", { name: "My Listings" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
-  await expect(page).toHaveURL(/#listing-publish-result$/);
+  await expect(page).toHaveURL(beforeSubmission);
+  await expect(page.locator("#listing-publish-result")).toBeVisible();
+  await expect(page.locator("#listing-publish-result")).toBeInViewport();
   await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
   await expect(page.locator(`[id="listing-${payload.listing.id}"]`)).toHaveCount(0);
   expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });

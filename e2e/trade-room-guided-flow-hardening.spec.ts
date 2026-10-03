@@ -1138,8 +1138,11 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       if (paymentMethod === "Bank Transfer") {
         await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
         await buyerPage.getByRole("button", { name: "Confirm USDT Received", exact: true }).click();
-        await expect(buyerPage).toHaveURL(/\/en\/usdt-exchange/, { timeout: 10_000 });
-        await buyerPage.goto(path);
+        await expect(buyerPage).toHaveURL(url => (
+          url.pathname === path
+          && url.searchParams.get("action") === "review-trade"
+          && url.hash === "#status-banner"
+        ), { timeout: 20_000 });
       } else {
         if (paymentMethod === "Cardless ATM Withdrawal") {
           await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
