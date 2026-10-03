@@ -11,7 +11,7 @@ export function ProtectedPageBoundary({ children, locale, phoneVerificationRequi
   const pathname = usePathname();
   const { user, isResolving, isRestoring, error, refresh } = useCanonicalSession();
   const protectedPage = isProtectedPage(pathname ?? "/");
-  const phoneDestination = phoneVerificationRequired && user && user.isPhotoVerified !== true && user.phoneVerificationExempt !== true
+  const phoneDestination = phoneVerificationRequired && user && user.isPhotoVerified !== true
     ? phoneVerificationDestinationForPage(user, pathname ?? "/", locale)
     : null;
 

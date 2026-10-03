@@ -39,13 +39,21 @@ describe("protected page access", () => {
     expect(privateMount).not.toHaveBeenCalled();
     expect(replace).toHaveBeenCalledWith("/en/verify-account?redirectTo=%2Fen%2Fusdt-exchange");
   });
-  it.each([{ isPhotoVerified: true }, { phoneVerificationExempt: true }])("allows the server-resolved access result %j", async verified => {
+  it.each([{ isPhotoVerified: true }])("allows the server-resolved verified phone %j", async verified => {
     const account = { ...user, ...verified };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: account })));
     renderPage(account, true);
     await act(async () => {});
     expect(screen.getByText("Private trade history")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
+  });
+  it("rejects a stale exemption without a verified phone", async () => {
+    const account = { ...user, phoneVerificationExempt: true };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: account })));
+    renderPage(account, true);
+    await act(async () => {});
+    expect(privateMount).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledWith("/en/verify-account?redirectTo=%2Fen%2Fusdt-exchange");
   });
   it("removes cached exchange content when a canonical refresh revokes phone verification", async () => {
     vi.stubGlobal("fetch", vi.fn()

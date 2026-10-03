@@ -99,10 +99,12 @@ for (const role of ["buyer", "approved_seller", "pending_seller_approval", "admi
 }
 
 for (const email of ["Alphatradersai@gmail.com", "Claudiahttps11@gmail.com", "Jozenmark834@yahoo.com"]) {
-  test("the explicit owner exception allows " + email, async ({ page }) => {
+  test("previously exempt account must verify " + email, async ({ page }) => {
     const user = await provision(page.request, "buyer", false, email);
-    expect(await login(page, user)).toMatchObject({ isPhotoVerified: false, phoneVerificationExempt: true });
-    await expectMarketplaceVisible(page);
+    expect(await login(page, user)).toMatchObject({ isPhotoVerified: false, phoneVerificationExempt: false });
+    await expectPhoneDenied(page.request);
+    await page.goto("/en/usdt-exchange");
+    await expect(page).toHaveURL(/\/en\/verify-account\?redirectTo=%2Fen%2Fusdt-exchange$/);
   });
 }
 

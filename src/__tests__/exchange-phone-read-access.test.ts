@@ -47,9 +47,9 @@ describe("exchange reads enforce canonical phone verification", () => {
     expect(mocks.profile).not.toHaveBeenCalled();
     expect(mocks.pulse).not.toHaveBeenCalled();
   });
-  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("allows only the explicitly exempt canonical email %s", async email => {
+  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("blocks previously exempt unverified email %s", async email => {
     mocks.currentUser.mockResolvedValue({ ...base, email });
-    for (const response of await reads()) expect(response?.status).toBe(200);
+    for (const response of await reads()) expect(response?.status).toBe(403);
   });
   it("allows a genuinely verified number", async () => {
     mocks.currentUser.mockResolvedValue({ ...base, verifiedPhone: "+972521234567", phoneVerifiedAt: "2026-10-02T20:00:00Z" });
@@ -61,8 +61,8 @@ describe("exchange reads enforce canonical phone verification", () => {
     expect(result.user).toBeNull();
     expect(await result.unauthorized?.json()).toMatchObject({ code: "PHONE_VERIFICATION_REQUIRED" });
   });
-  it("keeps the owner's canonical admin access without pretending their phone is verified", async () => {
-    const owner = { ...base, email: "jozenmark834@yahoo.com", role: "owner", roles: ["owner"] };
+  it("keeps the owner's admin access with a genuinely verified phone", async () => {
+    const owner = { ...base, email: "jozenmark834@yahoo.com", role: "owner", roles: ["owner"], verifiedPhone: "+972521234567", phoneVerifiedAt: "2026-10-02T20:00:00Z" };
     mocks.currentUser.mockResolvedValue(owner);
     expect((await requireApiOwner()).user).toEqual(owner);
     expect((await requireApiAdmin()).user).toEqual(owner);

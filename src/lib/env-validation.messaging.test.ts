@@ -101,19 +101,19 @@ describe("production messaging configuration", () => {
     expect(validateEnv().errors.join("\n")).toContain(key);
   });
 
-  it("accepts Twilio WhatsApp authentication without Meta or Utility configuration", () => {
+  it("retains WhatsApp provider configuration while phone verification remains unavailable", () => {
     configureWhatsApp(true);
     expect(getWhatsAppAuthenticationReadiness().readyToSend).toBe(true);
     expect(getWhatsAppCloudReadiness().readyToSend).toBe(false);
-    expect(getPhoneVerificationChannels()).toEqual({ sms: false, whatsapp: true });
+    expect(getPhoneVerificationChannels()).toEqual({ sms: false, whatsapp: false });
     expect(validateEnv().errors).toEqual([]);
   });
 
-  it("starts with both selectable channels without requiring a legacy SMS number", () => {
+  it("starts with SMS only without requiring a legacy SMS number", () => {
     configureWhatsApp(true);
     configureSms();
     vi.stubEnv("TWILIO_SMS_FROM", "AlphaTrader");
-    expect(getPhoneVerificationChannels()).toEqual({ sms: true, whatsapp: true });
+    expect(getPhoneVerificationChannels()).toEqual({ sms: true, whatsapp: false });
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(() => runEnvValidation()).not.toThrow();
   });

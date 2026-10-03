@@ -67,7 +67,7 @@ export function hasPhoneVerification(user: { email?: string; verifiedPhone?: str
 
 /**
  * Email verification remains independently required. Marketplace routes use
- * requireMarketplaceVerificationForTrading to add the reviewed SMS rollout.
+ * requireMarketplaceVerificationForTrading to enforce mandatory SMS verification.
  *
  * This gate uses the server-resolved session user only. It has no cookie,
  * client-state, or environment-flag bypass.
@@ -91,11 +91,8 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
 }
 
 /**
- * Returns null (bypass) when:
- *   - The canonical account email is in the owner's explicit exception list
- *   - mandatory phone verification is not explicitly enabled
- *   - User has an already-verified phone number
- * Otherwise returns a 403 response requiring phone verification.
+ * Production actions require a canonically verified phone for every account.
+ * Local fixture switches cannot disable this boundary on a deployed host.
  */
 export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
   if (!needsMarketplacePhoneVerification(user)) return null;

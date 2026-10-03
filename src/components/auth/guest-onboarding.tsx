@@ -113,7 +113,7 @@ export function GuestOnboarding({
   const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "" });
   const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
-  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>(phoneVerificationChannels?.sms === false && phoneVerificationChannels.whatsapp ? "whatsapp" : "sms");
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
   const [sellerError, setSellerError, sellerErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [sellerStatus2, setSellerStatus2] = useState<string | null>(null);
 

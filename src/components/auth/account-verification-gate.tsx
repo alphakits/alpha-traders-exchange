@@ -64,7 +64,7 @@ export function AccountVerificationGate({
   const [resendingEmail, setResendingEmail] = useState(false);
   const [sentPhone, setSentPhone] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>(phoneVerificationChannels?.sms === false && phoneVerificationChannels.whatsapp ? "whatsapp" : "sms");
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
@@ -195,8 +195,8 @@ export function AccountVerificationGate({
               <p className="mt-2 text-sm text-[#D1D5DB]">
                 {phoneVerificationRequired
                   ? (isAr
-                    ? "يجب تأكيد البريد الإلكتروني ورقم الهاتف عبر SMS أو WhatsApp قبل استخدام حساب المشتري أو البائع."
-                    : "Verify your email and phone by SMS or WhatsApp before using your buyer or seller account.")
+                    ? "يجب تأكيد البريد الإلكتروني ورقم الهاتف عبر رسالة SMS قبل استخدام حساب المشتري أو البائع."
+                    : "Verify your email and phone by SMS before using your buyer or seller account.")
                   : phoneVerificationEnabled
                   ? (isAr
                     ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."

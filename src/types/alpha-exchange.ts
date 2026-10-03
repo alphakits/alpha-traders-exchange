@@ -150,6 +150,7 @@ export interface AlphaExchangeUser {
   phoneOtpExpiresAt?: string;
   phoneOtpAttempts?: number;
   phoneOtpPhone?: string;
+  phoneOtpChannel?: "sms" | "whatsapp";
   phoneOtpRequestedAt?: string;
   phoneOtpSendsDate?: string;
   phoneOtpSendsToday?: number;

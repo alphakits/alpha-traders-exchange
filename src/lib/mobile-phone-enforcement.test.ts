@@ -35,10 +35,10 @@ describe("mobile routes cannot bypass the SMS requirement", () => {
     const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
     expect(result.unauthorized).toBeNull();
   });
-  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("allows the explicitly exempt account %s", async email => {
+  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("blocks a previously exempt unverified account %s", async email => {
     mocks.findUserById.mockResolvedValue({ ...user, email });
     const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
-    expect(result.unauthorized).toBeNull();
+    expect(result.unauthorized?.status).toBe(403);
   });
   it.each(["admin", "owner", "approved_seller"])("does not let a %s role bypass phone verification", async role => {
     mocks.findUserById.mockResolvedValue({ ...user, role, roles: [role] });

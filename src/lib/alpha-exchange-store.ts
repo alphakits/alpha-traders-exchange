@@ -6266,7 +6266,7 @@ export async function beginProfilePhoneVerification(input: { userId: string; pho
     const sendsToday = user.phoneOtpSendsDate === today ? Math.max(0, Number(user.phoneOtpSendsToday ?? 0)) : 0;
     if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
     snapshot.users[index] = {
-      ...user, phoneOtpPhone: phone, phoneOtpSalt: salt, phoneOtpHash: hashPhoneOtp(phone, code, salt),
+      ...user, phoneOtpPhone: phone, phoneOtpChannel: "sms", phoneOtpSalt: salt, phoneOtpHash: hashPhoneOtp(phone, code, salt),
       phoneOtpExpiresAt: new Date(now + 10 * 60_000).toISOString(), phoneOtpAttempts: 0,
       phoneOtpRequestedAt: new Date(now).toISOString(), phoneOtpSendsDate: today, phoneOtpSendsToday: sendsToday + 1,
       updatedAt: new Date(now).toISOString(),
@@ -6294,7 +6294,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
     const user = snapshot.users[index];
     const expiresAt = Date.parse(user.phoneOtpExpiresAt ?? "");
     const attempts = Math.max(0, Number(user.phoneOtpAttempts ?? 0));
-    if (user.phoneOtpPhone !== phone || !user.phoneOtpHash || !user.phoneOtpSalt || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || attempts >= 5) {
+    if (user.phoneOtpChannel !== "sms" || user.phoneOtpPhone !== phone || !user.phoneOtpHash || !user.phoneOtpSalt || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || attempts >= 5) {
       throw new Error("Verification code expired or invalid. Request a new code.");
     }
     const expected = Buffer.from(user.phoneOtpHash, "hex");
@@ -6308,7 +6308,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
     }
     snapshot.users[index] = {
       ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(), whatsappNumber: phone,
-      phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpAttempts: undefined,
+      phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpChannel: undefined, phoneOtpAttempts: undefined,
       updatedAt: nowIso(),
     };
     accepted = true;
@@ -6966,6 +6966,7 @@ export async function updateUserSellerSettings(input: {
       phoneOtpHash: verifiedPhoneChanged ? undefined : user.phoneOtpHash,
       phoneOtpSalt: verifiedPhoneChanged ? undefined : user.phoneOtpSalt,
       phoneOtpPhone: verifiedPhoneChanged ? undefined : user.phoneOtpPhone,
+      phoneOtpChannel: verifiedPhoneChanged ? undefined : user.phoneOtpChannel,
       phoneOtpExpiresAt: verifiedPhoneChanged ? undefined : user.phoneOtpExpiresAt,
       preferredNetworks: input.preferredNetworks ?? user.preferredNetworks,
       profilePhotoUrl: input.profilePhotoUrl?.trim() ?? user.profilePhotoUrl,
