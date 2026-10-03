@@ -70,7 +70,11 @@ export type MarketplaceEmailAttempt = {
 };
 
 const marketplaceEmailAttempts: MarketplaceEmailAttempt[] = [];
-const MARKETPLACE_EMAIL_ATTEMPTS_FILE = join(process.cwd(), "tmp", "marketplace-email-attempts.jsonl");
+// Parallel unit-test workers must not read or clear each other's diagnostics.
+// The normal dev/E2E server retains its shared file for cross-process probes.
+const EMAIL_ATTEMPTS_WORKER_SUFFIX = process.env.VITEST_WORKER_ID
+  ? "-" + process.env.VITEST_WORKER_ID + "-" + process.pid : "";
+const MARKETPLACE_EMAIL_ATTEMPTS_FILE = join(process.cwd(), "tmp", "marketplace-email-attempts" + EMAIL_ATTEMPTS_WORKER_SUFFIX + ".jsonl");
 
 function isNonProductionRuntime() {
   return process.env.NODE_ENV !== "production";

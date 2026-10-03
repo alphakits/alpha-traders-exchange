@@ -12,6 +12,7 @@ import { logEvent } from "@/lib/structured-logging";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 import { authProviderLogMetadata, isAuthProviderRateLimitError, isAuthProviderUnavailableError } from "@/lib/auth-provider-errors";
+import { readLimitedRequestText, RequestBodyTooLargeError } from "@/lib/request-body";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 type LoginTimelineStep = {
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
     let body: Record<string, unknown> = {};
     let rawBody = "";
     try {
-      rawBody = await request.text();
+      rawBody = await readLimitedRequestText(request, 16 * 1024);
       const contentType = request.headers.get("content-type") ?? "";
       if (authDebug) {
         const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
@@ -122,9 +123,16 @@ export async function POST(request: NextRequest) {
         const params = new URLSearchParams(rawBody);
         body = Object.fromEntries(params.entries());
       } else {
-        body = JSON.parse(rawBody) as Record<string, unknown>;
+        const parsed: unknown = JSON.parse(rawBody);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+        }
+        body = parsed as Record<string, unknown>;
       }
     } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return NextResponse.json({ error: "Request body is too large." }, { status: 413, headers: AUTH_RESPONSE_HEADERS });
+      }
       if (error instanceof SyntaxError) {
         if (authDebug) {
           console.error("[auth/login] parse failure", { error: error.message, bodyLength: rawBody.length });
@@ -133,12 +141,15 @@ export async function POST(request: NextRequest) {
       }
       throw error;
     }
-    const email = String(body.email ?? "").trim().toLowerCase();
-    const password = String(body.password ?? "");
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
     const rememberMe = body.rememberMe !== false;
 
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (email.length > 254 || password.length > 256) {
+      return NextResponse.json({ error: "Invalid credentials format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

@@ -248,6 +248,25 @@ describe("POST /api/auth/login", () => {
     expect(mockCheckSharedRateLimit).not.toHaveBeenCalled();
   });
 
+  it.each([null, [], "credentials", { email: ["buyer@example.com"], password: "password" }, { email: "buyer@example.com", password: { value: "password" } }, { email: "a".repeat(255) + "@example.com", password: "password" }, { email: "buyer@example.com", password: "p".repeat(257) }])("rejects malformed or oversized credentials without calling authentication (%j)", async body => {
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(400);
+    expect(mockAuthenticateLocalUser).not.toHaveBeenCalled();
+    expect(supabaseAuthMocks.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("stops an oversized body sent without Content-Length before authentication", async () => {
+    const response = await POST(new Request("https://example.com/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "buyer@example.com", password: "p".repeat(20_000) }),
+    }) as unknown as NextRequest);
+    expect(response.status).toBe(413);
+    expect(mockAuthenticateLocalUser).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
   it.each([false, undefined])("rejects a local account without an explicit verified-email marker", async (emailVerified) => {
     mockAuthenticateLocalUser.mockResolvedValue({ ...verifiedLocalUser, emailVerified } as never);
     const request = new Request("https://example.com/api/auth/login", {

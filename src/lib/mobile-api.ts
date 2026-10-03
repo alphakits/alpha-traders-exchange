@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readLimitedRequestText } from "@/lib/request-body";
 import type {
   MobileApiErrorCode,
   MobileApiErrorResponse,
@@ -274,10 +275,8 @@ export function readMobileBearerToken(request: NextRequest) {
 }
 
 export async function readMobileJsonBody(request: NextRequest) {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 16_384) return null;
   try {
-    const value = await request.json();
+    const value: unknown = JSON.parse(await readLimitedRequestText(request, 16_384));
     if (!value || Array.isArray(value) || typeof value !== "object") return null;
     return value as Record<string, unknown>;
   } catch {

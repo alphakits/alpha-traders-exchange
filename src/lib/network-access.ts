@@ -21,12 +21,17 @@ const MACHINE_METHODS: Record<string, readonly string[]> = {
   "/api/cron/economic-news": ["GET"],
   "/api/cron/trade-action-reminders": ["GET"],
   "/api/cron/commission-payment-verification": ["GET"],
+  "/api/cron/commission-checkout": ["GET"],
   "/api/cron/whatsapp-delivery": ["GET"],
   "/api/cron/marketplace-email-delivery": ["GET"],
   "/api/discord/marketplace-events": ["POST"],
   "/api/twilio/status": ["POST"],
   "/api/twilio/whatsapp/webhook": ["POST"],
   "/api/meta/whatsapp/webhook": ["GET", "POST"],
+  // Revocation never grants workspace access. Preserve it during a network
+  // block or provider outage so users can still invalidate their sessions.
+  "/api/auth/logout": ["POST"],
+  "/api/mobile/v1/auth/session": ["DELETE"],
 };
 
 export const networkAccessMessages = {
