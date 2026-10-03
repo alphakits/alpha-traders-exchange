@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { resolveClientIp } from "@/lib/client-ip";
+export { resolveClientIp } from "@/lib/client-ip";
 
 type RateLimitWindow = {
   count: number;
@@ -9,56 +11,6 @@ type RateLimitWindow = {
 
 const buckets = new Map<string, RateLimitWindow>();
 let sharedRateLimitSchema: Promise<void> | null = null;
-
-const IPV4_PATTERN = /^(?:\d{1,3}\.){3}\d{1,3}$/;
-
-function normalizeIp(raw: string | null | undefined) {
-  if (!raw) return null;
-  const value = raw.trim();
-  if (!value) return null;
-  if (value.startsWith("::ffff:")) {
-    return value.slice(7);
-  }
-  return value;
-}
-
-function isLikelyPrivateIp(ip: string) {
-  if (ip === "unknown" || ip === "127.0.0.1" || ip === "::1") return true;
-  if (IPV4_PATTERN.test(ip)) {
-    const [a, b] = ip.split(".").map((part) => Number(part));
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-  }
-  return false;
-}
-
-export function resolveClientIp(headers: Headers) {
-  const directCandidates = [
-    headers.get("x-vercel-forwarded-for"),
-    headers.get("cf-connecting-ip"),
-    headers.get("x-real-ip"),
-  ];
-  for (const candidate of directCandidates) {
-    const ip = normalizeIp(candidate);
-    if (ip) return ip;
-  }
-
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    const chain = forwarded
-      .split(",")
-      .map((part) => normalizeIp(part))
-      .filter((part): part is string => Boolean(part));
-    const publicCandidate = chain.find((candidate) => !isLikelyPrivateIp(candidate));
-    if (publicCandidate) return publicCandidate;
-    if (chain.length > 0) return chain[0];
-  }
-
-  return "unknown";
-}
 
 function envKeyForRateLimit(baseKey: string, field: "MAX" | "WINDOW_MS") {
   const normalized = baseKey

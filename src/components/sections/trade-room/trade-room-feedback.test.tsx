@@ -6,6 +6,7 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => navigation.search }))
 vi.mock("@/i18n/navigation", () => ({ Link: () => null, useRouter: () => ({ push: navigation.push }) }));
 vi.mock("@/components/account/user-safety-actions", () => ({ UserSafetyActions: () => null }));
 import { TradeRoomPage } from "./trade-room-page";
+import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 function room(paymentMethod: string, status: PurchaseRequest["status"]) {
@@ -38,6 +39,8 @@ class RoomStream extends EventTarget {
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  navigation.search = new URLSearchParams();
+  window.history.replaceState(null, "", "/");
   navigation.push.mockReset();
   RoomStream.instances = [];
   vi.stubGlobal("EventSource", RoomStream);
@@ -48,6 +51,23 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn();
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it.each(["completed", "review_open", "locked"] as const)("keeps a %s notification focused on its review target after a completed-state refresh", async (status) => {
+  navigation.search = new URLSearchParams("action=review-trade");
+  window.history.replaceState(null, "", "/?action=review-trade#status-banner");
+  writeTradeRoomCache("feedback-request", buyer.id, room("Face-to-Face (Meet in Person)", "payment_sent"));
+  const response = deferredResponse();
+  vi.stubGlobal("fetch", vi.fn(() => response.promise));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+  await act(async () => response.resolve(Response.json(room("Face-to-Face (Meet in Person)", "completed"))));
+  await waitFor(() => expect(document.activeElement?.id).toBe("status-banner"));
+  const refreshed = room("Face-to-Face (Meet in Person)", status);
+  refreshed.request.updatedAt = "2026-09-22T00:00:01.000Z";
+  await act(async () => { RoomStream.instances[0]!.snapshot(refreshed); });
+  await waitFor(() => expect(readTradeRoomCache<ReturnType<typeof room>>("feedback-request", buyer.id)?.request.status).toBe(status));
+  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  await waitFor(() => expect(document.activeElement?.id).toBe("status-banner"));
+});
 
 it.each(["fetch", "body"])("confirms a committed trade action after a stalled %s without sending it twice", async (phase) => {
   vi.useFakeTimers();

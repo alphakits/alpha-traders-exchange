@@ -23,6 +23,8 @@ export type MobileSellerStatus =
   | "suspended";
 
 export type MobileApiErrorCode =
+  | "NETWORK_RESTRICTED"
+  | "NETWORK_CHECK_UNAVAILABLE"
   | "INVALID_REQUEST"
   | "DEVICE_HEADERS_REQUIRED"
   | "APP_UPDATE_REQUIRED"

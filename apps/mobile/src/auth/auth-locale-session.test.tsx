@@ -130,4 +130,17 @@ describe("native session language", () => {
     expect(second.result.current.auth.status).toBe("anonymous");
     expect(second.result.current.language.locale).toBe("en");
   });
+
+  it.each(["NETWORK_RESTRICTED", "NETWORK_CHECK_UNAVAILABLE"] as const)("preserves the saved session and recovers after %s", async (code) => {
+    mocks.getItem.mockResolvedValue("ar");
+    mocks.loadTokens.mockResolvedValue(tokens);
+    mocks.getMe.mockRejectedValueOnce(new MobileApiError("Check your connection", code, code === "NETWORK_RESTRICTED" ? 403 : 503));
+    const { result } = renderHook(useSession, { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.auth.status).toBe("unavailable"));
+    expect(mocks.clearTokens).not.toHaveBeenCalled();
+    expect(result.current.language.locale).toBe("ar");
+    await act(() => result.current.auth.retryBootstrap());
+    expect(result.current.auth.status).toBe("authenticated");
+    expect(result.current.language.locale).toBe("ar");
+  });
 });

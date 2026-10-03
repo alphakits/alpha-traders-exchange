@@ -1157,6 +1157,11 @@ export function resolveTradeRoomGuidanceTarget(input: {
   hash: string | null;
 }): TradeRoomDeepLinkTarget {
   const currentTarget = "action-required";
+  // A review notification remains focused on the review when refreshed data
+  // advances the same trade between completed states.
+  if (input.action === "review-trade" && COMPLETED_TRADE_STATUSES.has(input.status)) {
+    return resolveDeepLinkTarget(input.action, input.hash) ?? "status-banner";
+  }
   // A live transition supersedes the URL that originally opened the room.
   if (input.priorState && input.priorState !== input.currentState) return currentTarget;
   return resolveDeepLinkTarget(input.action, input.hash) ?? currentTarget;

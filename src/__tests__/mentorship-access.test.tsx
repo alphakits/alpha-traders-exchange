@@ -18,7 +18,7 @@ describe("members-only mentorship page", () => {
   it.each(["en", "ar"])("protects normal and prefetch requests in %s before sending course content", async locale => {
     const path = `/${locale}/learn-with-mark?utm_source=friend`;
     for (const headers of [new Headers(), new Headers({ RSC: "1", "Next-Router-Prefetch": "1" })]) {
-      const response = middleware(new NextRequest(`https://www.alphatraders.co.il${path}`, { headers }));
+      const response = await middleware(new NextRequest(`https://www.alphatraders.co.il${path}`, { headers }));
       expect(response.status).toBe(307);
       const location = new URL(response.headers.get("location")!);
       expect(location.pathname).toBe(`/${locale}/login`);
@@ -30,7 +30,7 @@ describe("members-only mentorship page", () => {
 
   it.each(["en", "ar"])("rejects a fabricated or expired %s session and retains the intended page", async locale => {
     const path = `/${locale}/learn-with-mark?utm_source=friend&tag=a&tag=b`;
-    const response = middleware(new NextRequest(`https://www.alphatraders.co.il${path}`, {
+    const response = await middleware(new NextRequest(`https://www.alphatraders.co.il${path}`, {
       headers: { cookie: `${AUTH_COOKIE_NAME}=expired-token; ${AUTH_VERIFIED_COOKIE_NAME}=1` },
     }));
     expect(response.headers.get("location")).toBeNull();
