@@ -55,14 +55,18 @@ test.describe("Responsive authenticated header", () => {
           await header.getByRole("button", { name: locale === "ar" ? "الإشعارات" : "Notifications", exact: true }).click();
           const panel = header.getByTestId("notification-panel");
           await expect(panel).toBeVisible();
-          const panelBounds = await panel.evaluate(element => {
+          await expect.poll(() => panel.evaluate(element => {
             const viewport = document.documentElement.clientWidth;
-            return [element, ...element.querySelectorAll("a,button")].every(control => {
+            return [element, ...element.querySelectorAll("a,button")].flatMap(control => {
               const rect = control.getBoundingClientRect();
-              return rect.left >= -1 && rect.right <= viewport + 1;
+              return rect.left >= -1 && rect.right <= viewport + 1 ? [] : [{
+                control: control.getAttribute("aria-label") ?? control.textContent?.trim(),
+                left: rect.left,
+                right: rect.right,
+                viewport,
+              }];
             });
-          });
-          expect(panelBounds, `${locale} ${role} notifications at ${width}px`).toBe(true);
+          }), { message: `${locale} ${role} notifications at ${width}px` }).toEqual([]);
           await panel.getByRole("button", { name: locale === "ar" ? "إغلاق الإشعارات" : "Close notifications" }).click();
           await expect(panel).not.toBeVisible();
         }

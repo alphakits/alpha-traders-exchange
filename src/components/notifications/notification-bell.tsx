@@ -3,7 +3,7 @@
 import { brandText } from "@/components/ui/currency-text";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -200,7 +200,7 @@ function NotificationBellSession({
     isOpenRef.current = isOpen;
   }, [isOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const positionPanel = () => {
       const wrapper = panelRef.current;
       const panel = wrapper?.querySelector<HTMLElement>('[data-testid="notification-panel"]');
@@ -214,7 +214,7 @@ function NotificationBellSession({
     positionPanel();
     window.addEventListener("resize", positionPanel);
     return () => window.removeEventListener("resize", positionPanel);
-  }, [locale]);
+  }, [isOpen, locale]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -500,7 +500,7 @@ function NotificationBellSession({
       <div
         data-testid="notification-panel"
         style={{ translate: `${panelOffset}px 0` }}
-        className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
+        className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-[opacity,scale,transform] duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
           isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
         }`}
         onMouseDown={(event) => event.stopPropagation()}
