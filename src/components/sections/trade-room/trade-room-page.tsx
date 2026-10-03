@@ -3092,7 +3092,7 @@ function TradeRoomPageSession({
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
             <p>{isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
-            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p>{isAr ? "يشمل عمولة المشتري 1% بالفعل — لا تضفها مرة ثانية. ادفع الإجمالي بنفس وسيلة دفع الصفقة. على البائع التحقق من استلامه كاملاً قبل إرسال USDT." : "Already includes the buyer’s 1% fee — do not add it again. Pay the total through this trade’s payment method. The seller must verify full receipt before sending USDT."}</p> : null}
+            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1% بالفعل — لا تضفها مرة ثانية. ادفع الإجمالي بنفس وسيلة دفع الصفقة. على البائع التحقق من استلامه كاملاً قبل إرسال USDT." : "Already includes the buyer’s 1% fee — do not add it again. Pay the total through this trade’s payment method. The seller must verify full receipt before sending USDT.")}</p> : null}
           </div>
           <div className="flex items-center justify-between gap-3">
             <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
@@ -3237,7 +3237,7 @@ function TradeRoomPageSession({
               {isSeller ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-4">
                   <p className="font-medium text-white">{isAr ? "تم إغلاق الصفقة كمكتملة" : "Trade closed as completed"}</p>
-                  <p className="mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
+                  <p className="commission-notice mt-1 text-sm">{isAr ? "يمكنك تقييم المشتري أو العودة للرئيسية. تبقى العمولة مستحقة حتى السداد." : "You can review the buyer or return home. Commission remains due until paid."}</p>
                   {request.sellerBuyerReview ? <p className="mt-3">{isAr ? "تم حفظ تقييمك للمشتري" : "Your buyer review is saved"} · {request.sellerBuyerReview.rating}/5</p> : (
                     <details className="mt-3">
                       <summary className="cursor-pointer rounded-xl border border-white/20 p-3 font-semibold">{isAr ? "قيّم المشتري" : "Review buyer"}</summary>
@@ -3259,7 +3259,7 @@ function TradeRoomPageSession({
                   <p>{isCardlessAtmTrade
                     ? (isAr ? "تم تسجيل صفقة السحب دون بطاقة كمكتملة." : "The Cardless ATM trade has been recorded as complete.")
                     : (isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete.")}</p>
-                  <p>{isAr ? "انتقلت الصفقة الآن إلى السجل والمراجعة، وتم تسجيل العمولة المستحقة على البائع." : "The trade is now in history and review, and the seller commission has been recorded."}</p>
+                  <p className="commission-notice">{isAr ? "انتقلت الصفقة الآن إلى السجل والمراجعة، وتم تسجيل العمولة المستحقة على البائع." : "The trade is now in history and review, and the seller commission has been recorded."}</p>
                   <p>{currencyText(isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
                 </>
               ) : (
@@ -3271,10 +3271,10 @@ function TradeRoomPageSession({
                 </>
               )}
               {room.sellerCommissionDueCount > 0 && isSeller ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
-                  <p className="flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
+                <div className="commission-surface rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                  <p className="commission-notice flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
                   <p>{currencyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
-                  <p className="text-xs text-amber-100">{request.feePolicyVersion === "buyer_seller_1pct_v1" ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en") : (isAr ? "تظل العمولة الأصلية لهذه الصفقة مستحقة حتى السداد." : "This trade retains its original commission until paid.")}</p>
+                  <p className="commission-notice text-xs text-amber-100">{currencyText(request.feePolicyVersion === "buyer_seller_1pct_v1" ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en") : (isAr ? "تظل العمولة الأصلية لهذه الصفقة مستحقة حتى السداد." : "This trade retains its original commission until paid."))}</p>
                   {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
@@ -3430,10 +3430,10 @@ function TradeRoomPageSession({
                     onCodeChange={setCardlessCode} onKindChange={setCardlessVerificationKind} onValueChange={setCardlessVerificationValue} />
                 ) : null}
                 {actionFeedback}
-                {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="rounded-xl border border-emerald-500/30 p-3 text-sm">
-                  <p>{isSeller
+                {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="commission-notice-panel rounded-xl border p-3 text-sm">
+                  <p className="commission-notice">{currencyText(isSeller
                     ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en")
-                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount.")}</p>
+                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount."))}</p>
                 </div> : null}
                 {sellerWalletAddress ? (
                   <div className="rounded-2xl border-2 border-[#C9A227]/65 bg-gradient-to-br from-[#C9A227]/20 via-black/70 to-[#6CAEFF]/10 p-4 shadow-[0_0_28px_rgba(201,162,39,0.18)]">
@@ -3883,7 +3883,7 @@ function TradeRoomPageSession({
                                 data-trade-message-id={message.id}
                                 lang={localizedSystemMessage ? locale : undefined}
                                 dir={localizedSystemMessage?.dir ?? "auto"}
-                                className="whitespace-pre-wrap break-words"
+                                className={`trade-chat-text whitespace-pre-wrap break-words ${message.kind === "system" && /commission|عمول/i.test(messageBody) ? "commission-notice" : ""}`}
                               >
                                 {localizedSystemMessage
                                   ? localizedSystemMessage.segments.map((segment, index) => (
@@ -3891,7 +3891,7 @@ function TradeRoomPageSession({
                                         ? <bdi key={`${message.id}-segment-${index}`} dir="auto">{currencyText(segment.value)}</bdi>
                                         : <span key={`${message.id}-segment-${index}`}>{currencyText(segment.value)}</span>
                                     ))
-                                  : <bdi dir="auto">{currencyText(messageBody)}</bdi>}
+                                  : currencyText(messageBody)}
                               </p>
                               {message.imageUrl ? (
                                 <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block overflow-hidden rounded-xl border border-white/10">
@@ -3930,10 +3930,11 @@ function TradeRoomPageSession({
                 <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
                   <Textarea
                     value={chatDraft}
+                    dir="auto"
                     onChange={(event) => { setChatNotice(null); handleChatDraftChange(event); }}
                     placeholder={isAr ? "اكتب رسالة..." : "Type a message..."}
                     maxLength={1200}
-                    className="min-h-[56px] resize-none sm:min-h-[96px]"
+                    className="trade-chat-input min-h-[56px] resize-none sm:min-h-[96px]"
                     aria-invalid={Boolean(chatErrorMessage)}
                     aria-describedby={chatErrorMessage ? "trade-chat-error trade-chat-safety" : "trade-chat-safety"}
                   />
@@ -4023,12 +4024,12 @@ function TradeRoomPageSession({
             </Card>
 
             {room.sellerCommissionDueCount > 0 && isSeller ? (
-              <Card className="border-amber-500/30 bg-amber-500/10">
+              <Card className="commission-surface border-amber-500/30 bg-amber-500/10">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</CardTitle>
+                  <CardTitle className="commission-notice flex items-center gap-2 text-base"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-[#FDE68A]">
-                  <p>{currencyText(isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`)}</p>
+                  <p className="commission-notice">{currencyText(isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`)}</p>
                   <p className="mt-1">{currencyText(isAr ? `المبلغ الإجمالي: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total due: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p>
                   <p className="mt-1">{currencyText(isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>

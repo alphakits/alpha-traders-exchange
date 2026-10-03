@@ -2970,7 +2970,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <form onSubmit={handleIssueManualCommission} className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/[0.06] p-4">
                           <div className="mb-4">
                             <p className="font-semibold text-white">{t("Issue Seller Commission", "إصدار عمولة للبائع")}</p>
-                            <p className="mt-1 text-xs leading-5 text-[#D1D5DB]">
+                            <p className="commission-notice mt-1 text-xs leading-5 text-[#D1D5DB]">
                               {currencyText(t(
                                 "Creates a real payable commission in the seller’s standard USDT-TRC20 Pay Now flow. This is separate from Recovery Fees and does not use the compliance recovery wallet.",
                                 "ينشئ عمولة فعلية قابلة للدفع في مسار ادفع الآن القياسي للبائع عبر USDT-TRC20. هذا النظام منفصل عن رسوم الاسترداد ولا يستخدم محفظة استرداد الامتثال.",
@@ -4501,7 +4501,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 </ActionFeedback>
               ) : null}
 
-              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
+              <div className="commission-notice mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
                 {t(
                   "Confirmation marks this commission paid, records the audit reason, notifies the seller, and unlocks selling when no other commission is due.",
                   "سيؤدي التأكيد إلى تسجيل العمولة كمدفوعة وحفظ السبب وإشعار البائع وفتح البيع إذا لم تبقَ عمولة أخرى.",

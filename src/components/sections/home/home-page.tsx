@@ -238,12 +238,12 @@ export async function HomePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "تشغيل المالك" : "Owner Operations"}</p>
-                <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
+                <p className="commission-notice mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
                     ? "كل صفقة مكتملة تحدّث تلقائيًا: الحجم، العمولة، إحصاءات البائع، درجة الثقة، والتحليلات."
                     : "Every completed trade automatically updates volume, commission, seller statistics, trust score, and marketplace analytics."}
                 </p>
-                <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
+                <p className="commission-notice mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
                   <Coins className="h-3.5 w-3.5" />
                   {isRtl ? "العمولة = قيمة الصفقة × نسبة العمولة" : "Commission = Trade Amount x Seller Commission %"}
                 </p>

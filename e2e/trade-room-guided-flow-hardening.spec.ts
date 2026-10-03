@@ -526,6 +526,51 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
+for (const locale of ["en", "ar"] as const) {
+  for (const width of [390, 1440]) {
+    test(`commission notices and mixed-language chat: ${locale}, ${width}px`, async ({ page }, testInfo) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width, height: 900 });
+      await login(page.request, buyerEmail, buyerPassword);
+      const requestId = await createTradeRequest(page.request);
+      await page.goto(`/${locale}/trade-room/${requestId}`);
+      const notice = page.locator('[data-testid="inclusive-payment-total"] .commission-notice');
+      await expect(notice).toHaveCSS("color", "rgb(248, 226, 124)");
+      await expect(page.locator('[data-testid="inclusive-payment-total"] .currency-money').first()).toHaveCSS("color", "rgb(52, 211, 153)");
+      const form = page.locator("#chat form");
+      const draft = form.locator("textarea");
+      await expect(draft).toHaveAttribute("dir", "auto");
+      await expect(draft).toHaveCSS("unicode-bidi", "plaintext");
+      for (const [message, direction] of [
+        ["بدي كل المبلغ 1,500 USDT", "rtl"],
+        ["Send 1,500 USDT تمام", "ltr"],
+        ["عندي 80 ILS\nPlease confirm 80 ILS", "rtl"],
+      ] as const) {
+        await draft.fill(message);
+        await expect(draft).toHaveValue(message);
+        await expect(draft).toHaveCSS("direction", direction);
+        const [sent] = await Promise.all([
+          page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}/messages` && response.request().method() === "POST"),
+          form.locator('button[type="submit"]').click(),
+        ]);
+        expect(sent.ok()).toBeTruthy();
+        const payload = await sent.json() as { message: { id: string; message: string } };
+        expect(payload.message.message).toBe(message);
+        const body = page.locator(`[data-trade-message-id="${payload.message.id}"]`);
+        await expect(body).toContainText(message);
+        await expect(body).toHaveCSS("direction", direction);
+        await expect(body).toHaveCSS("unicode-bidi", "plaintext");
+        await expect(draft).toHaveValue("");
+      }
+      await draft.fill("1,500.25");
+      await expect(draft).toHaveValue("1,500.25");
+      await expect(page.locator("#chat")).toBeVisible();
+      await page.locator("#chat").screenshot({ path: testInfo.outputPath("mixed-chat.png") });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+  }
+}
+
 test("authenticated purchase creation is durable and duplicate-safe before UI navigation", async ({ request }) => {
   const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
 

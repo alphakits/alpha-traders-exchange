@@ -258,10 +258,10 @@ export function PurchaseListingDialog({
                     {priceMode === "buyer_offer" ? <p className="mt-1 text-[10px] text-[#9CA3AF]">{isAr ? "سعر البائع" : "Seller price"}: {currencyText(formatIls(selectedPrice))}</p> : null}
                   </div>
                 </div>
-                <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
+                <p className={`commission-notice mt-2 text-[11px] ${isAr ? "text-right" : ""}`}>
                   {isAr ? "قيمة الصفقة" : "Trade value"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTradeValue))}</span> · {isAr ? "عمولتك كمشتري (1%)" : "Your buyer fee (1%)"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedBuyerFee))}</span> · {isAr ? "الإجمالي الذي تدفعه" : "Total you pay"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTotal))}</span>
                 </p>
-                <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "عمولتك 1% ضمن دفعتك للبائع. البائع يدفع 1% من حصته؛ إجمالي عمولة Alpha هو 2%. تستلم كامل كمية USDT المتفق عليها." : "Your 1% fee is included in your payment to the seller. The seller pays their own 1%; Alpha’s total fee is 2%. You receive the full agreed USDT amount."}</p>
+                <p className="commission-notice mt-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "عمولتك 1% ضمن دفعتك للبائع. البائع يدفع 1% من حصته؛ إجمالي عمولة Alpha هو 2%. تستلم كامل كمية USDT المتفق عليها." : "Your 1% fee is included in your payment to the seller. The seller pays their own 1%; Alpha’s total fee is 2%. You receive the full agreed USDT amount.")}</p>
               </div>
 
               {isOwnerViewer && sellerProfileData ? (
@@ -280,7 +280,7 @@ export function PurchaseListingDialog({
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="font-medium text-white">{isAr ? "سجل التدقيق" : "Audit History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.auditHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="font-medium text-white">{isAr ? "سجل العمولات" : "Commission History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.commissionHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="commission-notice font-medium text-white">{isAr ? "سجل العمولات" : "Commission History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.commissionHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="font-medium text-white">{isAr ? "سجل الصفقات" : "Trade History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.tradeHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
@@ -289,7 +289,7 @@ export function PurchaseListingDialog({
                       {(sellerProfileData.ownerTools?.auditHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{currencyText(localizedAuditAction(entry.action, isAr))} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL")}</p>)}
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{isAr ? "أحدث العمولات" : "Recent Commission"}</p>
+                      <p className="commission-notice font-medium text-white">{isAr ? "أحدث العمولات" : "Recent Commission"}</p>
                       {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{currencyText(`${entry.commissionAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`)} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>)}
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -336,7 +336,7 @@ export function PurchaseListingDialog({
                     {cardlessCashUnavailable ? <option value={buyerInfo.cardlessIlsAmount} disabled>{formatIls(Number(buyerInfo.cardlessIlsAmount))} — {isAr ? "غير متاح لهذا العرض" : "Unavailable for this listing"}</option> : null}
                     {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
                   </select>
-                  <p id="cardless-amount-help" className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ رمز البنك بمضاعفات 100 شيكل حتى 10,000، أو اختر مبلغاً متاحاً. تُحسب كمية USDT تلقائياً مع عمولة المشتري 1%. يجب أن يناسب المبلغ حدود العرض." : "Enter your bank code’s cash amount in steps of ₪100, up to ₪10,000, or select an available amount below. USDT is calculated automatically including the buyer’s 1% fee. The cash must fit the seller’s trade limits.")}</p>
+                  <p id="cardless-amount-help" className="commission-notice text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ رمز البنك بمضاعفات 100 شيكل حتى 10,000، أو اختر مبلغاً متاحاً. تُحسب كمية USDT تلقائياً مع عمولة المشتري 1%. يجب أن يناسب المبلغ حدود العرض." : "Enter your bank code’s cash amount in steps of ₪100, up to ₪10,000, or select an available amount below. USDT is calculated automatically including the buyer’s 1% fee. The cash must fit the seller’s trade limits.")}</p>
                   {!cardlessCashOptions.length ? <p role="alert" className="text-xs text-red-300">{currencyText(isAr ? `لا يوجد مبلغ سحب بين 100 و10,000 شيكل يناسب حدود هذا العرض (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) بالسعر الحالي. اختر طريقة دفع أخرى أو عرضاً آخر، أو اطلب من البائع تعديل حدود عرضه.` : `No withdrawal amount from ₪100 to ₪10,000 fits this listing’s limits (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) at the current price. Choose another payment method or listing, or ask the seller to adjust their listing limits.`)}</p> : cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ السحب لا يناسب حدود هذا العرض بالسعر الحالي. اختر عرضاً مناسباً، أو أنشئ رمز سحب جديداً لمبلغ متاح. لا تستخدم رمزاً بمبلغ مختلف." : "This withdrawal does not fit the listing at the current price. Choose a matching listing, or prepare a new bank code for an available amount. Do not use a code for a different amount."}</p> : null}
                 </div> : null}
                 <div className="grid gap-3 md:grid-cols-3">
@@ -344,8 +344,8 @@ export function PurchaseListingDialog({
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{currencyText(isAr ? "كمية USDT" : "USDT Amount")} <span className="text-red-300">*</span></label>
                     <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isCardless ? (isAr ? "تُحسب من مبلغ السحب أعلاه" : "Calculated from cash amount above") : (isAr ? "أدخل الكمية" : "Enter amount")} readOnly={isCardless} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`currency-money ${`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
                     {isCardless && cashBeforeFeeUsdt ? <div className="space-y-1 text-xs text-[#D1D5DB]" aria-live="polite">
-                      <p>{currencyText(isAr ? `قبل العمولة: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT` : `Before fee: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT`)}</p>
-                      <p>{currencyText(isAr ? `تستلم ${buyerInfo.usdtAmount} USDT. مبلغ السحب يشمل عمولة المشتري 1%.` : `You receive ${buyerInfo.usdtAmount} USDT. Your withdrawal amount includes the buyer’s 1% fee.`)}</p>
+                      <p className="commission-notice">{currencyText(isAr ? `قبل العمولة: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT` : `Before fee: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT`)}</p>
+                      <p className="commission-notice">{currencyText(isAr ? `تستلم ${buyerInfo.usdtAmount} USDT. مبلغ السحب يشمل عمولة المشتري 1%.` : `You receive ${buyerInfo.usdtAmount} USDT. Your withdrawal amount includes the buyer’s 1% fee.`)}</p>
                     </div> : null}
                     <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {currencyText(`${selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} - ${selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
                   </div>

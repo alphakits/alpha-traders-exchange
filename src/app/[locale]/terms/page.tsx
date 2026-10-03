@@ -156,7 +156,7 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
 
         <div className="mt-8 space-y-4">
           {sections[locale].map((section) => (
-            <article key={section.id} id={section.id} className="scroll-mt-28 rounded-2xl border border-white/10 bg-black/30 p-5">
+            <article key={section.id} id={section.id} className={`scroll-mt-28 rounded-2xl border border-white/10 bg-black/30 p-5 ${section.id === "fees" ? "commission-surface" : ""}`}>
               <h2 className="text-base font-semibold text-white sm:text-lg">{section.title}</h2>
               <div className="mt-3 space-y-3 text-sm leading-7 text-[#D1D5DB]">
                 {section.paragraphs.map((paragraph) => <p key={paragraph}>{currencyText(paragraph)}</p>)}

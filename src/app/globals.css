@@ -7,6 +7,7 @@
   --foreground: #ffffff;
   --muted-foreground: #b4bdc9;
   --muted-secondary: #d7dce3;
+  --commission-notice-ink: #f8e27c;
   --border: rgba(255, 255, 255, 0.1);
   --border-accent: rgba(201, 162, 39, 0.25);
   --radius: 0.75rem;
@@ -420,6 +421,30 @@ html[lang="ar"] :where(body, body *) {
 .bidi-auto,
 [data-bidi="auto"] {
   unicode-bidi: plaintext;
+}
+
+/* Commission explanations share a readable, gentle yellow on dark surfaces. */
+.commission-notice,
+.commission-surface :where(p, h1, h2, h3, label, li, dt, dd) {
+  color: var(--commission-notice-ink) !important;
+}
+
+.commission-notice-panel {
+  border-color: rgba(248, 226, 124, 0.28);
+  background-color: rgba(248, 226, 124, 0.06);
+}
+
+/* Let each chat paragraph follow its content, independently of the page language. */
+.trade-chat-text,
+.trade-chat-input {
+  text-align: start;
+  unicode-bidi: plaintext;
+  overflow-wrap: anywhere;
+}
+
+.trade-chat-text .currency-money {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 /* Preserve the existing semantic muted color while raising contrast site-wide. */

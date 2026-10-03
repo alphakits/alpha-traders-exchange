@@ -341,9 +341,9 @@ export default function SellerCommissionsScreen() {
           </View>
 
           {selectedRecord?.feePolicyVersion === "buyer_seller_1pct_v1" ? <View style={styles.instructionsCard}>
-            <Text style={styles.body}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {selectedRecord.sellerFeeAmount?.toFixed(2)} USDT</Text>
-            <Text style={styles.body}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {selectedRecord.buyerFeeCollectedAmount?.toFixed(2)} USDT</Text>
-            <Text style={styles.body}>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {selectedRecord.sellerFeeAmount?.toFixed(2)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {selectedRecord.buyerFeeCollectedAmount?.toFixed(2)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice, isRTL && styles.rtlText]}>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</Text>
           </View> : null}
           <View style={styles.instructionsCard}>
             <Text style={[styles.instructionsTitle, isRTL && styles.rtlText]}>{isAr ? "طريقة الدفع من Binance أو محفظة على الشبكة المختارة" : "Pay from Binance or another wallet"}</Text>
@@ -483,27 +483,28 @@ export default function SellerCommissionsScreen() {
 const styles = StyleSheet.create({
   statusCard: { backgroundColor: "rgba(216,180,74,0.08)", borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   overdueCard: { backgroundColor: "rgba(240,106,106,0.08)", borderColor: colors.danger },
-  statusTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
+  statusTitle: { color: colors.commissionNotice, fontSize: typography.section, fontWeight: "900" },
+  commissionNotice: { color: colors.commissionNotice },
   total: { color: colors.goldBright, fontSize: 30, fontWeight: "900" },
-  body: { color: colors.textMuted, fontSize: typography.small, lineHeight: 21 },
+  body: { color: colors.commissionNotice, fontSize: typography.small, lineHeight: 21 },
   section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
-  title: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
+  title: { color: colors.commissionNotice, fontSize: typography.section, fontWeight: "900" },
   option: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   optionSelected: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF" },
   optionTitle: { color: colors.text, fontSize: typography.small, fontWeight: "900" },
   adminIssuedCard: { backgroundColor: "rgba(216,180,74,0.08)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.sm },
-  adminIssuedTitle: { color: colors.goldBright, fontSize: typography.small, fontWeight: "900" },
+  adminIssuedTitle: { color: colors.commissionNotice, fontSize: typography.small, fontWeight: "900" },
   optionVerificationPending: { color: "#93C5FD", fontSize: typography.caption, fontWeight: "800" },
   optionVerificationFailed: { color: colors.danger, fontSize: typography.caption, fontWeight: "800" },
   optionVerificationVerified: { color: colors.success, fontSize: typography.caption, fontWeight: "800" },
   networkLockCard: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF", borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   networkLockTitle: { color: "#93C5FD", fontSize: typography.body, fontWeight: "900" },
   instructionsCard: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
-  instructionsTitle: { color: colors.text, fontSize: typography.body, fontWeight: "900" },
-  instruction: { color: colors.textMuted, fontSize: typography.small, lineHeight: 21 },
+  instructionsTitle: { color: colors.commissionNotice, fontSize: typography.body, fontWeight: "900" },
+  instruction: { color: colors.commissionNotice, fontSize: typography.small, lineHeight: 21 },
   amountCard: { backgroundColor: "rgba(50,196,141,0.08)", borderColor: colors.success, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   amount: { color: colors.success, fontSize: typography.title, fontWeight: "900" },
-  exactAmountWarning: { color: colors.warning, fontSize: typography.caption, fontWeight: "700", lineHeight: 18 },
+  exactAmountWarning: { color: colors.commissionNotice, fontSize: typography.caption, fontWeight: "700", lineHeight: 18 },
   walletCard: { backgroundColor: "rgba(0,0,0,0.28)", borderColor: colors.borderGold, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
   label: { color: colors.text, fontSize: typography.small, fontWeight: "900" },
   wallet: { color: colors.goldBright, fontFamily: "monospace", fontSize: typography.small, fontWeight: "800", lineHeight: 21 },
@@ -534,7 +535,7 @@ const styles = StyleSheet.create({
   scanStepLabel: { color: colors.textMuted, fontSize: typography.caption, fontWeight: "700", lineHeight: 17, textAlign: "center" },
   scanChecks: { borderTopColor: colors.border, borderTopWidth: 1, gap: spacing.xs, paddingTop: spacing.sm },
   scanChecksLabel: { color: colors.text, fontSize: typography.caption, fontWeight: "800", lineHeight: 18 },
-  scanCaption: { color: colors.textMuted, fontSize: typography.caption, lineHeight: 18 },
+  scanCaption: { color: colors.commissionNotice, fontSize: typography.caption, lineHeight: 18 },
   pendingCard: { backgroundColor: "rgba(41,121,255,0.12)", borderColor: "#6CAEFF", borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
   pendingTitle: { color: "#93C5FD", fontSize: typography.small, fontWeight: "900" },
   failedCard: { backgroundColor: "rgba(240,106,106,0.08)", borderColor: colors.danger, borderRadius: radius.md, borderWidth: 1, gap: spacing.xs, padding: spacing.md },
