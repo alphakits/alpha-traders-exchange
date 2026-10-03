@@ -646,7 +646,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     render(<AlphaExchangeAdminDashboard isOwner />);
     expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
     denied = true;
-    fireEvent.click(screen.getByRole("button", { name: "Check Now", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
     await waitFor(() => expect(navigationState.router.refresh).toHaveBeenCalledOnce());
     expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();
     expect(screen.queryByText("Website health could not be loaded. Try again.")).toBeNull();
@@ -665,12 +665,12 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     render(<AlphaExchangeAdminDashboard isOwner />);
     expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
     unavailable = true;
-    fireEvent.click(screen.getByRole("button", { name: "Check Now", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
     expect(await screen.findByText("Website health could not be loaded. Try again.")).toBeTruthy();
     expect(screen.getByText("Marketplace Operational Guard")).toBeTruthy();
     expect(navigationState.router.refresh).not.toHaveBeenCalled();
     unavailable = false;
-    fireEvent.click(screen.getByRole("button", { name: "Check Now", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
     await waitFor(() => expect(screen.queryByText("Website health could not be loaded. Try again.")).toBeNull());
     expect(screen.getByText("Marketplace Operational Guard")).toBeTruthy();
   });
