@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 import type { MobileNotificationPreferencesUpdateRequest } from "@alpha-traders/contracts";
 import { updateNotificationPreferences } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
@@ -76,6 +77,7 @@ async function responsePayload(
     },
     capabilities: {
       phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      phoneVerificationChannels: getPhoneVerificationChannels(),
       sms: isTwilioSendEnabled(),
     },
   };

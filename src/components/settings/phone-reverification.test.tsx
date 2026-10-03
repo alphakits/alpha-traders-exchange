@@ -39,6 +39,8 @@ describe("phone reverification", () => {
     render(<AccountSettingsPanel locale="en" phoneVerificationEnabled initialTab="notifications" />);
     fireEvent.click(await screen.findByRole("button", { name: "Reverify phone" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "+972541234567" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await screen.findByText("Verification code sent via SMS.");
     fireEvent.change(screen.getByRole("textbox", { name: "Verification code" }), { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Verify" }));
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Verification code" })).toBeNull());

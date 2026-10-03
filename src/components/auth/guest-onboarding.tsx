@@ -11,6 +11,8 @@ import { sellerApplicationErrorMessage } from "@/lib/seller-application-errors";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
+import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
 
 const POST_ONBOARDING_KEY = "post_onboarding_redirect";
 const SELLER_METHOD_OPTIONS = [
@@ -39,6 +41,7 @@ type Props = {
   sellerStatus?: string;
   sellerApprovalVerified?: boolean;
   phoneVerificationEnabled: boolean;
+  phoneVerificationChannels?: PhoneVerificationChannels;
 };
 
 type ApiErrorPayload = {
@@ -99,6 +102,7 @@ export function GuestOnboarding({
   sellerStatus,
   sellerApprovalVerified = false,
   phoneVerificationEnabled,
+  phoneVerificationChannels,
 }: Props) {
   const router = useRouter();
   const canonicalSession = useOptionalCanonicalSession();
@@ -109,6 +113,7 @@ export function GuestOnboarding({
   const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "" });
   const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>(phoneVerificationChannels?.sms === false && phoneVerificationChannels.whatsapp ? "whatsapp" : "sms");
   const [sellerError, setSellerError, sellerErrorFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [sellerStatus2, setSellerStatus2] = useState<string | null>(null);
 
@@ -228,6 +233,7 @@ export function GuestOnboarding({
           lastName: seller.lastName,
           displayName: seller.displayName,
           phone: seller.phone,
+          channel: phoneChannel,
           locale: isAr ? "ar" : "en",
         }),
       });
@@ -620,15 +626,18 @@ export function GuestOnboarding({
                     onChange={(e) => setSeller((p) => ({ ...p, expectedVolume: e.target.value }))}
                   />
                   {phoneVerificationEnabled ? (
+                    <div className="space-y-3">
+                    <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={isLoading} channels={phoneVerificationChannels} />
                     <Button
                       type="button"
                       loading={loading === "seller_sendOtp"}
                       loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                       onClick={() => void sellerSendOtp()}
-                      disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0}
+                      disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0 || phoneVerificationChannels?.[phoneChannel] === false}
                     >
                       {isAr ? "إرسال رمز التحقق" : "Send verification code"}
                     </Button>
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">

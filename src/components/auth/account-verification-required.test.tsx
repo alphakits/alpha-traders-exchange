@@ -18,21 +18,23 @@ const props = { locale: "en" as const, initialEmail: "seller@example.test", init
 beforeEach(() => { mocks.refresh.mockReset().mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-describe("required buyer and seller SMS screen", () => {
-  it("sends and verifies through the shared phone endpoints without promoting a seller to buyer", async () => {
+describe("required buyer and seller phone screen", () => {
+  it.each(["sms", "whatsapp"])("sends through the chosen %s channel and verifies without promoting a seller to buyer", async channel => {
+    const message = `Verification code sent via ${channel === "sms" ? "SMS" : "WhatsApp"}.`;
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, channel: "sms", message: "Verification code sent via SMS." })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, channel, message })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
     render(<AccountVerificationGate {...props} />);
-    expect(screen.getByText("Verify your email and phone by SMS before using your buyer or seller account.")).toBeTruthy();
+    expect(screen.getByText("Verify your email and phone by SMS or WhatsApp before using your buyer or seller account.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Get help" }).getAttribute("href")).toBe("/support");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Open profile" })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: channel === "sms" ? "SMS" : "WhatsApp" }));
     fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
-    await screen.findByText("Verification code sent via SMS.");
+    await screen.findByText(message);
     expect(fetchMock.mock.calls[0][0]).toBe("/api/alpha-exchange/phone/send-code");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ phone: "+972521234567" });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ phone: "+972521234567", channel });
     expect((screen.getByRole("button", { name: "Resend in 60s" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Verification code"), { target: { value: "482901" } });
     fireEvent.click(screen.getByRole("button", { name: "Verify phone" }));

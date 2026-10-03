@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { beginBuyerVerification, beginProfilePhoneVerification } from "@/lib/alpha-exchange-store";
-import { sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { phoneVerificationDeliveryPreflight, sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { parsePhoneVerificationChannel } from "@/lib/phone-verification-channel";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
@@ -35,7 +36,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "OTP send limit reached for today." }, { status: 429 });
   }
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid request.");
+  } catch { return NextResponse.json({ error: "Invalid verification request." }, { status: 400 }); }
+  const channel = parsePhoneVerificationChannel(body.channel);
+  if (channel === null) return NextResponse.json({ error: "Choose SMS or WhatsApp." }, { status: 400 });
   const firstName = String(body?.firstName ?? "").trim();
   const lastName = String(body?.lastName ?? "").trim();
   const displayName = String(body?.displayName ?? "").trim();
@@ -47,6 +54,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const unavailable = phoneVerificationDeliveryPreflight(phone, channel);
+    if (unavailable) return NextResponse.json({ error: locale === "ar" ? "قناة التحقق المختارة غير متاحة حاليًا. تواصل مع الدعم." : unavailable.error, supportCode: unavailable.supportCode, requestId }, { status: 503 });
     logEvent("info", {
       event: "buyer_verification_otp_send_start",
       actorUserId: user.id,
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest) {
     });
 
     const otp = await beginProfilePhoneVerification({ userId: user.id, phone: started.phone });
-    const sent = await sendPhoneVerificationCode({ phone: otp.phone, code: otp.code, locale });
+    const sent = await sendPhoneVerificationCode({ phone: otp.phone, code: otp.code, locale, ...(channel ? { channel } : {}) });
     if (!sent.ok) {
       logEvent("warn", {
         event: "buyer_verification_otp_send",

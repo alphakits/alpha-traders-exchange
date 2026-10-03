@@ -99,17 +99,35 @@ export function isTwilioOtpSendEnabled(env: NodeJS.ProcessEnv = process.env) {
     || isTwilioSendEnabled(env);
 }
 
+export function getTwilioSmsSender(env: NodeJS.ProcessEnv = process.env): { From: string } | { MessagingServiceSid: string } | null {
+  const service = env.TWILIO_SMS_MESSAGING_SERVICE_SID?.trim();
+  if (service) return /^MG[0-9a-f]{32}$/i.test(service) ? { MessagingServiceSid: service } : null;
+  const configured = env.TWILIO_SMS_FROM?.trim();
+  if (configured) {
+    const phone = normalizeE164(configured);
+    if (phone) return { From: phone };
+    // Alphanumeric identities must be configured deliberately for a supported
+    // destination. Never infer a sender from the recipient's personal number.
+    return /^(?=.*[A-Za-z])[A-Za-z0-9 ]{1,11}$/.test(configured) ? { From: configured } : null;
+  }
+  const phone = normalizeE164(env.TWILIO_PHONE_NUMBER ?? "");
+  return phone ? { From: phone } : null;
+}
+
 export async function sendTwilioMessage(input: TwilioSendInput): Promise<TwilioSendResult> {
   if (!(input.purpose === "verification" ? isTwilioOtpSendEnabled() : isTwilioSendEnabled())) {
     return { ok: false, retryable: false, error: "Twilio SMS is disabled." };
   }
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = normalizeE164(process.env.TWILIO_PHONE_NUMBER ?? "");
-  if (!sid || !token || !from) return { ok: false, retryable: false, error: "Twilio SMS is not configured." };
+  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const sender = getTwilioSmsSender();
+  if (!sid || !token || !sender) return { ok: false, retryable: false, error: "Twilio SMS is not configured." };
   const destination = normalizeE164(input.to);
   if (!destination) return { ok: false, retryable: false, error: "Invalid recipient phone number." };
-  const payload = new URLSearchParams({ To: destination, From: from, Body: normalizeOutgoingSmsBody(input.body) });
+  if ("From" in sender && sender.From === destination) {
+    return { ok: false, retryable: false, providerCode: "21266", error: "SMS sender and recipient must be different." };
+  }
+  const payload = new URLSearchParams({ To: destination, ...sender, Body: normalizeOutgoingSmsBody(input.body) });
   if (input.statusCallback) payload.set("StatusCallback", input.statusCallback);
   const controller = new AbortController();
   const timeoutMs = Math.max(250, Math.min(input.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS, 5_000));
@@ -191,7 +209,7 @@ export function resolveSmsDeliveryStatusTransition(
 }
 
 export function validateTwilioSignature(input: { signature: string | null; url: string; params: Record<string, string> }): boolean {
-  const token = process.env.TWILIO_AUTH_TOKEN;
+  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!token || !input.signature) return false;
   const signed = input.url + Object.keys(input.params).sort().map(key => `${key}${input.params[key]}`).join("");
   const expected = createHmac("sha1", token).update(signed).digest("base64");

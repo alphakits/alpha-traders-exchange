@@ -9,6 +9,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getIsraeliBankDisplayName, getIsraeliBankOptions } from "@/lib/israeli-banks";
+import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
+import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
 
 type Tab = "profile" | "security" | "notifications" | "privacy" | "account";
 
@@ -141,12 +143,14 @@ function PillToggle({ checked, disabled = false, onChange }: { checked: boolean;
 export function AccountSettingsPanel({
   locale,
   phoneVerificationEnabled,
+  phoneVerificationChannels,
   smsDeliveryEnabled = false,
   initialTab,
   initialSellerBankAccess,
 }: {
   locale: "ar" | "en";
   phoneVerificationEnabled: boolean;
+  phoneVerificationChannels?: PhoneVerificationChannels;
   smsDeliveryEnabled?: boolean;
   initialTab?: Tab;
   initialSellerBankAccess?: boolean;
@@ -161,6 +165,16 @@ export function AccountSettingsPanel({
   const [whatsappMessage, setWhatsappMessage, whatsappMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>(phoneVerificationChannels?.sms === false && phoneVerificationChannels.whatsapp ? "whatsapp" : "sms");
+  const [phoneBusy, setPhoneBusy] = useState<"send" | "verify" | null>(null);
+  const phoneBusyRef = useRef(false);
+  const [phoneSentTo, setPhoneSentTo] = useState<string | null>(null);
+  const [phoneCooldown, setPhoneCooldown] = useState(0);
+  useEffect(() => {
+    if (phoneCooldown <= 0) return;
+    const timer = window.setTimeout(() => setPhoneCooldown(value => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [phoneCooldown]);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [phoneVerificationEditing, setPhoneVerificationEditing] = useState(false);
   const [phoneMessage, setPhoneMessage, phoneMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -533,27 +547,56 @@ export function AccountSettingsPanel({
   }
 
   async function sendPhoneCode() {
-    const response = await fetch("/api/alpha-exchange/phone/send-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
-      body: JSON.stringify({ phone, locale: isAr ? "ar" : "en" }),
-    });
-    const data = await response.json().catch(() => ({})) as { error?: string; message?: string };
-    setPhoneMessage(response.ok
-      ? (data.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."))
-      : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
+    if (phoneBusyRef.current || phoneCooldown > 0 || !phone.trim() || phoneVerificationChannels?.[phoneChannel] === false) return;
+    phoneBusyRef.current = true;
+    setPhoneBusy("send");
+    setPhoneMessage(null);
+    try {
+      const requestedPhone = phone.trim();
+      const response = await fetch("/api/alpha-exchange/phone/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" },
+        body: JSON.stringify({ phone: requestedPhone, channel: phoneChannel, locale: isAr ? "ar" : "en" }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string; message?: string };
+      setPhoneMessage(response.ok
+        ? (data.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."))
+        : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
+      if (response.ok) {
+        setPhoneSentTo(requestedPhone);
+        setPhoneCode("");
+        setPhoneCooldown(60);
+      }
+    } catch {
+      setPhoneMessage(isAr ? "تعذر الاتصال. يرجى المحاولة مرة أخرى." : "Could not connect. Please try again.");
+    } finally {
+      phoneBusyRef.current = false;
+      setPhoneBusy(null);
+    }
   }
 
   async function verifyPhoneCode() {
-    const response = await fetch("/api/alpha-exchange/phone/verify-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, code: phoneCode }) });
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) {
-      setPhoneVerified(true);
-      setPhoneVerificationEditing(false);
-      setPhoneCode("");
-      setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل قنوات الهاتف المتاحة." : "Phone verified. You can now enable available phone notification channels.");
-    } else {
-      setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
+    if (phoneBusyRef.current || !phoneSentTo || phoneSentTo !== phone.trim() || !/^\d{6}$/.test(phoneCode)) return;
+    phoneBusyRef.current = true;
+    setPhoneBusy("verify");
+    setPhoneMessage(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/phone/verify-code", { method: "POST", headers: { "Content-Type": "application/json", "X-Locale": isAr ? "ar" : "en" }, body: JSON.stringify({ phone: phoneSentTo, code: phoneCode }) });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setPhoneVerified(true);
+        setPhoneVerificationEditing(false);
+        setPhoneCode("");
+        setPhoneSentTo(null);
+        setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل قنوات الهاتف المتاحة." : "Phone verified. You can now enable available phone notification channels.");
+      } else {
+        setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
+      }
+    } catch {
+      setPhoneMessage(isAr ? "تعذر الاتصال. يرجى المحاولة مرة أخرى." : "Could not connect. Please try again.");
+    } finally {
+      phoneBusyRef.current = false;
+      setPhoneBusy(null);
     }
   }
 
@@ -1033,13 +1076,16 @@ export function AccountSettingsPanel({
                 {phoneVerificationEnabled ? <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
                   <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل خدمات الهاتف المتاحة." : "Verify an E.164 phone number to enable available phone services.")}</p>
                   {phoneVerified && !phoneVerificationEditing ? <Button type="button" variant="secondary" onClick={() => { setPhoneVerificationEditing(true); setPhone(""); setPhoneCode(""); setPhoneMessage(null); }}>{isAr ? "إعادة التحقق من الهاتف" : "Reverify phone"}</Button> : null}
-                  {(!phoneVerified || phoneVerificationEditing) && <div className="flex flex-wrap gap-2">
-                    <Input type="tel" autoComplete="tel" aria-label={isAr ? "رقم الهاتف" : "Phone number"} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+972 50 123 4567" className="max-w-xs" />
-                    <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>{isAr ? "إرسال الرمز" : "Send code"}</Button>
-                    <Input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} aria-label={isAr ? "رمز التحقق" : "Verification code"} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
-                    <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
+                  {(!phoneVerified || phoneVerificationEditing) && <div className="space-y-3">
+                    <PhoneVerificationChannelPicker locale={isAr ? "ar" : "en"} value={phoneChannel} onChange={setPhoneChannel} disabled={Boolean(phoneBusy)} channels={phoneVerificationChannels} />
+                    <div className="flex flex-wrap gap-2">
+                    <Input type="tel" autoComplete="tel" dir="ltr" maxLength={30} disabled={Boolean(phoneBusy)} aria-label={isAr ? "رقم الهاتف" : "Phone number"} value={phone} onChange={(event) => { setPhone(event.target.value); setPhoneCode(""); setPhoneSentTo(null); setPhoneMessage(null); }} placeholder="+972 50 123 4567" className="max-w-xs" />
+                    <Button type="button" variant="secondary" loading={phoneBusy === "send"} disabled={Boolean(phoneBusy) || !phone.trim() || phoneCooldown > 0 || phoneVerificationChannels?.[phoneChannel] === false} onClick={() => void sendPhoneCode()}>{phoneCooldown > 0 ? (isAr ? `أعد الإرسال بعد ${phoneCooldown} ثانية` : `Resend in ${phoneCooldown}s`) : (isAr ? "إرسال الرمز" : "Send code")}</Button>
+                    <Input type="text" inputMode="numeric" dir="ltr" autoComplete="one-time-code" maxLength={6} disabled={!phoneSentTo || Boolean(phoneBusy)} aria-label={isAr ? "رمز التحقق" : "Verification code"} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
+                    <Button type="button" loading={phoneBusy === "verify"} disabled={Boolean(phoneBusy) || !phoneSentTo || !/^\d{6}$/.test(phoneCode)} onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
+                    </div>
                   </div>}
-                  {phoneMessage && <ActionFeedback revealKey={phoneMessageFeedbackKey} as="p" className="text-xs text-[#C9A227]">{phoneMessage}</ActionFeedback>}
+                  {phoneMessage && <ActionFeedback revealKey={phoneMessageFeedbackKey} as="p" className="text-sm text-[#C9A227]">{phoneMessage}</ActionFeedback>}
                 </div> : (
                   <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                     {isAr

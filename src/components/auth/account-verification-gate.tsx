@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
+import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
 
 type Props = {
   locale: "ar" | "en";
@@ -17,6 +19,7 @@ type Props = {
   initialPhone?: string;
   phoneVerificationEnabled: boolean;
   phoneVerificationRequired?: boolean;
+  phoneVerificationChannels?: PhoneVerificationChannels;
 };
 
 type ApiErrorPayload = {
@@ -42,6 +45,7 @@ export function AccountVerificationGate({
   initialPhone = "",
   phoneVerificationEnabled,
   phoneVerificationRequired = false,
+  phoneVerificationChannels,
 }: Props) {
   const isAr = locale === "ar";
   const { user, isResolving: loading, error: sessionError, refresh } = useCanonicalSession();
@@ -60,6 +64,7 @@ export function AccountVerificationGate({
   const [resendingEmail, setResendingEmail] = useState(false);
   const [sentPhone, setSentPhone] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>(phoneVerificationChannels?.sms === false && phoneVerificationChannels.whatsapp ? "whatsapp" : "sms");
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
@@ -99,7 +104,7 @@ export function AccountVerificationGate({
   }, [loading, sessionError, emailVerified, phoneVerificationRequired, phoneVerified, locale, target]);
 
   async function sendOtp() {
-    if (sendingOtp || verifyingOtp || cooldownSeconds > 0) return;
+    if (sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
     setSendingOtp(true);
     setError(null);
     setStatus(null);
@@ -111,7 +116,7 @@ export function AccountVerificationGate({
       const res = await fetch("/api/alpha-exchange/phone/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, channel: phoneChannel }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
@@ -190,8 +195,8 @@ export function AccountVerificationGate({
               <p className="mt-2 text-sm text-[#D1D5DB]">
                 {phoneVerificationRequired
                   ? (isAr
-                    ? "يجب تأكيد البريد الإلكتروني ورقم الهاتف برسالة نصية قبل استخدام حساب المشتري أو البائع."
-                    : "Verify your email and phone by SMS before using your buyer or seller account.")
+                    ? "يجب تأكيد البريد الإلكتروني ورقم الهاتف عبر SMS أو WhatsApp قبل استخدام حساب المشتري أو البائع."
+                    : "Verify your email and phone by SMS or WhatsApp before using your buyer or seller account.")
                   : phoneVerificationEnabled
                   ? (isAr
                     ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
@@ -268,6 +273,7 @@ export function AccountVerificationGate({
                 <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تم التحقق من رقم هاتفك." : "Your phone number is verified."}</p>
               ) : (
                 <div className="mt-3 grid gap-3">
+                  <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={sendingOtp || verifyingOtp} channels={phoneVerificationChannels} />
                   <p className="text-sm text-[#9CA3AF]">
                     {isAr
                       ? "اضغط إرسال رمز التحقق لتصلك رسالة تحقق من Alpha Traders. الرمز صالح لمدة 10 دقائق."
@@ -295,7 +301,7 @@ export function AccountVerificationGate({
                       className="w-full sm:w-auto sm:min-w-[196px]"
                       loading={sendingOtp}
                       loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                      disabled={!phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0}
+                      disabled={!phoneForm.phone.trim() || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false}
                       onClick={() => void sendOtp()}
                     >
                       {cooldownSeconds > 0
