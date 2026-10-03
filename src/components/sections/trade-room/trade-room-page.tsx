@@ -3271,7 +3271,7 @@ function TradeRoomPageSession({
                 </>
               )}
               {room.sellerCommissionDueCount > 0 && isSeller ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                <div className="commission-surface rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="commission-notice flex items-center gap-2 font-semibold text-red-100"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
                   <p>{currencyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="commission-notice text-xs text-amber-100">{currencyText(request.feePolicyVersion === "buyer_seller_1pct_v1" ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en") : (isAr ? "تظل العمولة الأصلية لهذه الصفقة مستحقة حتى السداد." : "This trade retains its original commission until paid."))}</p>
@@ -4024,7 +4024,7 @@ function TradeRoomPageSession({
             </Card>
 
             {room.sellerCommissionDueCount > 0 && isSeller ? (
-              <Card className="border-amber-500/30 bg-amber-500/10">
+              <Card className="commission-surface border-amber-500/30 bg-amber-500/10">
                 <CardHeader>
                   <CardTitle className="commission-notice flex items-center gap-2 text-base"><AttentionSiren />{isAr ? "عمولة مستحقة" : "Commission Due"}</CardTitle>
                 </CardHeader>

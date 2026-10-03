@@ -41,7 +41,7 @@ export function CommissionAutomationPanel({
     <section
       aria-label={isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}
       dir={isAr ? "rtl" : "ltr"}
-      className="relative isolate overflow-hidden rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-950/60 via-[#0B1514] to-[#091019] p-4 shadow-[inset_0_1px_0_rgba(110,231,183,0.08)] sm:p-5"
+      className="commission-surface relative isolate overflow-hidden rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-950/60 via-[#0B1514] to-[#091019] p-4 shadow-[inset_0_1px_0_rgba(110,231,183,0.08)] sm:p-5"
     >
       <div aria-hidden="true" className="pointer-events-none absolute -end-10 -top-14 -z-10 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
       <div className="flex items-start gap-3">

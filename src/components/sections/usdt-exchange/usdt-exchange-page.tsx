@@ -5041,14 +5041,14 @@ export function UsdtExchangePage({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-2">
                       <div>
-                        <p className="text-sm font-semibold text-white">{currencyText(replaceExchangeEntityIdsWithHints(copy.title, notification))}</p>
+                        <p className={`text-sm font-semibold text-white ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}>{currencyText(replaceExchangeEntityIdsWithHints(copy.title, notification))}</p>
                         <p className="mt-1 text-[11px] text-[#93C5FD]">
                           {currencyText(notification.relatedListingDisplayNumber ? `${isAr ? "العرض" : "Listing"} ${formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}` : null)}
                           {currencyText(notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedTradeDisplayNumber, notification.relatedTradeId)}` : null)}
                           {currencyText(notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}${isAr ? "الصفقة" : "Trade"} ${formatTradeId(notification.relatedRequestDisplayNumber, notification.relatedRequestId)}` : null)}
                         </p>
                       </div>
-                      <p className="max-w-3xl text-sm leading-6 text-white/90">{currencyText(replaceExchangeEntityIdsWithHints(copy.message, notification))}</p>
+                      <p className={`max-w-3xl text-sm leading-6 text-white/90 ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}>{currencyText(replaceExchangeEntityIdsWithHints(copy.message, notification))}</p>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#9CA3AF]">
                         <span>{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
                         <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 capitalize text-[#D1D5DB]">{currencyText(notificationCategoryLabel(notification.category, isAr))}</span>
@@ -5366,7 +5366,7 @@ export function UsdtExchangePage({
                     key={item.title}
                     type="button"
                     onClick={item.onClick}
-                    className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4 text-start transition hover:-translate-y-0.5 hover:border-amber-400/35 hover:bg-amber-500/12"
+                    className={`rounded-2xl border border-amber-500/20 bg-amber-500/8 p-4 text-start transition hover:-translate-y-0.5 hover:border-amber-400/35 hover:bg-amber-500/12 ${/commission|عمول/i.test(item.title) ? "commission-surface" : ""}`}
                   >
                     <p className="text-xs uppercase tracking-[0.14em] text-amber-200/80">{currencyText(item.title)}</p>
                     <p className="mt-2 text-sm font-semibold text-white">{currencyText(item.body)}</p>

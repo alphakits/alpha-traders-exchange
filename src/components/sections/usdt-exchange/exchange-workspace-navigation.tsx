@@ -42,7 +42,7 @@ export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, c
               dir={compact ? (isAr ? "rtl" : "ltr") : undefined}
               onClick={card.onClick}
               aria-label={`${card.title}: ${compact ? `${card.stat}. ` : ""}${card.subtitle}`}
-              className={cn("flex w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30", integrated && "min-w-0 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4D87A]", compact || integrated ? "min-h-[100px]" : "min-h-[116px]", toneClass)}
+              className={cn("flex w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30", card.key === "commission" && "commission-surface", integrated && "min-w-0 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4D87A]", compact || integrated ? "min-h-[100px]" : "min-h-[116px]", toneClass)}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
