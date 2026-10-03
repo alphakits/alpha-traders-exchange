@@ -22,24 +22,24 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 describe("member-selected phone verification channels", () => {
   it.each([null, true, "email", "auto", {}, []])("rejects a supplied invalid channel %j", value => expect(parsePhoneVerificationChannel(value)).toBeNull());
   it("preserves omitted channels for older clients", () => expect(parsePhoneVerificationChannel(undefined)).toBeUndefined());
-  it.each(["sms", "whatsapp"] as const)("sends only the explicitly chosen %s channel", async channel => {
-    expect(getPhoneVerificationChannels()).toEqual({ sms: true, whatsapp: true });
-    expect(await sendPhoneVerificationCode({ phone: "+972501234567", code: "482901", channel })).toMatchObject({ ok: true, channel });
-    expect(mocks.sms).toHaveBeenCalledTimes(channel === "sms" ? 1 : 0);
-    expect(mocks.whatsapp).toHaveBeenCalledTimes(channel === "whatsapp" ? 1 : 0);
+  it("sends SMS only and reports WhatsApp unavailable even if its provider is ready", async () => {
+    expect(getPhoneVerificationChannels()).toEqual({ sms: true, whatsapp: false });
+    expect(await sendPhoneVerificationCode({ phone: "+972501234567", code: "482901", channel: "sms" })).toMatchObject({ ok: true, channel: "sms" });
+    expect(mocks.sms).toHaveBeenCalledTimes(1);
+    expect(mocks.whatsapp).not.toHaveBeenCalled();
   });
-  it("keeps WhatsApp usable when only the SMS send switch is disabled", async () => {
+  it("blocks explicit WhatsApp requests before any provider call", async () => {
+    expect(await sendPhoneVerificationCode({ phone: "+972501234567", code: "482901", channel: "whatsapp" })).toMatchObject({ ok: false, supportCode: "OTP_PROVIDER_CONFIGURATION" });
+    expect(mocks.sms).not.toHaveBeenCalled();
+    expect(mocks.whatsapp).not.toHaveBeenCalled();
+  });
+  it("keeps both channels unavailable when SMS sending is disabled", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "false");
     vi.stubEnv("ALPHA_EXCHANGE_TWILIO_SEND_ENABLED", "false");
-    expect(getPhoneVerificationChannels()).toEqual({ sms: false, whatsapp: true });
-    expect(await sendPhoneVerificationCode({ phone: "+972501234567", code: "482901", channel: "whatsapp" })).toMatchObject({ ok: true, channel: "whatsapp" });
-    expect(mocks.sms).not.toHaveBeenCalled();
-  });
-  it("never switches channels after an ambiguous send", async () => {
-    mocks.whatsapp.mockResolvedValue({ ok: false, reason: "timeout", retryable: true });
+    expect(getPhoneVerificationChannels()).toEqual({ sms: false, whatsapp: false });
     expect(await sendPhoneVerificationCode({ phone: "+972501234567", code: "482901", channel: "whatsapp" })).toMatchObject({ ok: false });
-    expect(mocks.whatsapp).toHaveBeenCalledWith(expect.objectContaining({ maxAttempts: 1 }));
     expect(mocks.sms).not.toHaveBeenCalled();
+    expect(mocks.whatsapp).not.toHaveBeenCalled();
   });
   it("checks unavailable channels and the self-sender configuration before generating a code", () => {
     mocks.readiness.mockReturnValue({ readyToSend: false });
@@ -66,6 +66,6 @@ describe("member-selected phone verification channels", () => {
     expect(getTwilioSmsSender()).toEqual({ MessagingServiceSid: `MG${"a".repeat(32)}` });
   });
   it("passes no destination or code into a public channel capability response", () => {
-    expect(JSON.stringify(getPhoneVerificationChannels())).toBe('{"sms":true,"whatsapp":true}');
+    expect(JSON.stringify(getPhoneVerificationChannels())).toBe('{"sms":true,"whatsapp":false}');
   });
 });

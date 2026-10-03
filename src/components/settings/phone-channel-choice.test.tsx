@@ -16,14 +16,14 @@ function panel(locale: "en" | "ar" = "en") {
   render(<AccountSettingsPanel locale={locale} phoneVerificationEnabled phoneVerificationChannels={{ sms: true, whatsapp: true }} initialTab="notifications" />);
 }
 describe("phone channel choice and send controls", () => {
-  it("sends the selected WhatsApp channel and blocks resend for sixty seconds", async () => {
+  it("sends SMS only, disables WhatsApp, and blocks resend for sixty seconds", async () => {
     const fetchMock = mockAccount(); panel();
     fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "+972501234567" } });
-    fireEvent.click(screen.getByRole("radio", { name: "WhatsApp" }));
+    expect((screen.getByRole("radio", { name: /WhatsApp/ }) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Send code" }));
-    await screen.findByText("Code sent via whatsapp.");
+    await screen.findByText("Code sent via sms.");
     const send = fetchMock.mock.calls.find(([url]) => String(url).endsWith("phone/send-code"))!;
-    expect(JSON.parse(String(send[1]?.body))).toEqual({ phone: "+972501234567", channel: "whatsapp", locale: "en" });
+    expect(JSON.parse(String(send[1]?.body))).toEqual({ phone: "+972501234567", channel: "sms", locale: "en" });
     expect((screen.getByRole("button", { name: "Resend in 60s" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByRole("textbox", { name: "Verification code" }), { target: { value: "123456" } });
     expect((screen.getByRole("button", { name: "Verify" }) as HTMLButtonElement).disabled).toBe(false);

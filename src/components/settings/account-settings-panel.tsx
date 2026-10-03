@@ -165,7 +165,7 @@ export function AccountSettingsPanel({
   const [whatsappMessage, setWhatsappMessage, whatsappMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
-  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>(phoneVerificationChannels?.sms === false && phoneVerificationChannels.whatsapp ? "whatsapp" : "sms");
+  const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
   const [phoneBusy, setPhoneBusy] = useState<"send" | "verify" | null>(null);
   const phoneBusyRef = useRef(false);
   const [phoneSentTo, setPhoneSentTo] = useState<string | null>(null);

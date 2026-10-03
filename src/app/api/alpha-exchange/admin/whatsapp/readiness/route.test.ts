@@ -71,7 +71,7 @@ describe("admin WhatsApp readiness", () => {
     expect(payload.mode).toBe("simulation_only");
     expect(payload.authentication).toEqual(expect.objectContaining({
       mode: "configuration_ready",
-      selectedPhoneVerificationProvider: "whatsapp",
+      selectedPhoneVerificationProvider: "disabled",
       readiness: expect.objectContaining({
         readyToSend: true,
         authenticationTemplateApproved: true,

@@ -41,10 +41,10 @@ describe("reviewed SMS requirement rollout", () => {
     expect(requireMarketplaceVerificationForTrading({ ...base, role, roles: [role] })?.status).toBe(403);
     expect(marketplacePhoneVerificationDestination({ ...base, role, roles: [role] }, "/en/dashboard/seller", "en")).toContain("/en/verify-account");
   });
-  it.each(["Alphatradersai@gmail.com", " Claudiahttps11@gmail.com ", "Jozenmark834@yahoo.com"])("exempts only the canonical approved account %s without fabricating verification", email => {
+  it.each(["Alphatradersai@gmail.com", " Claudiahttps11@gmail.com ", "Jozenmark834@yahoo.com"])("requires verification for previously exempt account %s", email => {
     const account = { ...base, email };
-    expect(requireMarketplaceVerificationForTrading(account)).toBeNull();
-    expect(marketplacePhoneVerificationDestination(account, "/en/dashboard/seller", "en")).toBeNull();
+    expect(requireMarketplaceVerificationForTrading(account)?.status).toBe(403);
+    expect(marketplacePhoneVerificationDestination(account, "/en/dashboard/seller", "en")).toContain("/en/verify-account");
     expect(account).not.toHaveProperty("verifiedPhone");
   });
   it.each(["alphatradersai@gmail.com.example", "other+jozenmark834@yahoo.com", "claudiahttps11+alias@gmail.com", ""])("does not exempt a lookalike account %j", email => {

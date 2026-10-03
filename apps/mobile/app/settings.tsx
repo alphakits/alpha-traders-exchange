@@ -66,10 +66,6 @@ export default function SettingsScreen() {
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileNotificationPreferences(tokens, requestLocale, signal)),
   });
-  useEffect(() => {
-    const channels = notificationQuery.data?.capabilities.phoneVerificationChannels;
-    if (channels?.sms === false && channels.whatsapp) setPhoneChannel("whatsapp");
-  }, [notificationQuery.data?.capabilities.phoneVerificationChannels]);
   const notificationMutation = useMutation({
     mutationFn: (preferences: MobileNotificationPreferencesUpdateRequest) => requestWithSession((tokens, requestLocale) =>
       updateMobileNotificationPreferences(tokens, requestLocale, preferences)),
@@ -192,8 +188,8 @@ export default function SettingsScreen() {
                 />
                 <View style={[styles.phoneActions, isRTL && styles.rowReverse]}>
                   {(["sms", "whatsapp"] as const).map(channel => (
-                    <GoldButton key={channel} accessibilityLabel={channel === "sms" ? "SMS" : "WhatsApp"} accessibilityState={{ selected: phoneChannel === channel }} disabled={phoneSendMutation.isPending || phoneVerifyMutation.isPending || notificationQuery.data?.capabilities.phoneVerificationChannels?.[channel] === false} variant={phoneChannel === channel ? "gold" : "outline"} onPress={() => setPhoneChannel(channel)} style={styles.phoneAction}>
-                      {channel === "sms" ? "SMS" : "WhatsApp"}
+                    <GoldButton key={channel} accessibilityLabel={channel === "sms" ? "SMS" : "WhatsApp"} accessibilityState={{ selected: phoneChannel === channel }} disabled={channel === "whatsapp" || phoneSendMutation.isPending || phoneVerifyMutation.isPending || notificationQuery.data?.capabilities.phoneVerificationChannels?.[channel] === false} variant={phoneChannel === channel ? "gold" : "outline"} onPress={() => setPhoneChannel(channel)} style={styles.phoneAction}>
+                      {channel === "sms" ? "SMS" : isAr ? "WhatsApp (غير متاح حاليًا)" : "WhatsApp (currently unavailable)"}
                     </GoldButton>
                   ))}
                 </View>

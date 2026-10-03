@@ -107,32 +107,15 @@ describe("phone verification delivery selection", () => {
     for (const privateValue of ["+972541234567", "+15551234567", "482901", "ACprivate", "private-token", "private provider message"]) expect(logged).not.toContain(privateValue);
   });
 
-  it("uses only direct Meta WhatsApp when explicitly selected and ready", async () => {
+  it("keeps legacy WhatsApp configuration unavailable even when its provider is ready", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
     mocks.getWhatsAppAuthenticationReadiness.mockReturnValue({ readyToSend: true });
-    mocks.sendWhatsAppAuthenticationCodeWithRetry.mockResolvedValue({
-      ok: true,
-      messageId: "wamid.otp",
-      status: "accepted",
-      attempts: 1,
-    });
-
-    await expect(sendPhoneVerificationCode({
-      phone: "+972541234567",
-      code: "482901",
-      locale: "ar",
-    })).resolves.toEqual({ ok: true, provider: "whatsapp", channel: "whatsapp" });
-
-    expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).toHaveBeenCalledWith({
-      to: "+972541234567",
-      code: "482901",
-      locale: "ar",
-      maxAttempts: 1,
-    });
+    expect(getPhoneVerificationProvider()).toBe("disabled");
+    expect(await sendPhoneVerificationCode({ phone: "+972541234567", code: "482901", locale: "ar" })).toMatchObject({ ok: false });
+    expect(mocks.sendWhatsAppAuthenticationCodeWithRetry).not.toHaveBeenCalled();
     expect(mocks.sendTwilioMessageWithRetry).not.toHaveBeenCalled();
   });
-
   it("fails closed without falling back when WhatsApp approval is not ready", async () => {
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED", "true");
     vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER", "whatsapp");
@@ -146,7 +129,7 @@ describe("phone verification delivery selection", () => {
 
     expect(result).toEqual(expect.objectContaining({
       ok: false,
-      provider: "whatsapp",
+      provider: "disabled",
       retryable: false,
       supportCode: "OTP_PROVIDER_CONFIGURATION",
     }));

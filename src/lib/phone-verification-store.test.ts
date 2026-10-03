@@ -45,6 +45,7 @@ describe("persisted SMS verification challenges", () => {
     expect(challenge.code).toMatch(/^\d{6}$/);
     const pending = await findUserById("test-one");
     expect(pending?.phoneOtpHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(pending?.phoneOtpChannel).toBe("sms");
     expect(pending?.verifiedPhone).toBeUndefined();
     await confirmProfilePhoneVerification({ userId: "test-one", phone, code: challenge.code });
     invalidateAlphaExchangeStoreCache();
@@ -52,6 +53,13 @@ describe("persisted SMS verification challenges", () => {
     expect(saved).toMatchObject({ verifiedPhone: phone, whatsappNumber: phone, phoneVerifiedAt: now });
     expect(saved?.phoneOtpHash).toBeUndefined();
     await expect(confirmProfilePhoneVerification({ userId: "test-one", phone, code: challenge.code })).rejects.toThrow("expired or invalid");
+  });
+  it.each([undefined, "whatsapp"] as const)("rejects a pending code from a legacy or unavailable channel %j", async channel => {
+    const challenge = await beginProfilePhoneVerification({ userId: "test-one", phone });
+    globalThis.__alphaExchangeMemorySnapshot!.users[0].phoneOtpChannel = channel;
+    invalidateAlphaExchangeStoreCache();
+    await expect(confirmProfilePhoneVerification({ userId: "test-one", phone, code: challenge.code })).rejects.toThrow("expired or invalid");
+    expect((await findUserById("test-one"))?.verifiedPhone).toBeUndefined();
   });
   it("rejects an expired code at the ten-minute boundary", async () => {
     const challenge = await beginProfilePhoneVerification({ userId: "test-one", phone });
