@@ -41,7 +41,7 @@ test.describe("Responsive authenticated header", () => {
           const geometry = await header.evaluate((element) => {
             const viewport = document.documentElement.clientWidth;
             const controls = [...element.querySelectorAll<HTMLElement>("a, button, summary")]
-              .filter((control) => control.getBoundingClientRect().width > 0);
+              .filter((control) => getComputedStyle(control).visibility === "visible" && control.getBoundingClientRect().width > 0);
             const clipped = controls.filter((control) => {
               const rect = control.getBoundingClientRect();
               return rect.left < -1 || rect.right > viewport + 1;
@@ -51,6 +51,20 @@ test.describe("Responsive authenticated header", () => {
           expect(geometry.clipped, `${locale} ${role} at ${width}px`).toEqual([]);
           expect(geometry.bodyWidth).toBeLessThanOrEqual(geometry.viewport);
           if (width < 1280) await menu.locator("summary").press("Escape");
+
+          await header.getByRole("button", { name: locale === "ar" ? "الإشعارات" : "Notifications", exact: true }).click();
+          const panel = header.getByTestId("notification-panel");
+          await expect(panel).toBeVisible();
+          const panelBounds = await panel.evaluate(element => {
+            const viewport = document.documentElement.clientWidth;
+            return [element, ...element.querySelectorAll("a,button")].every(control => {
+              const rect = control.getBoundingClientRect();
+              return rect.left >= -1 && rect.right <= viewport + 1;
+            });
+          });
+          expect(panelBounds, `${locale} ${role} notifications at ${width}px`).toBe(true);
+          await panel.getByRole("button", { name: locale === "ar" ? "إغلاق الإشعارات" : "Close notifications" }).click();
+          await expect(panel).not.toBeVisible();
         }
       });
     }

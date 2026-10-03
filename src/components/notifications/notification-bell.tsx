@@ -158,6 +158,7 @@ function NotificationBellSession({
 }: NotificationBellProps & { canonicalSession: OptionalCanonicalSession }) {
   const isAr = locale === "ar";
   const [isOpen, setIsOpen] = useState(false);
+  const [panelOffset, setPanelOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
@@ -198,6 +199,22 @@ function NotificationBellSession({
   useEffect(() => {
     isOpenRef.current = isOpen;
   }, [isOpen]);
+
+  useEffect(() => {
+    const positionPanel = () => {
+      const wrapper = panelRef.current;
+      const panel = wrapper?.querySelector<HTMLElement>('[data-testid="notification-panel"]');
+      if (!wrapper || !panel) return;
+      const anchor = wrapper.getBoundingClientRect();
+      const viewport = document.documentElement.clientWidth;
+      const naturalLeft = locale === "ar" ? anchor.left : anchor.right - panel.offsetWidth;
+      const boundedLeft = Math.max(8, Math.min(naturalLeft, viewport - panel.offsetWidth - 8));
+      setPanelOffset(boundedLeft - naturalLeft);
+    };
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    return () => window.removeEventListener("resize", positionPanel);
+  }, [locale]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -482,6 +499,7 @@ function NotificationBellSession({
 
       <div
         data-testid="notification-panel"
+        style={{ translate: `${panelOffset}px 0` }}
         className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
           isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
         }`}
@@ -628,7 +646,7 @@ function NotificationBellSession({
               })}
         </div>
 
-        <div className="flex items-center justify-between border-t border-white/10 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2">
           <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllRead()} className="h-8 px-3 text-xs">
             {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
           </Button>
