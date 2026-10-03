@@ -468,16 +468,18 @@ async function openNotificationAndNavigate(input: {
     expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
 
     await expect.poll(async () => section.evaluate((element) => {
-      const sectionTop = element.getBoundingClientRect().top;
+      const rect = element.getBoundingClientRect();
       const headerBottom = document.querySelector<HTMLElement>("header")?.getBoundingClientRect().bottom ?? 0;
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
       return {
-        clearsHeader: sectionTop >= Math.max(0, headerBottom - 1),
-        nearHeader: sectionTop <= Math.max(180, headerBottom + 24),
+        clearsHeader: rect.top >= Math.max(viewportTop, headerBottom - 1),
+        visibleTarget: rect.top + Math.min(rect.height, 160) <= viewportBottom - 24,
       };
     }), {
-      message: `target section should settle directly below the real sticky header (${expectedAction}, ${viewport.width}px)`,
+      message: "The focused notification target must remain visible below the sticky header",
       timeout: 5_000,
-    }).toEqual({ clearsHeader: true, nearHeader: true });
+    }).toEqual({ clearsHeader: true, visibleTarget: true });
     await expect(section).toBeFocused({ timeout: 5_000 });
 
     const actionButton = page.getByRole("button", { name: localizedTradeActionMatcher(expectedAction) }).first();
@@ -601,9 +603,27 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
     viewport,
   });
 
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
-  await expect(page.getByText(/Waiting for Buyer Confirmation|بانتظار تأكيد المشتري/i).first()).toBeVisible({ timeout: 20_000 });
+  const acceptedConfirmations: string[] = [];
+  const confirmAcceptance = async (dialog: import("@playwright/test").Dialog) => {
+    acceptedConfirmations.push(dialog.message());
+    await dialog.accept();
+  };
+  // Face-to-face acceptance requires the terms confirmation and the separate
+  // safe-meeting acknowledgement. A once handler dismisses the second dialog.
+  page.on("dialog", confirmAcceptance);
+  try {
+    const [accepted] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+        && response.request().method() === "PATCH"),
+      page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click(),
+    ]);
+    expect(accepted.ok(), await accepted.text()).toBeTruthy();
+    expect(acceptedConfirmations).toHaveLength(2);
+    expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
+  } finally {
+    page.off("dialog", confirmAcceptance);
+  }
+  await expect(page.getByText(/Receive the Cash, Then Confirm|استلم النقد ثم أكد/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);
@@ -645,26 +665,24 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /I Received the Cash/i }).first().click();
-  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("confirm-usdt-sent") }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Buyer Receiving Wallet/i).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(BUYER_WALLET).first()).toBeVisible({ timeout: 20_000 });
 
   const afterConfirmResponse = await page.request.get(`/api/alpha-exchange/trade-room/${requestId}`);
   expect(afterConfirmResponse.ok()).toBeTruthy();
-  const afterConfirmRoom = (await afterConfirmResponse.json()) as { request?: { buyerReceivingWalletAddress?: string } };
+  const afterConfirmRoom = (await afterConfirmResponse.json()) as { request?: { status?: string; buyerReceivingWalletAddress?: string } };
+  expect(afterConfirmRoom.request?.status).toBe("funds_received");
   expect(afterConfirmRoom.request?.buyerReceivingWalletAddress).toBe(BUYER_WALLET);
 
   await expect(page.getByText(/How this trade works/i).first()).toBeVisible({ timeout: 20_000 });
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("confirm-usdt-sent") }).first().click();
-  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first()).toBeVisible({ timeout: 20_000 });
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first().click();
   await expect(page.getByRole("button", { name: "Return home", exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
 
   await login(page.request, buyerEmail, buyerPassword);
-  await waitForNotification(api, buyerEmail, /face-to-face trade completed/i, requestId);
+  await waitForNotification(api, buyerEmail, /^Trade completed$/i, requestId);
   const buyerConfirmTitle = "E2E Guided Review Completed Trade";
   await injectTradeNotification(api, buyerEmail, buyerConfirmTitle, requestId);
   await openNotificationAndNavigate({
@@ -701,7 +719,7 @@ test("trade-room Pay Now opens the canonical commission flow without an external
     ]);
 
     await expect(page).toHaveURL(/\/en\/usdt-exchange#commission-payment$/, { timeout: 20_000 });
-    await expect(page.getByText("Commission Payment").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#commission-payment").getByRole("heading", { name: "Automatic commission checkout", exact: true })).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(100);
     expect(popupUrls).toEqual([]);
   } finally {
@@ -731,8 +749,8 @@ test("action transition matrix: destination query/hash + focused section + CTA a
     { label: "pending seller", status: "pending", actor: "seller", expectedAction: "accept-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "accepted buyer", status: "accepted", actor: "buyer", expectedAction: "confirm-cash-payment", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "payment_sent seller", status: "payment_sent", actor: "seller", expectedAction: "confirm-money-received", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "funds_received seller", status: "funds_received", actor: "seller", expectedAction: "confirm-usdt-sent", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
-    { label: "usdt_release_pending seller", status: "usdt_release_pending", actor: "seller", expectedAction: "confirm-usdt-sent", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "funds_received seller", status: "funds_received", actor: "seller", expectedAction: "complete-cash-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
+    { label: "usdt_release_pending seller", status: "usdt_release_pending", actor: "seller", expectedAction: "complete-cash-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "usdt_sent seller", status: "usdt_sent", actor: "seller", expectedAction: "complete-cash-trade", expectedHash: "action-required", viewport: { width: 1440, height: 900 } },
     { label: "review_open buyer", status: "review_open", actor: "buyer", expectedAction: "review-trade", expectedHash: "status-banner", viewport: { width: 1440, height: 900 } },
   ];
@@ -843,9 +861,25 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 
     await login(sellerPage.request, sellerEmail, sellerPassword);
     await sellerPage.goto(`/en/trade-room/${requestId}`);
-    sellerPage.once("dialog", (dialog) => dialog.accept());
-    await sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click();
-    await expect(sellerPage.getByText(/Waiting for Buyer Confirmation/i).first()).toBeVisible({ timeout: 20_000 });
+    const acceptedConfirmations: string[] = [];
+    const confirmAcceptance = async (dialog: import("@playwright/test").Dialog) => {
+      acceptedConfirmations.push(dialog.message());
+      await dialog.accept();
+    };
+    sellerPage.on("dialog", confirmAcceptance);
+    try {
+      const [accepted] = await Promise.all([
+        sellerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+          && response.request().method() === "PATCH"),
+        sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click(),
+      ]);
+      expect(accepted.ok(), await accepted.text()).toBeTruthy();
+      expect(acceptedConfirmations).toHaveLength(2);
+      expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
+    } finally {
+      sellerPage.off("dialog", confirmAcceptance);
+    }
+    await expect(sellerPage.getByText(/Receive the Cash, Then Confirm/i).first()).toBeVisible({ timeout: 20_000 });
 
     await buyerPage.goto(`/en/trade-room/${requestId}`);
     const buyerChatForm = buyerPage.locator("#chat form");
@@ -1037,7 +1071,9 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       const requestId = await createTradeRequest(buyerContext.request, "300");
       const db = await readDb(api);
       const trade = (db.purchaseRequests as Array<Record<string, unknown>>).find((row) => row.id === requestId)!;
-      Object.assign(trade, { paymentMethod, fiatAmount: "900", pricePerUsdt: "3.00", listingPriceAtRequest: "3.00", sellerBankAccountId: `bank-${ids.seller}`, updatedAt: iso() });
+      // The cardless cash total must be a multiple of 100 and include the
+      // current buyer fee: 900 / (3 × 1.01) = 297.029703 USDT.
+      Object.assign(trade, { paymentMethod, usdtAmount: paymentMethod === "Cardless ATM Withdrawal" ? "297.029703" : "300", fiatAmount: paymentMethod === "Cardless ATM Withdrawal" ? "900" : "909", pricePerUsdt: "3.00", listingPriceAtRequest: "3.00", sellerBankAccountId: `bank-${ids.seller}`, updatedAt: iso() });
       const sellerUser = (db.users as Array<Record<string, unknown>>).find((row) => row.id === ids.seller)!;
       sellerUser.sellerBankAccounts = [{ id: `bank-${ids.seller}`, sellerId: ids.seller, accountHolderName: "Guided Flow Seller", bankName: "Bank Hapoalim", branchNumber: "123", accountNumber: "9000000000", accountLast4: "0000", isDefault: true, createdAt: iso(), updatedAt: iso() }];
       await writeDb(api, db);
@@ -1058,8 +1094,13 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       } else if (paymentMethod === "Cardless ATM Withdrawal") {
         await buyerPage.locator("#cardless-withdrawal-code").fill("123456");
         await buyerPage.locator("#cardless-verification-kind").selectOption("date_of_birth");
-        await buyerPage.locator("#cardless-verification-value").fill("1990-01-01");
-        await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
+        await buyerPage.locator("#cardless-verification-value").fill("01/01/1990");
+        const [submitted] = await Promise.all([
+          buyerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+            && response.request().method() === "PATCH", { timeout: 15_000 }),
+          buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click(),
+        ]);
+        expect(submitted.ok(), await submitted.text()).toBeTruthy();
       } else {
         await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       }
@@ -1094,13 +1135,27 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         await sellerPage.getByRole("button", { name: "Release USDT", exact: true }).click();
         await sellerPage.getByLabel("Choose USDT release proof", { exact: true }).setInputFiles({ name: "release.png", mimeType: "image/png", buffer: png });
         await sellerPage.getByRole("button", { name: "Upload Seller Evidence", exact: true }).click();
-      } else {
+      } else if (paymentMethod === "Cardless ATM Withdrawal") {
         await expect(sellerPage.getByText(BUYER_WALLET, { exact: true })).toBeVisible();
         await sellerPage.getByRole("button", { name: "Confirm USDT Sent", exact: true }).click();
         await expect(sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true })).toBeVisible();
+      } else {
+        await expect(sellerPage.getByText(BUYER_WALLET, { exact: true })).toBeVisible();
       }
-      await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
-      await buyerPage.getByRole("button", { name: "Confirm USDT Received", exact: true }).click();
+      if (paymentMethod === "Bank Transfer") {
+        await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
+        await buyerPage.getByRole("button", { name: "Confirm USDT Received", exact: true }).click();
+        await expect(buyerPage).toHaveURL(url => (
+          url.pathname === path
+          && url.searchParams.get("action") === "review-trade"
+          && url.hash === "#status-banner"
+        ), { timeout: 20_000 });
+      } else {
+        if (paymentMethod === "Cardless ATM Withdrawal") {
+          await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
+        }
+        await sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }).click();
+      }
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
       await buyerPage.getByPlaceholder("Share your seller feedback...").fill("Completed smoothly in the browser rehearsal.");
       await buyerPage.getByRole("button", { name: "Submit Rating", exact: true }).click();

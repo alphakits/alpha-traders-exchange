@@ -1,4 +1,5 @@
 import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL, E2E_CRON_SECRET } from "./support/base-url";
@@ -234,6 +235,27 @@ async function runWithDialogs(
   await pendingAction;
 }
 
+async function runOwnerActionDialogs(
+  page: Page,
+  action: () => Promise<unknown>,
+  steps: Array<{ type: "confirm" | "prompt"; message: string; value?: string }>,
+) {
+  await action();
+  for (const step of steps) {
+    const dialog = page.getByRole("dialog", { name: step.message, exact: true });
+    await expect(dialog).toBeVisible();
+    if (step.type === "prompt") {
+      const input = dialog.getByRole("textbox", { name: step.message, exact: true });
+      await expect(input).toBeVisible();
+      await input.fill(step.value ?? "");
+    } else {
+      await expect(dialog.getByRole("textbox")).toHaveCount(0);
+    }
+    await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  }
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+}
+
 async function resetLifecycleFixtures() {
   if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD || !BUYER_EMAIL || !BUYER_PASSWORD || !SELLER_EMAIL || !SELLER_PASSWORD) {
     return false;
@@ -251,6 +273,9 @@ async function resetLifecycleFixtures() {
   }
 
   const sellerId = String(seller.id);
+  // Reusing an account across scenarios also reuses its live listing quota.
+  // Rotate only the local fixture identity after cleaning its previous rows.
+  const nextSellerId = `seller-lifecycle-${randomUUID()}`;
   const ownerId = String(owner.id);
   const adminId = String(admin.id);
   const buyerId = String(buyer.id);
@@ -311,6 +336,7 @@ async function resetLifecycleFixtures() {
     if (String(user.id) === sellerId) {
       return {
         ...base,
+        id: nextSellerId,
         sellerBankAccounts: [],
       };
     }
@@ -402,6 +428,7 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
 }
 
 async function submitListingFromSellerWorkspace(page: Page, expectedListing: { availableAmount: string; price: string }) {
+  const beforeSubmission = page.url();
   const submitButton = page.getByRole("button", { name: "Submit Listing" });
   const main = page.getByRole("main");
   await expect(main.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
@@ -410,7 +437,8 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   await main.locator("#create-min-trade").fill("50");
   await main.locator("#create-max-trade").fill(expectedListing.availableAmount);
   await page.getByRole("button", { name: /Bank Hapoalim/i }).click();
-  const commissionCheckbox = page.getByRole("checkbox", { name: /1% commission policy/i });
+  const commissionCheckbox = page.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }
@@ -434,7 +462,9 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   }
   await expect(page.getByRole("heading", { name: "My Listings" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
-  await expect(page).toHaveURL(/#listing-publish-result$/);
+  await expect(page).toHaveURL(beforeSubmission);
+  await expect(page.locator("#listing-publish-result")).toBeVisible();
+  await expect(page.locator("#listing-publish-result")).toBeInViewport();
   await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
   await expect(page.locator(`[id="listing-${payload.listing.id}"]`)).toHaveCount(0);
   expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });
@@ -551,8 +581,9 @@ test("listing publish failures stay visible beside the mobile submit action", as
   await chooseCreatePayoutBankAccountByLast4(seller.page, payoutAccount.accountLast4);
 
   const payoutBankButton = createListing.getByRole("button", { name: new RegExp(payoutAccount.bankName, "i") });
-  await expect(payoutBankButton).toContainText("Selected");
-  const commissionCheckbox = createListing.getByRole("checkbox", { name: /1% commission policy/i });
+  await expect(payoutBankButton).toHaveAttribute("aria-pressed", "true");
+  const commissionCheckbox = createListing.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) await commissionCheckbox.check();
 
   const submitButton = createListing.getByRole("button", { name: "Submit Listing" });
@@ -598,7 +629,8 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("1000");
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
-  const commissionCheckbox = seller.page.getByRole("checkbox", { name: /1% commission policy/i });
+  const commissionCheckbox = seller.page.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }
@@ -893,7 +925,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await expect(commissionStatus).toContainText("Choose one unpaid commission to pay.");
   await expect(commissionStatus.getByRole("button", { name: /Trade #9201/ })).toHaveCount(1);
   await expect(commissionStatus.getByRole("button", { name: /Trade #9202/ })).toHaveCount(1);
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toContainText("2");
+  await expect(main.locator("#workspace-summary").getByRole("button", { name: /Commission Due:/ })).toContainText("2");
 
   // A record-specific Pay Now action from the already-mounted exchange page
   // must reveal the form in place. This regresses the mobile failure where a
@@ -901,6 +933,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await commissionStatus.getByRole("button", { name: /Trade #9201/ }).click();
   const commissionPaymentPanel = main.locator("#commission-payment");
   await expect(commissionPaymentPanel).toBeVisible();
+  await commissionPaymentPanel.locator("summary").filter({ hasText: "Already sent a payment? Check previous payment instructions" }).click();
+  await expect(commissionPaymentPanel.getByRole("button", { name: "Close commission payment" })).toBeVisible({ timeout: 15_000 });
   await expect(commissionPaymentPanel).toContainText(/2\.\d{6} USDT/);
   await expect(commissionPaymentPanel).toContainText("Send all 6 decimal places exactly as shown—do not round it.");
   await commissionPaymentPanel.getByRole("button", { name: "Close commission payment" }).click();
@@ -920,6 +954,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
 
   await commissionStatus.getByRole("button", { name: "Pay Now", exact: true }).click();
   await expect(commissionPaymentPanel).toBeVisible();
+  await commissionPaymentPanel.locator("summary").filter({ hasText: "Already sent a payment? Check previous payment instructions" }).click();
+  await expect(commissionPaymentPanel.getByRole("button", { name: "Close commission payment" })).toBeVisible({ timeout: 15_000 });
   await expect(commissionPaymentPanel).toContainText(/3\.\d{6} USDT/);
   await commissionPaymentPanel.getByRole("button", { name: "Close commission payment" }).click();
   await expect(commissionPaymentPanel).toHaveCount(0);
@@ -927,6 +963,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   const createListingSection = main.locator("#create-listing");
   await createListingSection.getByRole("button", { name: "Pay Now", exact: true }).click();
   await expect(commissionPaymentPanel).toBeVisible();
+  await commissionPaymentPanel.locator("summary").filter({ hasText: "Already sent a payment? Check previous payment instructions" }).click();
+  await expect(commissionPaymentPanel.getByRole("button", { name: "Close commission payment" })).toBeVisible({ timeout: 15_000 });
   await expect(commissionPaymentPanel).toContainText(/3\.\d{6} USDT/);
 
   await updateRuntimeDb(seller.page.request, (db) => {
@@ -939,7 +977,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
     }
   });
   await seller.page.reload({ waitUntil: "domcontentloaded" });
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toHaveCount(0);
+  await expect(main.locator("#workspace-summary").getByRole("button", { name: /Commission Due:/ })).toHaveCount(0);
   await expect(main.locator("#commission-status")).toContainText("No commission due");
 
   await seller.context.close();
@@ -963,7 +1001,7 @@ test("owner listing notification destination survives login, refresh, and histor
   expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
 
   await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
-  await ownerPage.getByLabel("Password").fill(OWNER_PASSWORD);
+  await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await Promise.all([
     ownerPage.waitForURL(destination, { timeout: 30_000 }),
     ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
@@ -1109,9 +1147,10 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.status).toBe("review_open");
   expect(Boolean(firstTrade.completedAt)).toBeTruthy();
 
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/en/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`), { timeout: 20_000 });
   await seller.page.reload();
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/en/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`), { timeout: 20_000 });
+  await expect(seller.page.locator("#status-banner")).toContainText("Trade Completed Successfully", { timeout: 20_000 });
 
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
@@ -1180,6 +1219,15 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   const buyer = await createSession(browser, BUYER_EMAIL, BUYER_PASSWORD);
 
   const created = await createListing(seller.page.request, { availableAmount: "901", price: "3.20", minimumTrade: "100", maximumTrade: "901" });
+  const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
+  try {
+    const approval = await owner.page.request.patch(`/api/alpha-exchange/admin/listings/${created.listing.id}`, {
+      data: { action: "approve" },
+    });
+    await expectOkWithBody(approval, "Approve the live listing before testing expiration");
+  } finally {
+    await owner.context.close();
+  }
   await updateRuntimeDb(seller.page.request, (db) => {
     const listings = toRecords(db.marketplaceListings);
     const listing = listings.find((item) => String(item.id) === created.listing.id);
@@ -1196,7 +1244,8 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await seller.page.reload();
   await expect(seller.page.getByRole("button", { name: "Renew" }).first()).toBeVisible({ timeout: 10_000 });
   await seller.page.getByRole("button", { name: "Renew" }).first().click();
-  await expect(seller.page.getByText(/Listing renewed.*refreshed expiry/)).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page.locator("#listing-publish-result")).toContainText(/Listing renewed.*refreshed expiry/, { timeout: 10_000 });
+  await expect(seller.page.locator("#listing-publish-result")).toBeVisible();
 
   const sellerListingsAfterRenew = await seller.page.request.get("/api/alpha-exchange/my-listings");
   expect(sellerListingsAfterRenew.ok()).toBeTruthy();
@@ -1305,7 +1354,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await Promise.all([seller.context.close(), buyer.context.close()]);
 });
 
-test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
+test("owner dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
   test.setTimeout(300_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -1327,26 +1376,26 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   const extendCandidate = await createListing(seller.page.request, { availableAmount: "222", price: "3.12" });
   await waitForPersistence();
 
-  const admin = await createSession(browser, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const admin = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
   const page = admin.page;
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(renewCandidate.listing.id)}`);
   await expect(page.getByRole("heading", { name: "Marketplace Listings" })).toBeVisible({ timeout: 60_000 });
 
   const renewRow = page.locator(`#marketplace-listing-${renewCandidate.listing.id}`);
   await expect(renewRow).toBeVisible({ timeout: 60_000 });
-  await runWithDialogs(page, () => renewRow.getByRole("button", { name: "Renew" }).click(), [
-    { type: "confirm" },
-    { type: "prompt", value: "Admin renewal for launch QA" },
+  await runOwnerActionDialogs(page, () => renewRow.getByRole("button", { name: "Renew" }).click(), [
+    { type: "confirm", message: "Renew this listing?" },
+    { type: "prompt", message: "Reason for renewing this listing:", value: "Admin renewal for launch QA" },
   ]);
   await expect(page.getByText("Listing renewed by admin.")).toBeVisible({ timeout: 10_000 });
 
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(extendCandidate.listing.id)}`);
   const extendRow = page.locator(`#marketplace-listing-${extendCandidate.listing.id}`);
   await expect(extendRow).toBeVisible({ timeout: 60_000 });
-  await runWithDialogs(page, () => extendRow.getByRole("button", { name: "Extend Expiration" }).click(), [
-    { type: "confirm" },
-    { type: "prompt", value: "24" },
-    { type: "prompt", value: "Extend listing for launch QA" },
+  await runOwnerActionDialogs(page, () => extendRow.getByRole("button", { name: "Extend Expiration" }).click(), [
+    { type: "confirm", message: "Extend this listing expiration?" },
+    { type: "prompt", message: "Extend expiration by hours (1, 6, 12, 24)", value: "24" },
+    { type: "prompt", message: "Reason for extending this listing:", value: "Extend listing for launch QA" },
   ]);
   await expect(page.getByText("Listing expiration extended.")).toBeVisible({ timeout: 10_000 });
 
@@ -1354,9 +1403,9 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   const closeRow = page.locator(`#marketplace-listing-${renewCandidate.listing.id}`);
   const closeButton = closeRow.getByRole("button", { name: "Close" });
   await expect(closeButton).toBeVisible({ timeout: 30_000 });
-  await runWithDialogs(page, () => closeButton.click(), [
-    { type: "confirm" },
-    { type: "prompt", value: "Closing listing for launch QA" },
+  await runOwnerActionDialogs(page, () => closeButton.click(), [
+    { type: "confirm", message: "Close this listing?" },
+    { type: "prompt", message: "Reason for closing this listing:", value: "Closing listing for launch QA" },
   ]);
   await expect(page.getByText("Listing closed by admin.")).toBeVisible({ timeout: 10_000 });
 
@@ -1373,8 +1422,8 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(forceCloseCandidate.listing.id)}`);
   const forceRow = page.locator(`#marketplace-listing-${forceCloseCandidate.listing.id}`);
   await expect(forceRow).toBeVisible({ timeout: 60_000 });
-  await runWithDialogs(page, () => forceRow.getByRole("button", { name: "Force Close" }).click(), [
-    { type: "prompt", value: "Admin override" },
+  await runOwnerActionDialogs(page, () => forceRow.getByRole("button", { name: "Force Close" }).click(), [
+    { type: "prompt", message: "Force-close reason", value: "Admin override" },
   ]);
   await expect(page.getByText("Listing force closed.")).toBeVisible({ timeout: 10_000 });
 

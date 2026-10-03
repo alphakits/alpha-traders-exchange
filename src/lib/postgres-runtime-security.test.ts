@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   attachDatabasePool: vi.fn(),
@@ -33,6 +33,11 @@ function setNodeEnv(value: string | undefined) {
 }
 
 describe("PostgreSQL runtime TLS", () => {
+  beforeEach(() => {
+    // Exercise PostgreSQL when the browser build inherits its local fixture flag.
+    vi.stubEnv("ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY", undefined);
+  });
+
   afterEach(() => {
     delete (globalThis as typeof globalThis & {
       __alphaTradersRuntimeDbPool?: unknown;
@@ -40,6 +45,7 @@ describe("PostgreSQL runtime TLS", () => {
     delete process.env.SUPABASE_DB_URL;
     delete process.env.SUPABASE_DB_SSL;
     delete process.env.SUPABASE_DB_CA;
+    vi.unstubAllEnvs();
     setNodeEnv(originalNodeEnv);
     vi.clearAllMocks();
   });

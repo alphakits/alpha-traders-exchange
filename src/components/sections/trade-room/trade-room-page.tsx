@@ -1377,6 +1377,7 @@ function TradeRoomPageSession({
   }, [router]);
   const searchParams = useSearchParams();
   const [room, setRoom] = useState<TradeRoomData | null>(null);
+  const [hasCanonicalRoom, setHasCanonicalRoom] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusFeedback, setStatusFeedback, statusMessageFeedbackKey] = useActionFeedbackState<{ message: string; stage: PurchaseRequest["status"] } | null>(null);
@@ -1526,6 +1527,7 @@ function TradeRoomPageSession({
         if (response.status === 401 || response.status === 403 || response.status === 404) {
           roomRef.current = null;
           setRoom(null);
+          setHasCanonicalRoom(false);
           clearTradeRoomCache(requestId, actor.id);
         }
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.", isAr));
@@ -1549,6 +1551,7 @@ function TradeRoomPageSession({
       if (!nextRoom) {
         return null;
       }
+      setHasCanonicalRoom(true);
       if (currentRoom && tradeRoomSnapshotSignature(currentRoom) === tradeRoomSnapshotSignature(nextRoom)) {
         return currentRoom;
       }
@@ -1580,6 +1583,7 @@ function TradeRoomPageSession({
     if (!canonicalSessionReady) {
       roomRef.current = null;
       setRoom(null);
+      setHasCanonicalRoom(false);
       setStreamConnected(false);
       setIsLoading(canonicalSessionResolving);
       return;
@@ -1640,7 +1644,9 @@ function TradeRoomPageSession({
   useLayoutEffect(() => {
     // Keep the current control stable while its request is pending. On commit,
     // reveal either the result beside the next action or the new server stage.
-    if (isLoading || actionBusy || reviewBusy || evidenceBusy || !deepLinkRequestId || !deepLinkRequestStatus) return;
+    // A cached stage is a first paint, not a live transition. Honor the entry
+    // link against the canonical snapshot before recording guided state.
+    if (!hasCanonicalRoom || isLoading || actionBusy || reviewBusy || evidenceBusy || !deepLinkRequestId || !deepLinkRequestStatus) return;
     const action = searchParams.get("action")?.trim() || null;
     const hash = window.location.hash;
     const currentState = `${deepLinkRequestId}:${deepLinkRequestStatus}`;
@@ -1681,7 +1687,7 @@ function TradeRoomPageSession({
     document.addEventListener("visibilitychange", reveal);
     for (const event of ["pointerdown", "keydown", "wheel", "touchstart", ACTION_FEEDBACK_REVEALED]) window.addEventListener(event, yieldToUser, true);
     return stop;
-  }, [actionBusy, actionError, actionErrorFeedbackKey, deepLinkRequestId, deepLinkRequestStatus, evidenceBusy, isLoading, reviewBusy, reviewCommentError, searchParams, statusMessage, statusMessageFeedbackKey]);
+  }, [actionBusy, actionError, actionErrorFeedbackKey, deepLinkRequestId, deepLinkRequestStatus, evidenceBusy, hasCanonicalRoom, isLoading, reviewBusy, reviewCommentError, searchParams, statusMessage, statusMessageFeedbackKey]);
 
   useEffect(() => {
     if (!room?.request || actionBusy || evidenceBusy) return;

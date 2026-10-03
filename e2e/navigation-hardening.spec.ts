@@ -45,7 +45,7 @@ test.describe("Navigation hardening", () => {
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
 
-    const tradeRequests = main.getByRole("button", { name: /^My Trade Requests:/ });
+    const tradeRequests = main.getByRole("button", { name: "My Trade Requests", exact: true });
     const tradeHistory = main.locator("#my-trade-requests-section");
     await expect(tradeRequests).toHaveCount(1);
     await expect(tradeHistory).toBeVisible();
@@ -55,8 +55,10 @@ test.describe("Navigation hardening", () => {
     await expect(page).toHaveURL(/\/en\/dashboard$/);
     await expect(tradeHistory).toBeFocused();
 
-    await main.getByRole("button", { name: /^Browse Marketplace:/ }).click();
-    await expect(page).toHaveURL(/\/en\/usdt-exchange#marketplace$/);
+    // The hero action remains present when the empty requests panel also
+    // offers a Browse Sellers button.
+    await main.getByRole("button", { name: "Browse Sellers", exact: true }).first().click();
+    await expect(page).toHaveURL(/\/en\/usdt-exchange#buyer-marketplace-listings$/);
   });
 
   test("buyer direct /trade-room navigation resolves to a stable non-dashboard destination", async ({ page }) => {
@@ -87,23 +89,30 @@ test.describe("Navigation hardening", () => {
     test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run seller refresh checks.");
 
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
+    const canonicalSession = page.waitForResponse(response =>
+      new URL(response.url()).pathname === "/api/auth/me" && response.ok());
     await page.goto("/en/dashboard/seller");
+    await canonicalSession;
     const main = page.getByRole("main");
-    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();
     await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible();
     await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /Seller Dashboard/i })).toHaveCount(0);
 
     const purchaseRequests = main.getByRole("button", { name: /^Purchase Requests:/ });
     await expect(purchaseRequests).toHaveCount(1);
+    await expect(purchaseRequests).not.toContainText("Loading current trades…");
     await purchaseRequests.focus();
     await page.keyboard.press("Enter");
     await expect(main.locator("#purchase-requests-section")).toBeFocused();
 
+    const reloadedSession = page.waitForResponse(response =>
+      new URL(response.url()).pathname === "/api/auth/me" && response.ok());
     await page.reload({ waitUntil: "commit" });
+    await reloadedSession;
 
     await expect(page).toHaveURL(/\/en\/dashboard\/seller(?:#purchase-requests-section)?$/);
-    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();
     const manageListings = main.getByRole("button", { name: /^My Listings:/ });
     await expect(manageListings).toHaveCount(1);
     await manageListings.focus();

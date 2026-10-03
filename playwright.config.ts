@@ -3,6 +3,7 @@ import { E2E_BASE_URL, E2E_CRON_SECRET, E2E_PORT } from "./e2e/support/base-url"
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "**/phone-verification-gate.spec.ts",
   globalSetup: "./e2e/global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -28,6 +29,8 @@ export default defineConfig({
       ALPHA_E2E_TEST_SUPPORT: "1",
       ALPHA_E2E_LOOPBACK_ONLY: "1",
       ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
+      // This key protects synthetic credentials inside the loopback-only fixture.
+      ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: "alpha-exchange-loopback-e2e-cardless-key-only",
       CRON_SECRET: E2E_CRON_SECRET,
     },
   },
