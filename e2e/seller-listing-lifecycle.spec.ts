@@ -235,6 +235,27 @@ async function runWithDialogs(
   await pendingAction;
 }
 
+async function runOwnerActionDialogs(
+  page: Page,
+  action: () => Promise<unknown>,
+  steps: Array<{ type: "confirm" | "prompt"; message: string; value?: string }>,
+) {
+  await action();
+  for (const step of steps) {
+    const dialog = page.getByRole("dialog", { name: step.message, exact: true });
+    await expect(dialog).toBeVisible();
+    if (step.type === "prompt") {
+      const input = dialog.getByRole("textbox", { name: step.message, exact: true });
+      await expect(input).toBeVisible();
+      await input.fill(step.value ?? "");
+    } else {
+      await expect(dialog.getByRole("textbox")).toHaveCount(0);
+    }
+    await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  }
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+}
+
 async function resetLifecycleFixtures() {
   if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD || !BUYER_EMAIL || !BUYER_PASSWORD || !SELLER_EMAIL || !SELLER_PASSWORD) {
     return false;
@@ -1362,19 +1383,19 @@ test("owner dashboard listing overrides update state, notifications, and audit h
 
   const renewRow = page.locator(`#marketplace-listing-${renewCandidate.listing.id}`);
   await expect(renewRow).toBeVisible({ timeout: 60_000 });
-  await runWithDialogs(page, () => renewRow.getByRole("button", { name: "Renew" }).click(), [
-    { type: "confirm" },
-    { type: "prompt", value: "Admin renewal for launch QA" },
+  await runOwnerActionDialogs(page, () => renewRow.getByRole("button", { name: "Renew" }).click(), [
+    { type: "confirm", message: "Renew this listing?" },
+    { type: "prompt", message: "Reason for renewing this listing:", value: "Admin renewal for launch QA" },
   ]);
   await expect(page.getByText("Listing renewed by admin.")).toBeVisible({ timeout: 10_000 });
 
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(extendCandidate.listing.id)}`);
   const extendRow = page.locator(`#marketplace-listing-${extendCandidate.listing.id}`);
   await expect(extendRow).toBeVisible({ timeout: 60_000 });
-  await runWithDialogs(page, () => extendRow.getByRole("button", { name: "Extend Expiration" }).click(), [
-    { type: "confirm" },
-    { type: "prompt", value: "24" },
-    { type: "prompt", value: "Extend listing for launch QA" },
+  await runOwnerActionDialogs(page, () => extendRow.getByRole("button", { name: "Extend Expiration" }).click(), [
+    { type: "confirm", message: "Extend this listing expiration?" },
+    { type: "prompt", message: "Extend expiration by hours (1, 6, 12, 24)", value: "24" },
+    { type: "prompt", message: "Reason for extending this listing:", value: "Extend listing for launch QA" },
   ]);
   await expect(page.getByText("Listing expiration extended.")).toBeVisible({ timeout: 10_000 });
 
@@ -1382,9 +1403,9 @@ test("owner dashboard listing overrides update state, notifications, and audit h
   const closeRow = page.locator(`#marketplace-listing-${renewCandidate.listing.id}`);
   const closeButton = closeRow.getByRole("button", { name: "Close" });
   await expect(closeButton).toBeVisible({ timeout: 30_000 });
-  await runWithDialogs(page, () => closeButton.click(), [
-    { type: "confirm" },
-    { type: "prompt", value: "Closing listing for launch QA" },
+  await runOwnerActionDialogs(page, () => closeButton.click(), [
+    { type: "confirm", message: "Close this listing?" },
+    { type: "prompt", message: "Reason for closing this listing:", value: "Closing listing for launch QA" },
   ]);
   await expect(page.getByText("Listing closed by admin.")).toBeVisible({ timeout: 10_000 });
 
@@ -1401,8 +1422,8 @@ test("owner dashboard listing overrides update state, notifications, and audit h
   await page.goto(`/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(forceCloseCandidate.listing.id)}`);
   const forceRow = page.locator(`#marketplace-listing-${forceCloseCandidate.listing.id}`);
   await expect(forceRow).toBeVisible({ timeout: 60_000 });
-  await runWithDialogs(page, () => forceRow.getByRole("button", { name: "Force Close" }).click(), [
-    { type: "prompt", value: "Admin override" },
+  await runOwnerActionDialogs(page, () => forceRow.getByRole("button", { name: "Force Close" }).click(), [
+    { type: "prompt", message: "Force-close reason", value: "Admin override" },
   ]);
   await expect(page.getByText("Listing force closed.")).toBeVisible({ timeout: 10_000 });
 
