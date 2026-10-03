@@ -904,6 +904,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await commissionStatus.getByRole("button", { name: /Trade #9201/ }).click();
   const commissionPaymentPanel = main.locator("#commission-payment");
   await expect(commissionPaymentPanel).toBeVisible();
+  await commissionPaymentPanel.locator("summary").filter({ hasText: "Already sent a payment? Check previous payment instructions" }).click();
+  await expect(commissionPaymentPanel.getByRole("button", { name: "Close commission payment" })).toBeVisible({ timeout: 15_000 });
   await expect(commissionPaymentPanel).toContainText(/2\.\d{6} USDT/);
   await expect(commissionPaymentPanel).toContainText("Send all 6 decimal places exactly as shown—do not round it.");
   await commissionPaymentPanel.getByRole("button", { name: "Close commission payment" }).click();
@@ -923,6 +925,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
 
   await commissionStatus.getByRole("button", { name: "Pay Now", exact: true }).click();
   await expect(commissionPaymentPanel).toBeVisible();
+  await commissionPaymentPanel.locator("summary").filter({ hasText: "Already sent a payment? Check previous payment instructions" }).click();
+  await expect(commissionPaymentPanel.getByRole("button", { name: "Close commission payment" })).toBeVisible({ timeout: 15_000 });
   await expect(commissionPaymentPanel).toContainText(/3\.\d{6} USDT/);
   await commissionPaymentPanel.getByRole("button", { name: "Close commission payment" }).click();
   await expect(commissionPaymentPanel).toHaveCount(0);
@@ -930,6 +934,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   const createListingSection = main.locator("#create-listing");
   await createListingSection.getByRole("button", { name: "Pay Now", exact: true }).click();
   await expect(commissionPaymentPanel).toBeVisible();
+  await commissionPaymentPanel.locator("summary").filter({ hasText: "Already sent a payment? Check previous payment instructions" }).click();
+  await expect(commissionPaymentPanel.getByRole("button", { name: "Close commission payment" })).toBeVisible({ timeout: 15_000 });
   await expect(commissionPaymentPanel).toContainText(/3\.\d{6} USDT/);
 
   await updateRuntimeDb(seller.page.request, (db) => {
