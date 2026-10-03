@@ -7,6 +7,7 @@ export const colors = {
   gold: "#C9A227",
   goldBright: "#F4D87A",
   goldMuted: "#9C8136",
+  commissionNotice: "#F8E27C",
   text: "#F7F3E8",
   textMuted: "#A6A29A",
   success: "#32C48D",

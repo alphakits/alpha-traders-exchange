@@ -365,7 +365,7 @@ export default function NewSellerListingScreen() {
             <View style={[styles.checkbox, acceptedCommission && styles.checkboxSelected]}><Text style={styles.check}>{acceptedCommission ? "✓" : ""}</Text></View>
             <View style={styles.commissionCopy}>
               <Text style={[styles.commissionTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة المنصة 1%" : "1% platform commission"}</Text>
-              <Text style={[styles.helper, isRTL && styles.rtlText]}>{isAr ? "أفهم وأوافق على دفع العمولة بعد الصفقة الناجحة." : "I understand and agree to pay the commission after a successful trade."}</Text>
+              <Text style={[styles.helper, { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{isAr ? "أفهم وأوافق على دفع العمولة بعد الصفقة الناجحة." : "I understand and agree to pay the commission after a successful trade."}</Text>
             </View>
           </Pressable>
         )}
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
   checkboxSelected: { backgroundColor: colors.gold },
   check: { color: colors.background, fontWeight: "900" },
   commissionCopy: { flex: 1, gap: spacing.xs },
-  commissionTitle: { color: colors.goldBright, fontSize: typography.small, fontWeight: "900" },
+  commissionTitle: { color: colors.commissionNotice, fontSize: typography.small, fontWeight: "900" },
   error: { color: colors.danger, fontSize: typography.small, fontWeight: "700", lineHeight: 20 },
   pressed: { opacity: 0.72 },
   rowReverse: { flexDirection: "row-reverse" },

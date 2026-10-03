@@ -1,6 +1,14 @@
 export type TradeChatStatus = "sending" | "sent" | "delivered" | "seen" | "deleted";
 export type TradeChatParticipantRole = "buyer" | "seller" | "support" | "owner";
 
+/** Presentation only; never rewrite drafts or insert direction-control characters. */
+export function tradeChatTextDirection(value: string, fallback: "ltr" | "rtl" = "ltr"): "ltr" | "rtl" {
+  const firstLetter = value.match(/\p{Letter}/u)?.[0];
+  if (firstLetter) return /[\p{Script=Arabic}\p{Script=Hebrew}]/u.test(firstLetter) ? "rtl" : "ltr";
+  // Amount-only messages stay readable left to right in either interface language.
+  return /\p{Number}/u.test(value) ? "ltr" : fallback;
+}
+
 export function tradeChatStatus(message: {
   id: string;
   kind: "user" | "system";

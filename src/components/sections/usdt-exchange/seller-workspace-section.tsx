@@ -497,13 +497,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             )) : null}
           </div>
 
-          <Card id="commission-status" tabIndex={-1} className={`order-15 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? "border-red-600/60" : ""}`}>
+          <Card id="commission-status" tabIndex={-1} className={`commission-surface order-15 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? "border-red-600/60" : ""}`}>
             <CardHeader>
-              <CardTitle className="inline-flex items-center gap-2">
+              <CardTitle className="commission-notice inline-flex items-center gap-2">
                 <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="commission-notice">
                 {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. أي عمولة غير مدفوعة تمنع البيع والشراء وطلبات الصفقات الجديدة حتى التحقق من السداد. تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Any unpaid commission blocks new buying, selling, and trade requests until payment is verified. Listings stay visible and existing trades can finish.")}
               </CardDescription>
               <p className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5 text-xs leading-5 text-emerald-100">
@@ -517,10 +517,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <div className="flex items-start gap-3">
                     <AttentionSiren className="mt-0.5 text-xl" />
                     <div className="flex-1 space-y-2">
-                      <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
+                      <p className="commission-notice font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
                       {selectedCommissionIsAdminIssued ? (
                         <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
-                          <p className="font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                          <p className="commission-notice font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
                           {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{currencyText(selectedCommissionIssueReason)}</p> : null}
                         </div>
                       ) : null}
@@ -549,26 +549,26 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <span className="font-medium">{isAr ? "لا توجد عمولة مستحقة — حسابك سليم." : "No commission due — you’re all clear."}</span>
+                    <span className="commission-notice font-medium">{isAr ? "لا توجد عمولة مستحقة — حسابك سليم." : "No commission due — you’re all clear."}</span>
                   </div>
                 </div>
               ) : (
                 <div role="status" className="rounded-2xl border border-white/15 bg-white/[0.03] p-4 text-sm text-[#D1D5DB]">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-[#C9A227]" />
-                    <span className="font-medium">{isAr ? "جارٍ التحقق من حالة العمولة..." : "Checking commission status..."}</span>
+                    <span className="commission-notice font-medium">{isAr ? "جارٍ التحقق من حالة العمولة..." : "Checking commission status..."}</span>
                   </div>
                 </div>
               )}
-              <p className="rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{isAr ? "يمكنك إدارة 3 صفقات نشطة كحد أقصى. أي عمولة غير مدفوعة توقف الطلبات الجديدة حتى التحقق من سدادها؛ تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية. عمولة الصفقات الجديدة 2%: 1% منك و1% من المشتري." : "Maximum 3 active trades. Any unpaid commission blocks new requests until payment is verified. Listings stay visible and existing trades can finish. New trades owe 2% total: your 1% plus the buyer’s 1%."}</p>
+              <p className="commission-notice rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{isAr ? "يمكنك إدارة 3 صفقات نشطة كحد أقصى. أي عمولة غير مدفوعة توقف الطلبات الجديدة حتى التحقق من سدادها؛ تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية. عمولة الصفقات الجديدة 2%: 1% منك و1% من المشتري." : "Maximum 3 active trades. Any unpaid commission blocks new requests until payment is verified. Listings stay visible and existing trades can finish. New trades owe 2% total: your 1% plus the buyer’s 1%."}</p>
               {sellerWorkspaceSummary?.blockedReason ? (
-                <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
+                <p className="commission-notice rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
               ) : null}
               {selectedCommissionPayment?.feePolicyVersion === "buyer_seller_1pct_v1" ? (
-                <div className="space-y-2 rounded-xl border border-emerald-500/30 p-3 text-sm">
-                  <p>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0))}</span></p>
+                <div className="commission-notice commission-notice-panel space-y-2 rounded-xl border p-3 text-sm">
+                  <p className="commission-notice">{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0))}</span></p>
                   <p>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.buyerFeeCollectedAmount ?? 0))}</span></p>
-                  <p>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</p>
+                  <p className="commission-notice">{currencyText(sellerFeeResponsibilityNotice(isAr ? "ar" : "en"))}</p>
                 </div>
               ) : null}
               {commissionWorkspaceAction.kind === "pay-one" ? (
@@ -582,7 +582,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               ) : null}
               {commissionWorkspaceAction.kind === "review-unpaid" ? (
                 <div className="space-y-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
-                  <p className="text-sm font-medium text-amber-100">{isAr ? "اختر عمولة غير مدفوعة لتسديدها." : "Choose one unpaid commission to pay."}</p>
+                  <p className="commission-notice text-sm font-medium text-amber-100">{isAr ? "اختر عمولة غير مدفوعة لتسديدها." : "Choose one unpaid commission to pay."}</p>
                   <div className="grid gap-2">
                     {(sellerCommissionStatus?.payableRecords ?? []).map((record) => (
                       <Button
@@ -593,7 +593,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         className="h-auto min-h-10 justify-between px-3 text-start"
                         onClick={() => openCommissionPayment(record.commissionId)}
                       >
-                        <span>
+                        <span className="commission-notice">
                           {currencyText(record.relatedTradeDisplayNumber
                             ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}`
                             : record.source === "admin_manual"
@@ -607,14 +607,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
               ) : null}
               {sellerCommissionStatus?.selectionError ? (
-                <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <p className="commission-notice rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
                   {currencyText(isAr && !containsArabicText(sellerCommissionStatus.selectionError) ? "تعذّر تحديد العمولة. اختر سجلاً غير مدفوع وحاول مرة أخرى." : sellerCommissionStatus.selectionError)}
                 </p>
               ) : null}
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <section id="commission-payment" tabIndex={-1} className="order-16 scroll-mt-24">
+            <section id="commission-payment" tabIndex={-1} className="commission-surface order-16 scroll-mt-24">
               <CommissionCheckoutPanel isAr={isAr} embedded onSettled={onCommissionSettled} />
               <details className="mt-4 rounded-2xl border border-white/15 p-4">
                 <summary className="cursor-pointer text-sm text-amber-200">{isAr ? "أرسلت دفعة بالفعل؟ متابعة تعليمات الدفع السابقة" : "Already sent a payment? Check previous payment instructions"}</summary>
@@ -622,7 +622,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             <Card className="border-[#C9A227]/30 bg-[#0B0B0B]/98">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-base">
+                  <CardTitle className="commission-notice flex items-center gap-2 text-base">
                     <AttentionSiren />
                     {isAr ? "دفع العمولة" : "Commission Payment"}
                   </CardTitle>
@@ -632,14 +632,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 {selectedCommissionIsAdminIssued ? (
                   <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
-                    <p className="font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                    <p className="commission-notice font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
                     {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{currencyText(selectedCommissionIssueReason)}</p> : null}
                   </div>
                 ) : null}
                 {!isLegacyPendingCommissionPayment ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
-                    <p className="text-xs text-[#9CA3AF]">{isAr ? "ادفع هذه العمولة" : "Pay this commission"}</p>
+                    <p className="commission-notice text-xs text-[#9CA3AF]">{isAr ? "ادفع هذه العمولة" : "Pay this commission"}</p>
                     <p className="select-all text-2xl font-bold text-white">{currencyText(formatExactCommissionUsdt(commissionPayableAmountDue))}</p>
                   </div>
                   <Button
@@ -662,7 +662,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </div>
                 ) : null}
                 {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
-                  <p className="text-xs text-[#D1D5DB]">
+                  <p className="commission-notice text-xs text-[#D1D5DB]">
                     {currencyText(isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد العمولة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected commission above.`)}
                   </p>
                 ) : null}
@@ -730,7 +730,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AttentionSiren className="mt-0.5 text-xl" />
                     <div className="min-w-0 space-y-1.5">
                       <p className="font-semibold text-red-200">{isAr ? "فشل التحقق من الدفع" : "Payment verification failed"}</p>
-                      <p className="text-xs leading-5">
+                      <p className="commission-notice text-xs leading-5">
                         {currencyText(selectedCommissionPayment.paymentVerificationNotes
                           ?? (isAr ? "تعذّر مطابقة معرّف المعاملة المحفوظ مع دفعة العمولة المطلوبة." : "The saved TxID could not be matched to the required commission payment."))}
                       </p>
@@ -822,7 +822,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {/* ── Step 0: Payer type selection ── */}
                 {isLegacyPendingCommissionPayment ? null : !commissionPayerType ? (
                   <div className="space-y-4">
-                    <p className="text-sm font-medium text-white">{isAr ? "كيف ستدفع العمولة؟" : "How are you paying your commission?"}</p>
+                    <p className="commission-notice text-sm font-medium text-white">{isAr ? "كيف ستدفع العمولة؟" : "How are you paying your commission?"}</p>
                     <div className="grid gap-3">
                       {/* Personal Wallet */}
                       <button
@@ -836,7 +836,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
                           <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل المبلغ الدقيق من محفظتك. نتحقق من الاستلام ونحدّث العمولة تلقائيًا." : "Send the exact amount from your wallet. We verify receipt and update your commission automatically."}</p>
+                          <p className="commission-notice text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل المبلغ الدقيق من محفظتك. نتحقق من الاستلام ونحدّث العمولة تلقائيًا." : "Send the exact amount from your wallet. We verify receipt and update your commission automatically."}</p>
                         </div>
                         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
                       </button>
@@ -991,7 +991,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           return (
                             <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
                               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-                              <span>{currencyText(isAr && !containsArabicText(msg) ? "تم التحقق من دفع العمولة بنجاح." : msg.replace("✅ ", ""))}</span>
+                              <span className="commission-notice">{currencyText(isAr && !containsArabicText(msg) ? "تم التحقق من دفع العمولة بنجاح." : msg.replace("✅ ", ""))}</span>
                             </div>
                           );
                         }
@@ -1022,18 +1022,18 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                                 {isAr ? "تم اكتشاف عملة غير صحيحة" : "Wrong token detected"}
                               </p>
-                              <p>{currencyText(isAr ? "نقلت هذه المعاملة عملة مختلفة. يجب دفع العمولة بعملة USDT." : "This transaction transferred a different token. Commission must be paid in USDT.")}</p>
+                              <p className="commission-notice">{currencyText(isAr ? "نقلت هذه المعاملة عملة مختلفة. يجب دفع العمولة بعملة USDT." : "This transaction transferred a different token. Commission must be paid in USDT.")}</p>
                             </div>
                           );
                         }
                         if (msg.includes("does not include any transfer to or from the Alpha Traders commission wallet") || msg.includes("Please verify you submitted the correct transaction hash")) {
                           return (
                             <div className="rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-xs space-y-1 text-red-100">
-                              <p className="flex items-center gap-1.5 font-semibold text-red-300">
+                              <p className="commission-notice flex items-center gap-1.5 font-semibold text-red-300">
                                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                                 {isAr ? "هذه المعاملة ليست دفعة العمولة" : "Transaction is not your commission payment"}
                               </p>
-                              <p>{currencyText(isAr ? "تم العثور على المعاملة، لكنها لا تتضمن تحويلاً إلى محفظة عمولات Alpha Traders. أرسل رمز المعاملة الدقيق لدفعة USDT الموضحة أعلاه." : "We found this transaction, but it does not include a transfer to the Alpha Traders commission wallet. Please submit the exact transaction hash from when you sent the USDT payment above.")}</p>
+                              <p className="commission-notice">{currencyText(isAr ? "تم العثور على المعاملة، لكنها لا تتضمن تحويلاً إلى محفظة عمولات Alpha Traders. أرسل رمز المعاملة الدقيق لدفعة USDT الموضحة أعلاه." : "We found this transaction, but it does not include a transfer to the Alpha Traders commission wallet. Please submit the exact transaction hash from when you sent the USDT payment above.")}</p>
                             </div>
                           );
                         }
@@ -1081,7 +1081,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               {listingCreationBlocked ? (
                 <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
                   <p className="font-semibold">{isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked"}</p>
-                  <p className="mt-1 text-xs text-[#FDE68A]">{currencyText(isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason)}</p>
+                  <p className="commission-notice mt-1 text-xs text-[#FDE68A]">{currencyText(isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason)}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {listingBlockedByActiveLimit ? (
                       <Button
@@ -1394,12 +1394,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
                     <p className="text-xs text-[#9CA3AF]">{isAr ? "القيمة الإجمالية للعرض" : "Total listing value"}</p>
                     <p data-testid="create-summary-total" dir="ltr" className="break-words text-2xl font-semibold">{currencyText(formatIls(listingCreateTotalIls))}</p>
-                    <p className="text-xs text-[#9CA3AF]">{isAr ? "قبل عمولة المنصة على الصفقات المكتملة." : "Before platform commission on completed trades."}</p>
+                    <p className="commission-notice text-xs text-[#9CA3AF]">{isAr ? "قبل عمولة المنصة على الصفقات المكتملة." : "Before platform commission on completed trades."}</p>
                   </div>
                 </div>
-                <div className="rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-3 text-sm text-[#F3F4F6]">
-                  <p className="text-sm font-semibold text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
-                  <p className="mt-2 text-sm leading-6">{brandText(isAr ? "تخضع الصفقات الجديدة لعمولة 1% على المشتري و1% على البائع. البائع مسؤول عن دفع كامل 2% لألفا ويتحمل أي نقص في حصة المشتري. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "New trades carry 1% buyer + 1% seller fees. The seller must pay Alpha the full 2% and cover any buyer-fee shortfall. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
+                <div className="commission-notice-panel rounded-xl border p-3 text-sm">
+                  <p className="commission-notice text-sm font-semibold text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
+                  <p className="commission-notice mt-2 text-sm leading-6">{brandText(isAr ? "تخضع الصفقات الجديدة لعمولة 1% على المشتري و1% على البائع. البائع مسؤول عن دفع كامل 2% لألفا ويتحمل أي نقص في حصة المشتري. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "New trades carry 1% buyer + 1% seller fees. The seller must pay Alpha the full 2% and cover any buyer-fee shortfall. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
                   <label className="mt-3 flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm text-[#E5E7EB]">
                     <input
                       type="checkbox"
@@ -1407,7 +1407,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       onChange={(event) => setListingCommissionAgreement(event.target.checked)}
                       className="mt-0.5 h-5 w-5 shrink-0 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
                     />
-                    <span>{brandText(isAr ? "أفهم أن حصتي 1% وعليّ دفع الحصتين لألفا (2%) وتحمل أي حصة للمشتري لم أحصّلها." : "I understand my own fee is 1% and I must pay Alpha both shares (2%), covering any uncollected buyer share.")}</span>
+                    <span className="commission-notice">{brandText(isAr ? "أفهم أن حصتي 1% وعليّ دفع الحصتين لألفا (2%) وتحمل أي حصة للمشتري لم أحصّلها." : "I understand my own fee is 1% and I must pay Alpha both shares (2%), covering any uncollected buyer share.")}</span>
                   </label>
                   <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
@@ -1430,7 +1430,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             : (isAr ? "حساب استلام الدفعات المحدد لم يعد متاحاً. اختر حساباً بنكياً محفوظاً مرة أخرى." : "Your selected payout bank account is no longer available. Choose a saved bank account again."))}
                         </p>
                       ) : null}
-                      {!listingCommissionAgreement ? <p className="text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة للطرفين قبل النشر." : "Accept the two-sided commission policy before publishing."}</p> : null}
+                      {!listingCommissionAgreement ? <p className="commission-notice text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة للطرفين قبل النشر." : "Accept the two-sided commission policy before publishing."}</p> : null}
                     </div>
                   </div>
                 </div>

@@ -50,7 +50,7 @@ export function CommissionAutomationPanel({
           <span className="absolute -bottom-1 -end-1 h-2.5 w-2.5 rounded-full border-2 border-[#0B1514] bg-emerald-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold tracking-wide text-emerald-300">{isAr ? "تأكيد تلقائي للعمولة" : "AUTOMATIC COMMISSION CONFIRMATION"}</p>
+          <p className="commission-notice text-[10px] font-semibold tracking-wide text-emerald-300">{isAr ? "تأكيد تلقائي للعمولة" : "AUTOMATIC COMMISSION CONFIRMATION"}</p>
           <h3 className="mt-1 text-lg font-semibold leading-snug text-white">{isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}</h3>
           <p className="mt-1 text-xs leading-5 text-emerald-100/75">{isAr ? "فحص البلوك تشين وإيداعات Binance · كل دقيقة" : "Blockchain & Binance deposit checks · every minute"}</p>
         </div>
@@ -86,7 +86,7 @@ export function CommissionAutomationPanel({
         <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
         <p>{isAr ? "نتحقق من المبلغ والمستلم والشبكة، ونمنع احتساب الدفعة نفسها مرتين." : "Amount, recipient and network checked. Each payment can be credited only once."}</p>
       </div>
-      <p className="mt-2 text-[11px] leading-5 text-slate-400">{isAr ? "قد يستغرق تأكيد الشبكة وقتًا. تُزال قيود العمولة تلقائيًا بعد تسديد جميع المستحقات." : "Network confirmation can take time. Commission restrictions clear automatically once all dues are settled."}</p>
+      <p className="commission-notice mt-2 text-[11px] leading-5 text-slate-400">{isAr ? "قد يستغرق تأكيد الشبكة وقتًا. تُزال قيود العمولة تلقائيًا بعد تسديد جميع المستحقات." : "Network confirmation can take time. Commission restrictions clear automatically once all dues are settled."}</p>
     </section>
   );
 }
