@@ -441,11 +441,18 @@ test.describe("Final hardening audit", () => {
       const main = page.getByRole("main");
       await expect(main.getByText("Your workspace", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
       await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
-      await expect(main.getByRole("button", {
-        name: viewport.width >= 1024 ? "My Trade Requests" : /^My Trade Requests:/,
-        exact: viewport.width >= 1024,
-      })).toHaveCount(1);
-      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
+      const workspace = main.locator("#workspace-summary");
+      await expect(workspace.getByRole("button", { name: /^Live Listings:/ })).toHaveCount(1);
+      await expect(workspace.getByRole("button", { name: /^Active Trades:/ })).toHaveCount(1);
+      if (viewport.width >= 1024) {
+        await expect(main.getByRole("button", { name: "My Trade Requests", exact: true })).toHaveCount(1);
+      } else {
+        // The compact phone workspace has two tiles and a marketplace link.
+        await expect(workspace.getByRole("button")).toHaveCount(2);
+        await expect(main.getByRole("link", { name: "Browse Sellers", exact: true })).toBeVisible();
+        await expect(main.getByRole("button", { name: /^My Trade Requests(?::|$)/ })).toHaveCount(0);
+      }
+      await expect(main.getByRole("button", { name: /^Create Listing(?::|$)/ })).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
     });

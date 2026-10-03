@@ -896,7 +896,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await expect(commissionStatus).toContainText("Choose one unpaid commission to pay.");
   await expect(commissionStatus.getByRole("button", { name: /Trade #9201/ })).toHaveCount(1);
   await expect(commissionStatus.getByRole("button", { name: /Trade #9202/ })).toHaveCount(1);
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toContainText("2");
+  await expect(main.locator("#workspace-summary").getByRole("button", { name: /Commission Due:/ })).toContainText("2");
 
   // A record-specific Pay Now action from the already-mounted exchange page
   // must reveal the form in place. This regresses the mobile failure where a
@@ -942,7 +942,7 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
     }
   });
   await seller.page.reload({ waitUntil: "domcontentloaded" });
-  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toHaveCount(0);
+  await expect(main.locator("#workspace-summary").getByRole("button", { name: /Commission Due:/ })).toHaveCount(0);
   await expect(main.locator("#commission-status")).toContainText("No commission due");
 
   await seller.context.close();

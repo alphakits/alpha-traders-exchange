@@ -682,7 +682,7 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
   await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
 
   await login(page.request, buyerEmail, buyerPassword);
-  await waitForNotification(api, buyerEmail, /face-to-face trade completed/i, requestId);
+  await waitForNotification(api, buyerEmail, /^Trade completed$/i, requestId);
   const buyerConfirmTitle = "E2E Guided Review Completed Trade";
   await injectTradeNotification(api, buyerEmail, buyerConfirmTitle, requestId);
   await openNotificationAndNavigate({

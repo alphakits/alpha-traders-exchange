@@ -269,7 +269,7 @@ test.describe("Seller cards", () => {
       await gotoMarketplace(page);
       await expect(cardFor(page, ids.lUrgent).locator(".seller-presence--online")).toBeVisible();
       await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toBeVisible();
-      await expect(cardFor(page, ids.lRecent).getByText(/Active (just now|\d+ min ago)/)).toBeVisible();
+      await expect(cardFor(page, ids.lRecent).locator(".seller-presence--recent")).toContainText(/Active (just now|\d+ min ago)/);
       await expect(cardFor(page, ids.lOffline).locator(".seller-presence--idle")).toBeVisible();
     } finally {
       await online.post("/api/auth/logout");
