@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { WhatsAppNotificationEvent } from "@/types/alpha-exchange";
+import { getTwilioWhatsAppConfigurationStatus, sendTwilioWhatsAppTemplate } from "@/lib/twilio-whatsapp";
 
 const META_GRAPH_BASE_URL = "https://graph.facebook.com";
 const DEFAULT_FETCH_TIMEOUT_MS = 5_000;
@@ -104,6 +105,7 @@ export const WHATSAPP_EVENT_TEMPLATES = Object.freeze({
 } satisfies Record<WhatsAppEventType, WhatsAppTemplateDefinition>);
 
 export type WhatsAppReadinessRequirement =
+  | "twilio_credentials" | "twilio_sender" | "utility_templates"
   | "send_enabled"
   | "policy_approved"
   | "policy_approval_reference"
@@ -115,7 +117,7 @@ export type WhatsAppReadinessRequirement =
   | "webhook_verify_token";
 
 export type WhatsAppCloudReadiness = Readonly<{
-  provider: "meta_whatsapp_cloud";
+  provider: "meta_whatsapp_cloud" | "twilio_whatsapp";
   configured: boolean;
   outboundConfigured: boolean;
   webhookConfigured: boolean;
@@ -128,6 +130,7 @@ export type WhatsAppCloudReadiness = Readonly<{
 }>;
 
 export type WhatsAppAuthenticationReadinessRequirement =
+  | "twilio_credentials" | "twilio_sender"
   | "auth_send_enabled"
   | "policy_approved"
   | "policy_approval_reference"
@@ -138,7 +141,7 @@ export type WhatsAppAuthenticationReadinessRequirement =
   | "graph_version";
 
 export type WhatsAppAuthenticationReadiness = Readonly<{
-  provider: "meta_whatsapp_cloud";
+  provider: "meta_whatsapp_cloud" | "twilio_whatsapp";
   outboundConfigured: boolean;
   sendEnabled: boolean;
   policyApproved: boolean;
@@ -170,6 +173,8 @@ function hasGraphVersion(value: string) {
 export function getWhatsAppCloudReadiness(
   env: NodeJS.ProcessEnv = process.env,
 ): WhatsAppCloudReadiness {
+  const twilio = environmentValue(env, "ALPHA_EXCHANGE_WHATSAPP_PROVIDER").toLowerCase() === "twilio";
+  const twilioConfig = getTwilioWhatsAppConfigurationStatus(env, Object.values(WHATSAPP_EVENT_TEMPLATES).map(template => template.name));
   const sendEnabled = environmentFlag(env, "ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED");
   const policyApproved = environmentFlag(env, "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED");
   const approvalReferenceRecorded = Boolean(environmentValue(env, "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVAL_REFERENCE"));
@@ -178,11 +183,11 @@ export function getWhatsAppCloudReadiness(
   const wabaConfigured = hasNumericId(values.META_WHATSAPP_WABA_ID);
   const phoneNumberConfigured = hasNumericId(values.META_WHATSAPP_PHONE_NUMBER_ID);
   const graphVersionConfigured = hasGraphVersion(values.META_WHATSAPP_GRAPH_VERSION);
-  const outboundConfigured = wabaConfigured
+  const outboundConfigured = twilio ? twilioConfig.credentialsConfigured && twilioConfig.senderConfigured && twilioConfig.templatesConfigured : wabaConfigured
     && phoneNumberConfigured
     && Boolean(values.META_WHATSAPP_ACCESS_TOKEN)
     && graphVersionConfigured;
-  const webhookConfigured = Boolean(values.META_WHATSAPP_APP_SECRET)
+  const webhookConfigured = twilio ? twilioConfig.credentialsConfigured && twilioConfig.senderConfigured : Boolean(values.META_WHATSAPP_APP_SECRET)
     && Boolean(values.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN);
   const configured = outboundConfigured && webhookConfigured;
   const readyToSend = sendEnabled && policyApproved && approvalReferenceRecorded && configured;
@@ -191,12 +196,18 @@ export function getWhatsAppCloudReadiness(
   if (!sendEnabled) missingRequirements.push("send_enabled");
   if (!policyApproved) missingRequirements.push("policy_approved");
   if (!approvalReferenceRecorded) missingRequirements.push("policy_approval_reference");
-  if (!wabaConfigured) missingRequirements.push("waba_id");
-  if (!phoneNumberConfigured) missingRequirements.push("phone_number_id");
-  if (!values.META_WHATSAPP_ACCESS_TOKEN) missingRequirements.push("access_token");
-  if (!graphVersionConfigured) missingRequirements.push("graph_version");
-  if (!values.META_WHATSAPP_APP_SECRET) missingRequirements.push("app_secret");
-  if (!values.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN) missingRequirements.push("webhook_verify_token");
+  if (twilio) {
+    if (!twilioConfig.credentialsConfigured) missingRequirements.push("twilio_credentials");
+    if (!twilioConfig.senderConfigured) missingRequirements.push("twilio_sender");
+    if (!twilioConfig.templatesConfigured) missingRequirements.push("utility_templates");
+  } else {
+    if (!wabaConfigured) missingRequirements.push("waba_id");
+    if (!phoneNumberConfigured) missingRequirements.push("phone_number_id");
+    if (!values.META_WHATSAPP_ACCESS_TOKEN) missingRequirements.push("access_token");
+    if (!graphVersionConfigured) missingRequirements.push("graph_version");
+    if (!values.META_WHATSAPP_APP_SECRET) missingRequirements.push("app_secret");
+    if (!values.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN) missingRequirements.push("webhook_verify_token");
+  }
 
   const state = readyToSend
     ? "ready"
@@ -207,7 +218,7 @@ export function getWhatsAppCloudReadiness(
         : "configuration_incomplete";
 
   return Object.freeze({
-    provider: "meta_whatsapp_cloud",
+    provider: twilio ? "twilio_whatsapp" : "meta_whatsapp_cloud",
     configured,
     outboundConfigured,
     webhookConfigured,
@@ -227,6 +238,8 @@ export function isWhatsAppSendingEnabled(): boolean {
 export function getWhatsAppAuthenticationReadiness(
   env: NodeJS.ProcessEnv = process.env,
 ): WhatsAppAuthenticationReadiness {
+  const twilio = environmentValue(env, "ALPHA_EXCHANGE_WHATSAPP_PROVIDER").toLowerCase() === "twilio";
+  const twilioConfig = getTwilioWhatsAppConfigurationStatus(env, [WHATSAPP_AUTHENTICATION_TEMPLATE_NAME]);
   const sendEnabled = environmentFlag(env, "ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED");
   const policyApproved = environmentFlag(env, "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED");
   const approvalReferenceRecorded = Boolean(environmentValue(env, "ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVAL_REFERENCE"));
@@ -235,7 +248,7 @@ export function getWhatsAppAuthenticationReadiness(
   const phoneNumberConfigured = hasNumericId(environmentValue(env, "META_WHATSAPP_PHONE_NUMBER_ID"));
   const accessTokenConfigured = Boolean(environmentValue(env, "META_WHATSAPP_ACCESS_TOKEN"));
   const graphVersionConfigured = hasGraphVersion(environmentValue(env, "META_WHATSAPP_GRAPH_VERSION"));
-  const outboundConfigured = wabaConfigured
+  const outboundConfigured = twilio ? twilioConfig.credentialsConfigured && twilioConfig.senderConfigured && twilioConfig.templatesConfigured : wabaConfigured
     && phoneNumberConfigured
     && accessTokenConfigured
     && graphVersionConfigured;
@@ -249,10 +262,16 @@ export function getWhatsAppAuthenticationReadiness(
   if (!policyApproved) missingRequirements.push("policy_approved");
   if (!approvalReferenceRecorded) missingRequirements.push("policy_approval_reference");
   if (!authenticationTemplateApproved) missingRequirements.push("authentication_template_approved");
-  if (!wabaConfigured) missingRequirements.push("waba_id");
-  if (!phoneNumberConfigured) missingRequirements.push("phone_number_id");
-  if (!accessTokenConfigured) missingRequirements.push("access_token");
-  if (!graphVersionConfigured) missingRequirements.push("graph_version");
+  if (twilio) {
+    if (!twilioConfig.credentialsConfigured) missingRequirements.push("twilio_credentials");
+    if (!twilioConfig.senderConfigured) missingRequirements.push("twilio_sender");
+    if (!twilioConfig.templatesConfigured) missingRequirements.push("authentication_template_approved");
+  } else {
+    if (!wabaConfigured) missingRequirements.push("waba_id");
+    if (!phoneNumberConfigured) missingRequirements.push("phone_number_id");
+    if (!accessTokenConfigured) missingRequirements.push("access_token");
+    if (!graphVersionConfigured) missingRequirements.push("graph_version");
+  }
 
   const state = readyToSend
     ? "ready"
@@ -264,7 +283,7 @@ export function getWhatsAppAuthenticationReadiness(
           ? "awaiting_template_approval"
           : "configuration_incomplete";
   return Object.freeze({
-    provider: "meta_whatsapp_cloud",
+    provider: twilio ? "twilio_whatsapp" : "meta_whatsapp_cloud",
     outboundConfigured,
     sendEnabled,
     policyApproved,
@@ -547,6 +566,11 @@ async function sendWhatsAppPayload(input: {
 }
 
 export async function sendWhatsAppTemplate(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
+  if (getWhatsAppCloudReadiness().provider === "twilio_whatsapp") {
+    if (!getWhatsAppCloudReadiness().readyToSend) return { ok: false, retryable: false, reason: "not_ready", error: "WhatsApp sending is not enabled and approved." };
+    if (!isWhatsAppEventType(input.event)) return { ok: false, retryable: false, reason: "invalid_event", error: "Unsupported WhatsApp notification event." };
+    return sendTwilioWhatsAppTemplate({ ...input, templateName: getWhatsAppTemplateDefinition(input.event, input.locale).name });
+  }
   const configuration = getReadyConfiguration();
   if (!configuration) {
     return {
@@ -587,6 +611,10 @@ export async function sendWhatsAppTemplate(input: WhatsAppSendInput): Promise<Wh
 export async function sendWhatsAppAuthenticationCode(
   input: WhatsAppAuthenticationSendInput,
 ): Promise<WhatsAppSendResult> {
+  if (getWhatsAppAuthenticationReadiness().provider === "twilio_whatsapp") {
+    if (!getWhatsAppAuthenticationReadiness().readyToSend) return { ok: false, retryable: false, reason: "not_ready", error: "WhatsApp sending is not enabled and approved." };
+    return sendTwilioWhatsAppTemplate({ ...input, templateName: WHATSAPP_AUTHENTICATION_TEMPLATE_NAME });
+  }
   const configuration = getReadyAuthenticationConfiguration();
   if (!configuration) {
     return {

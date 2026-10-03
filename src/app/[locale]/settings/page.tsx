@@ -5,6 +5,7 @@ import { isTwilioSendEnabled } from "@/lib/notification-platform";
 import { buildPageMetadata } from "@/lib/seo";
 import { AccountSettingsPanel } from "@/components/settings/account-settings-panel";
 import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     <AccountSettingsPanel
       locale={locale === "ar" ? "ar" : "en"}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+      phoneVerificationChannels={getPhoneVerificationChannels()}
       smsDeliveryEnabled={isTwilioSendEnabled()}
       initialTab={query.tab === "profile"
         ? "profile"

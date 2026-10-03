@@ -17,7 +17,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   confirmProfilePhoneVerification: mocks.confirm,
 }));
 vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireUser }));
-vi.mock("@/lib/phone-verification-delivery", () => ({ sendPhoneVerificationCode: mocks.deliver }));
+vi.mock("@/lib/phone-verification-delivery", () => ({ sendPhoneVerificationCode: mocks.deliver, phoneVerificationDeliveryPreflight: () => null }));
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.rate }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 vi.mock("@/lib/mobile-session-user", () => ({

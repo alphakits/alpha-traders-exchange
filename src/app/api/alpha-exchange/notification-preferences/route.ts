@@ -12,6 +12,7 @@ import {
 import type { NotificationPreferences } from "@/types/alpha-exchange";
 import { isTwilioSendEnabled } from "@/lib/notification-platform";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 
 const traditionalPreferenceKeys = [
   "inApp",
@@ -86,6 +87,7 @@ export async function GET() {
     phone: phonePayload(user),
     capabilities: {
       phoneVerification: isMarketplacePhoneVerificationEnabled(),
+      phoneVerificationChannels: getPhoneVerificationChannels(),
       sms: isTwilioSendEnabled(),
     },
   });

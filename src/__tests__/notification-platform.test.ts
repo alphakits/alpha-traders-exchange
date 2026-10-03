@@ -91,6 +91,32 @@ describe("notification platform", () => {
     })).resolves.toEqual(expect.objectContaining({ ok: true }));
   });
 
+  it("rejects an SMS to the sending number before contacting Twilio", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+972501234567");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendTwilioMessageWithRetry({ to: "+972501234567", body: "OTP", purpose: "verification", maxAttempts: 1 })).toMatchObject({ ok: false, providerCode: "21266", retryable: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["identity", "service"])("sends SMS with the explicitly configured %s rather than the personal number", async senderKind => {
+    vi.stubEnv("ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED", "true");
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+972501234567");
+    vi.stubEnv(senderKind === "identity" ? "TWILIO_SMS_FROM" : "TWILIO_SMS_MESSAGING_SERVICE_SID", senderKind === "identity" ? "AlphaTrader" : `MG${"a".repeat(32)}`);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "queued" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await sendTwilioMessageWithRetry({ to: "+972501234567", body: "OTP", purpose: "verification", maxAttempts: 1 })).ok).toBe(true);
+    const payload = new URLSearchParams(String(fetchMock.mock.calls[0][1].body));
+    expect(payload.get("To")).toBe("+972501234567");
+    expect(payload.get("From")).toBe(senderKind === "identity" ? "AlphaTrader" : null);
+    expect(payload.get("MessagingServiceSid")).toBe(senderKind === "service" ? `MG${"a".repeat(32)}` : null);
+  });
+
   it("maps provider statuses without treating unknown statuses as delivery", () => {
     expect(mapTwilioStatus("queued")).toBe("queued");
     expect(mapTwilioStatus("delivered")).toBe("delivered");

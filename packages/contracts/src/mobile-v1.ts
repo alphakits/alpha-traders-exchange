@@ -502,6 +502,7 @@ export interface MobileNotificationPreferencesResponse {
   };
   capabilities: {
     phoneVerification: boolean;
+    phoneVerificationChannels?: { sms: boolean; whatsapp: boolean };
     sms: boolean;
   };
   requestId: string;

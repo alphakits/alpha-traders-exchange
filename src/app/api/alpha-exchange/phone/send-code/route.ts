@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { beginProfilePhoneVerification } from "@/lib/alpha-exchange-store";
-import { sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { getPhoneVerificationChannels, phoneVerificationDeliveryPreflight, sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { parsePhoneVerificationChannel } from "@/lib/phone-verification-channel";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+
+export async function GET() {
+  const { user, unauthorized } = await requireApiUser();
+  if (!user) return unauthorized;
+  return NextResponse.json({ channels: getPhoneVerificationChannels() }, { headers: { "Cache-Control": "no-store" } });
+}
 
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
@@ -18,9 +25,14 @@ export async function POST(request: NextRequest) {
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   try {
     const body = await request.json();
+    if (!body || Array.isArray(body) || typeof body.phone !== "string") return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+    const channel = parsePhoneVerificationChannel(body.channel);
+    if (channel === null) return NextResponse.json({ error: "Choose SMS or WhatsApp." }, { status: 400 });
     const locale = body?.locale === "ar" || request.headers.get("x-locale") === "ar" ? "ar" : "en";
+    const unavailable = phoneVerificationDeliveryPreflight(body.phone, channel);
+    if (unavailable) return NextResponse.json({ error: locale === "ar" ? "قناة التحقق المختارة غير متاحة حاليًا. تواصل مع الدعم." : unavailable.error, supportCode: unavailable.supportCode }, { status: 503 });
     const { phone, code } = await beginProfilePhoneVerification({ userId: user.id, phone: String(body?.phone ?? "") });
-    const sent = await sendPhoneVerificationCode({ phone, code, locale });
+    const sent = await sendPhoneVerificationCode({ phone, code, locale, ...(channel ? { channel } : {}) });
     if (!sent.ok) {
       return NextResponse.json(
         { error: sent.error, supportCode: sent.supportCode },

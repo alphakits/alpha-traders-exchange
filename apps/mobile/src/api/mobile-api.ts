@@ -523,6 +523,7 @@ export function sendMobilePhoneVerificationCode(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
   phone: string,
+  channel?: "sms" | "whatsapp",
 ) {
   return mobileRequest<{
     ok: true;
@@ -533,7 +534,7 @@ export function sendMobilePhoneVerificationCode(
     locale,
     method: "POST",
     accessToken: tokens.accessToken,
-    body: { phone },
+    body: { phone, ...(channel ? { channel } : {}) },
   });
 }
 

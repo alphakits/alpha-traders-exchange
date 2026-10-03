@@ -1,4 +1,4 @@
-# Buyer and seller SMS verification rollout
+# Buyer and seller SMS and WhatsApp verification rollout
 
 The requirement stays off until a real carrier-delivery and code-confirmation
 test passes. A Trust Hub business-profile approval alone does not verify the
@@ -20,6 +20,76 @@ notes. Verify the account can send to the intended Israeli recipients.
 
 The OTP-only switch permits user-requested verification messages independently
 of trade notification SMS. It does not subscribe members to notifications.
+
+### SMS sender and member choice
+
+Twilio error `21266` means the sending and receiving numbers are the same. A
+member's personal WhatsApp number must not also be used as their SMS sender.
+Configure one valid SMS identity, in this priority order:
+
+1. `TWILIO_SMS_MESSAGING_SERVICE_SID`: an existing `MG...` Messaging Service with
+   an approved sender pool and the required destination permissions.
+2. `TWILIO_SMS_FROM`: an account-owned SMS number or an alphanumeric identity
+   supported and enabled for the destination country and account.
+3. `TWILIO_PHONE_NUMBER`: legacy SMS number, retained for older deployments.
+
+An invalid explicit identity fails closed instead of falling back to the
+personal number. A sender equal to the normalized recipient is rejected before
+replacing a verification challenge. SMS configuration does not change the
+registered WhatsApp sender or migrate a personal WhatsApp account.
+
+Web settings, verification, onboarding, and native settings let members choose
+`sms` or `whatsapp`. The server returns only boolean channel capabilities and
+checks readiness again on each request. Unavailable channels are shown as
+unavailable. An omitted channel retains the configured legacy default; a
+supplied invalid channel is rejected. Delivery attempts never switch transports
+automatically. Both choices use the same canonical verification challenge,
+expiry, resend limits, and buyer/seller access policy.
+
+### Twilio WhatsApp configuration
+
+Use an already registered WhatsApp Business sender and approved Content
+Templates. Do not delete, migrate, or reset a personal WhatsApp account while
+configuring delivery.
+
+| Variable | Value |
+| --- | --- |
+| `ALPHA_EXCHANGE_WHATSAPP_PROVIDER` | `twilio` |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Existing account's server-only credentials |
+| `TWILIO_WHATSAPP_FROM` | Registered sender in E.164 format |
+| `TWILIO_WHATSAPP_CONTENT_SIDS` | JSON mapping template names to approved English and Arabic `HX...` Content SIDs |
+| `ALPHA_EXCHANGE_WHATSAPP_AUTH_SEND_ENABLED` | `true` after authentication delivery is ready |
+| `ALPHA_EXCHANGE_WHATSAPP_AUTH_TEMPLATE_APPROVED` | `true` after actual authentication template approval |
+| `ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVED` | Preserve the genuine approval state |
+| `ALPHA_EXCHANGE_WHATSAPP_POLICY_APPROVAL_REFERENCE` | Genuine recorded approval reference |
+| `ALPHA_EXCHANGE_WHATSAPP_SEND_ENABLED` | Independent existing trade-notification switch |
+
+The authentication template is `alpha_phone_verification`. Its English and
+Arabic Content Templates must both exist; variable `1` holds the six-digit
+code. Template sends use `ContentSid` and `ContentVariables`, without a freeform
+`Body`. Authentication delivery can be enabled while trade notifications remain
+disabled.
+
+Trade notification templates are `alpha_new_request`, `alpha_request_accepted`,
+`alpha_request_declined`, `alpha_trade_update`, `alpha_trade_room_message`,
+`alpha_trade_room_reminder`, `alpha_request_completed`, and
+`alpha_request_cancelled`. Configure both language SIDs for every template
+before enabling the utility outbox. These alerts retain the existing consent,
+deduplication, locale, retry, and privacy rules; they do not contain bank details,
+credentials, or copied Trade Room messages.
+
+Configure the registered sender's incoming-message webhook as a POST to
+`https://www.alphatraders.co.il/api/twilio/whatsapp/webhook`. Outbound template
+requests also specify this URL for status callbacks. `NEXT_PUBLIC_SITE_URL`
+must match the exact public URL Twilio signs. The handler verifies the Twilio
+signature and account before applying delivered/read/failed status updates or
+revoking notification consent for recognized STOP messages. It never imports
+ordinary incoming WhatsApp messages into Trade Room chat.
+
+Prove each enabled channel with an actual received code and successful website
+confirmation. A Twilio acceptance or queued status alone does not prove receipt.
+Repeat English and Arabic delivery, persistence after login, expiry, and access
+for a buyer and seller before enabling mandatory verification.
 
 Use the existing profile phone settings or authenticated phone endpoints to
 request one code. Check Twilio's message status, confirm receipt on the real

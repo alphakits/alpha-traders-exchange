@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { GuestOnboarding } from "@/components/auth/guest-onboarding";
+import { getPhoneVerificationChannels } from "@/lib/phone-verification-delivery";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
@@ -54,6 +55,7 @@ export default async function OnboardingPage({
       sellerStatus={user.sellerStatus}
       sellerApprovalVerified={isOwnerApprovedSeller(user)}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+      phoneVerificationChannels={getPhoneVerificationChannels()}
     />
   );
 }

@@ -9,7 +9,8 @@ import {
   readMobileJsonBody,
   resolveMobileLocale,
 } from "@/lib/mobile-api";
-import { sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { phoneVerificationDeliveryPreflight, sendPhoneVerificationCode } from "@/lib/phone-verification-delivery";
+import { parsePhoneVerificationChannel } from "@/lib/phone-verification-channel";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
@@ -40,14 +41,17 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readMobileJsonBody(request);
-    if (!body || Object.keys(body).some((key) => key !== "phone") || typeof body.phone !== "string") {
+    if (!body || Object.keys(body).some((key) => key !== "phone" && key !== "channel") || typeof body.phone !== "string") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
+    const channel = parsePhoneVerificationChannel(body.channel);
+    if (channel === null) return mobileError("INVALID_REQUEST", requestId, locale, 400);
+    if (phoneVerificationDeliveryPreflight(body.phone, channel)) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     const { phone, code } = await beginProfilePhoneVerification({
       userId: auth.user.id,
       phone: body.phone,
     });
-    const sent = await sendPhoneVerificationCode({ phone, code, locale });
+    const sent = await sendPhoneVerificationCode({ phone, code, locale, ...(channel ? { channel } : {}) });
     if (!sent.ok) {
       logEvent("warn", {
         event: "mobile_phone_verification_send",

@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 
-vi.mock("@/lib/notification-platform", () => ({
+vi.mock("@/lib/notification-platform", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/notification-platform")>(),
   getBilingualOtpSms: mocks.getBilingualOtpSms,
   isTwilioOtpSendEnabled: (env: NodeJS.ProcessEnv = process.env) => (
     env.ALPHA_EXCHANGE_TWILIO_OTP_SEND_ENABLED?.trim().toLowerCase() === "true"

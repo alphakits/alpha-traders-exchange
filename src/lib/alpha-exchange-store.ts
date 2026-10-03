@@ -68,6 +68,7 @@ import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
+import { normalizeIsraeliPhone } from "@/lib/phone-number-normalization";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
@@ -6236,14 +6237,7 @@ export async function upsertUserProfileForAuth(input: {
   return user;
 }
 
-export function normalizeIsraeliPhone(rawPhone: string) {
-  const normalized = String(rawPhone ?? "").replace(/\s+/g, "").replace(/-/g, "");
-  if (!normalized) return null;
-  if (/^05\d{8}$/.test(normalized)) return `+972${normalized.slice(1)}`;
-  if (/^\+9725\d{8}$/.test(normalized)) return normalized;
-  if (/^9725\d{8}$/.test(normalized)) return `+${normalized}`;
-  return null;
-}
+export { normalizeIsraeliPhone };
 
 function hashPhoneOtp(phone: string, code: string, salt: string) {
   return createHash("sha256").update(`${phone}:${code}:${salt}`).digest("hex");

@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   getBilingualOtpSms,
+  getTwilioSmsSender,
   isTwilioOtpSendEnabled,
   normalizeE164,
   sendTwilioMessageWithRetry,
@@ -13,9 +14,12 @@ import {
   sendWhatsAppAuthenticationCodeWithRetry,
   type WhatsAppTemplateLocale,
 } from "@/lib/whatsapp-platform";
+import { getTwilioWhatsAppSender } from "@/lib/twilio-whatsapp";
+import { normalizeIsraeliPhone } from "@/lib/phone-number-normalization";
+import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
+export type { PhoneVerificationChannel } from "@/lib/phone-verification-channel";
 
 export type PhoneVerificationProvider = "disabled" | "twilio" | "whatsapp";
-export type PhoneVerificationChannel = "sms" | "whatsapp";
 export type PhoneVerificationSupportCode =
   | "OTP_PROVIDER_CONFIGURATION"
   | "OTP_PHONE_INVALID"
@@ -50,11 +54,30 @@ function twilioIsConfigured(env: NodeJS.ProcessEnv = process.env) {
   return Boolean(
     env.TWILIO_ACCOUNT_SID?.trim()
     && env.TWILIO_AUTH_TOKEN?.trim()
-    && normalizeE164(env.TWILIO_PHONE_NUMBER ?? ""),
+    && getTwilioSmsSender(env),
   );
 }
 
-function unavailable(provider?: PhoneVerificationProvider): PhoneVerificationDeliveryResult {
+export function getPhoneVerificationChannels(env: NodeJS.ProcessEnv = process.env): PhoneVerificationChannels {
+  const provider = env.ALPHA_EXCHANGE_PHONE_VERIFICATION_PROVIDER?.trim().toLowerCase();
+  if (!isMarketplacePhoneVerificationEnabled(env) || (provider !== "twilio" && provider !== "whatsapp")) return { sms: false, whatsapp: false };
+  return { sms: isTwilioOtpSendEnabled(env) && twilioIsConfigured(env), whatsapp: getWhatsAppAuthenticationReadiness(env).readyToSend };
+}
+
+export function phoneVerificationDeliveryPreflight(phone: string, channel?: PhoneVerificationChannel): Extract<PhoneVerificationDeliveryResult, { ok: false }> | null {
+  const configuredProvider = getPhoneVerificationProvider();
+  const selected = channel ?? (configuredProvider === "whatsapp" ? "whatsapp" : "sms");
+  const provider = selected === "whatsapp" ? "whatsapp" : "twilio";
+  if (!getPhoneVerificationChannels()[selected]) return unavailable(provider);
+  const normalized = normalizeIsraeliPhone(phone) ?? normalizeE164(phone);
+  const sender = selected === "sms" ? getTwilioSmsSender() : null;
+  const sameSmsSender = sender && "From" in sender && normalized === sender.From;
+  const sameWhatsAppSender = selected === "whatsapp" && getWhatsAppAuthenticationReadiness().provider === "twilio_whatsapp" && normalized === getTwilioWhatsAppSender();
+  if (normalized && (sameSmsSender || sameWhatsAppSender)) return unavailable(provider);
+  return null;
+}
+
+function unavailable(provider?: PhoneVerificationProvider): Extract<PhoneVerificationDeliveryResult, { ok: false }> {
   return {
     ok: false,
     provider,
@@ -73,6 +96,7 @@ export async function sendPhoneVerificationCode(input: {
   phone: string;
   code: string;
   locale?: WhatsAppTemplateLocale;
+  channel?: PhoneVerificationChannel;
 }): Promise<PhoneVerificationDeliveryResult> {
   const phone = normalizeE164(input.phone);
   if (!phone) {
@@ -85,8 +109,11 @@ export async function sendPhoneVerificationCode(input: {
   }
   if (!/^\d{6}$/.test(input.code)) return unavailable();
 
-  const provider = getPhoneVerificationProvider();
-  if (!provider || provider === "disabled") return unavailable(provider ?? undefined);
+  const configuredProvider = getPhoneVerificationProvider();
+  if (!input.channel && (!configuredProvider || configuredProvider === "disabled")) return unavailable(configuredProvider ?? undefined);
+  const provider = input.channel ? (input.channel === "sms" ? "twilio" : "whatsapp") : configuredProvider!;
+  const preflight = phoneVerificationDeliveryPreflight(phone, input.channel);
+  if (preflight) return preflight;
 
   if (provider === "whatsapp") {
     if (!getWhatsAppAuthenticationReadiness().readyToSend) return unavailable(provider);
@@ -140,7 +167,7 @@ export async function sendPhoneVerificationCode(input: {
     ok: false,
     provider,
     retryable: result.retryable,
-    supportCode: "OTP_PROVIDER_DELIVERY",
-    error: "The verification code could not be delivered. Please try again.",
+    supportCode: result.providerCode === "21266" ? "OTP_PROVIDER_CONFIGURATION" : "OTP_PROVIDER_DELIVERY",
+    error: result.providerCode === "21266" ? "SMS verification is temporarily unavailable. Please contact support." : "The verification code could not be delivered. Please try again.",
   };
 }
