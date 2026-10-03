@@ -37,6 +37,31 @@ describe("trusted client IP", () => {
     expect(resolveClientIp(new Headers({ "x-forwarded-for": "8.8.8.8" }))).toBe("unknown");
   });
 
+  it.each([["1", ""], ["", "1"]])("rejects incomplete local E2E markers (%s, %s)", (support, loopback) => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", ""); vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", support); vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", loopback);
+    expect(resolveClientIp(new Headers({ "x-forwarded-for": "8.8.8.8" }))).toBe("unknown");
+  });
+
+  it("keeps isolated loopback E2E network identities separate while enforcing their limits", () => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", ""); vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", "1"); vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", "1");
+    const input = { key: "loopback-e2e-ip-regression", maxRequests: 1, windowMs: 60_000 };
+    const first = new Headers({ "x-forwarded-for": "198.51.100.87" });
+    const second = new Headers({ "x-forwarded-for": "198.51.100.88" });
+    expect(resolveClientIp(first)).toBe("198.51.100.87");
+    expect(checkRateLimit({ ...input, headers: first }).allowed).toBe(true);
+    expect(checkRateLimit({ ...input, headers: second }).allowed).toBe(true);
+    expect(checkRateLimit({ ...input, headers: first }).allowed).toBe(false);
+  });
+
+  it.each([["1", ""], ["", "preview"]])("never trusts test identities on deployed Vercel (%s, %s)", (vercel, environment) => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", vercel); vi.stubEnv("VERCEL_ENV", environment);
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", "1"); vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", "1");
+    expect(resolveClientIp(new Headers({ "cf-connecting-ip": "1.1.1.1" }))).toBe("unknown");
+    expect(resolveClientIp(new Headers({ "x-vercel-forwarded-for": "8.8.8.8", "cf-connecting-ip": "1.1.1.1" }))).toBe("8.8.8.8");
+  });
+
   it("cannot reset a rate limit by changing spoofed Cloudflare headers", () => {
     vi.stubEnv("VERCEL", "1");
     const input = { key: "ip-spoof-regression", maxRequests: 1, windowMs: 60_000 };

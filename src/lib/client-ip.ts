@@ -1,3 +1,5 @@
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+
 /** Edge-compatible IP parsing. Never use an arbitrary header as an identity. */
 export function normalizeClientIp(raw: string | null | undefined): string | null {
   const value = raw?.trim();
@@ -34,7 +36,9 @@ export function resolveClientIp(headers: Headers): string {
     return normalizeClientIp(value) ?? "unknown";
   }
   // Other production hosts need an explicitly designed trusted ingress policy.
-  if (process.env.NODE_ENV === "production") return "unknown";
+  if (isProductionSecurityRuntime()) return "unknown";
+  // The explicitly isolated loopback E2E runtime uses synthetic network
+  // identities. Deployed production always uses the ingress rules above.
   const local = headers.get("x-vercel-forwarded-for")
     ?? headers.get("x-real-ip")
     ?? headers.get("x-forwarded-for")?.split(",")[0];

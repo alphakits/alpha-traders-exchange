@@ -19,7 +19,7 @@ npm run mobile:verify
 The reviewer rehearsal is non-financial and isolated from production storage.
 It exercises the full fictional buyer/seller lifecycle and safety paths using
 only in-memory data; `verify:release:full` runs it again as a named blocking
-step. The scale rehearsal completes ten isolated fictional trades concurrently,
+step. The scale rehearsal completes fifteen isolated fictional trades concurrently,
 including chat, evidence, settlement, listing reopening, commissions, and
 reviews. Neither test is a production load test. A failure blocks the release
 before deployment.

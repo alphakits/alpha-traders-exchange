@@ -31,6 +31,16 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { code: "NETWORK_RESTRICTED" } });
   });
+  it("still checks the network in an explicitly isolated loopback E2E runtime", async () => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("VERCEL", ""); vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("ALPHA_E2E_TEST_SUPPORT", "1"); vi.stubEnv("ALPHA_E2E_LOOPBACK_ONLY", "1");
+    const response = await middleware(new NextRequest("http://127.0.0.1:3000/api/auth/me", {
+      headers: { "x-forwarded-for": "8.8.8.8" },
+    }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "NETWORK_RESTRICTED" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("retains origin protection without making a lookup for a rejected mutation", async () => {
     const response = await middleware(request("/api/auth/login", "POST", { origin: "https://attacker.example", "sec-fetch-site": "cross-site" }));
     expect(await response.json()).toEqual({ error: "Invalid request origin." });
