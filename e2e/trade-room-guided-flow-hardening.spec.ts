@@ -1071,7 +1071,9 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       const requestId = await createTradeRequest(buyerContext.request, "300");
       const db = await readDb(api);
       const trade = (db.purchaseRequests as Array<Record<string, unknown>>).find((row) => row.id === requestId)!;
-      Object.assign(trade, { paymentMethod, fiatAmount: "900", pricePerUsdt: "3.00", listingPriceAtRequest: "3.00", sellerBankAccountId: `bank-${ids.seller}`, updatedAt: iso() });
+      // The cardless cash total must be a multiple of 100 and include the
+      // current buyer fee: 900 / (3 × 1.01) = 297.029703 USDT.
+      Object.assign(trade, { paymentMethod, usdtAmount: paymentMethod === "Cardless ATM Withdrawal" ? "297.029703" : "300", fiatAmount: paymentMethod === "Cardless ATM Withdrawal" ? "900" : "909", pricePerUsdt: "3.00", listingPriceAtRequest: "3.00", sellerBankAccountId: `bank-${ids.seller}`, updatedAt: iso() });
       const sellerUser = (db.users as Array<Record<string, unknown>>).find((row) => row.id === ids.seller)!;
       sellerUser.sellerBankAccounts = [{ id: `bank-${ids.seller}`, sellerId: ids.seller, accountHolderName: "Guided Flow Seller", bankName: "Bank Hapoalim", branchNumber: "123", accountNumber: "9000000000", accountLast4: "0000", isDefault: true, createdAt: iso(), updatedAt: iso() }];
       await writeDb(api, db);
@@ -1092,8 +1094,13 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       } else if (paymentMethod === "Cardless ATM Withdrawal") {
         await buyerPage.locator("#cardless-withdrawal-code").fill("123456");
         await buyerPage.locator("#cardless-verification-kind").selectOption("date_of_birth");
-        await buyerPage.locator("#cardless-verification-value").fill("1990-01-01");
-        await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
+        await buyerPage.locator("#cardless-verification-value").fill("01/01/1990");
+        const [submitted] = await Promise.all([
+          buyerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+            && response.request().method() === "PATCH", { timeout: 15_000 }),
+          buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click(),
+        ]);
+        expect(submitted.ok(), await submitted.text()).toBeTruthy();
       } else {
         await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       }

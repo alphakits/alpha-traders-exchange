@@ -29,6 +29,8 @@ export default defineConfig({
       ALPHA_E2E_TEST_SUPPORT: "1",
       ALPHA_E2E_LOOPBACK_ONLY: "1",
       ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
+      // This key protects synthetic credentials inside the loopback-only fixture.
+      ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: "alpha-exchange-loopback-e2e-cardless-key-only",
       CRON_SECRET: E2E_CRON_SECRET,
     },
   },

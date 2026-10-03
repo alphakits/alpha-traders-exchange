@@ -1,4 +1,5 @@
 import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL, E2E_CRON_SECRET } from "./support/base-url";
@@ -251,6 +252,9 @@ async function resetLifecycleFixtures() {
   }
 
   const sellerId = String(seller.id);
+  // Reusing an account across scenarios also reuses its live listing quota.
+  // Rotate only the local fixture identity after cleaning its previous rows.
+  const nextSellerId = `seller-lifecycle-${randomUUID()}`;
   const ownerId = String(owner.id);
   const adminId = String(admin.id);
   const buyerId = String(buyer.id);
@@ -311,6 +315,7 @@ async function resetLifecycleFixtures() {
     if (String(user.id) === sellerId) {
       return {
         ...base,
+        id: nextSellerId,
         sellerBankAccounts: [],
       };
     }
@@ -1193,6 +1198,15 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   const buyer = await createSession(browser, BUYER_EMAIL, BUYER_PASSWORD);
 
   const created = await createListing(seller.page.request, { availableAmount: "901", price: "3.20", minimumTrade: "100", maximumTrade: "901" });
+  const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
+  try {
+    const approval = await owner.page.request.patch(`/api/alpha-exchange/admin/listings/${created.listing.id}`, {
+      data: { action: "approve" },
+    });
+    await expectOkWithBody(approval, "Approve the live listing before testing expiration");
+  } finally {
+    await owner.context.close();
+  }
   await updateRuntimeDb(seller.page.request, (db) => {
     const listings = toRecords(db.marketplaceListings);
     const listing = listings.find((item) => String(item.id) === created.listing.id);
@@ -1209,7 +1223,8 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await seller.page.reload();
   await expect(seller.page.getByRole("button", { name: "Renew" }).first()).toBeVisible({ timeout: 10_000 });
   await seller.page.getByRole("button", { name: "Renew" }).first().click();
-  await expect(seller.page.getByText(/Listing renewed.*refreshed expiry/)).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page.locator("#listing-publish-result")).toContainText(/Listing renewed.*refreshed expiry/, { timeout: 10_000 });
+  await expect(seller.page.locator("#listing-publish-result")).toBeVisible();
 
   const sellerListingsAfterRenew = await seller.page.request.get("/api/alpha-exchange/my-listings");
   expect(sellerListingsAfterRenew.ok()).toBeTruthy();
