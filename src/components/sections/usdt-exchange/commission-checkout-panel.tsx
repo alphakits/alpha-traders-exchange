@@ -28,6 +28,10 @@ function valid(value: unknown): value is CheckoutState {
     && Number.isSafeInteger(checkout.expectedMicros) && checkout.expectedMicros > 0
     && Number.isSafeInteger(checkout.dueMicros) && checkout.dueMicros > 0
     && Math.abs(checkout.expectedMicros - checkout.dueMicros) <= 1_000_000
+    && (checkout.roundedMicros === undefined || (Number.isSafeInteger(checkout.roundedMicros)
+      && checkout.roundedMicros === Math.ceil(checkout.expectedMicros / 1e6) * 1e6
+      && checkout.roundedMicros > checkout.expectedMicros && checkout.roundedMicros >= checkout.dueMicros
+      && checkout.roundedMicros - checkout.dueMicros <= 1_000_000))
     && (state.status !== "waiting" || state.pendingCount > 0)
     && ["TRC20", "BEP20"].includes(checkout.network)
     && state.walletAddress === getClientCommissionWalletForNetwork(checkout.network));
@@ -183,11 +187,17 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       <h2 className="font-semibold">{message("Send this amount once", "أرسل هذا المبلغ مرة واحدة")}</h2>
       <p className="text-2xl font-bold text-emerald-300" dir="ltr">{formatted} USDT</p>
       <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(formatted, "amount")}>{copied === "amount" ? message("Copied", "تم النسخ") : message("Copy exact amount", "نسخ المبلغ كاملًا")}</button>
+      {checkout.roundedMicros ? <div className="space-y-2 rounded-xl border border-emerald-400/30 p-3">
+        <p className="text-sm">{message("You may instead send this reserved rounded amount:", "يمكنك بدلًا من ذلك إرسال هذا المبلغ المقرب والمحجوز لك:")}</p>
+        <p className="text-xl font-bold text-emerald-300" dir="ltr">{(checkout.roundedMicros / 1e6).toFixed(0)} USDT</p>
+        <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy((checkout.roundedMicros! / 1e6).toFixed(0), "rounded")}>{copied === "rounded" ? message("Copied", "تم النسخ") : message("Copy rounded amount", "نسخ المبلغ المقرب")}</button>
+        <p className="text-sm text-slate-300">{message("Send only one of these amounts. Both are verified automatically; the excess is recorded with your payment.", "أرسل مبلغًا واحدًا فقط من هذين المبلغين. يتم تأكيد أي منهما تلقائيًا وتسجيل الزيادة مع دفعتك.")}</p>
+      </div> : null}
       <p className="text-sm">{message("Network", "الشبكة")}: <strong>{checkout.network}</strong></p>
       <p className="break-all rounded-xl bg-black/30 p-3 font-mono text-sm" dir="ltr">{data.walletAddress}</p>
       <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(data.walletAddress ?? "", "wallet")}>{copied === "wallet" ? message("Copied", "تم النسخ") : message("Copy receiving address", "نسخ عنوان الاستلام")}</button>
       <p role="status" className="text-sm leading-6 text-slate-200">{message("Automatic checks run every minute. No screenshot, transaction-ID submission or owner approval is needed for a matching payment. Network confirmation can take longer. Do not resend while waiting.", "يتم الفحص التلقائي كل دقيقة. لا تحتاج الدفعة المطابقة إلى صورة أو إدخال معرّف معاملة أو موافقة المالك. قد يستغرق تأكيد الشبكة وقتًا أطول. لا تُعد الإرسال أثناء الانتظار.")}</p>
-      <p className="text-xs leading-5 text-amber-200">{message("Use USDT on the selected network and ensure the net amount received equals the displayed amount. Do not round away a decimal reference or deduct a network fee from this amount.", "استخدم USDT على الشبكة المختارة، وتأكد أن صافي المبلغ المستلم يطابق المبلغ الظاهر. لا تحذف الخانات العشرية ولا تخصم رسوم الشبكة من هذا المبلغ.")}</p>
+      <p className="text-xs leading-5 text-amber-200">{message("Use USDT on the selected network and send a displayed payment amount. Pay the network fee separately so the full amount arrives. If no rounded option is shown, copy the exact decimal reference.", "استخدم USDT على الشبكة المختارة وأرسل أحد مبالغ الدفع الظاهرة. ادفع رسوم الشبكة بشكل منفصل ليصل المبلغ كاملًا. إذا لم يظهر خيار مبلغ مقرب، انسخ المبلغ كاملًا بخاناته العشرية.")}</p>
     </section> : null}
   </Container>;
 }

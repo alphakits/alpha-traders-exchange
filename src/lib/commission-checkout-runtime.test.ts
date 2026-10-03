@@ -117,3 +117,22 @@ it.each(["2.54", "3.54", "4.54"])("today's 2%% fee settles automatically for a p
     feePolicyVersion: "buyer_seller_1pct_v1", paymentStatus: "paid",
   });
 });
+it("receiving 30 for a 29.20 checkout automatically clears canonical seller access and records 0.80 excess", async () => {
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], commissionAmount: 29.2,
+    sellerFeeAmount: 14.6, buyerFeeCollectedAmount: 14.6, paymentExpectedAmount: 29.200001 }];
+  const service = await getCommissionCheckoutRuntime();
+  const checkout = await service.issue({ sellerId: "seller", network: "BEP20" });
+  expect(checkout.roundedMicros).toBe(30_000_000);
+  mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [{
+    signature, network: "BEP20", amountMicros: 30_000_000, timestamp: Date.parse(checkout.createdAt) + 1,
+  }] });
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(1);
+  expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
+  expect(mocks.binance).toHaveBeenCalledWith(expect.objectContaining({ amount: 30 }));
+  expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords[0]).toMatchObject({
+    commissionAmount: 29.2, sellerFeeAmount: 14.6, buyerFeeCollectedAmount: 14.6, paymentStatus: "paid",
+    paymentBatchSettlement: { receivedMicros: 30_000_000, excessMicros: 800_000, waivedMicros: 0 },
+  });
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
+});
