@@ -719,7 +719,7 @@ test("trade-room Pay Now opens the canonical commission flow without an external
     ]);
 
     await expect(page).toHaveURL(/\/en\/usdt-exchange#commission-payment$/, { timeout: 20_000 });
-    await expect(page.getByText("Commission Payment").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#commission-payment").getByRole("heading", { name: "Automatic commission checkout", exact: true })).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(100);
     expect(popupUrls).toEqual([]);
   } finally {
@@ -861,9 +861,25 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
 
     await login(sellerPage.request, sellerEmail, sellerPassword);
     await sellerPage.goto(`/en/trade-room/${requestId}`);
-    sellerPage.once("dialog", (dialog) => dialog.accept());
-    await sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click();
-    await expect(sellerPage.getByText(/Waiting for Buyer Confirmation/i).first()).toBeVisible({ timeout: 20_000 });
+    const acceptedConfirmations: string[] = [];
+    const confirmAcceptance = async (dialog: import("@playwright/test").Dialog) => {
+      acceptedConfirmations.push(dialog.message());
+      await dialog.accept();
+    };
+    sellerPage.on("dialog", confirmAcceptance);
+    try {
+      const [accepted] = await Promise.all([
+        sellerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+          && response.request().method() === "PATCH"),
+        sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click(),
+      ]);
+      expect(accepted.ok(), await accepted.text()).toBeTruthy();
+      expect(acceptedConfirmations).toHaveLength(2);
+      expect(acceptedConfirmations[1]).toMatch(/safe public place/i);
+    } finally {
+      sellerPage.off("dialog", confirmAcceptance);
+    }
+    await expect(sellerPage.getByText(/Receive the Cash, Then Confirm/i).first()).toBeVisible({ timeout: 20_000 });
 
     await buyerPage.goto(`/en/trade-room/${requestId}`);
     const buyerChatForm = buyerPage.locator("#chat form");
@@ -1122,6 +1138,8 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       if (paymentMethod === "Bank Transfer") {
         await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
         await buyerPage.getByRole("button", { name: "Confirm USDT Received", exact: true }).click();
+        await expect(buyerPage).toHaveURL(/\/en\/usdt-exchange/, { timeout: 10_000 });
+        await buyerPage.goto(path);
       } else {
         if (paymentMethod === "Cardless ATM Withdrawal") {
           await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");

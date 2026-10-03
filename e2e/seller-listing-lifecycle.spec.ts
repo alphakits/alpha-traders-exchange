@@ -972,7 +972,7 @@ test("owner listing notification destination survives login, refresh, and histor
   expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
 
   await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
-  await ownerPage.getByLabel("Password").fill(OWNER_PASSWORD);
+  await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await Promise.all([
     ownerPage.waitForURL(destination, { timeout: 30_000 }),
     ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
@@ -1118,9 +1118,10 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.status).toBe("review_open");
   expect(Boolean(firstTrade.completedAt)).toBeTruthy();
 
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/en/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`), { timeout: 20_000 });
   await seller.page.reload();
-  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await expect(seller.page).toHaveURL(new RegExp(`/en/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`), { timeout: 20_000 });
+  await expect(seller.page.locator("#status-banner")).toContainText("Trade Completed Successfully", { timeout: 20_000 });
 
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
