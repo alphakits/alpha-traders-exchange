@@ -1742,7 +1742,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           {[
                             { label: t("Today • Completed Trades", "اليوم • الصفقات المكتملة"), value: data.ownerBusiness.today.completedTrades, icon: CheckCircle2 },
                             { label: t("Today • Trade Volume", "اليوم • حجم التداول"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt), icon: WalletCards },
-                            { label: t("Today • Estimated Commission", "اليوم • العمولة المقدّرة"), value: formatCurrency(data.ownerBusiness.today.estimatedCommission), icon: Coins },
+                            { label: t("Today • Estimated Commission", "اليوم • العمولة المقدّرة"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission), icon: Coins },
                             { label: t("Today • Trades Waiting Evidence", "اليوم • صفقات تنتظر الإثبات"), value: data.ownerBusiness.today.tradesWaitingEvidence, icon: AlertTriangle },
                           ].map((stat) => {
                             const Icon = stat.icon;
@@ -1809,7 +1809,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{data.ownerBusiness.today.completedTrades}</span></p>
                             <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.today.estimatedCommission))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.estimatedCommission))}</span></p>
                             <p>{t("New Buyers:", "المشترون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newBuyers}</span></p>
                             <p>{t("New Sellers:", "البائعون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newSellers}</span></p>
                             <p>{t("New Listings:", "العروض الجديدة:")} <span className="text-white">{data.ownerBusiness.today.newListings}</span></p>
@@ -1834,7 +1834,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.thisWeek.revenue))}</span></p>
+                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
                             <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
                             <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
                             <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
@@ -1895,9 +1895,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Commission and trade-value performance snapshot.", "ملخص أداء العمولات وقيمة الصفقات.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
-                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
-                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
-                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
+                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
+                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
+                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
                             <p>{t("Largest Trade:", "أكبر صفقة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt))}</span></p>
                             <p>{t("Largest Trade ID:", "رقم أكبر صفقة:")} <span className="font-mono font-medium text-white">{currencyText(replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup))}</span></p>
                             <p>{t("Largest Seller:", "صاحب أكبر صفقة:")} <span className="text-white">{currencyText(data.ownerBusiness.financialOverview.largestSeller)}</span></p>
@@ -3700,9 +3700,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
                             { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
-                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatCurrency(data.ownerBusiness.today.estimatedCommission) },
-                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
-                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
+                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
                             { label: t("Volume Today", "حجم اليوم"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
                             { label: t("Top Seller (Week)", "أفضل بائع (الأسبوع)"), value: data.ownerBusiness.thisWeek.topSeller || "—" },
                           ].map((stat) => (
