@@ -77,7 +77,7 @@ export async function SiteHeader({
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="section-container relative flex h-16 items-center justify-between gap-1.5 max-[389px]:h-auto max-[389px]:min-h-16 max-[389px]:flex-wrap max-[389px]:gap-y-2 max-[389px]:py-2 sm:gap-3">
+      <div className="section-container relative flex min-h-16 flex-wrap items-center justify-between gap-x-1.5 gap-y-2 py-2 sm:gap-x-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
         <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image
@@ -93,7 +93,6 @@ export async function SiteHeader({
             <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{locale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
           </span>
         </Link>
-        <HeaderNav items={nav} locale={locale} />
         <HeaderAuthArea
           locale={locale}
           navItems={nav}
@@ -109,6 +108,9 @@ export async function SiteHeader({
           }}
         />
       </div>
+      {/* Full navigation has its own row: owner/seller actions must never be
+          squeezed off-screen when desktop navigation becomes visible. */}
+      <HeaderNav items={nav} locale={locale} />
       <Suspense fallback={null}>
         <TradeHeaderStatus locale={locale} sessionUser={sessionUser} />
       </Suspense>

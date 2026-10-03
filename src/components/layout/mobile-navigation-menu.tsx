@@ -45,7 +45,7 @@ export function MobileNavigationMenu({ children, label }: MobileNavigationMenuPr
         <Menu className="h-4 w-4" />
         <span className="sr-only">{label}</span>
       </summary>
-      <div className="absolute end-0 top-12 z-50 max-h-[calc(100vh-5rem)] w-[min(18rem,calc(100vw-2rem))] origin-top-right overflow-y-auto rounded-2xl border border-white/15 bg-[#0b0b0b]/95 p-3 shadow-2xl backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-150">
+      <div className="absolute end-0 top-12 z-50 max-h-[calc(100vh-5rem)] w-[min(18rem,calc(100vw-2rem))] origin-top-right overflow-y-auto whitespace-normal rounded-2xl border border-white/15 bg-[#0b0b0b]/95 p-3 shadow-2xl backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-150">
         {children}
       </div>
     </details>
