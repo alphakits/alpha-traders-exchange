@@ -7,9 +7,12 @@ export { resolveClientIp } from "@/lib/client-ip";
 type RateLimitWindow = {
   count: number;
   windowStart: number;
+  expiresAt: number;
 };
 
 const buckets = new Map<string, RateLimitWindow>();
+const MAX_LOCAL_BUCKETS = 20_000;
+let lastBucketCleanup = 0;
 let sharedRateLimitSchema: Promise<void> | null = null;
 
 function envKeyForRateLimit(baseKey: string, field: "MAX" | "WINDOW_MS") {
@@ -48,10 +51,18 @@ export function checkRateLimit(input: {
   const identifier = input.identifier?.trim() || ip;
   const config = resolveRateLimitConfig(input);
   const now = Date.now();
+  if (now - lastBucketCleanup >= 60_000 || (buckets.size >= MAX_LOCAL_BUCKETS && now - lastBucketCleanup >= 1_000)) {
+    for (const [key, bucket] of buckets) if (bucket.expiresAt <= now) buckets.delete(key);
+    lastBucketCleanup = now;
+  }
   const bucketKey = `${input.key}:${identifier}`;
   const existing = buckets.get(bucketKey);
-  if (!existing || now - existing.windowStart > config.windowMs) {
-    buckets.set(bucketKey, { count: 1, windowStart: now });
+  if (!existing || now - existing.windowStart >= config.windowMs) {
+    // Never evict a live bucket: rotating identifiers must not erase limits.
+    if (!existing && buckets.size >= MAX_LOCAL_BUCKETS) {
+      return { allowed: false, retryAfterSeconds: 30, reason: "limiter_unavailable" as string };
+    }
+    buckets.set(bucketKey, { count: 1, windowStart: now, expiresAt: now + config.windowMs });
     return { allowed: true, retryAfterSeconds: 0, reason: null as string | null };
   }
   if (existing.count >= config.maxRequests) {
@@ -59,6 +70,7 @@ export function checkRateLimit(input: {
     return { allowed: false, retryAfterSeconds, reason: "limit_reached" as string };
   }
   existing.count += 1;
+  existing.expiresAt = existing.windowStart + config.windowMs;
   buckets.set(bucketKey, existing);
   return { allowed: true, retryAfterSeconds: 0, reason: null as string | null };
 }

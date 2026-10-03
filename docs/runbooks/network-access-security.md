@@ -52,10 +52,13 @@ ignored. Malformed IPs and comma-separated trusted headers produce an unchecked
 result. Other production hosting requires a reviewed ingress implementation;
 arbitrary forwarding headers there are not trusted.
 
-Only exact, method-scoped health, cron, and signed webhook endpoints are excluded
-from network classification. Their existing authorization/signature checks are
-required. The WhatsApp webhook now reaches its signature validator instead of
-being rejected for a missing browser Origin header.
+Only exact, method-scoped health, all six configured cron routes, signed webhook
+endpoints and session revocation methods are excluded from network classification.
+Their existing authorization/signature checks are required. Web logout POST and
+native session DELETE remain available during a connection block, without
+granting account or trade access. Other methods on those paths are not exempt.
+The WhatsApp webhook reaches its signature validator instead of being rejected
+for a missing browser Origin header.
 
 ## Activation and verification
 

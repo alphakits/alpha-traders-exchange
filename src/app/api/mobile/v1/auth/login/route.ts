@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   const body = await readMobileJsonBody(request);
   const email = String(body?.email ?? "").trim().toLowerCase();
   const password = String(body?.password ?? "");
-  if (!EMAIL_PATTERN.test(email) || password.length < 8 || password.length > 256) {
+  if (email.length > 254 || !EMAIL_PATTERN.test(email) || password.length < 8 || password.length > 256) {
     return mobileError("INVALID_REQUEST", requestId, locale, 400);
   }
 
