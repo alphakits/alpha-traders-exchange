@@ -261,8 +261,10 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
       if (!active && outstanding.length) status = "ready";
       const outstandingMicros = outstanding.reduce((sum, record) => sum + BigInt(checkoutMicros(record.commissionAmount)), BigInt(0));
       if (outstandingMicros > BigInt(Number.MAX_SAFE_INTEGER)) fail("invalid_amount");
+      const diagnostic = active ? entries(snapshot, CHECKOUT_ATTEMPT).filter(entry => object(entry.newValue)?.checkoutId === active.id && entry.targetUserId === sellerId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
       return { status, checkout: active ?? null, lastPaidCheckout: last ?? null, pendingCount: outstanding.length,
-        totalDueUsdt: Number(outstandingMicros) / 1e6 };
+        totalDueUsdt: Number(outstandingMicros) / 1e6,
+        ...(diagnostic && Number.isFinite(Date.parse(diagnostic.createdAt)) ? { lastVerificationCheckAt: diagnostic.createdAt, verificationCode: String(object(diagnostic.newValue)?.code ?? "") } : {}) };
     },
     async reconcile(input: { deposits: readonly CheckoutDeposit[]; deadline: number; limit?: number }) {
       const summary = { checked: 0, verified: 0, pending: 0, review: 0, errors: 0, budgetExhausted: false };
@@ -311,7 +313,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
                 const record: CommissionRecord & { paymentBatchSettlement: unknown } = { ...snapshot.commissionRecords[index],
                   paymentStatus: "paid", paymentProvider: "crypto_wallet", paymentNetwork: canonical.network,
                   paymentSignature: receipt.signature, recipientWalletAddress: ports.destination(canonical.network),
-                  paymentVerificationStatus: "verified", paymentVerificationNotes: note, paidAt, updatedAt: paidAt,
+                  paymentVerificationStatus: "verified", paymentVerificationNotes: note, paymentLastCheckedAt: paidAt, paidAt, updatedAt: paidAt,
                   paymentSubmittedAt: canonical.createdAt,
                   paymentBatchSettlement: { batchId: canonical.id, ...allocation, signatureKey: key,
                     groupReceivedMicros: receipt.amountMicros, groupDueMicros: canonical.dueMicros,

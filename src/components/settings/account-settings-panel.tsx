@@ -1,4 +1,5 @@
 "use client";
+import { AccountSessionsPanel } from "@/components/settings/account-sessions-panel";
 
 import { brandText } from "@/components/ui/currency-text";
 
@@ -1014,6 +1015,7 @@ export function AccountSettingsPanel({
               <CardTitle>{isAr ? "الأمان" : "Security"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {userId ? <AccountSessionsPanel key={userId} userId={userId} isAr={isAr} /> : null}
               {!phoneVerificationEnabled ? (
                 <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                   {isAr

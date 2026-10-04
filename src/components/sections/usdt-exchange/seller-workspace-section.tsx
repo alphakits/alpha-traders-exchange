@@ -679,6 +679,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               <CardContent className="space-y-5">
                 <CommissionAutomationPanel
                   isAr={isAr}
+                  lastCheckedAt={selectedCommissionPayment?.paymentLastCheckedAt}
+                  verificationNotes={selectedCommissionPayment?.paymentVerificationNotes}
+                  restrictionReason={sellerCommissionStatus?.status === "overdue" ? (isAr ? "سبب قيد العمولة: مستحقات متأخرة. تُزال قيود العمولة بعد تسديد جميع المستحقات." : "Commission restriction: overdue dues. Commission restrictions clear once all outstanding dues are paid.") : sellerCommissionStatus?.status === "pending" ? (isAr ? "سبب قيد قبول طلبات جديدة: عمولة مستحقة. يمكنك متابعة صفقاتك الحالية." : "New requests are restricted by outstanding commission. Existing trades can continue.") : undefined}
                   state={selectedCommissionPayment?.paymentVerificationStatus === "verified"
                     ? "verified"
                     : selectedCommissionPayment?.paymentVerificationStatus === "failed"

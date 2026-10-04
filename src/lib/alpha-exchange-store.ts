@@ -1,4 +1,7 @@
 import { calculateUsdtForPaymentTotal } from "@alpha-traders/contracts";
+import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
+import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
+import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
 import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { deriveUserPresence } from "@alpha-traders/contracts";
@@ -4761,6 +4764,32 @@ function getListingBroadcastRecipients(db: AlphaExchangeDb, creatorUserId: strin
   return [...byUserId.values()];
 }
 
+function appendMatchingPriceAlerts(db: AlphaExchangeDb, listing: MarketplaceListing, previous?: MarketplaceListing) {
+  const publications: DeferredNotificationPublication[] = [];
+  for (const user of getListingBroadcastRecipients(db, listing.sellerId)) {
+    const preference = readMarketplacePriceAlert(user.marketplacePriceAlert);
+    if (!priceAlertMatchesListing(preference, listing)) continue;
+    if (previous && priceAlertMatchesListing(preference, previous) && Number(listing.price) >= Number(previous.price)) continue;
+    const id = `price-alert-${createHash("sha256").update(JSON.stringify([user.id, listing.id, listing.price, listing.updatedAt, preference])).digest("hex").slice(0, 32)}`;
+    if (db.notifications.some(item => item.id === id)) continue;
+    const href = listingDestination(listing);
+    const publication = pushNotification(db, {
+      userId: user.id, category: "listing", title: `USDT price alert · ₪${listing.price}`,
+      titleEn: `USDT price alert · ₪${listing.price}`, titleAr: `تنبيه سعر USDT · ₪${listing.price}`,
+      message: `A listing matches your saved filters: ${listing.availableAmount} USDT at ₪${listing.price}/USDT. Review availability and fees before requesting.`,
+      messageEn: `A listing matches your saved filters: ${listing.availableAmount} USDT at ₪${listing.price}/USDT. Review availability and fees before requesting.`,
+      messageAr: `عرض يطابق شروطك المحفوظة: ${listing.availableAmount} USDT بسعر ₪${listing.price}/USDT. راجع الكمية والعمولة قبل الطلب.`,
+      relatedListingId: listing.id, relatedHref: href, actionHref: href, actionLabel: "View listing",
+      reason: NEW_LISTING_NOTIFICATION_REASON, dedupeKey: href, deferRealtime: true,
+    });
+    if (publication) {
+      if (publication.type === "notification.created") publication.notification.id = id;
+      publications.push(publication);
+    }
+  }
+  return publications;
+}
+
 async function sendListingOwnerLifecycleEmail(
   db: AlphaExchangeDb,
   listing: MarketplaceListing,
@@ -6342,8 +6371,10 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
   const db = await readDbForSelectedTables(["users"]);
   let committedUser: AlphaExchangeUser | undefined;
   let accepted = false;
+  let phoneChanged = false;
   const checkCode = (snapshot: AlphaExchangeDb) => {
     accepted = false;
+    phoneChanged = false;
     const index = snapshot.users.findIndex(user => user.id === input.userId);
     if (index === -1) throw new Error("User not found.");
     const user = snapshot.users[index];
@@ -6359,6 +6390,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
       return snapshot;
     }
     assertAccountPhoneAvailable(snapshot.users, user, phone);
+    phoneChanged = canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== phone;
     snapshot.users[index] = {
       ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(), whatsappNumber: phone,
       phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpChannel: undefined, phoneOtpAttempts: undefined,
@@ -6371,6 +6403,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
   checkCode(db);
   await writeDb(db, { selectedTables: ["users"], rebaseTables: ["users"], rebaseOnLatest: checkCode, cacheResult: false });
   if (!accepted || !committedUser) throw new Error("Invalid verification code.");
+  if (phoneChanged) schedulePhoneSecurityNotice(input.userId);
   return committedUser;
 }
 
@@ -6504,6 +6537,7 @@ export async function completeBuyerVerification(input: { userId: string; phone: 
     updatedAt: nowIso(),
   };
   await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  if (canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== normalizedPhone) schedulePhoneSecurityNotice(input.userId);
   return db.users[index];
 }
 
@@ -6985,6 +7019,7 @@ export async function updateUserSellerSettings(input: {
   const db = await readDb({ bypassCache: true });
   let committedUser: AlphaExchangeUser | null = null;
   let previousOnlineStatus: SellerOnlineStatus | undefined;
+  let accountPhoneChanged = false;
   const applySellerSettings = async (snapshot: AlphaExchangeDb) => {
     const index = snapshot.users.findIndex((user) => user.id === input.userId);
     if (index === -1) throw new Error("User not found.");
@@ -7003,6 +7038,7 @@ export async function updateUserSellerSettings(input: {
     const nextContact = input.whatsappNumber !== undefined
       ? normalizePrivateContact(input.whatsappNumber, requiresBuyerContact(user))
       : user.whatsappNumber;
+    accountPhoneChanged = canonicalPhoneNumber(nextContact) !== canonicalPhoneNumber(user.whatsappNumber);
     if (input.whatsappNumber !== undefined
       && canonicalPhoneNumber(nextContact) !== canonicalPhoneNumber(user.whatsappNumber)) {
       assertAccountPhoneAvailable(snapshot.users, user, nextContact, true);
@@ -7057,6 +7093,7 @@ export async function updateUserSellerSettings(input: {
     rebaseOnLatest: applySellerSettings,
   });
   if (!committedUser) throw new Error("User not found.");
+  if (accountPhoneChanged) schedulePhoneSecurityNotice(input.userId);
   if (input.onlineStatus && input.onlineStatus !== previousOnlineStatus) {
     publishRealtimeEvent({ type: "seller.status_changed", recipientUserId: visibleUserPresence(committedUser, committedUser).presenceHidden ? input.userId : undefined, payload: { sellerId: input.userId, onlineStatus: input.onlineStatus } });
   }
@@ -7325,7 +7362,7 @@ export async function setUserBlockStatus(input: {
   return { blocked: committedBlocked };
 }
 
-export async function createAuthSession(userId: string, token: string, durationDays = 14) {
+export async function createAuthSession(userId: string, token: string, durationDays = 14, deviceLabel?: string) {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt);
   expiresAt.setDate(expiresAt.getDate() + durationDays);
@@ -7334,12 +7371,30 @@ export async function createAuthSession(userId: string, token: string, durationD
     userId,
     createdAt: createdAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
+    ...(deviceLabel ? { deviceLabel: deviceLabel.slice(0, 80) } : {}),
   };
   const repository = await getAlphaExchangeRepository();
   await repository.upsertAuthSession(session);
   const cachedSessions = dbCache?.value.authSessions ?? [];
   syncCachedAuthSessions([...cachedSessions.filter((item) => item.userId !== userId && item.token !== session.token), session]);
   return session;
+}
+
+export async function listAccountSessions(userId: string, currentToken: string) {
+  const repository = await getAlphaExchangeRepository();
+  const sessions = await repository.listAuthSessionsForUser(userId);
+  return sessions.filter(session => session.userId === userId && Date.parse(session.expiresAt) > Date.now()).map(session => presentAccountSession(session, hashToken(currentToken)));
+}
+
+export async function revokeAccountSession(userId: string, sessionId: string, currentToken: string) {
+  const repository = await getAlphaExchangeRepository();
+  const session = (await repository.listAuthSessionsForUser(userId)).find(session => session.userId === userId && accountSessionId(session) === sessionId);
+  if (!session) return null;
+  const revoked = await repository.deleteOwnedAuthSession(userId, session.token);
+  if (!revoked) return null;
+  await endPresenceSession(session.token);
+  syncCachedAuthSessions((dbCache?.value.authSessions ?? []).filter(item => !(item.userId === userId && item.token === session.token)));
+  return { revokedId: sessionId, currentSessionRevoked: session.token === hashToken(currentToken) };
 }
 
 export async function getSessionByToken(token: string) {
@@ -9518,6 +9573,7 @@ export async function updateMarketplaceListingForSeller(input: {
       details: `Listing ${next.id} was resubmitted and is pending admin approval.`,
     });
   }
+  const priceAlertPublications = appendMatchingPriceAlerts(db, next, current);
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
   try {
     await writeDb(db, {
@@ -9554,6 +9610,7 @@ export async function updateMarketplaceListingForSeller(input: {
       idempotencyKey: `owner-listing-resubmission:${next.id}:${next.updatedAt}`,
     });
   }
+  priceAlertPublications.forEach(publishNotificationPublication);
   if (current.availableAmount !== next.availableAmount) {
     publishRealtimeEvent({ type: "listing.quantity_changed", recipientUserId: privateListingEventRecipient(db, next), payload: { listingId: next.id, availableAmount: next.availableAmount } });
   }
@@ -9977,10 +10034,12 @@ export async function reviewMarketplaceListingByOwner(input: {
     relatedListingId: current.id,
     relatedHref: sellerListingWorkspaceDestination(current),
   });
+  const priceAlertPublications: DeferredNotificationPublication[] = [];
   if (input.decision === "approve") {
     const listing = db.marketplaceListings[index];
     const listingSummary = `${listing.availableAmount} USDT on ${listing.network} at ${listing.price} ${listing.currency}/USDT`;
     for (const recipient of getListingBroadcastRecipients(db, listing.sellerId)) {
+      if (readMarketplacePriceAlert(recipient.marketplacePriceAlert).enabled) continue;
       pushNotification(db, {
         userId: recipient.id,
         category: "listing",
@@ -9993,6 +10052,7 @@ export async function reviewMarketplaceListingByOwner(input: {
         reason: NEW_LISTING_NOTIFICATION_REASON,
       });
     }
+    priceAlertPublications.push(...appendMatchingPriceAlerts(db, listing));
   }
   pushActivityLog(db, {
     userId: current.sellerId,
@@ -10013,6 +10073,7 @@ export async function reviewMarketplaceListingByOwner(input: {
     triggeredBy: input.ownerUserId,
   });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  priceAlertPublications.forEach(publishNotificationPublication);
   publishArchivedNotifications(archivedAdminNotifications);
   return db.marketplaceListings[index];
 }
@@ -10150,6 +10211,7 @@ export async function getSellerCommissionStatus(
       amountDue: getCommissionAmountDueUsdt(db, record),
       paymentAmountDue: getCommissionPaymentAmountDueUsdt(record),
       paymentVerificationStatus: record.paymentVerificationStatus,
+      paymentLastCheckedAt: record.paymentLastCheckedAt,
       paymentVerificationNotes: record.paymentVerificationNotes,
       paymentSignature: record.paymentSignature,
       paymentSubmittedAt: record.paymentSubmittedAt,
@@ -16146,6 +16208,7 @@ export async function submitSellerCommissionWalletPayment(input: {
           ? "pending_verification"
           : "failed",
       paymentVerificationNotes: verification.notes,
+      paymentLastCheckedAt: now,
       paymentStatus: verification.verified ? "paid" : canonicalRecord.paymentStatus,
       paidAt: verification.verified ? now : canonicalRecord.paidAt,
       updatedAt: now,
@@ -17709,6 +17772,49 @@ export async function deleteNotification(input: { userId: string; notificationId
   });
 }
 
+export async function recordAccountSecurityNotice(userId: string, event: "login" | "phone_changed", deviceLabel?: string) {
+  const tables = ["users", "notifications"] as const;
+  const db = await readDbForSelectedTables(tables);
+  let publication: DeferredNotificationPublication | null = null;
+  const apply = (snapshot: AlphaExchangeDb) => {
+    publication = null;
+    const user = snapshot.users.find(item => item.id === userId && item.disabled !== true);
+    if (!user) return snapshot;
+    const login = event === "login";
+    const label = deviceLabel?.slice(0, 80) || "Unknown device";
+    publication = pushNotification(snapshot, {
+      userId, category: "account", title: login ? "New sign-in" : "Account phone changed",
+      titleEn: login ? "New sign-in" : "Account phone changed", titleAr: login ? "تسجيل دخول جديد" : "تغيّر رقم هاتف الحساب",
+      message: login ? `A new sign-in was recorded: ${label}. Review your session in Security settings.` : "Your account phone was updated. Review Security settings if this was unexpected.",
+      messageEn: login ? `A new sign-in was recorded: ${label}. Review your session in Security settings.` : "Your account phone was updated. Review Security settings if this was unexpected.",
+      messageAr: login ? `تم تسجيل دخول جديد: ${label}. راجع جلستك في إعدادات الأمان.` : "تم تحديث رقم هاتف حسابك. راجع إعدادات الأمان إذا لم تطلب هذا التغيير.",
+      relatedHref: "/settings?tab=security", actionHref: "/settings?tab=security", actionLabel: "Review security", forceInApp: true, priority: "high", deferRealtime: true,
+    });
+    return snapshot;
+  };
+  apply(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, rebaseTables: tables, rebaseOnLatest: apply, cacheResult: false });
+  publishNotificationPublication(publication);
+}
+
+function schedulePhoneSecurityNotice(userId: string) {
+  try { after(async () => { try { await recordAccountSecurityNotice(userId, "phone_changed"); } catch { console.warn("Account phone-change notice could not be persisted."); } }); } catch { /* No request lifecycle in background jobs or tests. */ }
+}
+
+export async function updateMarketplacePriceAlert(userId: string, value: MarketplacePriceAlert) {
+  const preference = priceAlertSchema.parse(value);
+  const db = await readDbForSelectedTables(["users"]);
+  const apply = (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.users.findIndex(user => user.id === userId && user.disabled !== true);
+    if (index < 0) throw new Error("Account unavailable.");
+    snapshot.users[index] = { ...snapshot.users[index], marketplacePriceAlert: preference, updatedAt: nowIso() };
+    return snapshot;
+  };
+  apply(db);
+  await writeDb(db, { selectedTables: ["users"], rebaseTables: ["users"], rebaseOnLatest: apply, cacheResult: false });
+  return preference;
+}
+
 export async function updateNotificationPreferences(
   input: { userId: string; preferences: Partial<NotificationPreferences> },
 ) {
@@ -18898,6 +19004,7 @@ export async function getAdminPrepDashboardData(viewerUserId?: string) {
     activityLog,
     trustEngine,
     ownerBusiness,
+    operations: buildMarketplaceOperationalSnapshot(db),
     privateBeta,
     users,
     sellerReviews,

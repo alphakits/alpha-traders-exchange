@@ -99,7 +99,7 @@ function BuyerContactContent({ locale, session }: { locale: "en" | "ar"; session
       const response = await runClientRequest(current, 15_000, signal => fetch("/api/auth/logout", { method: "POST", credentials: "include", signal }));
       if (!mounted.current || activeRequest.current !== current) return;
       if (!response.ok) throw new Error("logout");
-      window.dispatchEvent(new Event("alpha-auth-signed-out"));
+      window.dispatchEvent(new CustomEvent("alpha-auth-signed-out", { detail: { navigationStarted: true } }));
       window.location.assign("/en/login");
     } catch {
       if (mounted.current && activeRequest.current === current) {

@@ -34,7 +34,7 @@ export default async function SettingsPage({ params, searchParams }: { params: P
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
       phoneVerificationChannels={getPhoneVerificationChannels()}
       smsDeliveryEnabled={isTwilioSendEnabled()}
-      initialTab={query.tab === "profile"
+      initialTab={query.tab === "security" ? "security" : query.tab === "profile"
         ? "profile"
         : query.tab === "account"
         || user.sellerStatus === "approved_seller"

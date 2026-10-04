@@ -130,6 +130,8 @@ export interface AlphaExchangeUser {
   /** Accounts this user has blocked from future marketplace interactions. */
   blockedUserIds?: string[];
   notificationPreferences?: NotificationPreferences;
+  /** Private, opt-in marketplace notification filter. Never included in public profiles. */
+  marketplacePriceAlert?: import("@/lib/marketplace-price-alert").MarketplacePriceAlert;
   role: UserRole;
   roles?: UserRole[];
   sellerStatus: SellerStatus;
@@ -956,6 +958,8 @@ export interface CommissionRecord {
   paymentSignature?: string;
   paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
   paymentVerificationNotes?: string;
+  /** Timestamp of an actual payment verification result, not a workspace refresh. */
+  paymentLastCheckedAt?: string;
   /**
    * Exact six-decimal TRC20 amount assigned to this unpaid commission.
    * The tiny unique suffix binds an incoming transfer to one commission when
@@ -1144,6 +1148,7 @@ export interface AuthSession {
   userId: string;
   createdAt: string;
   expiresAt: string;
+  deviceLabel?: string;
 }
 
 export interface PasswordResetToken {

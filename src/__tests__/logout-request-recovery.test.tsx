@@ -79,7 +79,11 @@ describe("logout request recovery", () => {
     expect(mocks.signedOut).toHaveBeenCalledTimes(1); expect(replace).toHaveBeenCalledExactlyOnceWith("/en");
     expect(screen.getByRole("button").hasAttribute("disabled")).toBe(true);
     expect(events.mock.calls.filter(([event]) => event.type === "alpha-auth-signed-out")).toHaveLength(1);
-    expect(events.mock.calls.filter(([event]) => event.type === "alpha-auth-changed")).toHaveLength(1);
+    // The confirmed sign-out clears private state. Starting another session
+    // read during document replacement can race the English destination.
+    expect(events.mock.calls.filter(([event]) => event.type === "alpha-auth-changed")).toHaveLength(0);
+    const signedOut = events.mock.calls.find(([event]) => event.type === "alpha-auth-signed-out")?.[0] as CustomEvent;
+    expect(signedOut.detail).toEqual({ navigationStarted: true });
   });
 
   const failures = (["message", "malformed"] as const).flatMap(kind => (["en", "ar"] as const).map(locale => ({ kind, locale })));

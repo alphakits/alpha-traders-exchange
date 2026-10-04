@@ -855,7 +855,14 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
   await expect(main.getByRole("button", { name: /^My Listings:/ })).toContainText("3");
   await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toContainText("3");
-  await expect(main.getByRole("button", { name: /^Notifications:/ })).toContainText("1");
+  await expect.poll(async () => {
+    const response = await seller.page.request.get("/api/alpha-exchange/notifications?category=account&limit=20&includeActivity=false");
+    expect(response.ok()).toBe(true);
+    const payload = await response.json() as { notifications: { title: string; actionHref?: string }[] };
+    return payload.notifications.filter(item => item.title === "New sign-in").map(item => ({ title: item.title, actionHref: item.actionHref }));
+  }).toEqual([{ title: "New sign-in", actionHref: "/settings?tab=security" }]);
+  // One seeded listing update plus exactly one private security notice.
+  await expect(main.getByRole("button", { name: /^Notifications:/ })).toContainText("2");
 
   const latestToggle = main.locator(`#trade-${latestRequestId} > button`);
   const middleToggle = main.locator(`#trade-${middleRequestId} > button`);

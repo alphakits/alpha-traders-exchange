@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { cache } from "react";
-import { cookies } from "next/headers";
-import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedUserBySessionToken } from "@/lib/alpha-exchange-store";
+import { cookies, headers } from "next/headers";
+import { after } from "next/server";
+import { createAuthSession, deleteSessionByToken, findUserByEmail, getAuthenticatedUserBySessionToken, recordAccountSecurityNotice } from "@/lib/alpha-exchange-store";
+import { sessionDeviceLabel } from "@/lib/account-session-presentation";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
 export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME };
@@ -63,7 +65,10 @@ export async function verifyPassword(password: string, storedHash: string) {
 
 export async function createUserSession(userId: string, durationDays = 14) {
   const token = `${randomUUID()}-${randomBytes(24).toString("hex")}`;
-  const session = await createAuthSession(userId, token, durationDays);
+  let deviceLabel: string | undefined;
+  try { deviceLabel = sessionDeviceLabel((await headers()).get("user-agent")); } catch { /* Non-request jobs retain the existing session behavior. */ }
+  const session = deviceLabel ? await createAuthSession(userId, token, durationDays, deviceLabel) : await createAuthSession(userId, token, durationDays);
+  try { after(async () => { try { await recordAccountSecurityNotice(userId, "login", deviceLabel); } catch { console.warn("Account sign-in notice could not be persisted."); } }); } catch { /* No request lifecycle in unit tests or background jobs. */ }
   return {
     token,
     expiresAt: session.expiresAt,

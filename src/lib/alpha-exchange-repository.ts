@@ -3889,6 +3889,34 @@ export class AlphaExchangeRepository {
     }
   }
 
+  async listAuthSessionsForUser(userId: string): Promise<AuthSession[]> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      return structuredClone((globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions.filter(session => session.userId === userId));
+    }
+    // Security reads fail closed when durable storage is unavailable.
+    const result = await queryReadWithRetry<{ payload: AuthSession }>(pool, "select payload from alpha_exchange.sessions where user_id = $1 order by created_at desc", [userId], "account_sessions");
+    return result.rows.map(row => row.payload).filter(session => session.userId === userId);
+  }
+
+  async deleteOwnedAuthSession(userId: string, tokenHash: string): Promise<boolean> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      const found = current.authSessions.some(session => session.userId === userId && session.token === tokenHash);
+      current.authSessions = current.authSessions.filter(session => !(session.userId === userId && session.token === tokenHash));
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(current, getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+      return found;
+    }
+    const result = await pool.query("delete from alpha_exchange.sessions where user_id = $1 and token_hash = $2 returning token_hash", [userId, tokenHash]);
+    syncFallbackAuthSessions(sessions => sessions.filter(session => !(session.userId === userId && session.token === tokenHash)));
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async deleteAuthSessionsForUser(userId: string) {
     await this.ensureReady();
     const pool = this.pool;

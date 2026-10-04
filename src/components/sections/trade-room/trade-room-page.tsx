@@ -3340,7 +3340,7 @@ function TradeRoomPageSession({
                   <div data-testid="trade-primary-action" className="space-y-2">
                     <Button
                       type="button"
-                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 sm:text-base"
+                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 hover:translate-y-0 sm:text-base"
                       disabled={primaryActionLoading || actionBusy || Boolean(evidenceBusy) || adjustingAmount || Boolean(primaryActionDisabledReason)}
                       onClick={() => void handlePrimaryAction()}
                     >
@@ -3552,16 +3552,19 @@ function TradeRoomPageSession({
                   </div>
                 ) : null}
 
+                {room.hasOpenDispute ? <section aria-label={isAr ? "متابعة مساعدة الصفقة" : "Trade support status"} className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3"><h3 className="font-semibold text-amber-200">{isAr ? "مساعدة بخصوص هذه الصفقة" : "Help with this trade"}</h3><p className="mt-2 text-sm">{isAr ? "الحالة: قيد مراجعة الإدارة. تم ربط الطلب بهذه الصفقة ورسائلها وإثباتاتها المتاحة. تابع التحديثات هنا." : "Status: under admin review. Your case is linked to this trade, its messages and available evidence. Follow updates here."}</p></section> : null}
                 {room.canOpenDispute && !room.hasOpenDispute ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm text-[#FDE68A]">{isAr ? "هل تحتاج إلى فتح نزاع؟" : "Need to open a dispute?"}</p>
+                      <p className="text-sm font-semibold text-[#FDE68A]">{isAr ? "مساعدة بخصوص هذه الصفقة" : "Help with this trade"}</p>
                       <Button type="button" variant="secondary" size="sm" onClick={() => setShowDisputeComposer((value) => !value)}>
                         {showDisputeComposer ? (isAr ? "إغلاق" : "Close") : (isAr ? "فتح نزاع" : "Open Dispute")}
                       </Button>
                     </div>
                     {showDisputeComposer ? (
                       <div className="mt-2 space-y-2">
+                        <p className="text-xs text-[#D1D5DB]">{isAr ? "اشرح المشكلة وما حصل. الطلب مرتبط تلقائيًا بهذه الصفقة. الإدارة تراجع الرسائل وإثباتات الدفع المرفوعة." : "Describe what happened and what needs review. This case is automatically linked to the current trade. Admin can review its messages and uploaded payment evidence."}</p>
+                        {!isCashTrade ? <a href="#evidence" className="inline-flex min-h-11 items-center text-sm text-[#D4AF37]">{isAr ? "عرض الإثباتات المرتبطة بهذه الصفقة" : "View evidence linked to this trade"}</a> : <p className="text-xs text-[#9CA3AF]">{isAr ? "لهذه الطريقة، تابع التفاصيل في محادثة الصفقة؛ الصورة ليست شرطًا لتقديم الطلب." : "For this payment method, include the details in trade chat; a photo is not required to submit a case."}</p>}
                         <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} aria-label={isAr ? "سبب النزاع" : "Dispute reason"} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} maxLength={500} />
                         <Button type="button" size="sm" disabled={disputeBusy || !disputeReason.trim()} onClick={() => void handleOpenDispute()}>
                           {disputeBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "تأكيد فتح النزاع" : "Submit Dispute")}
