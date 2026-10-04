@@ -107,3 +107,63 @@ test('a historical fee base with a different exact reference does not block an e
  db.commissionRecords.push({id:'historical',sellerId:'other',commissionAmount:30,paymentExpectedAmount:30.000001,paymentExpectedAmountMode:'unique_v1',paymentStatus:'paid'});});
  recovery(x,c);assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,1);
 });
+
+test('incident: 14 received against 14.44 due automatically settles and records 0.44 waived',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,1);
+ const paid=x.db().commissionRecords[0];assert.equal(paid.commissionAmount,14.44);
+ assert.equal(paid.paymentStatus,'paid');assert.equal(paid.paymentVerificationStatus,'verified');
+ assert.equal(paid.paymentBatchSettlement.receivedMicros,14000000);
+ assert.equal(paid.paymentBatchSettlement.waivedMicros,440000);
+ assert.equal(paid.paymentBatchSettlement.attribution,'unambiguous_checkout_tolerance_v1');
+ assert.ok(paid.paymentReservedExpectedAmounts.includes(14));
+ assert.equal((await x.api.state('seller')).pendingCount,0);assert.equal(x.calls(),1);
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);
+ assert.equal(x.db().notifications.length,1);
+});
+for(const amount of [13440000,13750000,14000000,14875000,15440000])test(`actual receipt within symmetric tolerance: ${amount}`,async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:amount})])).verified,1);
+ const settlement=x.db().commissionRecords[0].paymentBatchSettlement;
+ assert.equal(settlement.receivedMicros,amount);assert.equal(settlement.waivedMicros,Math.max(0,14440000-amount));
+ assert.equal(settlement.excessMicros,Math.max(0,amount-14440000));
+});
+for(const amount of [0,13439999,15440001,14000000.5])test(`actual receipt outside tolerance or invalid: ${amount}`,async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:amount})])).verified,0);assert.equal(x.calls(),0);
+});
+test('tolerance is against base dues, not stacked on a seller-selected discount',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'13.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:13000000})])).verified,0);
+});
+test('two eligible checkouts never choose an underpayment by scan order',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+ await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'14.8'});
+ x.clock(NOW+2000);const r=await x.api.reconcile({deposits:[deposit(c,{amountMicros:14000000})],deadline:NOW+60000,limit:2});assert.equal(r.verified,0);assert.equal(x.calls(),0);
+ assert.ok(x.db().commissionRecords.every(row=>row.paymentStatus==='pending'));
+ assert.equal((await x.api.state('seller')).verificationCode,'ambiguous_payment_amount');
+});
+test('a competing checkout created while the receipt is verified prevents settlement',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ x.afterVerify(async()=>{x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));});
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);
+ assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');
+});
+test('paying a competing legacy commission later cannot manufacture receipt attribution',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,
+   paymentStatus:'paid',paidAt:new Date(NOW+500).toISOString(),createdAt:new Date(NOW-1000).toISOString()}));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('two distinct within-tolerance receipts require review and never silently discard funds',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ const r=await reconcile(x,[deposit(c,{amountMicros:14000000}),deposit(c,{amountMicros:14500000,signature:'binance-deposit:2'})]);
+ assert.equal(r.verified,0);assert.equal(r.review,1);assert.equal(x.calls(),0);
+});
+test('combined underpayment waives at most one USDT over the whole checkout',async()=>{
+ const x=setup([7.22,7.22]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,1);
+ assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.waivedMicros,0),440000);
+ assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.receivedMicros,0),14000000);
+});

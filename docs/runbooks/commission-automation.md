@@ -16,7 +16,9 @@ Discovery and final receipt verification share the same five-minute timestamp to
 
 The seller website refreshes unpaid commissions every 30 seconds and when the page regains focus, including payments without a submitted TxID. A settled commission closes its payment panel before another commission can be selected. The server also publishes an explicit `commission_payment_verified` notification when the final outstanding commission settles.
 
-An exact six-decimal amount is the payment reference for the shared recipient wallet. Rounded payments, deducted network fees, payments to another recipient, unsupported assets, ambiguous matches and pre-intent transfers are not auto-credited. Do not waive those checks or tell a seller to pay twice. Investigate any already-received unmatched payment with its original evidence.
+An exact six-decimal amount remains the legacy payment reference for the shared recipient wallet. Seller-created automatic checkouts also accept actual receipts up to 1 USDT below or above the combined base commission total, including an unselected underpayment. This allowance is applied once to the whole group, and the original commission plus actual received, waived and excess amounts are retained. It is not an additional discount on a previously adjusted amount.
+
+Tolerance settlement requires an issued checkout on the matching network, a positive receipt after issuance, independent receiving-account/chain verification, and unambiguous attribution. Colliding checkout references retain exact instructions. Another checkout in range, another eligible commission, a previously reserved amount, conflicting deposit aliases, or multiple plausible receipts prevents automatic credit and leaves a diagnostic for review. Receipt and amount reservations prevent duplicate use across checkout and legacy flows. Wrong recipients/assets/networks and pre-checkout transfers remain rejected. Never tell a seller to pay twice or add a top-up while an original payment is being checked.
 
 ## Configuration
 

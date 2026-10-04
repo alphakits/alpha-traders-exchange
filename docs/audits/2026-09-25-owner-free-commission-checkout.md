@@ -6,6 +6,10 @@ An authenticated seller creates a checkout BEFORE transferring funds, selecting 
 
 This is NOT fuzzy matching for anonymous deposits already sent. Payments before checkout creation, removed decimal references, wrong assets/networks/addresses and reused references never automatically clear an arbitrary seller. No Binance Pay/UID/email transfer support or new seller-wallet custody is introduced.
 
+## October 4 tolerance correction
+
+The initial implementation applied ±1 USDT only to the seller-selected checkout amount; the October 3 update added a separately reserved round-up option. Neither accepted an unselected underpayment. The correction applies the existing allowance to actual verified receipts in both directions when the issued checkout is unambiguous. It preserves explicit recovery grants, collision references, immutable dues, one waiver per group and permanent receipt reservations. The 14 USDT received / 14.44 USDT due case is covered through discovery, independent verification, canonical settlement and seller restriction clearance tests, with PostgreSQL guards tested separately.
+
 ## Financial isolation
 
 The legacy fee, trade, auth, session and listing workflow remains intact. Writes use the existing canonical repository lock and update only commissions, audit and notifications. All individual amounts are frozen; one tolerance applies to the whole group. Payment amounts and receipts are permanently reserved with private PostgreSQL tables/triggers. A paid incident is never reset for testing.
