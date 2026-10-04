@@ -17,3 +17,7 @@ jobs:
       retries: 0
       record_screen: true
       android_system_image_package: 'system-images;android-35;google_apis;x86_64'
+    hooks:
+      before_maestro_tests:
+        - name: Require a stable Android emulator transport
+          run: bash .maestro-helpers/prepare-android-transport.sh
