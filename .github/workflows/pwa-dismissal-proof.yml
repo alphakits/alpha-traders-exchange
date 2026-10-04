@@ -1,0 +1,56 @@
+name: Installation Dismissal Regression Proof
+
+on:
+  push:
+    branches: [fix/pwa-dismissal-proof-*]
+    paths: [.github/workflows/pwa-dismissal-proof.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  dismissal-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Require the observed dismissal regressions before the repair
+        run: |
+          git show 2ea60c041dc1081bb8b50741e763405d2113c862:src/components/pwa/pwa-install-prompt.tsx > src/components/pwa/pwa-install-prompt.tsx
+          set +e
+          npx vitest run src/__tests__/pwa-install-prompt.test.tsx --reporter=json --outputFile=pwa-dismissal-before.json
+          pwa_before_status=$?
+          set -e
+          if [ "$pwa_before_status" -eq 0 ]; then
+            echo "Original installation prompt unexpectedly passed the observed regressions." >&2
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          const result=JSON.parse(fs.readFileSync("pwa-dismissal-before.json","utf8"));
+          if(result.numTotalTests!==4||result.numPassedTests!==1||result.numFailedTests!==3)throw new Error("The original prompt did not fail the three expected dismissal regressions.");
+          console.log(JSON.stringify({phase:"before",total:result.numTotalTests,passed:result.numPassedTests,failed:result.numFailedTests}));
+          JS
+      - name: Require all dismissal cases to pass on the repaired source
+        run: |
+          git show d30ec048745812f200fa3914dfa55744e09605b0:src/components/pwa/pwa-install-prompt.tsx > src/components/pwa/pwa-install-prompt.tsx
+          npx vitest run src/__tests__/pwa-install-prompt.test.tsx --reporter=json --outputFile=pwa-dismissal-after.json
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          const result=JSON.parse(fs.readFileSync("pwa-dismissal-after.json","utf8"));
+          if(result.numTotalTests!==4||result.numPassedTests!==4||result.numFailedTests!==0)throw new Error("The repaired prompt did not pass all dismissal cases.");
+          console.log(JSON.stringify({phase:"after",source:"d30ec048745812f200fa3914dfa55744e09605b0",total:result.numTotalTests,passed:result.numPassedTests,failed:result.numFailedTests}));
+          JS
+      - name: Preserve deterministic dismissal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-dismissal-regression-proof
+          path: pwa-dismissal-*.json
+          if-no-files-found: error
+          retention-days: 30
