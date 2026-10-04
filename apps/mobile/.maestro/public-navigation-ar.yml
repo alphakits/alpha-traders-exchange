@@ -1,8 +1,13 @@
 appId: com.alphakits.alphatraders
 name: Arabic homepage and guest navigation
 ---
-- launchApp:
-    clearState: true
+# EAS can briefly lose its emulator transport during the first launch.
+# Retry only app startup; navigation and business assertions run once.
+- retry:
+    maxRetries: 2
+    commands:
+      - launchApp:
+          clearState: true
 - extendedWaitUntil:
     visible: "Open menu|فتح القائمة"
     timeout: 60000
@@ -11,6 +16,9 @@ name: Arabic homepage and guest navigation
       visible: "Switch to Arabic|العربية"
     commands:
       - tapOn: "Switch to Arabic|العربية"
+- extendedWaitUntil:
+    visible: "فتح القائمة"
+    timeout: 60000
 - assertVisible: "فتح القائمة"
 - tapOn: "فتح القائمة"
 - tapOn: "المجتمع"

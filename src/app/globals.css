@@ -2690,3 +2690,8 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .compact-listing .role-badge__content { min-width: 0; }
 .compact-listing .role-badge__content > span { overflow-wrap: anywhere; }
 .compact-listing .seller-marketplace-action--offer > span { flex-wrap: wrap; }
+
+/* WebKit exposes its disclosure marker even on custom list-none summaries. */
+summary.list-none::-webkit-details-marker {
+  display: none;
+}
