@@ -44,12 +44,12 @@ afterEach(() => {
 });
 
 describe("required buyer contact request recovery", () => {
-  it.each(["en", "ar"] as const)("returns a signed-out %s user to the matching login language", async locale => {
+  it.each(["en", "ar"] as const)("preserves the public English login destination after signing out in %s", async locale => {
     render(<BuyerContactPrompt locale={locale} />);
     const events = vi.spyOn(window, "dispatchEvent");
     mocks.fetch.mockResolvedValue({ ok: true, status: 200 });
     await act(async () => { fireEvent.click(signOut(locale)); });
-    expect(assign).toHaveBeenCalledExactlyOnceWith(`/${locale}/login`);
+    expect(assign).toHaveBeenCalledExactlyOnceWith("/en/login");
     expect(events.mock.calls.filter(([event]) => event.type === "alpha-auth-signed-out")).toHaveLength(1);
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
@@ -79,6 +79,8 @@ describe("required buyer contact request recovery", () => {
 
   it.each(["save", "logout"] as const)("aborts %s when the prompt unmounts without side effects from a late reply", async action => {
     const view = render(<BuyerContactPrompt locale="en" />);
+    // Settle the autofocus work before checking request deadline cleanup.
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     const events = vi.spyOn(window, "dispatchEvent");
     const pending = deferred(); mocks.fetch.mockReturnValue(pending.promise);
     await act(async () => { if (action === "save") fireEvent.submit(fill()); else fireEvent.click(signOut()); });

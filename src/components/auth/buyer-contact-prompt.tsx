@@ -100,7 +100,7 @@ function BuyerContactContent({ locale, session }: { locale: "en" | "ar"; session
       if (!mounted.current || activeRequest.current !== current) return;
       if (!response.ok) throw new Error("logout");
       window.dispatchEvent(new Event("alpha-auth-signed-out"));
-      window.location.assign(`/${locale}/login`);
+      window.location.assign("/en/login");
     } catch {
       if (mounted.current && activeRequest.current === current) {
         setError(isAr ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Unable to sign out. Please try again.");
