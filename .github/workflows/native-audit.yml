@@ -56,6 +56,7 @@ jobs:
           retention-days: 14
 
   signed-ios:
+    # The ios-only selector also permits an isolated retry after an EAS outage.
     name: Signed iOS release candidate
     if: ${{ !contains(github.event.head_commit.message, '[native-only]') && !contains(github.event.head_commit.message, '[maestro-only]') }}
     runs-on: ubuntu-latest
