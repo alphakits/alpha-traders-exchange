@@ -402,12 +402,14 @@ test.describe("Final hardening audit", () => {
     test.skip(!buyerFixture, "Buyer fixture not available");
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
     await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/en\/(usdt-exchange|login)(\?|$)/, { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/en\/dashboard$/, { timeout: 20_000 });
+    await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
 
     if (SELLER_EMAIL && SELLER_PASSWORD) {
       await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
       await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
-      await expect(page).toHaveURL(/\/en\/(usdt-exchange|login)(\?|$)/, { timeout: 20_000 });
+      await expect(page).toHaveURL(/\/en\/dashboard\/seller$/, { timeout: 20_000 });
+      await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
     }
 
     if (OWNER_EMAIL && OWNER_PASSWORD) {
