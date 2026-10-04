@@ -21,11 +21,25 @@ function tradingViewUrl(symbol: string, locale: Locale) {
   return `https://s.tradingview.com/widgetembed/?${params.toString()}`;
 }
 
-function TradingViewFrame({ title, symbol, locale }: { title: string; symbol: string; locale: Locale }) {
+function TradingViewFrame({ title, symbol, locale, isNativeApp }: { title: string; symbol: string; locale: Locale; isNativeApp: boolean }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
       <div className="border-b border-white/10 px-4 py-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText(title)}</div>
-      <iframe
+      {isNativeApp ? (
+        <div className="flex min-h-[180px] flex-col items-center justify-center gap-4 p-6 text-center">
+          <p className="text-sm text-[#B9C0CD]">
+            {locale === "ar" ? "افتح مخطط TradingView التفاعلي في المتصفح." : "Open the interactive TradingView chart in your browser."}
+          </p>
+          <a
+            href={tradingViewUrl(symbol, locale)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#C9A227]/50 bg-[#C9A227]/10 px-5 py-2 text-sm font-semibold text-[#D4AF37] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]"
+          >
+            {locale === "ar" ? "فتح المخطط في المتصفح" : "Open chart in browser"}
+          </a>
+        </div>
+      ) : <iframe
         title={title}
         src={tradingViewUrl(symbol, locale)}
         loading="lazy"
@@ -34,13 +48,17 @@ function TradingViewFrame({ title, symbol, locale }: { title: string; symbol: st
         className="pointer-events-none h-[320px] w-full border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#C9A227]"
         referrerPolicy="no-referrer-when-downgrade"
         allowFullScreen
-      />
+      />}
     </div>
   );
 }
 
 export function TradingViewMarketCharts({ locale }: { locale: Locale }) {
   const [tab, setTab] = useState<"ethUsdt" | "btcUsdt">("ethUsdt");
+  // This component is loaded with ssr:false. Avoid iframe requests even in
+  // older installed shells that hand third-party frames straight to Safari.
+  const [isNativeApp] = useState(() => typeof window !== "undefined"
+    && typeof window.ReactNativeWebView?.postMessage === "function");
   const tabs = useMemo(() => ([
     { key: "ethUsdt", label: "ETH/USDT", symbol: "BINANCE:ETHUSDT" },
     { key: "btcUsdt", label: "BTC/USDT", symbol: "BINANCE:BTCUSDT" },
@@ -66,7 +84,7 @@ export function TradingViewMarketCharts({ locale }: { locale: Locale }) {
           </button>
         ))}
       </div>
-      <TradingViewFrame title={active.label} symbol={active.symbol} locale={locale} />
+      <TradingViewFrame title={active.label} symbol={active.symbol} locale={locale} isNativeApp={isNativeApp} />
     </div>
   );
 }
