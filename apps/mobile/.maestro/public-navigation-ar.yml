@@ -32,6 +32,13 @@ name: Arabic homepage and guest navigation
 - tapOn: "الرئيسية"
 - tapOn: "فتح القائمة"
 - tapOn: "الأكاديمية"
+# Guests can discover the free course before entering the protected lessons.
+- assertVisible: ".*دورة تداول مجانية للمبتدئين.*"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "ابدأ الدورة المجانية"
+- tapOn: "ابدأ الدورة المجانية"
 - assertVisible: "تجربة دخول مميزة"
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
