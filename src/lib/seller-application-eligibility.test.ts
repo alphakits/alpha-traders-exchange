@@ -17,6 +17,12 @@ describe("seller application eligibility", () => {
   it("fails closed when canonical refresh fails", () => {
     expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: true, canonicalUser: buyer, application: null, applicationSubmitted: false })).toBe("retry");
   });
+  it.each(["guest", "student"] as const)("does not mistake the %s non-seller status marker for a buyer role", (role) => {
+    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { role, roles: [role], sellerStatus: "buyer" }, application: null, applicationSubmitted: false })).toBe("buyer_setup_required");
+  });
+  it("keeps a pending seller pending before the application response loads", () => {
+    expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: { ...buyer, sellerStatus: "pending_seller_approval" }, application: null, applicationSubmitted: false })).toBe("application_pending");
+  });
   it("keeps pending canonical buyers out of duplicate submission", () => {
     expect(getSellerApplicationEligibility({ isCanonicalUserLoading: false, canonicalUserError: false, canonicalUser: buyer, application: { status: "pending" }, applicationSubmitted: false })).toBe("application_pending");
   });

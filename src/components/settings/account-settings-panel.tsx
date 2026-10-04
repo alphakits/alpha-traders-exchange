@@ -1097,7 +1097,7 @@ export function AccountSettingsPanel({
                       : "Email verification is the only verification method currently enabled. Phone verification and SMS are off."}
                   </div>
                 )}
-                <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
+                {!canonicalSession || interfaceAccess.trading ? <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">WhatsApp Business</p>
@@ -1143,7 +1143,7 @@ export function AccountSettingsPanel({
                     </Button>
                   ) : null}
                   {whatsappMessage ? <ActionFeedback revealKey={whatsappMessageFeedbackKey} as="p" role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</ActionFeedback> : null}
-                </div>
+                </div> : null}
               </div>
               <div className="space-y-3">
                 {NOTIFICATION_KEYS.filter((key) => !canonicalSession || key === "admin_announcements"

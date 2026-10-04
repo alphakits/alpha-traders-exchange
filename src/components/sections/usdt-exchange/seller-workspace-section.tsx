@@ -1070,7 +1070,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </section>
           ) : null}
 
-          <Card id="create-listing" tabIndex={desktopNavigation ? -1 : undefined} className={cn("order-30 border-white/10 bg-[#0B0B0B]/90", desktopNavigation && "scroll-mt-24")}>
+          {!isSuspendedSeller ? <Card id="create-listing" tabIndex={desktopNavigation ? -1 : undefined} className={cn("order-30 border-white/10 bg-[#0B0B0B]/90", desktopNavigation && "scroll-mt-24")}>
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
@@ -1478,7 +1478,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 </ListingCreateSection>
               </form>
             </CardContent>
-          </Card>
+          </Card> : null}
 
           {sellerWorkspaceMessage ? (
             <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-white/20 bg-white/5 p-4 text-sm text-white animate-in fade-in-0 slide-in-from-top-1 duration-300">

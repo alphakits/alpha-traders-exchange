@@ -909,7 +909,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               {isSeller ? (
                 <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
               ) : null}
-              {!isSeller && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
+              {!isSeller && showBuyerActivity && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
             </div>
           </PrivateProfileHeader>
 
@@ -1036,7 +1036,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     { key: "showLastActive", labelAr: "عرض آخر نشاط", label: "Show last active" },
                     { key: "allowDirectMessages", labelAr: "السماح بالرسائل المباشرة", label: "Allow direct messages" },
                     { key: "allowProfileSearch", labelAr: "السماح بالبحث عن الملف", label: "Allow profile search" },
-                  ].map((item) => {
+                  ].filter((item) => item.key !== "showTradeStats" || interfaceAccess.trading).map((item) => {
                     const value = form[item.key as keyof ProfileFormState];
                     if (typeof value !== "boolean") return null;
                     return (
