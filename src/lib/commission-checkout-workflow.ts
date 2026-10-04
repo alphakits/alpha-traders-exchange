@@ -6,6 +6,7 @@ export const CHECKOUT_SETTLED = "commission_checkout_settled_v1";
 export const CHECKOUT_ATTEMPT = "commission_checkout_attempt_v1";
 export const CHECKOUT_RECOVERY = "commission_checkout_receipt_recovery_v1";
 export const CHECKOUT_TOLERANCE = 1_000_000;
+export const CHECKOUT_TOLERANCE_ATTRIBUTION = "unambiguous_checkout_tolerance_v1";
 export type CheckoutNetwork = "TRC20" | "BEP20";
 export interface CommissionCheckout {
   id: string;
@@ -162,13 +163,21 @@ function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, 
   }
   fail("payment_reference_unavailable");
 }
-/** A recovery is an explicit owner association with a specific already-received deposit,
- * never a fuzzy amount-only fallback. The receiving account/chain still proves the receipt. */
+function isIssuedReference(checkout: CommissionCheckout, amount: number) {
+  return amount === checkout.expectedMicros || amount === checkout.roundedMicros;
+}
+function recoveryEntries(snapshot: AlphaExchangeDb, checkout: CommissionCheckout) {
+  return entries(snapshot, CHECKOUT_RECOVERY).filter((entry) => object(entry.newValue)?.checkoutId === checkout.id);
+}
+/** The tolerance applies to the actual received amount, once for the whole group.
+ * Colliding references and explicit recovery grants retain their stricter binding. */
 function acceptsDeposit(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
-  if (deposit.amountMicros === checkout.expectedMicros || deposit.amountMicros === checkout.roundedMicros) return true;
-  if (!Number.isSafeInteger(deposit.amountMicros) || deposit.amountMicros < checkout.dueMicros
-    || deposit.amountMicros - checkout.dueMicros > CHECKOUT_TOLERANCE) return false;
-  return entries(snapshot, CHECKOUT_RECOVERY).some((entry) => {
+  if (isIssuedReference(checkout, deposit.amountMicros)) return true;
+  if (!Number.isSafeInteger(deposit.amountMicros) || deposit.amountMicros <= 0
+    || Math.abs(deposit.amountMicros - checkout.dueMicros) > CHECKOUT_TOLERANCE) return false;
+  const recoveries = recoveryEntries(snapshot, checkout);
+  if (!recoveries.length) return checkout.expectedMicros === checkout.requestedMicros;
+  return recoveries.some((entry) => {
     const grant = object(entry.newValue);
     const owner = snapshot.users.find((user) => user.id === entry.actorUserId);
     return entry.id === `${checkout.id}:receipt-recovery` && entry.targetUserId === checkout.sellerId
@@ -179,6 +188,24 @@ function acceptsDeposit(snapshot: AlphaExchangeDb, checkout: CommissionCheckout,
       && Number(grant.timestampToleranceMs) <= 60_000
       && Math.abs(deposit.timestamp - Number(grant.timestamp)) <= Number(grant.timestampToleranceMs);
   });
+}
+function receiptAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
+  return isIssuedReference(checkout, deposit.amountMicros) ? "seller_preissued_payment_reference"
+    : recoveryEntries(snapshot, checkout).length ? "owner_confirmed_received_deposit" : CHECKOUT_TOLERANCE_ATTRIBUTION;
+}
+function assertToleranceAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
+  if (receiptAttribution(snapshot, checkout, deposit) !== CHECKOUT_TOLERANCE_ATTRIBUTION) return;
+  // Retain historical checkout contenders: settling one first must never turn an
+  // ambiguous deposit into an apparent match for another seller on the next scan.
+  const otherCheckout = getCommissionCheckouts(snapshot).some((other) => other.id !== checkout.id
+    && other.network === checkout.network && Date.parse(other.createdAt) <= deposit.timestamp
+    && Math.abs(other.dueMicros - deposit.amountMicros) <= CHECKOUT_TOLERANCE);
+  const ids = new Set(checkout.commissions.map((row) => row.id));
+  const otherCommission = snapshot.commissionRecords.some((record) => !ids.has(record.id)
+    && (record.paymentStatus !== "paid" || !Number.isFinite(Date.parse(record.paidAt ?? ""))
+      || Date.parse(record.paidAt!) >= deposit.timestamp) && Date.parse(record.createdAt) <= deposit.timestamp
+    && Math.abs(checkoutMicros(record.commissionAmount) - deposit.amountMicros) <= CHECKOUT_TOLERANCE);
+  if (otherCheckout || otherCommission) fail("ambiguous_payment_amount");
 }
 function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, amount: number) {
   const ids = new Set(checkout.commissions.map((row) => row.id));
@@ -290,6 +317,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
           if (deposits.some((row) => checkoutReceiptKey(row.signature) !== key && row.amountMicros !== first.amountMicros)) fail("multiple_payment_options_received");
           assertUnchanged(initial, checkout);
           if (referenceConflict(initial, checkout, first.amountMicros)) fail("payment_reference_conflict");
+          assertToleranceAttribution(initial, checkout, first);
           const receipt = { ...first, signature: key.startsWith("binance-deposit:") ? key : checkout.network === "BEP20" ? `0x${key}` : key };
           const proof = await ports.verify(receipt, Date.parse(checkout.createdAt));
           if (!proof.verified) { if (proof.pending) summary.pending++; else summary.review++; code = proof.pending ? "receipt_pending" : "receipt_rejected"; }
@@ -303,6 +331,8 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               if (reservedReceipts(snapshot).has(key)) fail("receipt_already_used");
               if (!acceptsDeposit(snapshot, canonical, receipt)) fail("receipt_attribution_changed");
               if (referenceConflict(snapshot, canonical, receipt.amountMicros)) fail("payment_reference_conflict");
+              assertToleranceAttribution(snapshot, canonical, receipt);
+              const attribution = receiptAttribution(snapshot, canonical, receipt);
               const paidAt = new Date(now()).toISOString();
               const allocations = allocateCheckout(canonical, receipt.amountMicros);
               const waivedMicros = Math.max(0, canonical.dueMicros - receipt.amountMicros);
@@ -317,10 +347,12 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
                   paymentSubmittedAt: canonical.createdAt,
                   paymentBatchSettlement: { batchId: canonical.id, ...allocation, signatureKey: key,
                     groupReceivedMicros: receipt.amountMicros, groupDueMicros: canonical.dueMicros,
-                    attribution: receipt.amountMicros === canonical.expectedMicros || receipt.amountMicros === canonical.roundedMicros
-                      ? "seller_preissued_payment_reference" : "owner_confirmed_received_deposit" } };
+                    attribution } };
                 snapshot.commissionRecords[index] = record;
               }
+              // Preserve the actual reference for the legacy allocator as well.
+              const leader = snapshot.commissionRecords.find((row) => row.id === canonical.commissions[0].id)!;
+              leader.paymentReservedExpectedAmounts = [...new Set([...(leader.paymentReservedExpectedAmounts ?? []), receipt.amountMicros / 1e6])];
               const remaining = snapshot.commissionRecords.filter((row) => row.sellerId === canonical.sellerId && row.paymentStatus !== "paid");
               for (const allocation of allocations) {
                 const record = snapshot.commissionRecords.find((row) => row.id === allocation.commissionId)!;
@@ -330,7 +362,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               }
               snapshot.auditLogs.unshift({ id: `${canonical.id}:settled`, action: "commission_paid", actorUserId: canonical.sellerId,
                 targetUserId: canonical.sellerId, createdAt: paidAt, details: note,
-                newValue: { kind: CHECKOUT_SETTLED, checkoutId: canonical.id, checkout: canonical, receipt,
+                newValue: { kind: CHECKOUT_SETTLED, checkoutId: canonical.id, checkout: canonical, receipt, attribution,
                   plan: { expectedMicros: canonical.dueMicros, receivedMicros: receipt.amountMicros, waivedMicros, excessMicros, allocations } } });
               snapshot.notifications.unshift({ id: `${canonical.id}:notification`, userId: canonical.sellerId, category: "trade",
                 title: "Commission payment verified", titleAr: "تم تأكيد دفعة العمولة", message: `${note} ${remaining.length ? "Other commission dues remain." : "Commission restrictions are cleared. Other account restrictions still apply."}`,

@@ -193,6 +193,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     {checkout && data?.status === "waiting" ? <section className="space-y-4 rounded-2xl border border-emerald-400/40 p-5">
       <h2 className="font-semibold">{message("Send this amount once", "أرسل هذا المبلغ مرة واحدة")}</h2>
       <p className="currency-money text-2xl font-bold" dir="ltr">{formatted} USDT</p>
+      <p className="commission-notice rounded-xl border border-amber-300/30 p-3 text-sm leading-6 text-amber-200">{message("A difference of up to 1 USDT above or below the commission total is accepted after verification. If the payment could belong to another checkout, it needs review. Send only once; do not send a top-up while waiting.", "يُقبل فرق حتى 1 USDT زيادة أو نقصانًا عن مجموع العمولة بعد التحقق. إذا كان ممكنًا أن تخص الدفعة طلب دفع آخر، تحتاج إلى مراجعة. أرسل مرة واحدة فقط، ولا ترسل دفعة تكميلية أثناء الانتظار.")}</p>
       <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(formatted, "amount")}>{copied === "amount" ? message("Copied", "تم النسخ") : message("Copy exact amount", "نسخ المبلغ كاملًا")}</button>
       {checkout.roundedMicros ? <div className="space-y-2 rounded-xl border border-emerald-400/30 p-3">
         <p className="text-sm">{message("You may instead send this reserved rounded amount:", "يمكنك بدلًا من ذلك إرسال هذا المبلغ المقرب والمحجوز لك:")}</p>
