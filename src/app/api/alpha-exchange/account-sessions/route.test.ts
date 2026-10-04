@@ -1,0 +1,21 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest, NextResponse } from "next/server";
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), token: vi.fn(), list: vi.fn(), revoke: vi.fn(), rate: vi.fn(), expire: vi.fn() }));
+vi.mock("@/lib/api-auth", () => ({ requireApiUser: mocks.auth }));
+vi.mock("@/lib/auth", () => ({ getCurrentSessionToken: mocks.token, expireAuthCookies: mocks.expire }));
+vi.mock("@/lib/alpha-exchange-store", () => ({ listAccountSessions: mocks.list, revokeAccountSession: mocks.revoke }));
+vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.rate, createRateLimitResponse: () => NextResponse.json({}, { status: 429 }) }));
+import { GET, DELETE } from "./route";
+const sessionId = "a".repeat(32);
+const request = (body: unknown, origin = "http://localhost") => new NextRequest("http://localhost/api/alpha-exchange/account-sessions", { method: "DELETE", headers: { origin, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+beforeEach(() => { vi.resetAllMocks(); mocks.auth.mockResolvedValue({ user: { id: "buyer-a" } }); mocks.token.mockResolvedValue("raw-token"); mocks.list.mockResolvedValue([]); mocks.rate.mockResolvedValue({ allowed: true }); mocks.revoke.mockResolvedValue({ revokedId: sessionId, currentSessionRevoked: true }); });
+describe("account session security boundary", () => {
+  it("scopes reads to the authenticated principal and disables shared caching", async () => { const response = await GET(); expect(mocks.list).toHaveBeenCalledWith("buyer-a", "raw-token"); expect(await response.json()).toEqual({ ownerId: "buyer-a", sessions: [] }); expect(response.headers.get("cache-control")).toBe("private, no-store"); });
+  it("revokes an owned opaque session handle and expires cookies for the current session", async () => { const response = await DELETE(request({ sessionId })); expect(response.status).toBe(200); expect(mocks.revoke).toHaveBeenCalledWith("buyer-a", sessionId, "raw-token"); expect(mocks.expire).toHaveBeenCalledOnce(); });
+  it("does not expire the current cookies when another owned session is revoked", async () => { mocks.revoke.mockResolvedValue({ revokedId: sessionId, currentSessionRevoked: false }); expect((await DELETE(request({ sessionId }))).status).toBe(200); expect(mocks.expire).not.toHaveBeenCalled(); });
+  it("does not revoke another user's session", async () => { mocks.revoke.mockResolvedValue(null); expect((await DELETE(request({ sessionId }))).status).toBe(404); expect(mocks.expire).not.toHaveBeenCalled(); });
+  it("rejects an account id supplied by the caller", async () => { expect((await DELETE(request({ sessionId, userId: "buyer-b" }))).status).toBe(400); expect(mocks.revoke).not.toHaveBeenCalled(); });
+  it("rejects a foreign origin", async () => { expect((await DELETE(request({ sessionId }, "https://foreign.example"))).status).toBe(403); expect(mocks.revoke).not.toHaveBeenCalled(); });
+  it("fails closed on a session database outage", async () => { mocks.list.mockRejectedValue(new Error("sensitive connection")); const response = await GET(); expect(response.status).toBe(503); expect(await response.text()).not.toContain("sensitive connection"); });
+  it("does not treat a missing session cookie as an active session", async () => { mocks.token.mockResolvedValue(null); expect((await GET()).status).toBe(401); expect((await DELETE(request({ sessionId }))).status).toBe(401); });
+});

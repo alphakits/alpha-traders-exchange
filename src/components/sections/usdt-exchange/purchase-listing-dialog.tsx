@@ -3,6 +3,7 @@
 import { formatMoneyNumber } from "@/lib/accent-text";
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
+import { TradePaymentSummary } from "@/components/sections/usdt-exchange/trade-payment-summary";
 import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getCardlessCashAmountOptions, calculateCardlessUsdtAmount, normalizeCardlessDigits, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
@@ -237,9 +238,7 @@ export function PurchaseListingDialog({
                     {priceMode === "buyer_offer" ? <p className="mt-1 text-[10px] text-[#9CA3AF]">{isAr ? "سعر البائع" : "Seller price"}: {currencyText(formatIls(selectedPrice))}</p> : null}
                   </div>
                 </div>
-                <p className={`commission-notice mt-2 text-[11px] ${isAr ? "text-right" : ""}`}>
-                  {isAr ? "قيمة الصفقة" : "Trade value"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTradeValue))}</span> · {isAr ? "عمولتك كمشتري (1%)" : "Your buyer fee (1%)"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedBuyerFee))}</span> · {isAr ? "الإجمالي الذي تدفعه" : "Total you pay"}: <span className="text-emerald-300">{currencyText(formatIls(estimatedTotal))}</span>
-                </p>
+                <TradePaymentSummary isAr={isAr} amount={buyerTradeAmount} subtotal={estimatedTradeValue} buyerFee={estimatedBuyerFee} total={estimatedTotal} formatFiat={formatIls} paymentMethod={selectedPaymentMethod ? paymentMethodLabel(selectedPaymentMethod, isAr) : undefined} network={buyerInfo.receivingNetwork ?? listing.network} />
                 <p className="commission-notice mt-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "عمولتك 1% ضمن دفعتك للبائع. البائع يدفع 1% من حصته؛ إجمالي عمولة Alpha هو 2%. تستلم كامل كمية USDT المتفق عليها." : "Your 1% fee is included in your payment to the seller. The seller pays their own 1%; Alpha’s total fee is 2%. You receive the full agreed USDT amount.")}</p>
               </div>
 

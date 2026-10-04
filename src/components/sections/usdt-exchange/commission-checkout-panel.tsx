@@ -12,6 +12,9 @@ interface CheckoutState {
   walletAddress: string | null;
   pendingCount: number;
   totalDueUsdt: number;
+  checkedAt?: string;
+  lastVerificationCheckAt?: string;
+  verificationCode?: string;
 }
 const ENDPOINT = "/api/alpha-exchange/commissions/checkout";
 function valid(value: unknown): value is CheckoutState {
@@ -174,6 +177,9 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     {!data && !error ? <p role="status" className="commission-notice">{message("Loading your commissions…", "جارٍ تحميل العمولات…")}</p> : null}
     {data ? <section className="space-y-3 rounded-2xl border border-white/15 p-5">
       <p className="commission-notice">{message("Outstanding commission total", "مجموع العمولات المستحقة")}: <strong className="currency-money">{data.totalDueUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</strong></p>
+      {data.checkedAt && Number.isFinite(Date.parse(data.checkedAt)) ? <p className="text-xs text-slate-300">{message("Status refreshed", "آخر تحديث للحالة")}: <time dateTime={data.checkedAt}>{new Date(data.checkedAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}
+      {data.lastVerificationCheckAt && Number.isFinite(Date.parse(data.lastVerificationCheckAt)) ? <p className="text-xs text-slate-300">{message("Last payment verification result", "آخر نتيجة فحص للدفعة")}: <time dateTime={data.lastVerificationCheckAt}>{new Date(data.lastVerificationCheckAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : data.status === "waiting" ? <p className="text-xs text-slate-300">{message("No payment verification result has been recorded yet.", "لم تُسجّل نتيجة فحص للدفعة بعد.")}</p> : null}
+      {data.verificationCode ? <p className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm text-amber-200">{data.verificationCode === "receipt_pending" ? message("A matching receipt is awaiting network confirmation. Do not send again.", "دفعة مطابقة بانتظار تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("The verification service could not confirm this payment yet. Automatic checks will continue. Do not send again.", "لم تتمكن خدمة التحقق من تأكيد الدفعة بعد. يستمر الفحص التلقائي. لا تُعد الإرسال.") : message("The payment needs review before it can be credited. Check the original payment amount, network and destination. Do not send a second payment.", "الدفعة تحتاج إلى مراجعة قبل احتسابها. راجع مبلغ الدفعة الأصلية وشبكتها وعنوانها. لا ترسل دفعة ثانية.")}</p> : null}
       {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice text-emerald-300">{message("Payment verified. No commission dues remain. Other account restrictions still apply.", "تم التحقق من الدفع. لا توجد عمولات مستحقة. تبقى أي قيود أخرى على الحساب سارية.")}</p> : null}
       {data.status === "changed" ? <p role="alert" className="commission-notice text-amber-200">{message("These commissions changed after the payment instructions were created. Do not send another payment. Check the original payment status.", "تغيّرت العمولات بعد إنشاء تعليمات الدفع. لا ترسل دفعة أخرى. راجع حالة الدفعة الأصلية.")}</p> : null}
       {!checkout && data.pendingCount > 0 ? <>

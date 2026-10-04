@@ -1,4 +1,6 @@
 "use client";
+import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
+import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
@@ -295,6 +297,7 @@ export type SellerCommissionStatus = {
     paymentAmountDue?: number;
     paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
     paymentVerificationNotes?: string;
+    paymentLastCheckedAt?: string;
     paymentSignature?: string;
     paymentSubmittedAt?: string;
     paymentNetwork?: string;
@@ -3736,9 +3739,7 @@ export function UsdtExchangePage({
         latestOpenSellerTrade
           ? {
               title: isAr ? "صفقة بانتظارك" : "Trade waiting",
-              body: isAr
-                ? `الصفقة ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} تحتاج إلى انتباهك.`
-                : `Trade ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} needs your attention.`,
+              body: workspaceTradeNextStep(latestOpenSellerTrade, "seller", isAr),
               action: isAr ? "فتح الصفقة" : "Open trade",
               onClick: () => handleOpenTradeRoom(latestOpenSellerTrade.id),
             }
@@ -3790,9 +3791,7 @@ export function UsdtExchangePage({
         latestOpenBuyerTrade
           ? {
               title: isAr ? "صفقة نشطة" : "Active trade",
-              body: isAr
-                ? `الصفقة ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} قيد التنفيذ.`
-                : `Trade ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} is in progress.`,
+              body: workspaceTradeNextStep(latestOpenBuyerTrade, "buyer", isAr),
               action: isAr ? "فتح الصفقة" : "Open trade",
               onClick: () => handleOpenTradeRoom(latestOpenBuyerTrade.id),
             }
@@ -5318,7 +5317,7 @@ export function UsdtExchangePage({
                   <AlertTriangle className="h-4 w-4 text-amber-300" />
                   {isAr ? "بحاجة إلى انتباه" : "Needs Attention"}
                 </CardTitle>
-                <CardDescription>{isAr ? "أهم الإجراءات الحالية تظهر هنا أولًا." : "The most urgent actions appear here first."}</CardDescription>
+                <CardDescription>{isAr ? "خطوتك التالية حسب حالة حسابك وصفقاتك." : "Your next steps, based on your account and trade status."}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {needsAttentionItems.map((item) => (
@@ -5570,6 +5569,7 @@ export function UsdtExchangePage({
           </Card>
         ) : null}
 
+        {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
         <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (

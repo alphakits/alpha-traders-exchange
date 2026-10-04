@@ -7,9 +7,15 @@ type CommissionScanState = "awaiting" | "confirming" | "review" | "verified" | "
 export function CommissionAutomationPanel({
   isAr,
   state,
+  lastCheckedAt,
+  verificationNotes,
+  restrictionReason,
 }: {
   isAr: boolean;
   state: CommissionScanState;
+  lastCheckedAt?: string;
+  verificationNotes?: string;
+  restrictionReason?: string;
 }) {
   const status = {
     awaiting: isAr ? "بانتظار مطابقة الدفعة" : "Waiting for a matching payment",
@@ -80,6 +86,9 @@ export function CommissionAutomationPanel({
           {status}
         </p>
         <p className="mt-1.5 text-xs leading-5 text-slate-300">{detail}</p>
+        <p className="mt-2 text-xs text-slate-300">{isAr ? "آخر نتيجة فحص" : "Last verification result"}: {lastCheckedAt && Number.isFinite(Date.parse(lastCheckedAt)) ? <time dateTime={lastCheckedAt}>{new Date(lastCheckedAt).toLocaleString(isAr ? "ar" : "en-US")}</time> : (isAr ? "لا توجد نتيجة فحص مسجّلة بعد" : "No recorded verification result yet")}</p>
+        {verificationNotes && state === "review" ? <p className="commission-notice mt-2 rounded-lg bg-amber-300/10 p-2 text-xs text-amber-200">{verificationNotes}</p> : null}
+        {restrictionReason ? <p className="commission-notice mt-2 text-xs text-amber-200">{restrictionReason}</p> : null}
       </div>
 
       <div className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-300">
