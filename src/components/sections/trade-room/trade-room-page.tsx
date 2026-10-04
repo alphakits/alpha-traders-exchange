@@ -2128,6 +2128,9 @@ function TradeRoomPageSession({
 
   const primaryActionDisabledReason = useMemo(() => {
     if (!primaryAction || !request) return null;
+    if (isSeller && primaryAction.mode === "status" && primaryAction.nextStatus === "accepted" && (room?.sellerCommissionDueCount ?? 0) > 0) {
+      return isAr ? "سدّد جميع العمولات المستحقة أولاً لقبول هذا الطلب. يبقى الطلب محفوظاً ويمكنك قبوله بعد تأكيد السداد." : "Pay all outstanding commission before accepting this request. Your request stays available after payment is verified.";
+    }
     if (primaryAction.mode === "status" && primaryAction.requiresEvidenceSide === "buyer" && !request.buyerEvidence) {
       return isAr ? "ارفع إيصال الدفع أولًا." : "Upload the payment receipt before submitting payment.";
     }
@@ -2135,7 +2138,7 @@ function TradeRoomPageSession({
       return isAr ? "يرجى رفع إثبات البائع قبل إصدار USDT." : "Please upload seller evidence before releasing USDT.";
     }
     return null;
-  }, [isAr, primaryAction, request]);
+  }, [isAr, isSeller, primaryAction, request, room?.sellerCommissionDueCount]);
   const primaryActionLoading = useMemo(() => {
     if (!primaryAction) return false;
     if (primaryAction.mode === "upload" && primaryAction.uploadSide) {
@@ -3276,7 +3279,7 @@ function TradeRoomPageSession({
                   <p>{currencyText(isAr ? `ادفع الآن لألفا: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay Alpha now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
                   <p className="commission-notice text-xs text-amber-100">{currencyText(request.feePolicyVersion === "buyer_seller_1pct_v1" ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en") : (isAr ? "تظل العمولة الأصلية لهذه الصفقة مستحقة حتى السداد." : "This trade retains its original commission until paid."))}</p>
                   {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{currencyText(isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p> : null}
-                  <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
+                  <p className="text-xs">{isAr ? "سدّد جميع العمولات المستحقة لقبول طلب جديد أو نشر عرض جديد. تبقى الطلبات محفوظة ويمكنك إكمال صفقاتك الحالية." : "Pay all outstanding commission before accepting new requests or creating listings. Requests stay saved and existing trades can continue."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     <span aria-hidden="true">💳</span>{isAr ? "ادفع الآن" : "Pay Now"}
                   </Button>
@@ -3351,7 +3354,12 @@ function TradeRoomPageSession({
                         </span>
                       ) : <><span aria-hidden="true">{primaryAction.mode === "status" && primaryAction.nextStatus === "completed" ? "✅" : "⚡"}</span>{primaryActionButtonLabel}</>}
                     </Button>
-                    {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{currencyText(primaryActionDisabledReason)}</p> : null}
+                    {primaryActionDisabledReason ? <p className="commission-notice text-sm text-amber-300">{currencyText(primaryActionDisabledReason)}</p> : null}
+                    {isSeller && request.status === "pending" && room.sellerCommissionDueCount > 0 ? (
+                      <Button type="button" className="w-full" onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
+                        {isAr ? "دفع العمولة" : "Pay Commission"}
+                      </Button>
+                    ) : null}
                     {!isSeller && request.status === "accepted" && !isCashTrade ? (
                       <p className="text-xs text-[#9CA3AF]">
                         {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
@@ -4035,7 +4043,7 @@ function TradeRoomPageSession({
                   <p className="commission-notice">{currencyText(isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`)}</p>
                   <p className="mt-1">{currencyText(isAr ? `المبلغ الإجمالي: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total due: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`)}</p>
                   <p className="mt-1">{currencyText(isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`)}</p>
-                  <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
+                  <p className="mt-1 text-xs text-amber-100">{isAr ? "سدّد جميع العمولات المستحقة لقبول طلب جديد أو نشر عرض جديد. تبقى الطلبات محفوظة ويمكنك إكمال صفقاتك الحالية." : "Pay all outstanding commission before accepting new requests or creating listings. Requests stay saved and existing trades can continue."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     <span aria-hidden="true">💳</span>{isAr ? "ادفع الآن" : "Pay Now"}
                   </Button>

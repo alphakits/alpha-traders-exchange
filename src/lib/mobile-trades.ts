@@ -83,6 +83,7 @@ export function toMobileTradeMessage(
 type MobileTradeActionContext = {
   canOpenDispute: boolean;
   hasOpenDispute: boolean;
+  sellerCommissionDueCount?: number;
 };
 
 export function toMobileTradeActions(
@@ -94,7 +95,8 @@ export function toMobileTradeActions(
   const isSeller = request.sellerId === userId;
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
   return {
-    canAccept: isSeller && request.status === "pending" && request.termsProposal?.status !== "pending",
+    canAccept: isSeller && request.status === "pending" && request.termsProposal?.status !== "pending"
+      && !(context.sellerCommissionDueCount && context.sellerCommissionDueCount > 0),
     canDecline: canSellerDeclineTrade(request, userId),
     canCancel: canBuyerCancelTrade(request, userId) || (request.status !== "pending" && canSellerCancelTrade(request, userId)),
     canViewBankDetails: isBuyer
@@ -188,6 +190,7 @@ export function toMobileTradeDetail(
     actions: toMobileTradeActions(request, userId, {
       canOpenDispute: room.canOpenDispute,
       hasOpenDispute: room.hasOpenDispute,
+      sellerCommissionDueCount: room.sellerCommissionDueCount,
     }),
   };
 }

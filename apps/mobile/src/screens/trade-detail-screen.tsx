@@ -836,10 +836,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View collapsable={false} onLayout={(event) => recordGuidanceLayout("actions", event)} style={styles.actions}>
+          {trade.side === "seller" && trade.status === "pending" && trade.sellerCommissionDue ? (
+            <View style={styles.section}>
+              <Text accessibilityRole="header" style={[styles.sectionTitle, styles.commissionNotice, isRTL && styles.rtlText]}>{isRTL ? "ادفع العمولة لقبول الطلب" : "Pay Commission to Accept"}</Text>
+              <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{isRTL ? "سدّد جميع العمولات المستحقة أولاً لقبول هذا الطلب. يبقى الطلب محفوظاً ويمكنك قبوله بعد تأكيد السداد." : "Pay all outstanding commission before accepting this request. Your request stays available after payment is verified."}</Text>
+              <GoldButton onPress={() => router.push("/seller/commissions")}>{isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
+            </View>
+          ) : null}
           <TradeTermsPanel key={trade.id} trade={trade} isAr={locale === "ar"} disabled={busyAction !== null || trade.hasOpenDispute} onAction={updateTerms} />
           {actions.canAccept ? (
             <GoldButton
-              disabled={actionsDisabled}
+              disabled={actionsDisabled || Boolean(trade.sellerCommissionDue)}
               loading={busyAction === "accepted"}
               onPress={() => confirmStatus("accepted", isFaceToFace ? t("acceptSafetyConfirmation") : t("actionConfirmation"), isFaceToFace)}
             >
@@ -998,7 +1005,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {trade.side === "seller" && trade.sellerCommissionDue ? (
+        {trade.side === "seller" && trade.status !== "pending" && trade.sellerCommissionDue ? (
           <View style={[styles.section, styles.importantPanel]}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, styles.commissionNotice, isRTL && styles.rtlText]}><AttentionSiren />{isRTL ? "عمولة مستحقة" : "Commission Due"}</Text>
             <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{formatUsdt(trade.sellerCommissionDue.amount)}</Text>

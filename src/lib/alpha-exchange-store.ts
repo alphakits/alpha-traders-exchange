@@ -1497,7 +1497,7 @@ function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
   }
   const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
   if (pendingCommissionCount > 0) {
-    return "Your listings stay visible, but new requests are blocked until all outstanding commission is verified as paid. Continue and complete your existing trades. Maximum: 3 active trades.";
+    return "Your listings stay visible and buyers can send requests. Pay all outstanding commission before accepting new trades or creating listings. Existing trades can finish. Maximum: 3 active trades.";
   }
   const openListingCount = getSellerOpenListingCount(db, sellerId);
   if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
@@ -2181,8 +2181,7 @@ function enrichListingsWithSellerData(
       ...(publicAvailability ? publicMarketplaceListing(listing) : listing),
       availableAmount: publicAvailability ? listingUnreservedAmount(db, listing) : listing.availableAmount,
       sellerActiveTradeCount: getSellerOpenTradeCount(db, listing.sellerId),
-      newRequestBlockReason: getSellerPendingCommissionCount(db, listing.sellerId) > 0 ? "commission_due"
-        : getSellerOpenTradeCount(db, listing.sellerId) >= MAX_SELLER_ACTIVE_TRADES ? "trade_limit"
+      newRequestBlockReason: getSellerOpenTradeCount(db, listing.sellerId) >= MAX_SELLER_ACTIVE_TRADES ? "trade_limit"
         : isTradeAmountLessThan(listingUnreservedAmount(db, listing), listing.minimumTrade) === true ? "inventory_reserved" : undefined,
       sellerDisplayName: publicAccountName({ id: listing.sellerId, role: "approved_seller" }),
       notes: visibleText(listing.notes),
@@ -2224,9 +2223,7 @@ export async function getSellerProfileRouteData(input: {
     dbInput: db,
   });
 
-  const listings = await getMarketplaceListings("active", db, input.viewerUserId, {
-    requireCanonicalCommissionLocks: true,
-  });
+  const listings = await getMarketplaceListings("active", db, input.viewerUserId);
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const similarSellers = listings
@@ -8659,35 +8656,22 @@ export async function getMarketplaceListings(
   status?: string,
   dbInput?: AlphaExchangeDb,
   viewerUserId?: string,
-  options?: { requireCanonicalCommissionLocks?: boolean },
 ) {
   const isPublicFeed = !status || status === "all" || status === "active";
-  let canonicalCommissionBlockedSellerIds: string[] | null = null;
   let db: AlphaExchangeDb;
   if (dbInput) {
     db = dbInput;
   } else if (isPublicFeed) {
     const marketplaceSnapshot = await readDbForMarketplaceListings(viewerUserId);
     db = marketplaceSnapshot.db;
-    canonicalCommissionBlockedSellerIds = marketplaceSnapshot.canonicalCommissionBlockedSellerIds;
   } else {
     db = await readDbForSelectedTables(MARKETPLACE_LISTING_READ_TABLES, { preferWarmFullCache: true });
   }
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
-  const cachedCommissionBlockedSellerIds = db.commissionRecords
-    .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
-    .map((record) => record.sellerId);
-  // Public listing visibility is a financial authorization decision. Read
-  // only the authoritative unpaid-seller IDs on every public request so a
-  // commission issued on another instance blocks new requests immediately, while
-  // avoiding a full multi-table snapshot load on this high-traffic route.
-  const requiresCanonicalCommissionLocks = isPublicFeed
-    && (!dbInput || options?.requireCanonicalCommissionLocks === true);
-  const sellersBlockedByCommission = new Set(requiresCanonicalCommissionLocks
-    ? canonicalCommissionBlockedSellerIds ?? await (await getAlphaExchangeRepository()).loadUnpaidCommissionSellerIds()
-    : cachedCommissionBlockedSellerIds);
+  // Commission is private seller information and gates acceptance, not buyer
+  // requests. Acceptance rechecks canonical commission state before committing.
   const sellersBlockedByEnforcement = new Set(
     getMarketplaceEnforcementRecords(db)
       .filter((record) => record.status === "active")
@@ -8733,11 +8717,7 @@ export async function getMarketplaceListings(
           && !interactionBlockedSellerIds.has(listing.sellerId));
   const snapshots = computeTrustSnapshotMap(db);
   const sortedListings = qualitySortListings(db, rawListings, snapshots);
-  return enrichListingsWithSellerData(await withLiveUserPresence(db), sortedListings, snapshots, viewerUserId, isPublicFeed).map(listing => ({
-    ...listing,
-    newRequestBlockReason: sellersBlockedByCommission.has(listing.sellerId) ? "commission_due" as const
-      : listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason,
-  }));
+  return enrichListingsWithSellerData(await withLiveUserPresence(db), sortedListings, snapshots, viewerUserId, isPublicFeed);
 }
 
 // ── Live marketplace pulse (real, privacy-safe public dashboard) ────────────
@@ -10620,18 +10600,6 @@ export async function createPurchaseRequest(input: {
     await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES, cacheResult: fromFullCache });
     throw new Error("Seller is currently unavailable for new buyer matches.");
   }
-  const sellerCommissionBlock = getUnpaidSellerCommissionRecords(db, listing.sellerId)[0];
-  if (sellerCommissionBlock) {
-    throw new TradeBlockedError(
-      "LISTING_SELLER_LOCKED",
-      "This listing is temporarily unavailable for new purchases. Choose another seller.",
-      undefined,
-      {
-        guard: "listing-seller-commission-clear",
-        listingId: listing.id,
-      },
-    );
-  }
   if (
     !canPublishListings(seller)
     || seller.isProfileHidden === true
@@ -10995,19 +10963,6 @@ export async function createPurchaseRequest(input: {
             guard: "seller-buyer-commission-clear-at-commit",
             commissionId: concurrentPendingCommission.id,
             actionHref: commissionPaymentDestination(concurrentPendingCommission.id),
-          },
-        );
-      }
-
-      const canonicalSellerCommission = getUnpaidSellerCommissionRecords(snapshot, sellerId)[0];
-      if (canonicalSellerCommission) {
-        throw new TradeBlockedError(
-          "LISTING_SELLER_LOCKED",
-          "This listing is temporarily unavailable for new purchases. Choose another seller.",
-          undefined,
-          {
-            guard: "listing-seller-commission-clear-at-commit",
-            listingId: input.listingId,
           },
         );
       }
@@ -14114,11 +14069,17 @@ async function updatePurchaseRequestStatusAttempt(
         sellerId: request.sellerId,
         pendingCommissionCount,
       });
-      throw new TradeBlockedError("commission-due", "You have a pending commission payment. Settle it before accepting new trades.", request.id, {
+      if (acceptingCounter) {
+        throw new TradeBlockedError("seller-not-ready", "The seller cannot start this trade yet. Your request is saved. Please wait for the seller.", request.id);
+      }
+      const commission = getUnpaidSellerCommissionRecords(db, request.sellerId)[0];
+      throw new TradeBlockedError("commission-due", "Pay all outstanding commission before accepting this request. Your request stays available after payment is verified.", request.id, {
         guard: "seller-commission-clear",
         sellerId: request.sellerId,
         pendingCommissionCount,
         nextStatus: input.nextStatus,
+        commissionId: commission?.id,
+        actionHref: commission ? commissionPaymentDestination(commission.id) : undefined,
       });
     }
     const preparedCredential = isAtmTrade ? (next.messages ?? []).find((message) => message.credentialKind === "cardless_code") : undefined;

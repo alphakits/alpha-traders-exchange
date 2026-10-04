@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnchorHTMLAttributes } from "react";
 import type { MarketplaceListing, PremiumSellerProfileData } from "@/types/alpha-exchange";
@@ -24,6 +24,25 @@ const profile: PremiumSellerProfileData = {
 };
 afterEach(cleanup);
 describe("actual owner identity surfaces", () => {
+  it.each([true, false])("keeps buyer requests and price offers enabled without revealing legacy commission locks (Arabic=%s)", isAr => {
+    const listing = { id: "listing-commission", sellerId: "identity-seller", sellerDisplayName: id, status: "active", availableAmount: "100", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", minimumTrade: "10", maximumTrade: "100", newRequestBlockReason: "commission_due", sellerProfile: profile.profile } as MarketplaceListing;
+    const onOpen = vi.fn();
+    render(<ListingCard listing={listing} isAr={isAr} marketPricePerUsdt={3.2} isOwnerListing={false} isOwnListing={false} isBuying={false} onOpen={onOpen} onManageListing={vi.fn()} />);
+    const buy = screen.getByRole("button", { name: isAr ? /شراء USDT/ : /Buy USDT/ }) as HTMLButtonElement;
+    const offer = screen.getByRole("button", { name: isAr ? /تقديم عرض سعر/ : /Make a price offer/ }) as HTMLButtonElement;
+    expect(buy.disabled).toBe(false);
+    expect(offer.disabled).toBe(false);
+    expect(document.body.textContent).not.toMatch(/commission|عمولة/i);
+    fireEvent.click(buy);
+    fireEvent.click(offer);
+    expect(onOpen.mock.calls.map(call => call[1])).toEqual(["listing_price", "buyer_offer"]);
+  });
+  it.each(["trade_limit", "inventory_reserved"] as const)("keeps the %s buyer restriction enforced", newRequestBlockReason => {
+    const listing = { id: "listing-capacity", sellerId: "identity-seller", sellerDisplayName: id, status: "active", availableAmount: "100", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", minimumTrade: "10", maximumTrade: "100", newRequestBlockReason, sellerProfile: profile.profile } as MarketplaceListing;
+    render(<ListingCard listing={listing} isAr={false} marketPricePerUsdt={3.2} isOwnerListing={false} isOwnListing={false} isBuying={false} onOpen={vi.fn()} onManageListing={vi.fn()} />);
+    expect((screen.getByRole("button", { name: /Buy USDT/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Make a price offer/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it.each([true, false])("listing card respects private-identity capability %s", canViewPrivateIdentity => {
     const listing = { id: "listing-identity", sellerId: "identity-seller", sellerDisplayName: label, status: "active", availableAmount: "100", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Cash", paymentMethods: ["Cash"], minimumTrade: "10", maximumTrade: "100", sellerReputation: { level: "gold" }, sellerProfile: profile.profile } as MarketplaceListing;
     render(<ListingCard listing={listing} isAr={false} marketPricePerUsdt={3.2} isOwnerListing={false} isOwnListing={false} isBuying={false} canViewPrivateIdentity={canViewPrivateIdentity} onOpen={vi.fn()} onManageListing={vi.fn()} />);

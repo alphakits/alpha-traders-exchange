@@ -1160,6 +1160,8 @@ type ListingCardProps = {
 };
 
 export const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, canViewPrivateIdentity = false, requiresBuyerSetup = false, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+  // Older cached responses may still carry the retired commission request lock.
+  const requestBlockReason = listing.newRequestBlockReason === "commission_due" ? undefined : listing.newRequestBlockReason;
   const sellerLevel = listing.sellerReputation?.level;
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
@@ -1373,7 +1375,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             <ArrowRight className="h-4 w-4" />
           </Link>
           {(listing.sellerActiveTradeCount ?? 0) > 0 ? <p className="col-span-2 text-sm text-amber-200">{isAr ? `البائع في ${listing.sellerActiveTradeCount} من 3 صفقات نشطة` : `Seller in ${listing.sellerActiveTradeCount} of 3 active trades`}</p> : null}
-          {listing.newRequestBlockReason ? <p role="status" className={`col-span-2 rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200 ${listing.newRequestBlockReason === "commission_due" ? "commission-notice" : ""}`}>{listing.newRequestBlockReason === "commission_due" ? (isAr ? "طلبات جديدة متوقفة حتى يسدد البائع العمولة المستحقة. يمكنه إكمال صفقاته الحالية." : "New requests paused until the seller pays outstanding commission. Existing trades can finish.") : listing.newRequestBlockReason === "trade_limit" ? (isAr ? "البائع في 3 صفقات نشطة. انتظر انتهاء صفقة." : "Seller has 3 active trades. Wait for a trade to finish.") : (isAr ? "الرصيد محجوز للصفقات الحالية." : "Balance reserved for current trades.")}</p> : null}
+          {requestBlockReason ? <p role="status" className="col-span-2 rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{requestBlockReason === "trade_limit" ? (isAr ? "البائع في 3 صفقات نشطة. انتظر انتهاء صفقة." : "Seller has 3 active trades. Wait for a trade to finish.") : (isAr ? "الرصيد محجوز للصفقات الحالية." : "Balance reserved for current trades.")}</p> : null}
           {isOwnListing ? (
             <Button
               className={cn(
@@ -1399,7 +1401,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                   ? "owner-cta-premium"
                   : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
               )}
-              disabled={isBuying || Boolean(listing.newRequestBlockReason)}
+              disabled={isBuying || Boolean(requestBlockReason)}
               onClick={() => onOpen(listing, "listing_price")}
               aria-label={requiresBuyerSetup ? (isAr ? "إعداد حساب المشتري" : "Set Up Buyer Access") : isAr ? `شراء USDT من ${safeText(listing.sellerDisplayName, "البائع")}` : `Buy USDT from ${safeText(listing.sellerDisplayName, "seller")}`}
             >
@@ -1415,7 +1417,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               type="button"
               variant="secondary"
               className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 col-span-2"
-              disabled={isBuying || Boolean(listing.newRequestBlockReason)}
+              disabled={isBuying || Boolean(requestBlockReason)}
               onClick={() => onOpen(listing, "buyer_offer")}
               aria-label={isAr ? `تقديم عرض سعر إلى ${safeText(listing.sellerDisplayName, "البائع")}` : `Make a price offer to ${safeText(listing.sellerDisplayName, "seller")}`}
             >
