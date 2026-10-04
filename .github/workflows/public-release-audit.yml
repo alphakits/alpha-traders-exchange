@@ -1,0 +1,232 @@
+name: Published Release Audit
+
+on:
+  push:
+    branches: [fix/public-release-audit-*]
+    paths: [.github/workflows/public-release-audit.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  public-release:
+    name: Verify the exact published source and anonymous site routes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 1fd66b5b6af605782e7d5c98b9b91975c8efc678
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Check public pages, sign-in gates, recovery, health, and app policy
+        run: |
+          node --input-type=module <<'JS'
+          await (async function runPublicReleaseAudit() {
+            const fs = await import("node:fs");
+            const cp = await import("node:child_process");
+            const source = "1fd66b5b6af605782e7d5c98b9b91975c8efc678";
+            const deployment = "dpl_DL1wkyRB72knUnmiGuxUKp4NkGjU";
+            const head = cp.execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+            if (head !== source) throw new Error("Public audit checkout differs from the published source.");
+            const base = "https://www.alphatraders.co.il";
+            const routes = {"public":["/forgot-password","/login","/register","/reset-password","/about-founder","/account-deletion","/buy-usdt-israel","/community","/contact","/cookies","/founder","/help-center","/learn-trading-free","/p2p-usdt-israel","/","/privacy-policy","/report-abuse","/safety-trust","/start","/support","/terms","/usdt-ils","/verify-email"],"gates":["/academy/audit-guest-fixture","/academy/dashboard","/academy","/admin/alpha-exchange","/admin/alpha-exchange/pending-listings","/admin/commission-reconciliation","/admin/discord","/admin/learning-interest","/admin","/dashboard","/dashboard/seller/compliance-payment","/dashboard/seller","/learn-with-mark","/lessons/audit-guest-fixture","/lessons","/news","/notifications","/onboarding","/profile","/prop-firms/audit-guest-fixture","/prop-firms","/settings","/trade-room/audit-guest-fixture","/trade-room","/trades","/usdt-exchange","/verify-account","/seller/commission-checkout"],"disabled":["/welcome-preview"],"absentProfiles":["/exchange/seller/audit-guest-does-not-exist","/seller/audit-guest-does-not-exist","/u/audit-guest-does-not-exist"]};
+            const startedAt = new Date().toISOString();
+            const rows = [];
+            const publicHtml = new Map();
+            const failures = [];
+            const protectedFamily = /^\/(?:ar|en)\/(?:academy|lessons|learn-with-mark|prop-firms|news|usdt-exchange|trade-room|trades|dashboard|profile|settings|admin|notifications|onboarding|verify-account)(?:\/|$)/i;
+            const check = (condition, message) => { if (!condition) throw new Error(message); };
+            const read = async (path, headers = {}) => {
+              const url = new URL(path, base);
+              check(url.origin === base, "Unexpected audit origin.");
+              check(!url.pathname.startsWith("/api/") || ["/api/health", "/api/mobile/v1/app-config"].includes(url.pathname), "Customer-record API requests are excluded.");
+              return fetch(url, { redirect: "manual", cache: "no-store", headers, signal: AbortSignal.timeout(15000) });
+            };
+            const documentRedirect = (html) => {
+              for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+                const attrs=Object.fromEntries([...tag[0].matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)].map(match=>[match[1].toLowerCase(),match[2].replace(/&amp;/g,"&")]));
+                if(attrs.id!=="__next-page-redirect"||attrs["http-equiv"]?.toLowerCase()!=="refresh")continue;
+                const value=attrs.content?.match(/^\d+(?:\.\d+)?\s*;\s*url\s*=\s*(.+)$/i)?.[1];
+                if(value)return value;
+              }
+              return null;
+            };
+            const followPublic = async (path) => {
+              let current = path;
+              for (let hop = 0; hop < 5; hop++) {
+                const response = await read(current);
+                if (response.status >= 300 && response.status < 400) {
+                  const location = new URL(response.headers.get("location") || "", new URL(current, base));
+                  check(location.origin === base && !location.pathname.startsWith("/api/"), "Unexpected public redirect.");
+                  current = location.pathname + location.search;
+                  continue;
+                }
+                const html=await response.text();
+                const streamed=documentRedirect(html);
+                if(streamed){
+                  const location=new URL(streamed,new URL(current,base));
+                  check(location.origin===base&&!location.pathname.startsWith("/api/"),"Unexpected streamed public redirect.");
+                  current=location.pathname+location.search;
+                  continue;
+                }
+                return { response, html, finalPath: current };
+              }
+              throw new Error("Public redirect did not settle.");
+            };
+            const task = async (type, path, work) => {
+              const checkedAt = new Date().toISOString();
+              try { const details = await work(); rows.push({ type, path, checkedAt, ok: true, ...details }); }
+              catch (error) { failures.push({ type, path, checkedAt, message: error.message }); rows.push({ type, path, checkedAt, ok: false }); }
+            };
+            const batches = async (jobs) => {
+              for (let i = 0; i < jobs.length; i += 4) {
+                const results = await Promise.allSettled(jobs.slice(i, i + 4).map(job => job()));
+                for (const result of results) if (result.status === "rejected") throw result.reason;
+              }
+            };
+            const publicPaths = ["en", "ar"].flatMap(locale => routes.public.map(path => "/" + locale + (path === "/" ? "" : path)));
+            const gatePaths = ["en", "ar"].flatMap(locale => routes.gates.map(path => "/" + locale + path));
+            const queryTemplates = [
+              "/usdt-exchange?side=buy&min=100&max=1000",
+              "/usdt-exchange?side=sell&paymentMethod=bank_transfer",
+              "/trades?tab=completed",
+              "/trade-room/audit-guest-fixture?chat=1&focus=messages",
+              "/notifications?category=listing",
+              "/dashboard/seller?tab=commissions",
+              "/academy?course=audit-guest-fixture",
+            ];
+            const queryPaths = ["en", "ar"].flatMap(locale => queryTemplates.map(path => "/" + locale + path));
+            const publicPage = (type, path) => task(type, path, async () => {
+              const result = await followPublic(path);
+              check(result.response.status === 200 && /<html(?:\s|>)/i.test(result.html), "Public page did not return a complete HTML response.");
+              check(!result.html.includes("NEXT_HTTP_ERROR_FALLBACK;404"), "Public page returned a not-found boundary.");
+              if (/\/terms$/.test(path)) check(/1%/.test(result.html) && /2%/.test(result.html), "Published commission terms are missing.");
+              if (/\/p2p-usdt-israel$/.test(path)) check(result.finalPath === path.replace("p2p-usdt-israel", "buy-usdt-israel"), "Legacy P2P alias is incorrect.");
+              if (/\/about-founder$/.test(path)) check(result.finalPath===path && /<h1\b[^>]*>[\s\S]*?(?:About Founder|عن المؤسس)[\s\S]*?<\/h1>/i.test(result.html), "About Founder page is missing its own heading.");
+              publicHtml.set(path, result.html);
+              return { status: result.response.status, finalPath: result.finalPath };
+            });
+            const gate = (type, path) => task(type, path, async () => {
+              const response = await read(path);
+              const streamed = response.status===200 ? documentRedirect(await response.text()) : null;
+              const location = new URL(response.headers.get("location") || streamed || "", base);
+              const locale = path.startsWith("/ar/") ? "ar" : "en";
+              const cache = response.headers.get("cache-control") || "";
+              const vary = response.headers.get("vary") || "";
+              check([302, 303, 307, 308].includes(response.status)||(response.status===200&&Boolean(streamed)), "Protected page did not redirect a signed-out visitor.");
+              check(location.origin === base && location.pathname === "/" + locale + "/login", "Protected page did not retain its sign-in language.");
+              check(location.searchParams.get("redirectTo") === path, "Protected page lost its intended destination or query.");
+              check(/no-store/i.test(cache), "Protected page can be cached.");
+              if (protectedFamily.test(new URL(path, base).pathname)) check(/private/i.test(cache) && /(?:^|,\s*)Cookie(?:,|$)/i.test(vary), "Protected page lacks its private cache or Cookie variation.");
+              return { status: response.status, redirectMechanism: streamed ? "next-streamed-meta" : "http", destinationPreserved: true, cacheControl: cache, vary };
+            });
+            await batches(publicPaths.map(path => () => publicPage("public", path)));
+            await batches(gatePaths.map(path => () => gate("gate", path)));
+            await batches(queryPaths.map(path => () => gate("queryGate", path)));
+            const knownPaths = new Set([...publicPaths, ...gatePaths]);
+            const checked = new Set([...publicPaths, ...gatePaths, ...queryPaths]);
+            const internalLinks = new Set();
+            for (const html of publicHtml.values()) for (const match of html.matchAll(/href="([^"]+)"/g)) {
+              let url;
+              try { url = new URL(match[1].replace(/&amp;/g, "&"), base); } catch { continue; }
+              if (url.origin !== base || !knownPaths.has(url.pathname)) continue;
+              const path = url.pathname + url.search;
+              if (!checked.has(path)) internalLinks.add(path);
+            }
+            check(internalLinks.size <= 150, "Unexpected internal-link crawl growth.");
+            await batches([...internalLinks].map(path => () => protectedFamily.test(new URL(path, base).pathname) || /\/seller\/commission-checkout$/.test(new URL(path, base).pathname) ? gate("linkedGate", path) : publicPage("linkedPublic", path)));
+            await task("offline", "/offline", async () => {
+              const response = await read("/offline");
+              const html = await response.text();
+              check(response.status === 200 && !response.headers.get("location"), "Root offline recovery was redirected.");
+              check(/offline/i.test(html) && /الاتصال|غير متصل|دون اتصال/.test(html), "Bilingual offline recovery is missing.");
+              return { status: response.status, bilingual: true };
+            });
+            await task("browserRecovery", "/browser-update.html", async () => {
+              const response = await read("/browser-update.html");
+              const html = await response.text();
+              check(response.status === 200 && /<html(?:\s|>)/i.test(html) && /Android|iOS/.test(html), "Independent browser recovery page is unavailable.");
+              return { status: response.status };
+            });
+            await task("root", "/", async () => {
+              const response = await read("/");
+              const location = new URL(response.headers.get("location") || "", base);
+              check([302, 307, 308].includes(response.status) && /^\/(?:ar|en)$/.test(location.pathname), "Home locale redirect is invalid.");
+              return { status: response.status, destination: location.pathname };
+            });
+            await task("menuCss", "/en", async () => {
+              const html = publicHtml.get("/en") || "";
+              const cssPaths = [...new Set([...html.matchAll(/href="([^"]+\.css(?:\?[^"]*)?)"/g)].map(match => match[1]))].filter(path => new URL(path, base).origin === base && new URL(path, base).pathname.startsWith("/_next/static/css/"));
+              check(cssPaths.length > 0 && cssPaths.length <= 12, "Public page stylesheets are missing.");
+              let found = false;
+              for (const path of cssPaths) {
+                const response = await read(path);
+                check(response.status === 200, "A public stylesheet is unavailable.");
+                const css = await response.text();
+                if (/summary\.list-none::-webkit-details-marker\s*\{\s*display:\s*none/.test(css)) found = true;
+              }
+              check(found, "Published CSS lacks the custom-menu WebKit marker correction.");
+              return { stylesheets: cssPaths.length, markerCorrected: true };
+            });
+            await task("installationRecoveryBundle", "/en", async () => {
+              const html = publicHtml.get("/en") || "";
+              const scriptPaths = [...new Set([...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/gi)].map(match => match[1].replace(/&amp;/g, "&")))].filter(path => new URL(path, base).origin === base && new URL(path, base).pathname.startsWith("/_next/static/"));
+              check(scriptPaths.length > 0 && scriptPaths.length <= 40, "Public application bundles are missing or unexpectedly numerous.");
+              let englishRecovery = false;
+              let arabicRecovery = false;
+              await batches(scriptPaths.map(path => async () => {
+                const response = await read(path);
+                check(response.status === 200, "A public application bundle is unavailable.");
+                const script = (await response.text()).replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+                if (script.includes("Installation could not start. Open your browser menu")) englishRecovery = true;
+                if (script.includes("تعذر بدء التثبيت. افتح قائمة المتصفح")) arabicRecovery = true;
+              }));
+              check(englishRecovery && arabicRecovery, "Published bundles lack the verified bilingual installation recovery.");
+              return { bundles: scriptPaths.length, englishRecovery, arabicRecovery };
+            });
+            await batches(["en", "ar"].flatMap(locale => routes.disabled.map(path => () => task("disabledPreview", "/" + locale + path, async () => {
+              const result = await followPublic("/" + locale + path);
+              check(result.response.status === 404 || result.html.includes("NEXT_HTTP_ERROR_FALLBACK;404") || /<h1\b[^>]*>404<\/h1>/.test(result.html), "Design previews are exposed in production.");
+              return { status: result.response.status, previewBlocked: true };
+            }))));
+            await batches(["en", "ar"].flatMap(locale => routes.absentProfiles.map(path => () => task("absentPublicProfile", "/" + locale + path, async () => {
+              const result = await followPublic("/" + locale + path);
+              check(result.response.status === 404 || result.html.includes("NEXT_HTTP_ERROR_FALLBACK;404") || /<h1\b[^>]*>404<\/h1>/.test(result.html), "Nonexistent guest fixture profile did not use its not-found boundary.");
+              return { status: result.response.status };
+            }))));
+            await task("health", "/api/health", async () => {
+              const started = Date.now();
+              const response = await read("/api/health");
+              const payload = await response.json();
+              check(response.status === 200 && payload.status === "ok" && payload.checks?.database === "ok", "Public database health is degraded.");
+              check(/no-store/.test(response.headers.get("cache-control") || ""), "Health response can be cached.");
+              return { status: response.status, health: payload.status, database: payload.checks.database, endpointDurationMs: Date.now() - started, databaseCheckDurationMs: payload.responseTimeMs, timestamp: payload.timestamp };
+            });
+            await batches(["ios", "android"].map(platform => () => task("appPolicy", "/api/mobile/v1/app-config:" + platform, async () => {
+              const response = await read("/api/mobile/v1/app-config", { "x-device-id": "audit-final-20261004-" + platform, "x-app-version": "1.2.0", "x-platform": platform, "x-locale": "en" });
+              const payload = await response.json();
+              check(response.status === 200 && payload.currentVersion === "1.2.0" && payload.minimumSupportedVersion === "1.0.0" && payload.latestVersion === "1.2.0" && payload.updateRequired === false && payload.updateRecommended === false, "Published app policy differs from the verified release.");
+              return { status: response.status, platform, currentVersion: payload.currentVersion, minimumSupportedVersion: payload.minimumSupportedVersion, latestVersion: payload.latestVersion, updateRequired: payload.updateRequired, updateRecommended: payload.updateRecommended };
+            })));
+            const groups = {};
+            for (const row of rows) {
+              groups[row.type] ||= { total: 0, passed: 0 };
+              groups[row.type].total++;
+              if (row.ok) groups[row.type].passed++;
+            }
+            const report = { source, deployment, startedAt, completedAt: new Date().toISOString(), groups, failures, rows, privateProductionRecordsRead: false, productionMessagesOrTransfersSent: false };
+            fs.writeFileSync("public-release-audit.json", JSON.stringify(report, null, 2));
+            console.log(JSON.stringify({ source, deployment, startedAt, completedAt: report.completedAt, groups, failures }));
+            if (failures.length) throw new Error("Public release audit contains failed checks.");
+          })();
+          JS
+      - name: Preserve public verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-release-audit
+          path: public-release-audit.json
+          if-no-files-found: error
+          retention-days: 30
