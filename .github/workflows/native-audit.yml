@@ -45,7 +45,7 @@ jobs:
       - run: npm run mobile:doctor
       - name: Build standalone apps and wait for native UI results
         working-directory: apps/mobile
-        run: eas workflow:run .eas/workflows/native-audit.yml --non-interactive --wait --json > native-audit-result.json
+        run: eas workflow:run .eas/workflows/native-audit.yml --ref "$GITHUB_SHA" --non-interactive --wait --json > native-audit-result.json
       - name: Preserve native workflow result
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,6 +57,7 @@ jobs:
 
   signed-ios:
     name: Signed iOS release candidate
+    if: ${{ !contains(github.event.head_commit.message, '[native-only]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
