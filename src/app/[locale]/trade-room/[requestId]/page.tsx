@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { getInterfacePageDestination } from "@/lib/interface-access";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { TradeRoomPage } from "@/components/sections/trade-room/trade-room-page";
 
