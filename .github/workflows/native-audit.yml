@@ -8,8 +8,8 @@ on:
       - .github/workflows/native-audit.yml
       - apps/mobile/**
       - packages/**
-      - scripts/patch-audit-security.mjs
-      - scripts/security-backports/**
+      - scripts/patch-dependency-security.mjs
+      - patches/**
       - package.json
       - package-lock.json
 
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-audit-${{ github.ref }}-${{ contains(github.event.head_commit.message, '[ios-only]') && 'ios-only' || 'all' }}
+  group: native-audit-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
