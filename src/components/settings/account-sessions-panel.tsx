@@ -5,11 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Monitor, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchClientJson } from "@/lib/client-request-deadline";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 type Session = { id: string; deviceLabel: string; createdAt: string; expiresAt: string; isCurrent: boolean };
 type Payload = { ownerId?: string; sessions?: Session[]; revokedId?: string; currentSessionRevoked?: boolean };
 
 export function AccountSessionsPanel({ userId, isAr }: { userId: string; isAr: boolean }) {
+  const canonicalSession = useOptionalCanonicalSession();
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,6 +38,7 @@ export function AccountSessionsPanel({ userId, isAr }: { userId: string; isAr: b
   async function revoke(session: Session) {
     if (mutationInFlight.current || busy) return;
     mutationInFlight.current = true;
+    const finishSignOut = session.isCurrent ? canonicalSession?.beginSignOut?.() : undefined;
     setBusy(true);
     setMessage("");
     const request = new AbortController();
@@ -53,6 +56,7 @@ export function AccountSessionsPanel({ userId, isAr }: { userId: string; isAr: b
     } catch {
       if (!request.signal.aborted) { setSessions(null); setMessage(isAr ? "لم نتأكد من إنهاء الجلسة. أعد التحميل للتحقق." : "Sign-out could not be confirmed. Reload to check before retrying."); }
     } finally {
+      finishSignOut?.();
       mutationInFlight.current = false;
       if (!request.signal.aborted) setBusy(false);
     }

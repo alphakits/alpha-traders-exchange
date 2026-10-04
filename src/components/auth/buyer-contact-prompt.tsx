@@ -95,6 +95,7 @@ function BuyerContactContent({ locale, session }: { locale: "en" | "ar"; session
     const current = new AbortController();
     activeRequest.current = current;
     setSaving(true);
+    const finishSignOut = session.beginSignOut?.();
     try {
       const response = await runClientRequest(current, 15_000, signal => fetch("/api/auth/logout", { method: "POST", credentials: "include", signal }));
       if (!mounted.current || activeRequest.current !== current) return;
@@ -106,6 +107,7 @@ function BuyerContactContent({ locale, session }: { locale: "en" | "ar"; session
         setError(isAr ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Unable to sign out. Please try again.");
       }
     } finally {
+      finishSignOut?.();
       if (mounted.current && activeRequest.current === current) {
         activeRequest.current = null;
         setSaving(false);
