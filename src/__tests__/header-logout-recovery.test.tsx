@@ -41,11 +41,11 @@ describe("account-scoped header logout", () => {
   it.each([0, 1])("cancels header logout control %s when the canonical account changes", async index => {
     const view = render(header()); const pending = deferred();
     const events = vi.spyOn(window, "dispatchEvent"); mocks.fetch.mockReturnValue(pending.promise);
-    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Sign out", exact: true })[index]); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Sign out" })[index]); });
     const signal = mocks.fetch.mock.calls[0][1].signal;
     mocks.user = { ...mocks.user!, id: "buyer-b", fullName: "Buyer B" }; view.rerender(header());
     expect(signal.aborted).toBe(true);
-    expect(screen.getAllByRole("button", { name: "Sign out", exact: true }).every(button => !button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Sign out" }).every(button => !button.hasAttribute("disabled"))).toBe(true);
     await act(async () => { pending.resolve({ ok: true }); });
     expect(mocks.clearLocale).not.toHaveBeenCalled(); expect(replace).not.toHaveBeenCalled();
     expect(events.mock.calls.filter(([event]) => ["alpha-auth-changed", "alpha-auth-signed-out"].includes(event.type))).toHaveLength(0);
@@ -54,11 +54,11 @@ describe("account-scoped header logout", () => {
 
   it("keeps a pending logout during an ordinary refresh of the same account", async () => {
     const view = render(header()); const pending = deferred(); mocks.fetch.mockReturnValue(pending.promise);
-    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Sign out", exact: true })[0]); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Sign out" })[0]); });
     const signal = mocks.fetch.mock.calls[0][1].signal;
     mocks.user = { ...mocks.user!, fullName: "Updated Buyer A" }; view.rerender(header());
     expect(signal.aborted).toBe(false); expect(mocks.fetch).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Signing out...", exact: true }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Signing out..." }).hasAttribute("disabled")).toBe(true);
     await act(async () => { pending.resolve({ ok: true }); });
     expect(replace).toHaveBeenCalledExactlyOnceWith("/en"); expect(mocks.clearLocale).toHaveBeenCalledTimes(1);
   });
@@ -66,7 +66,7 @@ describe("account-scoped header logout", () => {
   it("cancels both pending header controls on unmount without stale sign-out events", async () => {
     const view = render(header()); const pending = [deferred(), deferred()]; const events = vi.spyOn(window, "dispatchEvent");
     mocks.fetch.mockReturnValueOnce(pending[0].promise).mockReturnValueOnce(pending[1].promise);
-    const buttons = screen.getAllByRole("button", { name: "Sign out", exact: true });
+    const buttons = screen.getAllByRole("button", { name: "Sign out" });
     await act(async () => { fireEvent.click(buttons[0]); fireEvent.click(buttons[1]); });
     view.unmount(); expect(mocks.fetch.mock.calls.every(([, options]) => options.signal.aborted)).toBe(true);
     await act(async () => { pending.forEach(request => request.resolve({ ok: true })); });
@@ -77,7 +77,7 @@ describe("account-scoped header logout", () => {
 
   it("cancels pending header logout when the canonical session becomes anonymous", async () => {
     const view = render(header()); const pending = deferred(); mocks.fetch.mockReturnValue(pending.promise);
-    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Sign out", exact: true })[0]); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Sign out" })[0]); });
     const signal = mocks.fetch.mock.calls[0][1].signal; mocks.user = null; view.rerender(header());
     expect(signal.aborted).toBe(true); expect(screen.queryAllByRole("button")).toHaveLength(0);
     await act(async () => { pending.resolve({ ok: true }); });
