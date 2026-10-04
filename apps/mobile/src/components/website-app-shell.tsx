@@ -680,7 +680,6 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           }}
           allowsBackForwardNavigationGestures
           allowsInlineMediaPlayback
-          javaScriptCanOpenWindowsAutomatically={false}
           allowFileAccess={false}
           allowFileAccessFromFileURLs={false}
           allowUniversalAccessFromFileURLs={false}
@@ -688,7 +687,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           cacheMode="LOAD_DEFAULT"
           contentInsetAdjustmentBehavior="never"
           domStorageEnabled
-          javaScriptCanOpenWindowsAutomatically
+          javaScriptCanOpenWindowsAutomatically={false}
           javaScriptEnabled
           mediaPlaybackRequiresUserAction={false}
           mixedContentMode="never"
