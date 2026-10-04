@@ -1519,7 +1519,6 @@ export function UsdtExchangePage({
   const [isSellerProfileLoading, setIsSellerProfileLoading] = useState(false);
   const sellerProfileRequestIdRef = useRef(0);
   const sellerProfileAbortControllerRef = useRef<AbortController | null>(null);
-  const [isOwnerProfileActionLoading, setIsOwnerProfileActionLoading] = useState(false);
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
   const [purchaseRequestsState, setPurchaseRequestsState] = useState<"loading" | "ready" | "error">("loading");
@@ -3005,46 +3004,6 @@ export function UsdtExchangePage({
     }
     return true;
   }, [isSessionResolving, sessionResolutionError, sessionUser, setStatusMessage, isAr, router, tradeReturnPath]);
-
-  async function handleOwnerSellerProfileState(sellerId: string, state: { feature?: boolean; hidden?: boolean }, successMessage: string) {
-    setIsOwnerProfileActionLoading(true);
-    try {
-      const response = await fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
-        return;
-      }
-      setStatusMessage(successMessage);
-      await Promise.all([refreshSellerWorkspace(), fetchSellerProfileData(sellerId)]);
-    } catch {
-      setStatusMessage(safeErrorMessage("request", isAr));
-    } finally {
-      setIsOwnerProfileActionLoading(false);
-    }
-  }
-
-  async function handleOwnerSuspendSeller(sellerId: string) {
-    setIsOwnerProfileActionLoading(true);
-    try {
-      const response = await fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/suspend`, { method: "POST" });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
-        return;
-      }
-      setStatusMessage(isAr ? "تم إيقاف البائع." : "Seller suspended.");
-      await Promise.all([refreshSellerWorkspace(), fetchSellerProfileData(sellerId)]);
-    } catch {
-      setStatusMessage(safeErrorMessage("request", isAr));
-    } finally {
-      setIsOwnerProfileActionLoading(false);
-    }
-  }
 
   const openListingModal = useCallback((listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer" = "listing_price") => {
     if (!requireAuth()) return;
@@ -6053,8 +6012,6 @@ export function UsdtExchangePage({
           estimatedTradeValue={estimatedTradeValue}
           estimatedBuyerFee={estimatedBuyerFee}
           estimatedTotal={estimatedTotal}
-          isOwnerViewer={isOwnerViewer}
-          isOwnerProfileActionLoading={isOwnerProfileActionLoading}
           purchaseSubmitted={purchaseSubmitted}
           buyerInfo={buyerInfo}
           onBuyerDetailsChange={(details) => setBuyerInfo((prev) => ({ ...prev, ...details }))}
@@ -6099,18 +6056,10 @@ export function UsdtExchangePage({
           }}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
           onGoToVerification={goToVerificationGate}
-          onOwnerSellerProfileState={(sellerId, state, successMessage) => {
-            void handleOwnerSellerProfileState(sellerId, state, successMessage);
-          }}
-          onOwnerSuspendSeller={(sellerId) => {
-            void handleOwnerSuspendSeller(sellerId);
-          }}
           formatIls={formatIls}
-          localizedAuditAction={localizedAuditAction}
           paymentMethodEmoji={paymentMethodEmoji}
           paymentMethodLabel={paymentMethodLabel}
           sellerLevelToneKey={sellerLevelToneKey}
-          tradeStatusLabel={tradeStatusLabel}
         />
       ) : null}
       </Portal>

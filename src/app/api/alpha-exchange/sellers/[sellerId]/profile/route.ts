@@ -18,12 +18,13 @@ export async function GET(_: Request, context: RouteContext) {
       viewerUserId: viewer?.id,
       viewerRole: viewer?.role,
       viewerEmail: viewer?.email,
+      includePrivateData: false,
     });
     if (!profile) {
       return NextResponse.json({ error: "Seller profile not found." }, { status: 404 });
     }
     return NextResponse.json({ profile }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to load seller profile." }, { status: 400 });
+  } catch {
+    return NextResponse.json({ error: "Seller profile temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "private, no-store, max-age=0" } });
   }
 }

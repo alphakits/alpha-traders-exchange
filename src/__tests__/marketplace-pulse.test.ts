@@ -173,6 +173,18 @@ describe("getMarketplacePulse", () => {
     const serialized = JSON.stringify(pulse.recentActivity);
     expect(serialized).not.toContain("buyer-online");
     expect(serialized).not.toContain("Buyer Name");
+    for (const privateId of ["pr-active", "pr-done", "seller-online", "seller-stale", "listing-1", "listing-2"]) expect(serialized).not.toContain(privateId);
+  });
+
+  it("does not publish draft listing activity or a seller's hidden presence", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "private-draft", status: "draft", approvalStatus: "pending", network: "SOL" });
+    db.users.find((entry) => entry.id === "seller-online")!.showLastActive = false;
+    invalidateAlphaExchangeStoreCache();
+    const pulse = await getMarketplacePulse();
+    expect(pulse.recentActivity.filter((entry) => entry.type === "new_listing" || entry.type === "listing_renewed").some((entry) => entry.network === "SOL")).toBe(false);
+    expect(pulse.recentActivity.filter((entry) => entry.type === "seller_online")).toEqual([]);
+    expect(JSON.stringify(pulse)).not.toContain("private-draft");
   });
 
   it("an observed activity signal refreshes a stale user so they count as online", async () => {

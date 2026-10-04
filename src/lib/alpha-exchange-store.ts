@@ -1315,6 +1315,14 @@ function isListingPendingApproval(listing: MarketplaceListing) {
   return listing.status === "draft" && (listing.approvalStatus ?? "pending") === "pending";
 }
 
+function privateListingEventRecipient(db: AlphaExchangeDb, listing: MarketplaceListing) {
+  const seller = db.users.find((user) => user.id === listing.sellerId);
+  const publicListing = canListingReceiveRequests(listing)
+    && listing.approvalStatus !== "pending" && listing.approvalStatus !== "rejected" && listing.approvalStatus !== "changes_requested"
+    && seller && !seller.disabled && !seller.isProfileHidden && canPublishListings(seller);
+  return publicListing ? undefined : listing.sellerId;
+}
+
 function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityStatus) {
   return availabilityStatus === "vacation";
 }
@@ -1790,7 +1798,7 @@ function buildPublicUserProfileDataForUser(input: {
           reviewsWritten,
           reviewsReceived,
           activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
+          pendingListings: viewerIsOwner || platformOwner ? db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length : 0,
         }
       : null,
   };
@@ -2141,6 +2149,18 @@ function qualitySortListings(
   });
 }
 
+function publicMarketplaceListing(listing: MarketplaceListing): MarketplaceListing {
+  // Allowlist the marketplace contract; private review, delivery, bank and
+  // active-trade metadata must not travel with public listings.
+  const fields = [
+    "id", "sellerId", "sellerDisplayName", "photos", "displayNumber", "originalAmount", "availableAmount", "price", "currency",
+    "network", "paymentMethod", "paymentMethods", "bankName", "minimumTrade", "maximumTrade", "expiresAt", "expiredAt",
+    "lastRenewedAt", "notes", "sellerDescription", "responseTime", "status", "approvalStatus", "completedAt", "cancelledAt",
+    "closedAt", "createdAt", "updatedAt", "sellerProfile", "sellerReputation", "sellerActiveTradeCount", "newRequestBlockReason",
+  ] as const satisfies readonly (keyof MarketplaceListing)[];
+  return Object.fromEntries(fields.filter((key) => listing[key] !== undefined).map((key) => [key, listing[key]])) as unknown as MarketplaceListing;
+}
+
 function enrichListingsWithSellerData(
   db: AlphaExchangeDb,
   listings: MarketplaceListing[],
@@ -2154,7 +2174,7 @@ function enrichListingsWithSellerData(
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
     const publicListing: MarketplaceListing = {
-      ...listing,
+      ...(publicAvailability ? publicMarketplaceListing(listing) : listing),
       availableAmount: publicAvailability ? listingUnreservedAmount(db, listing) : listing.availableAmount,
       sellerActiveTradeCount: getSellerOpenTradeCount(db, listing.sellerId),
       newRequestBlockReason: getSellerPendingCommissionCount(db, listing.sellerId) > 0 ? "commission_due"
@@ -2255,6 +2275,8 @@ export async function getPremiumSellerProfile(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
+  /** Only the separately authorized owner endpoint opts into private tools. */
+  includePrivateData?: boolean;
   dbInput?: AlphaExchangeDb;
 }): Promise<PremiumSellerProfileData | null> {
   const db = await withLiveUserPresence(input.dbInput ?? await readDb());
@@ -2262,18 +2284,20 @@ export async function getPremiumSellerProfile(input: {
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
   if (!isTrustEligibleSeller(seller)) return null;
+  const viewer = db.users.find((user) => user.id === input.viewerUserId);
+  const viewerIsOwner = input.includePrivateData === true && isPublicOwnerIdentity(viewer);
+  const viewerIsSellerOwner = viewer?.disabled !== true && viewer?.id === seller.id;
+  const profileViewer = viewerIsOwner || viewerIsSellerOwner ? viewer : undefined;
   const trustSnapshot = computeSellerReputationSnapshot(db, seller.id);
   const publicAccount = buildPublicUserProfileDataForUser({
     db,
     user: seller,
-    viewerUserId: input.viewerUserId,
+    viewerUserId: profileViewer?.id,
     viewerRole: input.viewerRole,
     enforceSearchVisibility: false,
     trustSnapshot,
   });
   if (!publicAccount) return null;
-  const viewerIsOwner = isPublicOwnerIdentity(db.users.find(user => user.id === input.viewerUserId));
-  const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const canSeeExactSellerStats = viewerIsSellerOwner || viewerIsOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -2292,17 +2316,21 @@ export async function getPremiumSellerProfile(input: {
   const reviews = completedTrades
     .filter((request) => request.buyerReview && (viewerIsOwner || viewerIsSellerOwner || request.buyerReview.hidden !== true))
     .map((request) => ({
-      id: `review-${request.id}`,
-      tradeId: request.tradeId ?? request.id,
+      id: canSeeExactSellerStats ? `review-${request.id}` : `review-${createHash("sha256").update(request.id).digest("hex").slice(0, 24)}`,
+      tradeId: canSeeExactSellerStats ? request.tradeId ?? request.id : "",
       rating: request.buyerReview!.rating,
       comment: reviewText(request.buyerReview!.comment),
       createdAt: request.buyerReview!.createdAt,
-      buyerId: request.buyerId,
+      buyerId: canSeeExactSellerStats ? request.buyerId : publicAccountId({ id: request.buyerId }),
       buyerName: publicAccountId(usersById.get(request.buyerId) ?? { id: request.buyerId }),
       verifiedPurchase: true,
       hidden: request.buyerReview!.hidden === true,
       sellerResponse: request.sellerResponse
-        ? { ...request.sellerResponse, message: reviewText(request.sellerResponse.message) }
+        ? {
+            responderUserId: canSeeExactSellerStats ? request.sellerResponse.responderUserId : publicAccountId(seller),
+            message: reviewText(request.sellerResponse.message),
+            createdAt: request.sellerResponse.createdAt,
+          }
         : request.sellerResponse,
     }))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
@@ -2355,7 +2383,7 @@ export async function getPremiumSellerProfile(input: {
     .slice(0, 12);
 
   const profile: SellerPublicProfile = {
-    ...buildSellerPublicProfile(seller, db.users.find(user => user.id === input.viewerUserId)),
+    ...buildSellerPublicProfile(seller, profileViewer),
     ...(viewerIsOwner ? { contact: publicAccount.profile.contact } : {}),
     sellerName: publicAccount.profile.publicTradingName,
     publicTradingName: publicAccount.profile.publicTradingName,
@@ -2439,8 +2467,8 @@ export async function getPremiumSellerProfile(input: {
     prestigeVolumePublicLabel: canSeeExactSellerStats ? getSellerPublicVolumeLabel(currentRank) : "",
     hallOfFameEligible,
     latestReviews: reviews.slice(0, 12),
-    recentActivity,
-    ownerTools,
+    recentActivity: canSeeExactSellerStats ? recentActivity : [],
+    ...(ownerTools ? { ownerTools } : {}),
   };
 }
 
@@ -7001,10 +7029,10 @@ export async function updateUserSellerSettings(input: {
     selectedTables: LISTING_TRUST_WRITE_TABLES,
     rebaseOnLatest: applySellerSettings,
   });
-  if (input.onlineStatus && input.onlineStatus !== previousOnlineStatus) {
-    publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.userId, onlineStatus: input.onlineStatus } });
-  }
   if (!committedUser) throw new Error("User not found.");
+  if (input.onlineStatus && input.onlineStatus !== previousOnlineStatus) {
+    publishRealtimeEvent({ type: "seller.status_changed", recipientUserId: visibleUserPresence(committedUser, committedUser).presenceHidden ? input.userId : undefined, payload: { sellerId: input.userId, onlineStatus: input.onlineStatus } });
+  }
   return committedUser;
 }
 
@@ -8780,28 +8808,32 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
 
   // Anonymized public activity feed: only public, non-sensitive events.
   const activity: MarketplacePulseActivityEntry[] = [];
+  const publicListingIds = new Set(activeListings.map((listing) => listing.id));
+  const activityId = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 24);
   for (const listing of db.marketplaceListings) {
+    if (!publicListingIds.has(listing.id)) continue;
     if (hiddenOrSuspended.has(listing.sellerId)) continue;
     const seller = sellerById.get(listing.sellerId);
     if (!seller || !canPublishListings(seller)) continue;
     if (isFreshTimestamp(listing.createdAt, 24 * 60 * 60 * 1000, nowMs)) {
-      activity.push({ id: `newlisting-${listing.id}`, type: "new_listing", network: listing.network, createdAt: listing.createdAt });
+      activity.push({ id: `newlisting-${activityId(listing.id)}`, type: "new_listing", network: listing.network, createdAt: listing.createdAt });
     }
     if (listing.lastRenewedAt && isFreshTimestamp(listing.lastRenewedAt, 24 * 60 * 60 * 1000, nowMs)) {
-      activity.push({ id: `renew-${listing.id}-${listing.lastRenewedAt}`, type: "listing_renewed", network: listing.network, createdAt: listing.lastRenewedAt });
+      activity.push({ id: `renew-${activityId(`${listing.id}:${listing.lastRenewedAt}`)}`, type: "listing_renewed", network: listing.network, createdAt: listing.lastRenewedAt });
     }
   }
   for (const request of db.purchaseRequests) {
     const isCompleted = request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt);
     const completedAt = request.completedAt ?? (isCompleted ? request.updatedAt : null);
     if (isCompleted && completedAt && isFreshTimestamp(completedAt, 24 * 60 * 60 * 1000, nowMs)) {
-      activity.push({ id: `trade-${request.id}`, type: "trade_completed", network: request.network, createdAt: completedAt });
+      activity.push({ id: `trade-${activityId(request.id)}`, type: "trade_completed", network: request.network, createdAt: completedAt });
     }
   }
   for (const user of db.users) {
     if (user.sellerStatus !== "approved_seller" || !canPublishListings(user) || hiddenOrSuspended.has(user.id)) continue;
+    if (visibleUserPresence(user, user).presenceHidden) continue;
     if (deriveUserPresence(user, nowMs).online) {
-      activity.push({ id: `online-${user.id}`, type: "seller_online", createdAt: user.lastActiveAt ?? nowIsoValue });
+      activity.push({ id: `online-${activityId(user.id)}`, type: "seller_online", createdAt: user.lastActiveAt ?? nowIsoValue });
     }
   }
   activity.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
@@ -9496,10 +9528,10 @@ export async function updateMarketplaceListingForSeller(input: {
     });
   }
   if (current.availableAmount !== next.availableAmount) {
-    publishRealtimeEvent({ type: "listing.quantity_changed", payload: { listingId: next.id, availableAmount: next.availableAmount } });
+    publishRealtimeEvent({ type: "listing.quantity_changed", recipientUserId: privateListingEventRecipient(db, next), payload: { listingId: next.id, availableAmount: next.availableAmount } });
   }
   if (current.status !== next.status) {
-    publishRealtimeEvent({ type: "listing.status_changed", payload: { listingId: next.id, status: next.status } });
+    publishRealtimeEvent({ type: "listing.status_changed", recipientUserId: privateListingEventRecipient(db, current) && privateListingEventRecipient(db, next), payload: { listingId: next.id, status: next.status } });
   }
   return next;
 }
@@ -9597,7 +9629,7 @@ export async function renewMarketplaceListing(input: {
     },
     idempotencyKey: `listing-${listing.id}-renewed-${listing.lastRenewedAt}`,
   });
-  publishRealtimeEvent({ type: "listing.status_changed", payload: { listingId: listing.id, status: listing.status } });
+  publishRealtimeEvent({ type: "listing.status_changed", recipientUserId: privateListingEventRecipient(db, listing), payload: { listingId: listing.id, status: listing.status } });
   return listing;
 }
 
@@ -9650,7 +9682,7 @@ export async function updateSellerAvailabilityStatus(input: {
     });
   }
   await writeDb(db, { selectedTables: SELLER_STATUS_NOTIFICATION_TABLES });
-  publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.sellerId, onlineStatus: db.users[index].onlineStatus } });
+  publishRealtimeEvent({ type: "seller.status_changed", recipientUserId: visibleUserPresence(db.users[index], db.users[index]).presenceHidden ? input.sellerId : undefined, payload: { sellerId: input.sellerId, onlineStatus: db.users[index].onlineStatus } });
   return db.users[index];
 }
 
@@ -9979,6 +10011,7 @@ export async function deleteMarketplaceListingForSeller(input: {
     throw new Error("This listing is already closed.");
   }
   const previousStatus = listing.status;
+  const listingEventRecipient = privateListingEventRecipient(db, listing);
   listing.status = "closed";
   listing.closedAt = nowIso();
   listing.updatedAt = listing.closedAt;
@@ -10013,7 +10046,7 @@ export async function deleteMarketplaceListingForSeller(input: {
     }
     throw error;
   }
-  publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
+  publishRealtimeEvent({ type: "listing.removed", recipientUserId: listingEventRecipient, payload: { listingId: input.listingId } });
 }
 
 export async function getMyMarketplaceListings(sellerId: string, status?: string, dbInput?: AlphaExchangeDb) {
@@ -11057,7 +11090,7 @@ function isActionableTradeStatus(status: PurchaseRequestStatus) {
 function sanitizeTradeRoomListing(listing: MarketplaceListing | null, ownerView = false) {
   if (!listing) return null;
   const redacted = {
-    ...listing,
+    ...(ownerView ? listing : publicMarketplaceListing(listing)),
     sellerDisplayName: listing.sellerDisplayName,
     notes: redactExchangeUserContent(listing.notes),
     sellerDescription: redactExchangeUserContent(listing.sellerDescription),
@@ -13369,10 +13402,43 @@ export async function getSellerReviews(input: {
     .map((request) => buildSellerReviewRecordFromRequest(request))
     .filter((review): review is SellerReviewRecord => Boolean(review))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-  const canViewHidden = input.actorRole === "admin" || input.actorRole === "owner" || input.actorUserId === input.sellerId;
-  const canViewPrivateContent = isPublicOwnerIdentity(db.users.find(user => user.id === input.actorUserId));
+  const actor = db.users.find((user) => user.id === input.actorUserId && !user.disabled);
+  const canModerate = Boolean(actor && (hasRole(actor, "admin") || hasRole(actor, "owner")));
+  const canViewHidden = canModerate || actor?.id === input.sellerId;
+  const canViewPrivateContent = isPublicOwnerIdentity(actor);
+  const reviewIdentities = [
+    ...db.users,
+    ...db.purchaseRequests.filter((request) => request.sellerId === input.sellerId)
+      .map((request) => ({ id: request.buyerId, fullName: request.buyerName })),
+  ];
+  const publicText = identityTextRedactor(reviewIdentities, true);
+  const counterpartyText = identityTextRedactor(reviewIdentities);
   return (canViewHidden ? reviews : reviews.filter((review) => !review.hidden))
-    .map((review) => sanitizeSellerReviewForCounterparty(review, canViewPrivateContent));
+    .map((review) => {
+      const sanitized = canViewPrivateContent ? review : {
+        ...sanitizeSellerReviewForCounterparty(review, false),
+        comment: counterpartyText(review.comment),
+        sellerReply: review.sellerReply ? counterpartyText(review.sellerReply) : undefined,
+        hiddenReason: review.hiddenReason ? counterpartyText(review.hiddenReason) : undefined,
+      };
+      if (canModerate || actor?.id === review.sellerId || actor?.id === review.buyerId) return sanitized;
+      // A public review is reputation, not permission to inspect its trade.
+      return {
+        id: `review-${createHash("sha256").update(review.id).digest("hex").slice(0, 24)}`,
+        tradeId: "",
+        buyerId: publicAccountId({ id: review.buyerId }),
+        sellerId: review.sellerId,
+        rating: review.rating,
+        comment: publicText(review.comment),
+        sellerReply: review.sellerReply ? publicText(review.sellerReply) : undefined,
+        createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
+        hidden: false,
+        verifiedTrade: review.verifiedTrade,
+        tradeAmount: "",
+        network: "",
+      };
+    });
 }
 
 export async function moderateSellerReview(input: {
@@ -18323,6 +18389,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
   if (listing) {
     publishRealtimeEvent({
       type: "listing.status_changed",
+      recipientUserId: privateListingEventRecipient(db, listing),
       payload: { listingId: listing.id, status: listing.status },
     });
   }

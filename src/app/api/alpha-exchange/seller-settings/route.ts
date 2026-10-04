@@ -39,7 +39,7 @@ export async function GET() {
     },
     bankAccounts,
     sellerApprovalVerified,
-  });
+  }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
 }
 
 export async function PATCH(request: NextRequest) {
