@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
   } | null,
   fetch: vi.fn(), clearLocale: vi.fn(),
 }));
-vi.mock("@/components/auth/canonical-session-provider", () => ({ useCanonicalSession: () => ({ user: mocks.user }) }));
+vi.mock("@/components/auth/canonical-session-provider", () => ({
+  useCanonicalSession: () => ({ user: mocks.user }),
+  useOptionalCanonicalSession: () => ({ user: mocks.user }),
+}));
 vi.mock("@/i18n/locale-preference", () => ({ clearClientLocaleChoice: mocks.clearLocale }));
 vi.mock("@/i18n/navigation", () => ({ Link: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock("@/components/notifications/notification-bell", () => ({ NotificationBell: () => <span>Notifications</span> }));
