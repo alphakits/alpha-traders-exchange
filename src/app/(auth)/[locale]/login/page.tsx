@@ -1,6 +1,9 @@
 import { buildPageMetadata } from "@/lib/seo";
 import { LoginForm } from "@/components/auth/login-form";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { redirect } from "next/navigation";
+import { getCurrentSessionUser } from "@/lib/auth";
+import { signedInEntryDestination } from "@/lib/signed-in-entry-destination";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -21,6 +24,8 @@ export default async function LoginPage({
 }) {
   const { locale } = await params;
   const { redirectTo, reset, sessionExpired } = await searchParams;
+  const user = await getCurrentSessionUser();
+  if (user) redirect(signedInEntryDestination(locale === "ar" ? "ar" : "en", user, typeof redirectTo === "string" ? redirectTo : undefined));
   return (
     <CanonicalSessionProvider initialSessionUser={null}>
     <LoginForm

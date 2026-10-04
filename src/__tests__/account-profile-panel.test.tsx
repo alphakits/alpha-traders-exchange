@@ -35,7 +35,7 @@ function stubProfileFetch(fetchMock: (...args: Parameters<typeof fetch>) => unkn
     : fetchMock(...args));
 }
 
-type TestRole = "guest" | "buyer" | "admin" | "owner";
+type TestRole = "guest" | "student" | "buyer" | "admin" | "owner";
 const eventSourceInstances: MockEventSource[] = [];
 
 class MockEventSource {
@@ -223,6 +223,17 @@ describe("AccountProfilePanel", () => {
     await waitFor(() => expect(screen.getByText("Manage your account path:")).toBeTruthy());
     expect(screen.getByRole("link", { name: "Become a Buyer" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue as Guest" })).toBeTruthy();
+  });
+
+  it.each(["guest", "student"] as const)("does not give a %s profile a buyer rank or seller application", async (role) => {
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload(role) }));
+    render(<AccountProfilePanel locale="en" />);
+    await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
+    expect(screen.queryByText("Buyer rank")).toBeNull();
+    expect(screen.queryByText("Reputation board")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Apply as approved seller" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open buyer dashboard" })).toBeNull();
+    if (role === "student") expect(screen.queryByRole("button", { name: "Join Alpha Academy" })).toBeNull();
   });
 
   it("hides the administration section from buyers", async () => {
