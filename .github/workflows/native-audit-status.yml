@@ -63,7 +63,7 @@ jobs:
                 if (text.status !== 0) throw new Error('Could not read Android command trace');
                 if (name.endsWith('.log')) {
                   const lines = text.stdout.split('\n').filter(line => /offline|exception|unable|failed|clearState|launchApp/i.test(line));
-                  console.log(JSON.stringify({ androidTraceFile: name, traceFailureLines: lines.slice(0,100).map(line => line.replace(/https?:\\/\\/\\S+/g, '[url]')) }));
+                  console.log(JSON.stringify({ androidTraceFile: name, traceFailureLines: lines.slice(0,100).filter(line => !line.includes('https://') && !line.includes('http://')) }));
                 } else if (text.stdout.includes('FAILED') || /offline|exception/i.test(text.stdout)) {
                   console.log(JSON.stringify({ androidTraceFile: name, trace: text.stdout.slice(0,25000) }));
                 }
