@@ -91,7 +91,7 @@ jobs:
              for(const report of reports){
               let xml;
               if(!document.focused){
-               const archivedDirectory=document.directory+"-archive";
+               const archivedDirectory=document.directory+"-archive/native-status-snapshot";
                const metadataPath=archivedDirectory+"/native-workflow-"+workflow.id+".json";
                const reportPath=archivedDirectory+"/native-junit-"+workflow.id+"-"+job.key+".xml";
                if(!fs.existsSync(metadataPath)||!fs.existsSync(reportPath))throw new Error("Archived native evidence is missing.");
