@@ -10,7 +10,7 @@ const projectRoot = process.cwd();
 const require = createRequire(import.meta.url);
 const fixedSource = await readFile(require.resolve("decode-uri-component"), "utf8");
 // Original upstream v0.2.2 source, retained with its MIT notice beside it.
-const legacySource = await readFile(path.join(projectRoot, "src/__tests__/fixtures/decode-uri-component-0.2.2.cjs"), "utf8");
+const legacySource = await readFile(path.join(projectRoot, "src/__tests__/fixtures/decode-uri-component-0.2.2.txt"), "utf8");
 const patchedSource = `// Security backport: decode-uri-component 0.5.0 (MIT), GHSA-vcc3-ghjq-m6fr.\n${fixedSource.replace("export default function decodeUriComponent(", "module.exports = function decodeUriComponent(")}`;
 const fixtureRoots: string[] = [];
 const legacyDirectory = "node_modules/query-string/node_modules/decode-uri-component";

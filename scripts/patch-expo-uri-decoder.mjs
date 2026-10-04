@@ -13,9 +13,9 @@ const projectRoot = path.resolve(path.dirname(scriptPath), "..");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 // Exact upstream v0.5.0 / v0.2.2 release sources. The output is unchanged
 // from the existing CommonJS backport; versions and licenses stay intact.
-const SOURCE_SHA256 = "ee847e10da6308489628f9751a008bb214a09a44ed447ab14af1fc4d0a8216d0";
-const LEGACY_SHA256 = "e2e652ff8f40e2a74401ef375af51872ed078648f11d0f5acc01d9b5fc0cc2b4";
-const PATCHED_SHA256 = "f36270835b5b25b765f5afaf5f9172e3d88e387a6f054ef6c4acbae121c11c32";
+const SOURCE_SHA256 = "9401353df38f8010ad7035fe8d666bce6a4902bc1cff809afc4ab23fa2e0bdaa";
+const LEGACY_SHA256 = "3b8ba0a765e1089d11bba9a919d0d8789ecd9a6833ea078d8d9114e1db093863";
+const PATCHED_SHA256 = "f2a467cde7cf3a27d1af4ea367f5edf79ec1e45ee1ee8fa54cd71bc5642abc94";
 const marker = "export default function decodeUriComponent(";
 
 export async function applyExpoUriDecoderPatch({ root = projectRoot, checkOnly = false } = {}) {
