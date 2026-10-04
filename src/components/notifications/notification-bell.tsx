@@ -169,6 +169,7 @@ function NotificationBellSession({
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
   const notificationMutationVersionRef = useRef(0);
+  const optimisticReadIdsRef = useRef(new Map<string, { version: number; confirmed: boolean }>());
   const refreshSession = canonicalSession?.refresh;
   const canonicalUserId = canonicalSession?.user?.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -189,6 +190,31 @@ function NotificationBellSession({
     setUnreadCount(normalized);
     syncNotificationCountToNative(normalized, canonicalSession?.user?.id, locale);
   }, [canonicalSession?.user?.id, locale]);
+
+  const reconcileIncomingNotifications = useCallback((
+    incomingNotifications: AlphaExchangeNotification[],
+    incomingUnreadCount: number,
+  ) => {
+    const activeIncoming = activeBellNotifications(incomingNotifications);
+    const activeIds = new Set(activeIncoming.map((notification) => notification.id));
+    for (const [id, action] of optimisticReadIdsRef.current) {
+      if (action.confirmed && !activeIds.has(id)) optimisticReadIdsRef.current.delete(id);
+    }
+    const visibleIncoming = activeIncoming.filter((notification) => !optimisticReadIdsRef.current.has(notification.id));
+    return {
+      notifications: visibleIncoming,
+      unreadCount: Math.max(0, incomingUnreadCount - (activeIncoming.length - visibleIncoming.length)),
+    };
+  }, []);
+
+  function finishOptimisticRead(ids: string[], version: number, succeeded: boolean) {
+    for (const id of ids) {
+      const action = optimisticReadIdsRef.current.get(id);
+      if (action?.version !== version) continue;
+      if (succeeded) optimisticReadIdsRef.current.set(id, { version, confirmed: true });
+      else optimisticReadIdsRef.current.delete(id);
+    }
+  }
 
   useEffect(() => () => {
     // Prevent a response owned by an unmounted account-scoped bell from
@@ -284,7 +310,8 @@ function NotificationBellSession({
         || loadControllerRef.current !== controller
         || notificationMutationVersionRef.current !== operationMutationVersion
       ) return;
-      const incoming = activeBellNotifications(payload.notifications ?? []);
+      const reconciled = reconcileIncomingNotifications(payload.notifications ?? [], payload.unreadCount ?? 0);
+      const incoming = reconciled.notifications;
       forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
       const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
@@ -294,7 +321,7 @@ function NotificationBellSession({
           setOpenNotificationsSnapshot(sortedIncoming);
         }
       }
-      applyUnreadCount(payload.unreadCount ?? 0);
+      applyUnreadCount(reconciled.unreadCount);
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
@@ -309,7 +336,7 @@ function NotificationBellSession({
         setIsLoading(false);
       }
     }
-  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope, reconcileIncomingNotifications]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -321,9 +348,11 @@ function NotificationBellSession({
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-      const incoming = activeBellNotifications(
+      const reconciled = reconcileIncomingNotifications(
         Array.isArray(payload.notifications) ? payload.notifications : [],
+        typeof payload.unreadCount === "number" ? payload.unreadCount : 0,
       );
+      const incoming = reconciled.notifications;
       forwardCompletedTradesToNative(
         incoming,
         canonicalSession?.user?.id,
@@ -332,11 +361,11 @@ function NotificationBellSession({
       if (!isOpenRef.current) {
         setNotifications(sortNotificationsNewestFirst(incoming));
       }
-      applyUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      applyUnreadCount(reconciled.unreadCount);
     } catch {
       // Ignore malformed stream payloads and keep current state.
     }
-  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope, reconcileIncomingNotifications]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
   function handleToggleOpen() {
@@ -355,7 +384,8 @@ function NotificationBellSession({
     const target = notifications.find((item) => item.id === notificationId)
       ?? openNotificationsSnapshot?.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
-    notificationMutationVersionRef.current += 1;
+    const actionVersion = ++notificationMutationVersionRef.current;
+    optimisticReadIdsRef.current.set(notificationId, { version: actionVersion, confirmed: false });
     // The bell is an active-inbox surface. Read items remain available in the
     // full Notification Center, but disappear from this quick-action list.
     setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
@@ -367,11 +397,13 @@ function NotificationBellSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isRead: true }),
       });
+      finishOptimisticRead([notificationId], actionVersion, response.ok);
       if (!response.ok) {
         // Revert on failure with a fresh server fetch.
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
+      finishOptimisticRead([notificationId], actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }
@@ -380,7 +412,8 @@ function NotificationBellSession({
     const actionKey = `${notification.id}:dismiss`;
     if (actionLoading[actionKey]) return;
     setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    notificationMutationVersionRef.current += 1;
+    const actionVersion = ++notificationMutationVersionRef.current;
+    optimisticReadIdsRef.current.set(notification.id, { version: actionVersion, confirmed: false });
     setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
     setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notification.id));
     if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
@@ -391,7 +424,9 @@ function NotificationBellSession({
         body: JSON.stringify({ action: "dismiss" }),
       });
       if (!response.ok) throw new Error("notification_dismiss_failed");
+      finishOptimisticRead([notification.id], actionVersion, true);
     } catch {
+      finishOptimisticRead([notification.id], actionVersion, false);
       setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
       await loadNotifications(20, { forceListUpdate: true });
     } finally {
@@ -402,7 +437,13 @@ function NotificationBellSession({
   async function handleMarkAllRead() {
     // The quick-action bell contains unread items only. Keep read history in
     // the Notification Center and clear this surface immediately.
-    notificationMutationVersionRef.current += 1;
+    const actionVersion = ++notificationMutationVersionRef.current;
+    const actionIds = [...new Set([
+      ...notifications.map((notification) => notification.id),
+      ...(openNotificationsSnapshot ?? []).map((notification) => notification.id),
+      ...optimisticReadIdsRef.current.keys(),
+    ])];
+    for (const id of actionIds) optimisticReadIdsRef.current.set(id, { version: actionVersion, confirmed: false });
     setNotifications([]);
     setOpenNotificationsSnapshot([]);
     applyUnreadCount(0);
@@ -412,10 +453,12 @@ function NotificationBellSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_all_read" }),
       });
+      finishOptimisticRead(actionIds, actionVersion, response.ok);
       if (!response.ok) {
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
+      finishOptimisticRead(actionIds, actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }

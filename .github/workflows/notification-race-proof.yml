@@ -43,14 +43,14 @@ jobs:
           };
           try {
             fs.writeFileSync(path, original);
-            const before = run('notification-race-before.json', ['-t', 'keeps.*read actions ahead of an already-running refresh']);
-            if (before.result.status !== 1 || before.report.numFailedTests !== 2) throw new Error('Both controlled stale-refresh cases must fail on the original component.');
+            const before = run('notification-race-before.json', ['-t', 'keeps.*read actions (ahead of an already-running refresh|hidden when a stale live update arrives)']);
+            if (before.result.status !== 1 || before.report.numFailedTests !== 5) throw new Error('All five controlled HTTP and live-stream cases must fail on the original component.');
           } finally {
             fs.writeFileSync(path, fixed);
           }
           const after = run('notification-race-after.json');
-          if (after.result.status !== 0 || after.report.numFailedTests !== 0 || after.report.numPassedTests !== 11) throw new Error('The complete notification navigation suite must pass after the fix.');
-          console.log('Both late-refresh regressions reproduced; all eleven notification tests passed after the repair.');
+          if (after.result.status !== 0 || after.report.numFailedTests !== 0 || after.report.numPassedTests !== 16) throw new Error('The complete notification navigation suite must pass after the fix.');
+          console.log('All five stale-update regressions reproduced; all sixteen notification tests passed after the repair.');
           JS
       - name: Preserve before and after evidence
         if: always()
