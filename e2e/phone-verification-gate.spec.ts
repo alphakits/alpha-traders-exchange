@@ -117,9 +117,19 @@ for (const [id, email, role] of [
     const user = await provision(page.request, role, false, email, id);
     expect(await login(page, user)).toMatchObject({ isPhotoVerified: true, phoneVerificationExempt: true });
     await expectMarketplaceVisible(page);
-    await page.request.post("/api/auth/logout");
+    // Use the confirmed browser sign-out before creating another session.
+    // Replacing cookies through the API while the old page is still running
+    // races its session-expiry redirect with the next marketplace navigation.
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(page).toHaveURL(/\/en$/);
+    expect(await (await page.request.get("/api/auth/me")).json()).toEqual({ user: null });
     expect(await login(page, user)).toMatchObject({ isPhotoVerified: true, phoneVerificationExempt: true });
     await expectMarketplaceVisible(page);
+    await page.goto("/ar/usdt-exchange");
+    await expect(page).toHaveURL(/\/ar\/usdt-exchange$/);
+    await page.getByRole("button", { name: "تسجيل الخروج", exact: true }).click();
+    await expect(page).toHaveURL(/\/en$/);
+    expect(await (await page.request.get("/api/auth/me")).json()).toEqual({ user: null });
     const saved = (await state(page.request)).users.find(item => item.id === id);
     expect(saved?.verifiedPhone).toBeUndefined();
     expect(saved?.phoneVerifiedAt).toBeUndefined();

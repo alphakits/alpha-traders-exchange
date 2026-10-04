@@ -72,8 +72,7 @@ export function LogoutButton({
       }
       clearClientLocaleChoice();
       onSignedOut?.();
-      window.dispatchEvent(new Event("alpha-auth-signed-out"));
-      window.dispatchEvent(new Event("alpha-auth-changed"));
+      window.dispatchEvent(new CustomEvent("alpha-auth-signed-out", { detail: { navigationStarted: true } }));
       window.location.replace("/en");
       navigationStarted = true;
     } catch (error) {
