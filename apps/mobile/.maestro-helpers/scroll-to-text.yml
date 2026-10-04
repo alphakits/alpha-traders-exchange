@@ -35,4 +35,13 @@ appId: com.alphakits.alphatraders
           end: 50%, 65%
           duration: 800
           waitToSettleTimeoutMs: 500
+# Accessibility may report text under the iOS home indicator as visible.
+# Move the fully visible target into the touch viewport before a caller taps it.
+- scrollUntilVisible:
+    element: "${TARGET_TEXT}"
+    direction: DOWN
+    centerElement: true
+    visibilityPercentage: 100
+    speed: 25
+    timeout: 30000
 - assertVisible: "${TARGET_TEXT}"
