@@ -1,5 +1,7 @@
 appId: com.alphakits.alphatraders
 ---
+# Full regression scope: EN/AR home and Terms on Android + iOS, plus legacy recovery (9 journeys).
+# Preserve every target assertion; this scan/recovery helper is the corrected production driver.
 # Scan the complete page, then recover a target passed during inertial scroll.
 # Reaching the footer ends the downward search; the final assertion is required.
 - evalScript: ${output.alphaScrollReachedBottom = false}
