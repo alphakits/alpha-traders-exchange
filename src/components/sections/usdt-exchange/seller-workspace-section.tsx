@@ -504,7 +504,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription className="commission-notice">
-                {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. أي عمولة غير مدفوعة تمنع البيع والشراء وطلبات الصفقات الجديدة حتى التحقق من السداد. تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Any unpaid commission blocks new buying, selling, and trade requests until payment is verified. Listings stay visible and existing trades can finish.")}
+                {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. أي عمولة غير مدفوعة تمنعك من قبول صفقات جديدة أو الشراء أو إنشاء عروض حتى التحقق من السداد. تبقى عروضك الحالية ظاهرة وتستقبل طلبات المشترين، ويمكنك إكمال الصفقات الحالية." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Pay outstanding commission before accepting new trades, buying, or creating listings. Your current listings remain visible and receive buyer requests. Existing trades can finish.")}
               </CardDescription>
               <p className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5 text-xs leading-5 text-emerald-100">
                 <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
@@ -560,7 +560,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
               )}
-              <p className="commission-notice rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{isAr ? "يمكنك إدارة 3 صفقات نشطة كحد أقصى. أي عمولة غير مدفوعة توقف الطلبات الجديدة حتى التحقق من سدادها؛ تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية. عمولة الصفقات الجديدة 2%: 1% منك و1% من المشتري." : "Maximum 3 active trades. Any unpaid commission blocks new requests until payment is verified. Listings stay visible and existing trades can finish. New trades owe 2% total: your 1% plus the buyer’s 1%."}</p>
+              <p className="commission-notice rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{isAr ? "يمكنك إدارة 3 صفقات نشطة كحد أقصى. يمكن للمشترين إرسال الطلبات، لكن عليك تسديد جميع العمولات المستحقة قبل قبول صفقة جديدة؛ تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية. عمولة الصفقات الجديدة 2%: 1% منك و1% من المشتري." : "Maximum 3 active trades. Buyers can send requests. Pay all outstanding commission before accepting a new trade. Listings stay visible and existing trades can finish. New trades owe 2% total: your 1% plus the buyer’s 1%."}</p>
               {sellerWorkspaceSummary?.blockedReason ? (
                 <p className="commission-notice rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
               ) : null}
@@ -681,7 +681,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   isAr={isAr}
                   lastCheckedAt={selectedCommissionPayment?.paymentLastCheckedAt}
                   verificationNotes={selectedCommissionPayment?.paymentVerificationNotes}
-                  restrictionReason={sellerCommissionStatus?.status === "overdue" ? (isAr ? "سبب قيد العمولة: مستحقات متأخرة. تُزال قيود العمولة بعد تسديد جميع المستحقات." : "Commission restriction: overdue dues. Commission restrictions clear once all outstanding dues are paid.") : sellerCommissionStatus?.status === "pending" ? (isAr ? "سبب قيد قبول طلبات جديدة: عمولة مستحقة. يمكنك متابعة صفقاتك الحالية." : "New requests are restricted by outstanding commission. Existing trades can continue.") : undefined}
+                  restrictionReason={sellerCommissionStatus?.status === "overdue" ? (isAr ? "سبب قيد العمولة: مستحقات متأخرة. تُزال قيود العمولة بعد تسديد جميع المستحقات." : "Commission restriction: overdue dues. Commission restrictions clear once all outstanding dues are paid.") : sellerCommissionStatus?.status === "pending" ? (isAr ? "سبب قيد قبول طلبات جديدة: عمولة مستحقة. يمكنك متابعة صفقاتك الحالية." : "Pay outstanding commission before accepting new requests. Buyers can still send requests and existing trades can continue.") : undefined}
                   state={selectedCommissionPayment?.paymentVerificationStatus === "verified"
                     ? "verified"
                     : selectedCommissionPayment?.paymentVerificationStatus === "failed"

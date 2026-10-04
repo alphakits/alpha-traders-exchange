@@ -860,9 +860,9 @@ describe("partial listing preservation", () => {
       }),
     ]));
 
-    expect((await getMarketplaceListings()).find((listing) => listing.id === sellerOneListing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
-    expect((await getMarketplaceListings("active")).find((listing) => listing.id === sellerOneListing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
-    await expect(createPurchaseRequest({
+    expect((await getMarketplaceListings()).find((listing) => listing.id === sellerOneListing.id)).toMatchObject({ newRequestBlockReason: undefined });
+    expect((await getMarketplaceListings("active")).find((listing) => listing.id === sellerOneListing.id)).toMatchObject({ newRequestBlockReason: undefined });
+    const pendingPurchase = await createPurchaseRequest({
       buyerId: BUYER_TWO_ID,
       listingId: sellerOneListing.id,
       usdtAmount: "100",
@@ -870,14 +870,9 @@ describe("partial listing preservation", () => {
       buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Bank Transfer",
       actorUserId: BUYER_TWO_ID,
-    })).rejects.toMatchObject({
-      name: "TradeBlockedError",
-      code: "LISTING_SELLER_LOCKED",
-      details: expect.objectContaining({
-        guard: "listing-seller-commission-clear",
-        listingId: sellerOneListing.id,
-      }),
     });
+    expect(pendingPurchase.request.status).toBe("pending");
+    await expect(updatePurchaseRequestStatus({ requestId: pendingPurchase.request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "commission-due" });
 
     await expect(createPurchaseRequest({
       buyerId: SELLER_ID,
@@ -897,6 +892,7 @@ describe("partial listing preservation", () => {
     });
 
     await markCommissionPaid(completedSaleId);
+    await expect(updatePurchaseRequestStatus({ requestId: pendingPurchase.request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).resolves.toMatchObject({ request: { id: pendingPurchase.request.id, status: "accepted" } });
     expect((await getMarketplaceListings()).some((listing) => listing.id === sellerOneListing.id)).toBe(true);
     const purchaseAfterPayment = await createPurchaseRequest({
       buyerId: SELLER_ID,

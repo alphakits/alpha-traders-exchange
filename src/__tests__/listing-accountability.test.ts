@@ -30,7 +30,10 @@ import {
   updateUserSellerSettings,
   updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
+  updateCommissionPaymentStatus,
+  updateTradeTerms,
 } from "@/lib/alpha-exchange-store";
+import { toMobileTradeDetail } from "@/lib/mobile-trades";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 import { realtimeEventForUser } from "@/lib/realtime-event-visibility";
@@ -155,6 +158,58 @@ describe("listing accountability: reason + audit + reliability", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it.each([
+    ["listing_price", "pending"], ["buyer_offer", "pending"],
+    ["listing_price", "overdue"], ["buyer_offer", "overdue"],
+    ["listing_price", "verifying"], ["buyer_offer", "verifying"],
+  ] as const)("receives %s requests with %s commission, then accepts the same request only after verified payment", async (priceMode, state) => {
+    const listing = await createApprovedListing("1000", "3.60");
+    await getNotificationsForUser({ userId: BUYER_ID, includeActivity: false });
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const now = new Date().toISOString();
+    canonical.commissionRecords.push({
+      id: "acceptance-commission", source: "admin_manual", sellerId: SELLER_ID,
+      issuedByUserId: OWNER_ID, issueReason: "Acceptance gate test", rate: 0, grossAmount: 0,
+      commissionAmount: 7, paymentStatus: state === "overdue" ? "overdue" : "pending",
+      paymentVerificationStatus: state === "verifying" ? "pending_verification" : undefined,
+      dueAt: new Date(Date.now() + (state === "overdue" ? -1 : 1) * 86400000).toISOString(),
+      createdAt: now, updatedAt: now,
+    });
+    const card = (await getMarketplaceListings("active")).find(item => item.id === listing.id);
+    expect(card).toMatchObject({ id: listing.id, newRequestBlockReason: undefined });
+    expect(JSON.stringify(card)).not.toContain("commission");
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "250",
+      buyerName: "Buyer", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      priceMode, offeredPrice: priceMode === "buyer_offer" ? "3.50" : undefined,
+    });
+    expect(request.status).toBe("pending");
+    const sellerNotifications = await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    expect(sellerNotifications.notifications.some(n => n.relatedRequestId === request.id)).toBe(true);
+    const sellerRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(sellerRoom.sellerCommissionDueCount).toBe(1);
+    expect(toMobileTradeDetail(sellerRoom, SELLER_ID, "en").actions.canAccept).toBe(false);
+    const buyerRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", markMessagesRead: false });
+    expect(buyerRoom.sellerCommissionDueCount).toBe(0);
+    expect(toMobileTradeDetail(buyerRoom, BUYER_ID, "en").sellerCommissionDue).toBeUndefined();
+    const accept = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "accepted" as const };
+    await expect(updatePurchaseRequestStatus(accept)).rejects.toMatchObject({ code: "commission-due", details: expect.objectContaining({ commissionId: "acceptance-commission", actionHref: expect.stringContaining("commission=pay") }) });
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).purchaseRequests.find(r => r.id === request.id)).toMatchObject({ status: "pending" });
+    expect((await getMarketplaceListings("active")).find(item => item.id === listing.id)).toMatchObject({ availableAmount: "1000", sellerActiveTradeCount: 0 });
+    if (priceMode === "buyer_offer") {
+      const counter = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: "3.55", expectedUpdatedAt: request.updatedAt });
+      let error: unknown;
+      try { await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: counter.termsProposal!.id }); } catch (caught) { error = caught; }
+      expect(error).toMatchObject({ code: "seller-not-ready" });
+      expect(String(error)).not.toMatch(/commission|7 USDT/i);
+      await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "withdraw_terms", proposalId: counter.termsProposal!.id });
+    }
+    await updateCommissionPaymentStatus({ commissionId: "acceptance-commission", actorUserId: OWNER_ID, paymentStatus: "paid", paymentVerificationStatus: "verified", reason: "Verified test payment" });
+    const paidRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(toMobileTradeDetail(paidRoom, SELLER_ID, "en").actions.canAccept).toBe(true);
+    await expect(updatePurchaseRequestStatus(accept)).resolves.toMatchObject({ request: { id: request.id, status: "accepted" } });
   });
 
   it("does not leak submitted inventory or hidden seller presence through real live mutations", async () => {
@@ -377,11 +432,11 @@ describe("listing accountability: reason + audit + reliability", () => {
       responseTime: "5 min",
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
-    })).rejects.toThrow(/new requests are blocked until all outstanding commission is verified as paid/i);
+    })).rejects.toThrow(/Pay all outstanding commission before accepting new trades/i);
     expect(canonical.marketplaceListings).toHaveLength(0);
   });
 
-  it("keeps a seller's listing visible with a canonical commission block after a cross-instance assignment", async () => {
+  it("keeps buyer requests available without exposing a cross-instance commission assignment", async () => {
     const listing = await createApprovedListing("1000", "3.60");
     const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 
@@ -404,10 +459,10 @@ describe("listing accountability: reason + audit + reliability", () => {
       updatedAt: now,
     });
 
-    expect((await getMarketplaceListings("active")).find((item) => item.id === listing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
+    expect((await getMarketplaceListings("active")).find((item) => item.id === listing.id)).toMatchObject({ id: listing.id, newRequestBlockReason: undefined });
   });
 
-  it("shows the commission block on visible public seller profile listings too", async () => {
+  it("keeps commission private on public seller profile listings too", async () => {
     const listing = await createApprovedListing("1000", "3.60");
     const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 
@@ -434,7 +489,7 @@ describe("listing accountability: reason + audit + reliability", () => {
       viewerRole: "buyer",
     });
     expect(routeData).not.toBeNull();
-    expect(routeData?.sellerListings.find((item) => item.id === listing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
+    expect(routeData?.sellerListings.find((item) => item.id === listing.id)).toMatchObject({ id: listing.id, newRequestBlockReason: undefined });
   });
 
   it("records reason + before/after when a listing price is edited", async () => {

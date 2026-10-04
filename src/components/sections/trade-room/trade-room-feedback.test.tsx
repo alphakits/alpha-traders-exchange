@@ -52,6 +52,30 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it.each(["en", "ar"] as const)("gates seller acceptance and links payment, then unlocks the saved request after a verified refresh in %s", async (locale) => {
+  const current = { ...room("Bank Transfer", "pending"), sellerCommissionDueCount: 1, sellerCommissionDueAmount: 7, sellerPayableCommissionId: "commission-gate", sellerPayableCommissionAmount: 7 };
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={seller} />);
+  const primary = await screen.findByTestId("trade-primary-action");
+  const accept = within(primary).getAllByRole("button")[0] as HTMLButtonElement;
+  expect(accept.disabled).toBe(true);
+  expect(within(primary).getByText(locale === "ar" ? /سدّد جميع العمولات/ : /Pay all outstanding commission/).className).toContain("commission-notice");
+  fireEvent.click(within(primary).getByRole("button", { name: locale === "ar" ? "دفع العمولة" : "Pay Commission" }));
+  expect(navigation.push).toHaveBeenCalledWith("/usdt-exchange?commission=pay&commissionId=commission-gate#commission-payment");
+  const cleared = { ...current, sellerCommissionDueCount: 0, sellerCommissionDueAmount: 0 };
+  await act(async () => { RoomStream.instances[0]!.snapshot(cleared); });
+  await waitFor(() => expect((within(primary).getAllByRole("button")[0] as HTMLButtonElement).disabled).toBe(false));
+  expect(within(primary).queryByRole("button", { name: locale === "ar" ? "دفع العمولة" : "Pay Commission" })).toBeNull();
+});
+
+it("keeps a pending buyer room free of the seller's private commission controls", async () => {
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room("Bank Transfer", "pending")))));
+  render(<TradeRoomPage locale="en" requestId="feedback-request" actor={buyer} />);
+  await screen.findByText(/Current Status/);
+  expect(screen.queryByRole("button", { name: "Pay Commission" })).toBeNull();
+  expect(screen.queryByText(/Pay all outstanding commission/)).toBeNull();
+});
+
 it.each(["completed", "review_open", "locked"] as const)("keeps a %s notification focused on its review target after a completed-state refresh", async (status) => {
   navigation.search = new URLSearchParams("action=review-trade");
   window.history.replaceState(null, "", "/?action=review-trade#status-banner");
