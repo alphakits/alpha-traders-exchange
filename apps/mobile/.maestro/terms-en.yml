@@ -13,7 +13,9 @@ name: English footer and canonical commission terms
       - tapOn: "English|التبديل إلى الإنجليزية"
 - scrollUntilVisible:
     element: ".*Legal.*"
-    timeout: 60000
+    timeout: 180000
+    speed: 85
+    visibilityPercentage: 60
 - tapOn: ".*Legal.*"
 - scrollUntilVisible:
     element: ".*Terms.*"

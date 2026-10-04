@@ -24,11 +24,13 @@ jobs:
   android_navigation:
     needs: [android]
     type: maestro
+    runs_on: linux-large-nested-virtualization
     params:
       build_id: ${{ needs.android.outputs.build_id }}
       flow_path: .maestro
       retries: 0
       record_screen: true
+      android_system_image_package: 'system-images;android-35;google_apis;x86_64'
 
   ios_navigation:
     needs: [ios_simulator]

@@ -6,6 +6,7 @@ import { PublicSpeedInsights } from "@/components/layout/public-speed-insights";
 import { localeDirection, routing, type AppLocale } from "@/i18n/routing";
 import { buildLocalizedSiteMetadata } from "@/lib/site-metadata";
 import { buildSiteIdentitySchemas, serializeJsonLd } from "@/lib/seo";
+import { BROWSER_SUPPORT_GUARD } from "@/lib/browser-support";
 
 export const viewport: Viewport = {
   themeColor: "#C9A227",
@@ -38,6 +39,9 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} dir={dir} suppressHydrationWarning>
+      <head>
+        <script id="alpha-browser-support" dangerouslySetInnerHTML={{ __html: BROWSER_SUPPORT_GUARD }} />
+      </head>
       <body className="relative bg-background text-foreground antialiased" suppressHydrationWarning>
         <script
           type="application/ld+json"

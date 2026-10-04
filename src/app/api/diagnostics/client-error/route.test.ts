@@ -28,7 +28,7 @@ describe("client crash ingestion", () => {
     expect(response.status).toBe(204);
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(mocks.logEvent).toHaveBeenCalledWith("error", expect.objectContaining({
-      event: "client_render_error", metadata: expect.objectContaining({ ...report, digest: 1234567890 }),
+      event: "client_render_error", metadata: expect.objectContaining({ ...report, digest: 1234567890, frames: ["page-abc123.js:1:220"] }),
     }));
     const logged = JSON.stringify(mocks.logEvent.mock.calls);
     for (const value of ["private-session", "private-token", "198.51.100.12", "authorization", "cookie"]) expect(logged).not.toContain(value);

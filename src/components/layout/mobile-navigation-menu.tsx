@@ -41,9 +41,8 @@ export function MobileNavigationMenu({ children, label }: MobileNavigationMenuPr
 
   return (
     <details ref={detailsRef} className="group relative xl:hidden" onClickCapture={closeAfterNavigation}>
-      <summary className="inline-flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] transition-colors duration-200 hover:border-[#C9A227] hover:text-[#C9A227] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]/70 sm:h-11 sm:w-11">
-        <Menu className="h-4 w-4" />
-        <span className="sr-only">{label}</span>
+      <summary aria-label={label} className="inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] transition-colors duration-200 hover:border-[#C9A227] hover:text-[#C9A227] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]/70">
+        <Menu aria-hidden="true" className="h-4 w-4" />
       </summary>
       <div className="absolute end-0 top-12 z-50 max-h-[calc(100vh-5rem)] w-[min(18rem,calc(100vw-2rem))] origin-top-right overflow-y-auto whitespace-normal rounded-2xl border border-white/15 bg-[#0b0b0b]/95 p-3 shadow-2xl backdrop-blur-xl motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-150">
         {children}

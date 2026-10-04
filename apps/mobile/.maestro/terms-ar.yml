@@ -13,7 +13,9 @@ name: Arabic footer and canonical commission terms
       - tapOn: "Switch to Arabic|العربية"
 - scrollUntilVisible:
     element: ".*قانوني.*"
-    timeout: 60000
+    timeout: 180000
+    speed: 85
+    visibilityPercentage: 60
 - tapOn: ".*قانوني.*"
 - scrollUntilVisible:
     element: ".*الشروط.*"

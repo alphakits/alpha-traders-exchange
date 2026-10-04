@@ -1,0 +1,13 @@
+appId: com.alphakits.alphatraders
+name: Legacy Android shows browser update recovery
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Update your browser"
+    timeout: 60000
+- assertVisible: "Update Android System WebView"
+- assertVisible: "Update Google Chrome"
+- assertVisible: "Try again after updating"
+- assertNotVisible: "Something went wrong"
+- takeScreenshot: legacy-browser-recovery
