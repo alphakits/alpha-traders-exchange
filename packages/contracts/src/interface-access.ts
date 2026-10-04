@@ -38,7 +38,7 @@ export function getInterfaceAccess(user: InterfaceSessionUser | null | undefined
 
 export function canShowInterfaceLink(href: string, user: InterfaceSessionUser | null | undefined) {
   const access = getInterfaceAccess(user);
-  const path = href.split(/[?#]/, 1)[0].replace(/^\/(?:ar|en)(?=\/|$)/, "");
+  const path = (href.split(/[?#]/, 1)[0] ?? "").replace(/^\/(?:ar|en)(?=\/|$)/, "");
   if (/^\/(?:login|register)(?:\/|$)/.test(path)) return !access.authenticated;
   if (/^\/admin(?:\/|$)/.test(path)) return access.administration;
   if (/^\/dashboard\/seller(?:\/|$)/.test(path)) return access.sellerWorkspace && !access.administration;
@@ -56,7 +56,7 @@ export function canShowInterfaceLink(href: string, user: InterfaceSessionUser | 
 /** Role-only route guard; authentication and phone gates run separately. */
 export function getInterfacePageDestination(user: InterfaceSessionUser, pathname: string, locale: "ar" | "en") {
   const access = getInterfaceAccess(user);
-  const path = pathname.split(/[?#]/, 1)[0].replace(/^\/(?:ar|en)(?=\/|$)/, "");
+  const path = (pathname.split(/[?#]/, 1)[0] ?? "").replace(/^\/(?:ar|en)(?=\/|$)/, "");
   if (/^\/admin(?:\/|$)/.test(path) && !access.administration) return `/${locale}${access.dashboardHref}`;
   if (/^\/dashboard\/seller(?:\/|$)/.test(path) && !access.sellerWorkspace && !access.administration) return `/${locale}${access.dashboardHref}`;
   if (path === "/dashboard" && !access.trading) return `/${locale}/profile`;
