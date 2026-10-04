@@ -32,6 +32,8 @@ import {
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
+import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
+import { realtimeEventForUser } from "@/lib/realtime-event-visibility";
 
 const OWNER_ID = "owner-1";
 const SELLER_ID = "seller-1";
@@ -153,6 +155,44 @@ describe("listing accountability: reason + audit + reliability", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("does not leak submitted inventory or hidden seller presence through real live mutations", async () => {
+    const events: RealtimeEvent[] = [];
+    const unsubscribe = subscribeRealtimeEvents((event) => events.push(event));
+    try {
+      const listing = await createApprovedListing("1000", "3.60");
+      const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      const draft = db.marketplaceListings.find((entry) => entry.id === listing.id)!;
+      draft.status = "draft";
+      draft.approvalStatus = "pending";
+      invalidateAlphaExchangeStoreCache();
+      await updateMarketplaceListingForSeller({ listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID,
+        availableAmount: "900", maximumTrade: "900", changeReason: "Changed available balance", changeExplanation: "Updated private inventory" });
+      await updateUserSellerSettings({ userId: SELLER_ID, showLastActive: false, onlineStatus: "offline" });
+      const otherSeller = (globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).users.find((entry) => entry.id === SELLER_TWO_ID)!;
+      const privateUpdates = events.filter((event) => ["listing.created", "listing.quantity_changed", "seller.status_changed"].includes(event.type));
+      expect(privateUpdates.map((event) => event.type)).toEqual(expect.arrayContaining(["listing.created", "listing.quantity_changed", "seller.status_changed"]));
+      for (const event of privateUpdates) {
+        expect(realtimeEventForUser(event, otherSeller)).toBeNull();
+        const seller = (globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).users.find((entry) => entry.id === SELLER_ID)!;
+        expect(realtimeEventForUser(event, seller)).not.toBeNull();
+      }
+    } finally { unsubscribe(); }
+  });
+
+  it("allowlists public listings without private review, bank, delivery or active-trade metadata", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const stored = db.marketplaceListings.find((entry) => entry.id === listing.id)!;
+    Object.assign(stored, { ownerReviewReason: "Private owner review", ownerReviewedBy: "private-reviewer", ownerReviewedAt: "private-review-time",
+      expirationEmailPendingAt: "private-email-queue", expirationEmailSentAt: "private-email-time", activeTradeRequestId: "private-other-trade",
+      lockedAt: "private-lock-time", blockingReason: "Private internal reason", futurePrivateField: "future-secret" });
+    invalidateAlphaExchangeStoreCache();
+    const publicListing = (await getMarketplaceListings("active", undefined, BUYER_ID)).find((entry) => entry.id === listing.id)!;
+    expect(publicListing).toMatchObject({ id: listing.id, availableAmount: "1000", price: "3.60" });
+    for (const key of ["ownerReviewReason", "ownerReviewedBy", "ownerReviewedAt", "expirationEmailPendingAt", "expirationEmailSentAt", "activeTradeRequestId", "lockedAt", "blockingReason", "futurePrivateField", "bankAccountId"]) expect(publicListing).not.toHaveProperty(key);
+    expect(JSON.stringify(publicListing)).not.toMatch(/Private owner review|private-reviewer|private-other-trade|future-secret/);
   });
 
   it("keeps commissions, audit logs, trade activity and review trade identifiers out of public seller profiles", async () => {

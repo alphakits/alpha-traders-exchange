@@ -23,6 +23,8 @@ function notificationEventForRecipient(event: RealtimeEvent, userId: string): Re
 }
 
 export function realtimeEventForUser(event: RealtimeEvent, user: RealtimeViewer): RealtimeEvent | null {
+  const isAdmin = hasRole(user, "admin") || hasRole(user, "owner");
+  if (event.recipientUserId && event.recipientUserId !== user.id && !isAdmin) return null;
   if (
     event.type === "notification.created"
     || event.type === "notification.updated"
@@ -31,7 +33,10 @@ export function realtimeEventForUser(event: RealtimeEvent, user: RealtimeViewer)
     return notificationEventForRecipient(event, user.id);
   }
 
-  const isAdmin = hasRole(user, "admin") || hasRole(user, "owner");
+  // Newly submitted listings are drafts, including payout account identifiers.
+  if (event.type === "listing.created") {
+    return isAdmin || event.payload.listing.sellerId === user.id ? event : null;
+  }
   if (event.type === "trade.message_created" || event.type === "trade.message_updated") {
     return isAdmin ? event : null;
   }
@@ -42,11 +47,17 @@ export function realtimeEventForUser(event: RealtimeEvent, user: RealtimeViewer)
   const tradeRequest = event.payload.request;
   if (!tradeRequest) return isAdmin ? event : null;
   if (!isAdmin && tradeRequest.buyerId !== user.id && tradeRequest.sellerId !== user.id) return null;
+  const request = sanitizePurchaseRequestForActor(tradeRequest, user.id, user.role);
+  if (event.type === "trade.request_created") return { ...event, payload: { request } };
   return {
     ...event,
     payload: {
-      ...event.payload,
-      request: sanitizePurchaseRequestForActor(tradeRequest, user.id, user.role),
+      requestId: request.id,
+      request,
+      status: request.status,
+      timeline: request.timeline,
+      publishedAtEpochMs: event.payload.publishedAtEpochMs,
+      removed: event.payload.removed,
     },
-  } as RealtimeEvent;
+  };
 }
