@@ -20,6 +20,12 @@ const EXTERNAL_SCHEMES = new Set([
 
 export type WebsiteNavigationDecision = "allow" | "external" | "block";
 
+export type WebsiteNavigationRequest = {
+  url: string;
+  isTopFrame?: boolean;
+  navigationType?: string;
+};
+
 export function isTrustedWebsiteDocumentUrl(rawUrl: string) {
   if (rawUrl.length > MAX_WEBSITE_NAVIGATION_URL_LENGTH) return false;
   try {
@@ -62,6 +68,29 @@ export function websiteNavigationDecision(rawUrl: string): WebsiteNavigationDeci
   if (isTrustedWebsiteDocumentUrl(value)) return "allow";
   if (EMBEDDED_AUTH_HOSTS.has(parsed.hostname)) return "allow";
   return "external";
+}
+
+/** Subframe loads must never launch another app or become a trusted document. */
+export function websiteRequestNavigationDecision(request: WebsiteNavigationRequest): WebsiteNavigationDecision {
+  const decision = websiteNavigationDecision(request.url);
+  if (request.isTopFrame === false) {
+    if (decision === "allow") return "allow";
+    if (decision === "block") return "block";
+    try {
+      const parsed = new URL(request.url);
+      if (parsed.protocol === "https:" && !parsed.username && !parsed.password && !parsed.port
+        && parsed.hostname === "s.tradingview.com" && /^\/widgetembed\/?$/.test(parsed.pathname)) {
+        return "allow";
+      }
+    } catch {
+      // Malformed or unknown frame URLs stay blocked.
+    }
+    return "block";
+  }
+  // iOS reports navigation type; Android reports neither it nor isTopFrame.
+  // Keep explicit external links working, without opening automatic redirects.
+  if (decision === "external" && request.navigationType && request.navigationType !== "click") return "block";
+  return decision;
 }
 
 export function trustedWebsiteResumeUrl(rawUrl: string | null | undefined, locale: "ar" | "en") {

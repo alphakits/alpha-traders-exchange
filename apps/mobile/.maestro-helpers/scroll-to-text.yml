@@ -6,8 +6,8 @@ appId: com.alphakits.alphatraders
       notVisible: "${TARGET_TEXT}"
     commands:
       - swipe:
-          start: 50%, 85%
-          end: 50%, 20%
-          duration: 250
+          start: 50%, 75%
+          end: 50%, 45%
+          duration: 600
           waitToSettleTimeoutMs: 500
 - assertVisible: "${TARGET_TEXT}"

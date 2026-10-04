@@ -50,6 +50,7 @@ import {
   isTrustedWebsiteDocumentUrl,
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
+  websiteRequestNavigationDecision,
 } from "../web/website-navigation";
 import {
   DEFAULT_MOBILE_LOCALE,
@@ -432,8 +433,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, []);
 
   const shouldStart = useCallback((request: ShouldStartLoadRequest) => {
-    const decision = websiteNavigationDecision(request.url);
-    if (!request.isTopFrame) return decision === "allow";
+    const decision = websiteRequestNavigationDecision(request);
     if (decision === "allow") return true;
     if (decision === "external") openExternally(request.url);
     return false;
@@ -655,14 +655,11 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           ref={webViewRef}
           source={source}
           style={styles.webView}
-          originWhitelist={[
-            "https://alphatraders.co.il",
-            "https://www.alphatraders.co.il",
-            "https://discord.com",
-            "https://www.discord.com",
-            "about:blank",
-            "blob:*",
-          ]}
+          // Dispatch every request to our validator. WebView otherwise calls
+          // Linking.openURL before shouldStart, even for a rejected iframe.
+          // The validator allows exact trusted documents/embeds, blocks unsafe
+          // schemes and sends only explicit top-level links to the browser.
+          originWhitelist={["*"]}
           onShouldStartLoadWithRequest={shouldStart}
           onNavigationStateChange={rememberNavigation}
           onLoadStart={() => {
@@ -683,6 +680,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           }}
           allowsBackForwardNavigationGestures
           allowsInlineMediaPlayback
+          javaScriptCanOpenWindowsAutomatically={false}
           allowFileAccess={false}
           allowFileAccessFromFileURLs={false}
           allowUniversalAccessFromFileURLs={false}

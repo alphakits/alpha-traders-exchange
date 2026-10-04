@@ -40,3 +40,13 @@ jobs:
       flow_path: .maestro
       retries: 0
       record_screen: true
+
+  legacy_android_recovery:
+    needs: [android]
+    type: maestro
+    params:
+      build_id: ${{ needs.android.outputs.build_id }}
+      flow_path: .maestro-legacy
+      retries: 0
+      record_screen: true
+      android_system_image_package: 'system-images;android-29;default;x86_64'
