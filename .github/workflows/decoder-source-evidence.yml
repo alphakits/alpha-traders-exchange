@@ -1,0 +1,71 @@
+name: Locked decoder source evidence
+on:
+  push:
+    branches: [fix/decoder-source-evidence-20261004]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked package bytes for inspection
+        run: npm ci --ignore-scripts
+      - name: Preserve decoder sources from the locked install
+        shell: bash
+        run: |
+          mkdir -p decoder-source-evidence
+          node --input-type=module <<'JS'
+          import {readFileSync, writeFileSync} from 'node:fs';
+          import {createRequire} from 'node:module';
+          import {createHash} from 'node:crypto';
+          import path from 'node:path';
+          const require=createRequire(path.resolve('package.json'));
+          const fixed=require.resolve('decode-uri-component');
+          const qr=createRequire(createRequire(require.resolve('expo-router/package.json')).resolve('query-string'));
+          const legacy=qr.resolve('decode-uri-component');
+          const lock=JSON.parse(readFileSync('package-lock.json','utf8'));
+          const info={};
+          for(const [key,file] of Object.entries({fixed,legacy})){
+            const raw=readFileSync(file);
+            const manifest=JSON.parse(readFileSync(path.join(path.dirname(file),'package.json'),'utf8'));
+            writeFileSync('decoder-source-evidence/'+key+'-index.js',raw);
+            const locked=lock.packages[path.relative(process.cwd(),path.dirname(file))];
+            info[key]={name:manifest.name,version:manifest.version,sha256:createHash('sha256').update(raw).digest('hex'),bytes:raw.length,integrity:locked?.integrity,hasCRLF:raw.includes(Buffer.from('\r\n'))};
+          }
+          writeFileSync('decoder-source-evidence/locked-sources.json',JSON.stringify(info,null,2));
+          console.log(JSON.stringify(info,null,2));
+          JS
+      - name: Apply existing reviewed backports
+        run: npm run postinstall
+      - name: Record the existing CommonJS output
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {createRequire} from 'node:module';
+          import {createHash} from 'node:crypto';
+          import path from 'node:path';
+          const require=createRequire(path.resolve('package.json'));
+          const qr=createRequire(createRequire(require.resolve('expo-router/package.json')).resolve('query-string'));
+          const raw=readFileSync(qr.resolve('decode-uri-component'));
+          writeFileSync('decoder-source-evidence/patched-index.cjs',raw);
+          const info=JSON.parse(readFileSync('decoder-source-evidence/locked-sources.json','utf8'));
+          info.patched={sha256:createHash('sha256').update(raw).digest('hex'),bytes:raw.length};
+          writeFileSync('decoder-source-evidence/locked-sources.json',JSON.stringify(info,null,2));
+          console.log(JSON.stringify(info,null,2));
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: locked-decoder-source-evidence
+          path: decoder-source-evidence/
+          if-no-files-found: error
+          retention-days: 14
