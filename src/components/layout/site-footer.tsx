@@ -211,7 +211,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
               />
               <div>
-                <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
+                <p className="brand-alpha-traders gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
                   {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
@@ -265,7 +265,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
               />
               <div>
-                <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
+                <p className="brand-alpha-traders gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
                   {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
