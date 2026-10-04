@@ -66,6 +66,13 @@ export function sellerFeeResponsibilityNotice(locale: string) {
     : "You must pay Alpha 2% in total: your own 1% plus the buyer’s 1%, included in their payment. Collect the full displayed total before confirming receipt and sending USDT. If you accept less, you cover the missing buyer fee yourself; the full 2% remains due until payment is verified. This applies only to new-policy trades.";
 }
 
+/** One published fee policy for website and native terms, preserving legacy trades. */
+export function marketplaceFeeTerms(locale: string) {
+  return locale === "ar"
+    ? "الصفقات الجديدة تحمل عمولة 1% على المشتري و1% على البائع، بإجمالي 2% من كمية USDT المتفق عليها. عمولة المشتري مشمولة في إجمالي الدفع الظاهر للبائع وبنفس وسيلة دفع الصفقة؛ ويستلم المشتري كامل كمية USDT. البائع مسؤول عن تحويل كامل الـ2% إلى Alpha Traders بعملة USDT بعد الإكمال، ويتحمل من ماله أي نقص في حصة المشتري. العمولات غير المدفوعة تمنع البيع والشراء وطلبات الصفقات الجديدة حتى التحقق من السداد؛ تبقى العروض ظاهرة ويمكن إكمال الصفقات الحالية. تحتفظ الصفقات القديمة بشروط العمولة المعروضة عند تقديمها. أي تغيير لاحق في العمولات يُعلن قبل تطبيقه على صفقات جديدة."
+    : "New trades carry a 1% buyer fee and a 1% seller fee, totaling 2% of the agreed USDT amount. The buyer fee is included in the displayed payment total to the seller through the trade's selected payment method; the buyer receives the full agreed USDT amount. After completion, the seller must remit the full 2% to Alpha Traders in USDT and cover any uncollected buyer fee from their own funds. Unpaid commissions block new buying, selling, and trade requests until payment is verified; listings remain visible and existing trades can finish. Legacy trades retain the fee terms shown when submitted. Future fee changes are announced before applying to new trades.";
+}
+
 /** Inverse of the inclusive payment total, retaining six-decimal USDT precision. */
 export function calculateUsdtForPaymentTotal(total: string, price: string, includesBuyerFee = false) {
   if (!/^\d{1,12}(?:\.\d{1,2})?$/.test(total) || !/^\d{1,7}(?:\.\d{1,2})?$/.test(price)) return null;

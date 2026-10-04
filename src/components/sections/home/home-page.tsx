@@ -245,7 +245,7 @@ export async function HomePage({
                 </p>
                 <p className="commission-notice mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
                   <Coins className="h-3.5 w-3.5" />
-                  {isRtl ? "العمولة = قيمة الصفقة × نسبة العمولة" : "Commission = Trade Amount x Seller Commission %"}
+                  {currencyText(isRtl ? "الصفقات الجديدة: 1% على المشتري + 1% على البائع = 2% إجمالاً، تُدفع لألفا بعملة USDT." : "New trades: 1% buyer + 1% seller = 2% total, paid to Alpha in USDT.")}
                 </p>
               </div>
             </div>
