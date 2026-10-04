@@ -8,19 +8,36 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { needsBuyerContact } from "@/lib/buyer-contact";
+import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
 
 export function BuyerContactPrompt({ locale }: { locale: "en" | "ar" }) {
   const session = useOptionalCanonicalSession();
+  return <BuyerContactContent key={session?.user?.id ?? "signed-out"} locale={locale} session={session} />;
+}
+
+function BuyerContactContent({ locale, session }: { locale: "en" | "ar"; session: ReturnType<typeof useOptionalCanonicalSession> }) {
   const pathname = usePathname();
   const dialog = useRef<HTMLDialogElement>(null);
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedFor, setSavedFor] = useState<string | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
   const isAr = locale === "ar";
   // Essential account/legal support remains accessible while a contact is missing.
   const supportPath = /\/(verify-account|verify-email|account-deletion|support|help-center|privacy-policy|terms)(?:\/|$)/.test(pathname);
   const required = !supportPath && needsBuyerContact(session?.user) && savedFor !== session?.user?.id;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const current = activeRequest.current;
+      activeRequest.current = null;
+      current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     setPhone(session?.user?.whatsappNumber ?? "");
@@ -36,48 +53,63 @@ export function BuyerContactPrompt({ locale }: { locale: "en" | "ar" }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (saving || !session?.user) return;
+    if (!mounted.current || activeRequest.current || saving || !session?.user) return;
     const normalized = normalizeRegistrationWhatsApp(phone);
     if (!normalized) {
       setError(isAr ? "أدخل رقمًا صالحًا مع رمز الدولة، مثل ‎+972501234567." : "Enter a valid number with its country code, such as +972501234567.");
       return;
     }
     const userId = session.user.id;
+    const current = new AbortController();
+    activeRequest.current = current;
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/auth/profile", {
+      const { response, payload: result } = await fetchClientJson<{ profile?: { whatsappNumber?: string } }>("/api/auth/profile", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ whatsappNumber: normalized }),
+        signal: current.signal,
       });
-      const result = await response.json().catch(() => null);
-      if (!response.ok || !normalizeRegistrationWhatsApp(result?.profile?.whatsappNumber)) {
+      if (!mounted.current || activeRequest.current !== current) return;
+      if (!response.ok || normalizeRegistrationWhatsApp(result?.profile?.whatsappNumber) !== normalized) {
         setError(isAr ? "تعذر حفظ الرقم. يرجى التحقق منه والمحاولة مرة أخرى." : "We couldn’t save the number. Please check it and try again.");
         return;
       }
       setSavedFor(userId);
       await session.refresh({ force: true, background: true });
-      window.dispatchEvent(new Event("alpha-profile-updated"));
+      if (mounted.current && activeRequest.current === current) window.dispatchEvent(new Event("alpha-profile-updated"));
     } catch {
-      setError(isAr ? "تعذر الاتصال. يرجى المحاولة مرة أخرى." : "Connection failed. Please try again.");
+      if (mounted.current && activeRequest.current === current) setError(isAr ? "تعذر الاتصال. يرجى المحاولة مرة أخرى." : "Connection failed. Please try again.");
     } finally {
-      setSaving(false);
+      if (mounted.current && activeRequest.current === current) {
+        activeRequest.current = null;
+        setSaving(false);
+      }
     }
   }
 
   async function signOut() {
-    if (saving) return;
+    if (!mounted.current || activeRequest.current || saving || !session?.user) return;
+    const current = new AbortController();
+    activeRequest.current = current;
     setSaving(true);
     try {
-      const response = await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      const response = await runClientRequest(current, 15_000, signal => fetch("/api/auth/logout", { method: "POST", credentials: "include", signal }));
+      if (!mounted.current || activeRequest.current !== current) return;
       if (!response.ok) throw new Error("logout");
       window.dispatchEvent(new Event("alpha-auth-signed-out"));
-      window.location.assign("/en/login");
+      window.location.assign(`/${locale}/login`);
     } catch {
-      setError(isAr ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Unable to sign out. Please try again.");
-      setSaving(false);
+      if (mounted.current && activeRequest.current === current) {
+        setError(isAr ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Unable to sign out. Please try again.");
+      }
+    } finally {
+      if (mounted.current && activeRequest.current === current) {
+        activeRequest.current = null;
+        setSaving(false);
+      }
     }
   }
 
@@ -102,7 +134,7 @@ function BuyerContactForm({ locale, phone, setPhone, saving, error, onSubmit, on
       <p className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-xs leading-5 text-emerald-200"><LockKeyhole aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{isAr ? "رقمك خاص. لا يراه إلا أنت ومالك المنصة، ولا يظهر للمشترين أو البائعين." : "Your number is private. Only you and the owner can see it. It is hidden from buyers and sellers."}</p>
       <form className="mt-5 space-y-4" onSubmit={event => void onSubmit(event)}>
         <label className="block text-sm" htmlFor="buyer-private-phone">{isAr ? "رقم الهاتف أو واتساب (مطلوب)" : "Phone or WhatsApp number (required)"}</label>
-        <Input id="buyer-private-phone" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" required maxLength={30} value={phone} onChange={event => setPhone(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "buyer-contact-error" : undefined} placeholder="+972 50 123 4567" autoFocus />
+        <Input id="buyer-private-phone" type="tel" inputMode="tel" autoComplete="tel" dir="ltr" required maxLength={30} disabled={saving} value={phone} onChange={event => setPhone(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "buyer-contact-error" : undefined} placeholder="+972 50 123 4567" autoFocus />
         {error ? <p id="buyer-contact-error" role="alert" className="text-sm text-red-300">{error}</p> : null}
         <Button type="submit" className="w-full" loading={saving} loadingLabel={isAr ? "جاري الحفظ…" : "Saving…"}>{isAr ? "حفظ الرقم والمتابعة" : "Save number and continue"}</Button>
         <Button type="button" variant="ghost" className="w-full" disabled={saving} onClick={() => void onSignOut()}>{isAr ? "تسجيل الخروج" : "Sign out"}</Button>

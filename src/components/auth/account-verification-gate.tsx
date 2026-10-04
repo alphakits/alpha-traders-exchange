@@ -1,7 +1,7 @@
 "use client";
 
 import { ActionFeedback } from "@/components/ui/action-feedback";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ShieldCheck, Smartphone, Mail, CheckCircle2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { useCanonicalSession } from "@/components/auth/canonical-session-provide
 import { LogoutButton } from "@/components/auth/logout-button";
 import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
 import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
+import { ClientRequestTimeoutError, fetchClientJson } from "@/lib/client-request-deadline";
 
 type Props = {
   locale: "ar" | "en";
@@ -23,6 +24,7 @@ type Props = {
 };
 
 type ApiErrorPayload = {
+  ok?: boolean;
   error?: string;
   supportCode?: string;
   requestId?: string;
@@ -37,7 +39,12 @@ function normalizeRedirectPath(rawRedirect: string | undefined, locale: "ar" | "
   return rawRedirect;
 }
 
-export function AccountVerificationGate({
+export function AccountVerificationGate(props: Props) {
+  const session = useCanonicalSession();
+  return <AccountVerificationContent key={session.user?.id ?? "signed-out"} {...props} session={session} />;
+}
+
+function AccountVerificationContent({
   locale,
   redirectTo,
   initialEmail,
@@ -46,17 +53,20 @@ export function AccountVerificationGate({
   phoneVerificationEnabled,
   phoneVerificationRequired = false,
   phoneVerificationChannels,
-}: Props) {
+  session,
+}: Props & { session: ReturnType<typeof useCanonicalSession> }) {
   const isAr = locale === "ar";
-  const { user, isResolving: loading, error: sessionError, refresh } = useCanonicalSession();
+  const { user, isResolving: loading, error: sessionError, refresh } = session;
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
+  const name = user?.fullName ?? initialName;
+  const initialAccountMatches = user?.email?.toLowerCase() === initialEmail.toLowerCase();
   const [phoneForm, setPhoneForm] = useState({
-    firstName: initialName.split(" ")[0] ?? "",
-    lastName: initialName.split(" ").slice(1).join(" ") ?? "",
-    displayName: initialName,
-    phone: initialPhone,
+    firstName: name.split(" ")[0] ?? "",
+    lastName: name.split(" ").slice(1).join(" ") ?? "",
+    displayName: name,
+    phone: user ? user.whatsappNumber || (initialAccountMatches ? initialPhone : "") : initialPhone,
     token: "",
   });
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -65,6 +75,30 @@ export function AccountVerificationGate({
   const [sentPhone, setSentPhone] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [phoneChannel, setPhoneChannel] = useState<PhoneVerificationChannel>("sms");
+  const phoneRequest = useRef<AbortController | null>(null);
+  const emailRequest = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const phone = phoneRequest.current;
+      const email = emailRequest.current;
+      phoneRequest.current = null;
+      emailRequest.current = null;
+      phone?.abort();
+      email?.abort();
+    };
+  }, []);
+
+  function requestError(err: unknown, fallback: string) {
+    if (err instanceof ClientRequestTimeoutError || err instanceof TypeError) {
+      return isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.";
+    }
+    const detail = err instanceof Error ? err.message : "";
+    return isAr ? (/[؀-ۿ]/.test(detail) ? detail : fallback) : (detail || fallback);
+  }
 
   useEffect(() => {
     if (cooldownSeconds <= 0) return;
@@ -104,7 +138,9 @@ export function AccountVerificationGate({
   }, [loading, sessionError, emailVerified, phoneVerificationRequired, phoneVerified, locale, target]);
 
   async function sendOtp() {
-    if (sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
+    if (!user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || cooldownSeconds > 0 || phoneVerificationChannels?.[phoneChannel] === false) return;
+    const current = new AbortController();
+    phoneRequest.current = current;
     setSendingOtp(true);
     setError(null);
     setStatus(null);
@@ -113,70 +149,91 @@ export function AccountVerificationGate({
       if (!phone) {
         throw new Error(isAr ? "يرجى إدخال رقم هاتف صالح قبل إرسال رمز التحقق." : "Please enter a valid phone number before sending a verification code.");
       }
-      const res = await fetch("/api/alpha-exchange/phone/send-code", {
+      const { response: res, payload } = await fetchClientJson<ApiErrorPayload>("/api/alpha-exchange/phone/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ phone, channel: phoneChannel }),
-      });
-      const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
+        signal: current.signal,
+      }, 30_000);
+      if (!mounted.current || phoneRequest.current !== current) return;
+      if (!res.ok || payload?.ok !== true) throw new Error(withSupportDetails(payload ?? {}, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
       setSentPhone(phone);
       setPhoneForm(previous => ({ ...previous, token: "" }));
       setCooldownSeconds(60);
       setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق إلى هاتفك." : "Verification code sent to your phone."));
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "";
-      setError(isAr
-        ? (/[؀-ۿ]/.test(detail) ? detail : "تعذر إرسال رمز التحقق.")
-        : (detail || "Failed to send verification code."));
+      if (mounted.current && phoneRequest.current === current) {
+        setError(requestError(err, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code."));
+      }
     } finally {
-      setSendingOtp(false);
+      if (mounted.current && phoneRequest.current === current) {
+        phoneRequest.current = null;
+        setSendingOtp(false);
+      }
     }
   }
 
   async function verifyOtp() {
-    if (sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
+    if (!user || !mounted.current || phoneRequest.current || sendingOtp || verifyingOtp || !sentPhone || !/^\d{6}$/.test(phoneForm.token)) return;
+    const current = new AbortController();
+    phoneRequest.current = current;
     setVerifyingOtp(true);
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch("/api/alpha-exchange/phone/verify-code", {
+      const { response: res, payload } = await fetchClientJson<ApiErrorPayload>("/api/alpha-exchange/phone/verify-code", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ phone: sentPhone, code: phoneForm.token }),
-      });
-      const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "فشل التحقق من الرمز." : "Verification failed.", isAr));
+        signal: current.signal,
+      }, 30_000);
+      if (!mounted.current || phoneRequest.current !== current) return;
+      if (!res.ok || payload?.ok !== true) throw new Error(withSupportDetails(payload ?? {}, isAr ? "فشل التحقق من الرمز." : "Verification failed.", isAr));
       setStatus(isAr ? "تم تفعيل رقم الهاتف بنجاح." : "Phone verification completed.");
       await refresh({ force: true });
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "";
-      setError(isAr ? "فشل التحقق من الرمز." : (detail || "Verification failed."));
+      if (mounted.current && phoneRequest.current === current) {
+        setError(requestError(err, isAr ? "فشل التحقق من الرمز." : "Verification failed."));
+      }
     } finally {
-      setVerifyingOtp(false);
+      if (mounted.current && phoneRequest.current === current) {
+        phoneRequest.current = null;
+        setVerifyingOtp(false);
+      }
     }
   }
 
   async function resendVerificationEmail() {
+    if (!user || !mounted.current || emailRequest.current) return;
+    const current = new AbortController();
+    emailRequest.current = current;
     setResendingEmail(true);
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch("/api/auth/verify-email/resend", {
+      const { response: res, payload } = await fetchClientJson<ApiErrorPayload>("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: user?.email ?? initialEmail }),
-      });
-      const payload = (await res.json()) as { error?: string; message?: string };
+        signal: current.signal,
+      }, 30_000);
+      if (!mounted.current || emailRequest.current !== current) return;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error(isAr ? "فشل إرسال بريد التحقق." : "Failed to resend verification email.");
       if (!res.ok) throw new Error(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
       setStatus(isAr ? "تم إرسال رسالة تحقق جديدة." : (payload.message ?? "A new verification email has been sent."));
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "";
-      setError(isAr ? "فشل إرسال بريد التحقق." : (detail || "Failed to resend verification email."));
+      if (mounted.current && emailRequest.current === current) {
+        setError(requestError(err, isAr ? "فشل إرسال بريد التحقق." : "Failed to resend verification email."));
+      }
     } finally {
-      setResendingEmail(false);
+      if (mounted.current && emailRequest.current === current) {
+        emailRequest.current = null;
+        setResendingEmail(false);
+      }
     }
   }
+
+  if (!user) return <section className="section-container page-shell"><p role="status">{visibleError ?? (isAr ? "جاري تحميل حالة التحقق..." : "Loading verification status...")}</p></section>;
 
   return (
     <section className="section-container page-shell">
