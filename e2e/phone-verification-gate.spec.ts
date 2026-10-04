@@ -15,11 +15,11 @@ async function state(api: APIRequestContext): Promise<State> {
   return response.json() as Promise<State>;
 }
 
-async function provision(api: APIRequestContext, role: Role, verified: boolean, email?: string) {
+async function provision(api: APIRequestContext, role: Role, verified: boolean, email?: string, accountId?: string) {
   const db = await state(api);
   const template = db.users.find(user => user.email === process.env.E2E_BUYER_EMAIL);
   if (!template) throw new Error("The isolated verified buyer fixture is missing.");
-  const id = "phone-gate-" + randomUUID();
+  const id = accountId ?? "phone-gate-" + randomUUID();
   createdIds.add(id);
   const phone = "+972500019111";
   const { verifiedPhone: _phone, phoneVerifiedAt: _verifiedAt, ...base } = template;
@@ -99,12 +99,30 @@ for (const role of ["buyer", "approved_seller", "pending_seller_approval", "admi
 }
 
 for (const email of ["Alphatradersai@gmail.com", "Claudiahttps11@gmail.com", "Jozenmark834@yahoo.com"]) {
-  test("previously exempt account must verify " + email, async ({ page }) => {
+  test("an authorized email alone cannot bypass verification " + email, async ({ page }) => {
     const user = await provision(page.request, "buyer", false, email);
     expect(await login(page, user)).toMatchObject({ isPhotoVerified: false, phoneVerificationExempt: false });
     await expectPhoneDenied(page.request);
     await page.goto("/en/usdt-exchange");
     await expect(page).toHaveURL(/\/en\/verify-account\?redirectTo=%2Fen%2Fusdt-exchange$/);
+  });
+}
+
+for (const [id, email, role] of [
+  ["user-030c4619-e1a6-4147-9d91-a8bbd2e2db4a", "alphatradersai@gmail.com", "buyer"],
+  ["user-6f3a0120-5d36-423f-8dee-9a875e8e064e", "claudiahttps11@gmail.com", "approved_seller"],
+  ["user-cfa3bd2c-25e7-4a9e-9ae5-55ac4900846f", "jozenmark834@yahoo.com", "owner"],
+] as const) {
+  test("exact authorized account can use exchange without phone verification " + email, async ({ page }) => {
+    const user = await provision(page.request, role, false, email, id);
+    expect(await login(page, user)).toMatchObject({ isPhotoVerified: true, phoneVerificationExempt: true });
+    await expectMarketplaceVisible(page);
+    await page.request.post("/api/auth/logout");
+    expect(await login(page, user)).toMatchObject({ isPhotoVerified: true, phoneVerificationExempt: true });
+    await expectMarketplaceVisible(page);
+    const saved = (await state(page.request)).users.find(item => item.id === id);
+    expect(saved?.verifiedPhone).toBeUndefined();
+    expect(saved?.phoneVerifiedAt).toBeUndefined();
   });
 }
 

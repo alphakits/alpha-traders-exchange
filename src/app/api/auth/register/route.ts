@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
-import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { assertRegistrationPhoneAvailable, findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { logEvent } from "@/lib/structured-logging";
@@ -18,6 +18,7 @@ type RegistrationErrorCode =
   | "INVALID_EMAIL"
   | "WHATSAPP_REQUIRED"
   | "INVALID_WHATSAPP"
+  | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
   | "PASSWORD_TOO_SHORT"
@@ -41,6 +42,10 @@ const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: s
   INVALID_WHATSAPP: {
     ar: "أدخل رقم واتساب صالحًا مثل 05XXXXXXXX أو رقمًا دوليًا يبدأ بـ + ورمز الدولة.",
     en: "Enter a valid WhatsApp number, such as 05XXXXXXXX or an international number starting with + and country code.",
+  },
+  PHONE_ALREADY_IN_USE: {
+    ar: "هذا الرقم مرتبط بحساب آخر. استخدم رقمًا مختلفًا أو سجّل الدخول إلى حسابك الحالي.",
+    en: "This phone number is linked to another account. Use a different number or sign in to your existing account.",
   },
   FIELD_TOO_LONG: {
     ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
@@ -199,6 +204,7 @@ export async function POST(request: NextRequest) {
       return registrationAcceptedResponse(locale, validRegistrationStartedAt);
     }
 
+    await assertRegistrationPhoneAvailable(whatsappNumber);
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -258,6 +264,9 @@ export async function POST(request: NextRequest) {
 
     return registrationAcceptedResponse(locale, validRegistrationStartedAt);
   } catch (error) {
+    if (error instanceof Error && error.message === "This phone number is already linked to another account.") {
+      return registrationErrorResponse(locale, "PHONE_ALREADY_IN_USE", 409);
+    }
     // Provider, storage, and validation internals must not leak into the UI.
     logEvent("error", {
       event: "auth_registration",

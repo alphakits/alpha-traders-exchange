@@ -41,7 +41,7 @@ describe("reviewed SMS requirement rollout", () => {
     expect(requireMarketplaceVerificationForTrading({ ...base, role, roles: [role] })?.status).toBe(403);
     expect(marketplacePhoneVerificationDestination({ ...base, role, roles: [role] }, "/en/dashboard/seller", "en")).toContain("/en/verify-account");
   });
-  it.each(["Alphatradersai@gmail.com", " Claudiahttps11@gmail.com ", "Jozenmark834@yahoo.com"])("requires verification for previously exempt account %s", email => {
+  it.each(["Alphatradersai@gmail.com", " Claudiahttps11@gmail.com ", "Jozenmark834@yahoo.com"])("requires verification when the authorized email has a different account ID %s", email => {
     const account = { ...base, email };
     expect(requireMarketplaceVerificationForTrading(account)?.status).toBe(403);
     expect(marketplacePhoneVerificationDestination(account, "/en/dashboard/seller", "en")).toContain("/en/verify-account");

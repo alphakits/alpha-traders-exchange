@@ -14,6 +14,7 @@ import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { normalizeRolesForUser, resolvePrimaryRole } from "@/lib/roles";
 import { isVerified } from "@/lib/verification-bypass";
+import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -50,7 +51,7 @@ export type ClientSessionUser = {
   isFoundingSeller?: boolean;
   emailVerified?: boolean;
   isPhotoVerified?: boolean;
-  /** Legacy compatibility field; phone verification has no account exceptions. */
+  /** Server-resolved exception for one of the three authorized existing accounts. */
   phoneVerificationExempt?: boolean;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   onboardingSelection?: OnboardingSelection;
@@ -178,7 +179,7 @@ export function toClientSessionUser(
     isFoundingSeller: user.isFoundingSeller,
     emailVerified: user.emailVerified === true,
     isPhotoVerified: options.isPhotoVerified ?? isVerified(user),
-    phoneVerificationExempt: false,
+    phoneVerificationExempt: isAccountPhoneVerificationExempt(user),
     buyerVerificationStatus: user.buyerVerificationStatus,
     onboardingSelection: user.onboardingSelection,
     onboardingCompletedAt: user.onboardingCompletedAt,

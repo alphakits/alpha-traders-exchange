@@ -68,7 +68,8 @@ import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
-import { normalizeIsraeliPhone } from "@/lib/phone-number-normalization";
+import { normalizeIsraeliPhone, canonicalPhoneNumber } from "@/lib/phone-number-normalization";
+import { assertAccountPhoneAvailable } from "@/lib/account-phone-ownership";
 import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
@@ -6105,8 +6106,19 @@ export async function createUser(input: {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  db.users.push(user);
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  const addAccount = (snapshot: AlphaExchangeDb) => {
+    if (snapshot.users.some(existing => normalizeEmail(existing.email) === email)) {
+      throw new Error("Email already registered.");
+    }
+    assertAccountPhoneAvailable(snapshot.users, user, user.whatsappNumber, true);
+    snapshot.users.push(user);
+    return snapshot;
+  };
+  addAccount(db);
+  await writeDb(db, {
+    selectedTables: USER_PROFILE_TABLES, rebaseTables: ["users"],
+    rebaseOnLatest: addAccount, cacheResult: false,
+  });
   return user;
 }
 
@@ -6260,9 +6272,26 @@ export async function upsertUserProfileForAuth(input: {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  db.users.push(user);
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  const addAccount = (snapshot: AlphaExchangeDb) => {
+    if (snapshot.users.some(existing => normalizeEmail(existing.email) === email)) {
+      throw new Error("Email already registered.");
+    }
+    assertAccountPhoneAvailable(snapshot.users, user, user.whatsappNumber, true);
+    snapshot.users.push(user);
+    return snapshot;
+  };
+  addAccount(db);
+  await writeDb(db, {
+    selectedTables: USER_PROFILE_TABLES, rebaseTables: ["users"],
+    rebaseOnLatest: addAccount, cacheResult: false,
+  });
   return user;
+}
+
+/** Reject duplicate contact numbers before creating a provider auth account. */
+export async function assertRegistrationPhoneAvailable(phone: string) {
+  const db = await readDb({ bypassCache: true, skipMaintenance: true });
+  assertAccountPhoneAvailable(db.users, { id: "", email: "" }, phone, true);
 }
 
 export { normalizeIsraeliPhone };
@@ -6273,7 +6302,7 @@ function hashPhoneOtp(phone: string, code: string, salt: string) {
 
 export async function beginProfilePhoneVerification(input: { userId: string; phone: string }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
-  const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
+  const phone = canonicalPhoneNumber(input.phone);
   if (!phone) throw new Error("Enter a valid international E.164 phone number.");
   const db = await readDbForSelectedTables(["users"]);
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
@@ -6282,9 +6311,7 @@ export async function beginProfilePhoneVerification(input: { userId: string; pho
     const index = snapshot.users.findIndex(user => user.id === input.userId);
     if (index === -1) throw new Error("User not found.");
     const user = snapshot.users[index];
-    if (snapshot.users.some(item => item.id !== user.id && item.verifiedPhone === phone)) {
-      throw new Error("This phone number is already linked to another account.");
-    }
+    assertAccountPhoneAvailable(snapshot.users, user, phone);
     const now = Date.now();
     const requestedAt = Date.parse(user.phoneOtpRequestedAt ?? "");
     if (Number.isFinite(requestedAt) && now - requestedAt < 60_000) {
@@ -6310,7 +6337,7 @@ export async function beginProfilePhoneVerification(input: { userId: string; pho
 
 export async function confirmProfilePhoneVerification(input: { userId: string; phone: string; code: string }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
-  const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
+  const phone = canonicalPhoneNumber(input.phone);
   if (!phone || !/^\d{6}$/.test(input.code)) throw new Error("Invalid verification code.");
   const db = await readDbForSelectedTables(["users"]);
   let committedUser: AlphaExchangeUser | undefined;
@@ -6331,9 +6358,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
       snapshot.users[index] = { ...user, phoneOtpAttempts: attempts + 1, updatedAt: nowIso() };
       return snapshot;
     }
-    if (snapshot.users.some(item => item.id !== user.id && item.verifiedPhone === phone)) {
-      throw new Error("This phone number is already linked to another account.");
-    }
+    assertAccountPhoneAvailable(snapshot.users, user, phone);
     snapshot.users[index] = {
       ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(), whatsappNumber: phone,
       phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpChannel: undefined, phoneOtpAttempts: undefined,
@@ -6438,8 +6463,7 @@ export async function beginBuyerVerification(input: {
   const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
   if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
 
-  const conflict = db.users.find((item) => item.id !== user.id && item.verifiedPhone === normalizedPhone);
-  if (conflict) throw new Error("This phone number is already linked to another buyer account.");
+  assertAccountPhoneAvailable(db.users, user, normalizedPhone);
 
   db.users[index] = {
     ...user,
@@ -6464,8 +6488,7 @@ export async function completeBuyerVerification(input: { userId: string; phone: 
   const user = db.users[index];
   const normalizedPhone = normalizeIsraeliPhone(input.phone);
   if (!normalizedPhone) throw new Error("Invalid Israeli phone number.");
-  const conflict = db.users.find((item) => item.id !== user.id && item.verifiedPhone === normalizedPhone);
-  if (conflict) throw new Error("This phone number is already linked to another buyer account.");
+  assertAccountPhoneAvailable(db.users, user, normalizedPhone);
 
   const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
   db.users[index] = {
@@ -6980,9 +7003,13 @@ export async function updateUserSellerSettings(input: {
     const nextContact = input.whatsappNumber !== undefined
       ? normalizePrivateContact(input.whatsappNumber, requiresBuyerContact(user))
       : user.whatsappNumber;
+    if (input.whatsappNumber !== undefined
+      && canonicalPhoneNumber(nextContact) !== canonicalPhoneNumber(user.whatsappNumber)) {
+      assertAccountPhoneAvailable(snapshot.users, user, nextContact, true);
+    }
     const verifiedPhoneChanged = input.whatsappNumber !== undefined
       && Boolean(user.verifiedPhone)
-      && normalizeE164(nextContact) !== user.verifiedPhone;
+      && canonicalPhoneNumber(nextContact) !== canonicalPhoneNumber(user.verifiedPhone);
     snapshot.users[index] = {
       ...user,
       fullName: nextFullName,

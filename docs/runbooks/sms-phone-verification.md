@@ -1,11 +1,18 @@
 # Mandatory buyer and seller SMS verification
 
-Production buyers and sellers must verify a phone before using Alpha Exchange.
-This policy was required by the owner on 3 October 2026. Existing unverified
-accounts go to `/verify-account` after login, and marketplace pages, reads,
-actions, and mobile marketplace APIs enforce canonical verification. No account
-email or owner/admin role grants an exemption. Email verification remains
-independently required.
+Production buyers and sellers must verify a unique phone before using Alpha Exchange.
+On 4 October 2026 the owner explicitly authorized exceptions for three existing
+accounts: `alphatradersai@gmail.com`, `claudiahttps11@gmail.com`, and
+`jozenmark834@yahoo.com`. Exceptions require both the exact existing immutable
+account ID and the canonical email, resolved from the server's account record.
+Email alone, aliases, recreated accounts, roles, cookies, client booleans, and
+user-editable auth metadata cannot grant an exception. Email verification and
+normal account, role, seller-approval, and commission restrictions still apply.
+
+Every other unverified account goes to `/verify-account` after login; marketplace
+pages, reads, actions, and native APIs enforce the same canonical policy.
+The private session DTO reports the authorization result as a boolean and does
+not fabricate `verifiedPhone` or `phoneVerifiedAt` for an exempt account.
 
 Production enforcement does not depend on
 `ALPHA_EXCHANGE_PHONE_VERIFICATION_ENABLED` or
@@ -65,6 +72,21 @@ under the transaction lock. Phone ownership is unique across accounts. Web,
 onboarding, and mobile endpoints share account rate limits. Ambiguous provider
 sends are not automatically retried.
 
+Registration checks the normalized private phone before provider signup and
+rechecks against current accounts under the repository write lock. New regular
+accounts and contact changes cannot reuse a saved or verified phone belonging
+to another user. The three authorized accounts may share a private contact,
+while verified OTP ownership remains unique even for them.
+
+The `unique_exchange_phone_ownership` database migration enforces an expression
+unique index over canonical verified numbers and a contact-write trigger.
+Israeli local, international, punctuation, Arabic-digit, and Eastern Arabic-digit
+formats resolve to the same key. Concurrent writes cannot claim two verified
+owners. Later legacy duplicate verifications are retired; the first verification
+and all accounts, contact fields, sessions, trades, and history are preserved.
+Original retired verification values are retained in an inaccessible private
+reconciliation table, and the runtime version advances to invalidate stale writes.
+
 Changing the saved contact number clears verification and requires another SMS.
 A forged phone cookie, stale exception boolean, client field, or restored page
 cannot authorize marketplace access. Actual verification persists across
@@ -78,7 +100,7 @@ sending; feature flags do not relax production account access.
 ## Validation
 
 The implementation is covered by production-switch, canonical authorization,
-previous-exemption, phone-cookie, client-boundary, expiry, replay, concurrency,
+exact-account-exception, wrong-ID, phone-cookie, client-boundary, expiry, replay, concurrency,
 unique-number, resend, number-change, delivery-selection, and mobile tests.
 The web production build, web/mobile TypeScript checks, and affected ESLint
 checks must pass before publishing.
