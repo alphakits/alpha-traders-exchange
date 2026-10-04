@@ -72,6 +72,16 @@ jobs:
               const names = list.stdout.split('\n').filter(Boolean);
               if (names.some(name => name.startsWith('/') || name.split('/').includes('..'))) throw new Error('Unsafe report entry');
               const selectedNames = names.filter(name => /commands.*\.json$/i.test(name) || /maestro\.log$/i.test(name));
+              if (job.key === 'android_terms_en' || job.key === 'ios_navigation') {
+                const pngs = names.filter(name => /\.png$/i.test(name));
+                const failed = pngs.find(name => /fail|error/i.test(name)) ?? pngs.find(name => name.includes('English footer and canonical commission terms'));
+                console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, pngCandidates: pngs.slice(0,20), selectedScreenshot: failed }));
+                if (failed) {
+                  const screenshot = spawnSync('tar', ['-xOzf', path, '--', failed], { maxBuffer: 2000000 });
+                  if (screenshot.status !== 0) throw new Error('Could not read failure screenshot.');
+                  if (screenshot.stdout.length <= 600000) console.log(JSON.stringify({ nativeScreenshot: { source: completed.gitCommitHash, job: job.key, file: failed, base64: screenshot.stdout.toString('base64') } }));
+                }
+              }
               console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, archiveCount: names.length, diagnosticEntries: selectedNames }));
               for (const name of selectedNames) {
                 const text = spawnSync('tar', ['-xOzf', path, '--', name], { encoding: 'utf8', maxBuffer: 8000000 });
@@ -81,6 +91,7 @@ jobs:
                   console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, androidTraceFile: name, traceFailureLines: lines.slice(-100).filter(line => !line.includes('https://') && !line.includes('http://')) }));
                 } else if (text.stdout.includes('FAILED') || /offline|exception/i.test(text.stdout)) {
                   const parsed = JSON.parse(text.stdout);
+                  if (name.includes('English footer and canonical commission terms')) console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, startupCommands: parsed.slice(0,9).map(item => ({ command: JSON.stringify(item.command ?? {}).slice(0,1300), status: item.metadata?.status, error: item.metadata?.error })) }));
                   const failures = [];
                   const walk = (value, path = '') => {
                     if (!value || typeof value !== 'object') return;
