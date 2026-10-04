@@ -25,6 +25,21 @@ describe("shared interface access", () => {
     expect(getInterfacePageDestination(user, "/ar/dashboard/seller", "ar")).toBe("/ar/profile");
     expect(getInterfacePageDestination(user, "/ar/admin/alpha-exchange", "ar")).toBe("/ar/profile");
     expect(canShowInterfaceLink("/trades", user)).toBe(false);
+    for (const path of ["/trades", "/trade-room", "/trade-room/owned-trade", "/dashboard/history"]) {
+      expect(getInterfacePageDestination(user, `/ar${path}`, "ar")).toBe("/ar/profile");
+    }
+  });
+  it.each([
+    { role: "buyer", roles: ["buyer"], sellerStatus: "buyer" },
+    { role: "approved_seller", sellerStatus: "approved_seller" },
+    { role: "approved_seller", sellerStatus: "suspended" },
+    { role: "pending_seller_approval", sellerStatus: "pending_seller_approval" },
+    { role: "owner", roles: ["owner"] },
+    { role: "admin", roles: ["admin"] },
+    { role: "student", roles: ["student", "buyer"], sellerStatus: "buyer" },
+  ])("preserves trading and settlement pages for eligible roles %j", (user) => {
+    expect(getInterfacePageDestination(user, "/en/trades", "en")).toBeNull();
+    expect(getInterfacePageDestination(user, "/en/trade-room/owned-trade", "en")).toBeNull();
   });
   it("respects combined roles, pending applications and owner access without an admin label", () => {
     expect(getInterfaceAccess({ role: "student", roles: ["student", "buyer"] }).buyer).toBe(true);

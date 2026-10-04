@@ -5,6 +5,7 @@ import { getFirstActiveTradeForUser, getFirstActionableTradeForUser, resolveTrad
 import { hasRole } from "@/lib/roles";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -23,12 +24,14 @@ export default async function TradeRoomLandingPage({
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ notificationId?: string | string[]; includePending?: string | string[] }>;
 }) {
-  const { locale } = await params;
+  const locale = (await params).locale === "ar" ? "ar" : "en";
   const { notificationId, includePending } = await searchParams;
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/trade-room`);
   }
+  const destination = getInterfacePageDestination(user, "/trade-room", locale);
+  if (destination) redirect(destination);
 
   const requestedNotificationId = typeof notificationId === "string" ? notificationId.trim() : "";
   const includePendingFallback = includePending === "1" || includePending === "true";

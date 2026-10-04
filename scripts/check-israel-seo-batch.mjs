@@ -16,7 +16,7 @@ const site = 'https://www.alphatraders.co.il';
 const pages = ['buy-usdt-israel', 'learn-trading-free'];
 const locales = ['en', 'ar'];
 const jsx = (type, props) => typeof type === 'function' ? type(props ?? {}) : ({ type, props: props ?? {} });
-function loader(env = {}) {
+function loader(env = {}, sessionUser = null) {
   const cache = new Map();
   const allowed = {
     '@/lib/site-url': 'src/lib/site-url.ts',
@@ -25,6 +25,8 @@ function loader(env = {}) {
     '@/lib/seo-breadcrumb': 'src/lib/seo-breadcrumb.ts',
     '@/components/seo/public-discovery-breadcrumbs': 'src/components/seo/public-discovery-breadcrumbs.tsx',
     '@/components/academy/learning-next-step': 'src/components/academy/learning-next-step.tsx',
+    '@/components/academy/free-course-entry': 'src/components/academy/free-course-entry.tsx',
+    '@alpha-traders/contracts': 'packages/contracts/src/interface-access.ts',
   };
   const fixtures = {
     'server-only': {},
@@ -32,6 +34,7 @@ function loader(env = {}) {
     '@/i18n/navigation': { Link: 'a' },
     '@/components/ui/button': { buttonVariants: () => 'button-fixture' },
     '@/components/academy/learning-share-actions': { LearningShareActions: 'test-share-actions' },
+    '@/components/auth/canonical-session-provider': { useOptionalCanonicalSession: () => ({ user: sessionUser }) },
     '@/lib/brand': { BRAND_NAME: 'Alpha Traders Academy & Exchange', BRAND_PRIMARY_NAME: 'Alpha Traders', BRAND_SUPPORT_EMAIL: 'fixture@example.invalid', BRAND_OFFICIAL_SOCIALS: [] },
     '@/lib/public-trust': { getPublicTrustFaqs: () => [] },
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
@@ -172,6 +175,20 @@ for (const locale of locales) {
       assert.ok(exchangeLinks.includes('/learn-trading-free'));
       assert.match(text(academy), locale === 'ar' ? /بريدًا إلكترونيًا مؤكدًا/ : /verified email/);
       assert.match(text(exchange), locale === 'ar' ? /تسجيل الدخول/ : /requires sign-in/);
+    });
+    test(`${locale}: signed-in course entry opens Academy without duplicate account prompts`, async () => {
+      for (const role of ['guest', 'student', 'buyer', 'approved_seller', 'admin', 'owner']) {
+        const load = loader({}, { role, roles: [role], sellerStatus: role === 'approved_seller' ? role : 'buyer', emailVerified: true });
+        const view = await load('src/app/[locale]/learn-trading-free/page.tsx').default({ params: Promise.resolve({ locale }) });
+        const links = walk(view, x => x.type === 'a').map(x => x.props.href);
+        assert.equal(links.filter(href => href === '/academy').length, 2, role);
+        assert.equal(links.some(href => typeof href === 'object' && href.pathname === '/login'), false, role);
+        const entry = load('src/components/academy/free-course-entry.tsx');
+        assert.doesNotMatch(text(entry.FreeCourseAccessNote({ locale })), /Create an account|أنشئ حسابًا/);
+        assert.doesNotMatch(text(entry.FreeCourseSetupSteps({ locale })), /Create an account|أنشئ حسابًا/);
+        assert.equal(walk(view, x => x.type === 'h1').length, 1);
+        assert.ok(schemas(view).some(x => x['@type'] === 'Course'));
+      }
     });
     test(`${locale}: academy has six unchanged topics with useful descriptions`, async () => {
       const view = await loader()('src/app/[locale]/learn-trading-free/page.tsx').default({ params: Promise.resolve({ locale }) });

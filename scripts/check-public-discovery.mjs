@@ -51,6 +51,11 @@ const learningNextStep = load("src/components/academy/learning-next-step.tsx", {
   "@/i18n/navigation": { Link: "test-link" },
   "@/components/ui/button": { buttonVariants: () => "test-button" },
 });
+const freeCourseEntry = load("src/components/academy/free-course-entry.tsx", {
+  "@alpha-traders/contracts": load("packages/contracts/src/interface-access.ts"),
+  "@/components/auth/canonical-session-provider": { useOptionalCanonicalSession: () => ({ user: null }) },
+  "@/i18n/navigation": { Link: "test-link" },
+});
 const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/lib/auth": { getCurrentSessionUser: async () => ({ id: "signed-in-learner" }) },
   "@/lib/protected-page": { getSignedOutPageDestination: () => { throw new Error("Authenticated fixture must not redirect"); } },
@@ -63,6 +68,7 @@ const page = (name) => load(`src/app/[locale]/${name}/page.tsx`, {
   "@/components/ui/button": { buttonVariants: () => "test-button" },
   "@/components/sections/contact/contact-form": { ContactForm: "test-contact-form" },
   "@/components/academy/learning-next-step": learningNextStep,
+  "@/components/academy/free-course-entry": freeCourseEntry,
   "@/components/academy/learning-share-actions": { LearningShareActions: "test-share-actions" },
 });
 function walk(value, predicate) {

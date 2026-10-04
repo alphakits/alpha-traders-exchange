@@ -1,5 +1,6 @@
 import { LearningNextStep } from "@/components/academy/learning-next-step";
 import { LearningShareActions } from "@/components/academy/learning-share-actions";
+import { FreeCourseAccessNote, FreeCourseEntryLink, FreeCourseSetupSteps } from "@/components/academy/free-course-entry";
 import { Link } from "@/i18n/navigation";
 import { buildPageMetadata, buildCourseSchema, buildFaqSchema, serializeJsonLd } from "@/lib/seo";
 import { buttonVariants } from "@/components/ui/button";
@@ -67,8 +68,8 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
         </h1>
         <p className="page-subtitle">{isAr?"ابنِ أساسك في حركة السعر وإدارة المخاطر وعلم نفس التداول. تعلّم ضمن مسار منظّم، بالسرعة المناسبة لك، دون رسوم للدورة." : "Build your foundation in price action, risk management and trading psychology. Follow a structured course at your own pace, with no course fee."}</p>
         <div className="space-y-3">
-          <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants({ className: "w-full sm:w-auto" })}>{isAr ? "ابدأ الدورة المجانية" : "Start the Free Course"}</Link>
-          <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "أنشئ حسابًا أو سجّل الدخول، ثم أكّد بريدك للوصول إلى الدروس وحفظ تقدّمك. المحتوى تعليمي والتداول ينطوي على مخاطر؛ لا توجد أرباح مضمونة." : "Create an account or sign in, then verify your email to access lessons and save progress. Content is educational and trading involves risk; profits are never guaranteed."}</p>
+          <FreeCourseEntryLink locale={isAr ? "ar" : "en"} className={buttonVariants({ className: "w-full sm:w-auto" })} />
+          <FreeCourseAccessNote locale={isAr ? "ar" : "en"} />
         </div>
         <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "عندك خبرة وبدك تشتغل على التطبيق؟ " : "Already have experience and want to work on applying it? "}<Link href="/learn-with-mark" className="inline-flex min-h-11 items-center text-[#E5CA77] underline underline-offset-4">{isAr ? "تعرّف على ICT Mentorship مع مارك" : "Explore ICT Mentorship with Mark"}</Link></p>
       </div>
@@ -83,12 +84,7 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
       </div>
       <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "كيف تبدأ؟" : "How to get started"}</h2>
-        <ol className="mt-4 space-y-3 text-sm leading-7 text-[#D1D5DB]">
-          <li>{isAr ? "1. استكشف المراحل والمواضيع في هذه الصفحة." : "1. Review the stages and topics on this page."}</li>
-          <li>{isAr ? "2. أنشئ حسابًا باستخدام بريدك الإلكتروني أو سجّل الدخول." : "2. Create an account with your email or sign in."}</li>
-          <li>{isAr ? "3. أكد بريدك الإلكتروني للدخول إلى الدروس وحفظ تقدمك." : "3. Verify your email to access lessons and save progress."}</li>
-          <li>{isAr ? "4. تابع التعلم بالترتيب وركز على إدارة المخاطر قبل التطبيق." : "4. Follow the learning path in order and prioritize risk management before execution."}</li>
-        </ol>
+        <FreeCourseSetupSteps locale={isAr ? "ar" : "en"} />
       </div>
       <div id="faq" className="rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6">
         <h2 className="text-xl font-semibold">{isAr ? "أسئلة شائعة" : "Frequently asked questions"}</h2>
@@ -96,9 +92,9 @@ export default async function LearnTradingFreePage({ params }: { params: Promise
       </div>
       <LearningNextStep locale={locale} />
       <LearningShareActions locale={locale} destination="academy" />
-      <p className="text-sm leading-7 text-[#D1D5DB]">{isAr ? "الدورة مجانية. يلزم إنشاء حساب ببريد إلكتروني وتأكيده للدخول إلى الدروس وحفظ تقدّمك. لديك حساب؟ سجّل الدخول للمتابعة." : "The course is free. Create an account and verify your email to access lessons and save your progress. Already have an account? Sign in to continue."}</p>
+      <FreeCourseAccessNote locale={isAr ? "ar" : "en"} />
       <div className="flex flex-wrap gap-3">
-        <Link href={{ pathname: "/login", query: { redirectTo: `/${isAr ? "ar" : "en"}/academy` } }} className={buttonVariants()}>{isAr?"ابدأ الدورة المجانية":"Start the Free Course"}</Link>
+        <FreeCourseEntryLink locale={isAr ? "ar" : "en"} className={buttonVariants()} />
         <Link href="/about-founder" className={buttonVariants({variant:"secondary"})}>{isAr?"عن المؤسس والمنهج":"Founder & Method"}</Link>
         <Link href="/usdt-exchange" className={buttonVariants({variant:"secondary"})}>{isAr?"استكشف Alpha Exchange":"Explore Alpha Exchange"}</Link>
       </div>

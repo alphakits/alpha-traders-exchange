@@ -189,6 +189,29 @@ describe("LoginForm", () => {
     }
   });
 
+  it.each([
+    ["buyer", "/ar/admin/alpha-exchange", "/ar/dashboard"],
+    ["buyer", "/ar/dashboard/seller", "/ar/dashboard"],
+    ["student", "/ar/trades", "/ar/profile"],
+    ["guest", "/ar/trade-room/owned-trade", "/ar/profile"],
+  ])("hides the restored login form and skips a forbidden destination for %s", async (role, redirectTo, expected) => {
+    const originalLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, replace: replaceSpy } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      user: { id: "restored-account", role, roles: [role], sellerStatus: "buyer", onboardingSelection: role },
+    })));
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={null}><LoginForm locale="ar" redirectTo={redirectTo} /></CanonicalSessionProvider>);
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith(expected));
+      expect(screen.queryByRole("button", { name: "تسجيل الدخول" })).toBeNull();
+      expect(screen.queryByLabelText("كلمة المرور")).toBeNull();
+      expect(screen.queryByRole("link", { name: "أنشئ حسابًا" })).toBeNull();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
   it("keeps Login available when the session is anonymous or unavailable", async () => {
     const originalLocation = window.location;
     const replaceSpy = vi.fn();
@@ -236,7 +259,7 @@ describe("LoginForm", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "abc12345" } });
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en/dashboard/seller"));
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en/dashboard"));
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(window, "location", {

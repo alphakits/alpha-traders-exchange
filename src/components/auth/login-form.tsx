@@ -19,6 +19,7 @@ import appStyles from "./app-login-network.module.css";
 import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
 import { isExchangePage } from "@/lib/protected-page";
 import { isAcademyEntry, isMentorshipEntry } from "@/lib/academy-entry";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
@@ -38,15 +39,16 @@ function loginDestination(locale: "ar" | "en", rawRedirect: string | undefined, 
     && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
   const fallback = owner ? "/" : admin ? "/admin/alpha-exchange"
     : user?.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true ? "/dashboard/seller" : "/usdt-exchange";
-  const candidate = rawRedirect?.startsWith("/") && !rawRedirect.startsWith("//") && !rawRedirect.includes("\\")
+  const candidate = rawRedirect?.startsWith("/") && !rawRedirect.startsWith("//") && !/[\\\u0000-\u0020]/.test(rawRedirect)
     && !/^\/(?:ar\/|en\/)?(?:login|register)(?:[/?#]|$)/.test(rawRedirect) ? rawRedirect : null;
   if (needsOnboarding && candidate) {
     try { sessionStorage.setItem("post_onboarding_redirect", candidate.replace(/^\/(ar|en)(?=\/|$)/, "") || "/"); } catch { /* Storage can be unavailable. */ }
   }
   const path = needsOnboarding ? "/onboarding" : candidate ?? fallback;
-  return /^\/(ar|en)(?=\/|[?#]|$)/.test(path)
+  const destination = /^\/(ar|en)(?=\/|[?#]|$)/.test(path)
     ? path.replace(/^\/(ar|en)(?=\/|[?#]|$)/, `/${locale}`)
     : path === "/" ? `/${locale}` : `/${locale}${path}`;
+  return user ? getInterfacePageDestination({ ...user, role: user.role ?? "" }, destination, locale) ?? destination : destination;
 }
 
 export function LoginForm({
@@ -243,6 +245,12 @@ export function LoginForm({
     } finally {
       setIsResendVerificationSubmitting(false);
     }
+  }
+
+  if (recoveredUser && !isLoginSubmitting) {
+    return <section className="section-container py-16 text-center" aria-busy="true">
+      <p role="status">{isAr ? "أنت مسجّل الدخول. جارٍ فتح حسابك…" : "You are signed in. Opening your account…"}</p>
+    </section>;
   }
 
   return (
