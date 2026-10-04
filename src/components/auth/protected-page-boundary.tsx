@@ -1,19 +1,33 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 import { phoneVerificationDestinationForPage } from "@/lib/phone-verification-page";
 import type { AppLocale } from "@/i18n/routing";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 
 export function ProtectedPageBoundary({ children, locale, phoneVerificationRequired = false }: { children: ReactNode; locale: AppLocale; phoneVerificationRequired?: boolean }) {
   const pathname = usePathname();
   const { user, isResolving, isRestoring, error, refresh } = useCanonicalSession();
   const protectedPage = isProtectedPage(pathname ?? "/");
+  const renderedUserId = useRef(user?.id ?? null);
+  const accountChanged = protectedPage && Boolean(user && renderedUserId.current && user.id !== renderedUserId.current);
+  const roleDestination = user ? getInterfacePageDestination(user, pathname ?? "/", locale) : null;
   const phoneDestination = phoneVerificationRequired && user && user.isPhotoVerified !== true
     ? phoneVerificationDestinationForPage(user, pathname ?? "/", locale)
     : null;
+
+  useEffect(() => {
+    if (accountChanged) {
+      // RSC props and private client state belong to the previous account.
+      // Discard both before rendering anything under the new principal.
+      window.location.replace(`${pathname}${window.location.search}${window.location.hash}`);
+    } else if (user && !renderedUserId.current) {
+      renderedUserId.current = user.id;
+    }
+  }, [accountChanged, pathname, user]);
 
   useEffect(() => {
     if (protectedPage && !user && !isResolving && !error) {
@@ -28,7 +42,11 @@ export function ProtectedPageBoundary({ children, locale, phoneVerificationRequi
     if (destination) window.location.replace(destination);
   }, [phoneDestination, pathname, user, isRestoring, error, locale]);
 
-  if (!phoneDestination && (!protectedPage || (user && !isRestoring))) return children;
+  useEffect(() => {
+    if (roleDestination && !isRestoring && !error) window.location.replace(roleDestination);
+  }, [roleDestination, isRestoring, error]);
+
+  if (!accountChanged && !phoneDestination && !roleDestination && (!protectedPage || (user && !isRestoring))) return children;
   // Never mount account components with an anonymous or unresolved principal.
   // A network outage is recoverable and must not be mistaken for a logout.
   return (

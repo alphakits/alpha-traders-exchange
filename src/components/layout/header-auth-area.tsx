@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { canShowInterfaceLink, getInterfaceAccess } from "@alpha-traders/contracts";
 import type { AppLocale } from "@/i18n/routing";
 import type { HeaderNavItem } from "@/components/layout/header-nav";
 import { Link } from "@/i18n/navigation";
 import type { ClientSessionUser } from "@/lib/client-session-user";
-import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -27,14 +26,6 @@ type HeaderAuthLabels = {
   openMenu: string;
 };
 
-function canAccessSellerWorkspace(user: SessionUserSummary | null) {
-  return Boolean(user && (hasRole(user, "approved_seller") || hasRole(user, "admin") || hasRole(user, "owner")));
-}
-
-function canAccessAdminDashboard(user: SessionUserSummary | null) {
-  return Boolean(user && hasRole(user, "admin"));
-}
-
 export function HeaderAuthArea({
   locale,
   navItems,
@@ -49,8 +40,12 @@ export function HeaderAuthArea({
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? labels.profile : labels.signIn;
 
-  const sellerWorkspaceAccess = useMemo(() => canAccessSellerWorkspace(sessionUser), [sessionUser]);
-  const adminDashboardAccess = useMemo(() => canAccessAdminDashboard(sessionUser), [sessionUser]);
+  const access = getInterfaceAccess(sessionUser);
+  const sellerWorkspaceAccess = access.canSell;
+  const adminDashboardAccess = access.administration;
+  const visibleNavItems = navItems
+    .map((item) => !sessionUser && item.href === "/academy" ? { ...item, href: "/learn-trading-free" } : item)
+    .filter((item) => canShowInterfaceLink(item.href, sessionUser));
 
   return (
     <div data-header-account-controls className="ms-auto flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-2 [&_summary]:h-11 [&_summary]:w-11">
@@ -87,7 +82,7 @@ export function HeaderAuthArea({
       ) : null}
       <MobileNavigationMenu label={labels.openMenu}>
         <nav className="space-y-1">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}

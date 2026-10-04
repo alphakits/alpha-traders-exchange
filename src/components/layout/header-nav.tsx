@@ -3,6 +3,8 @@
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { cn } from "@/lib/utils";
+import { canShowInterfaceLink } from "@alpha-traders/contracts";
+import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 export type HeaderNavItem = { href: string; label: string; cta?: boolean };
 
@@ -13,11 +15,15 @@ export type HeaderNavItem = { href: string; label: string; cta?: boolean };
  */
 export function HeaderNav({ items, locale }: { items: HeaderNavItem[]; locale: AppLocale }) {
   const pathname = usePathname();
+  const { user } = useCanonicalSession();
+  const visibleItems = items
+    .map((item) => !user && item.href === "/academy" ? { ...item, href: "/learn-trading-free" } : item)
+    .filter((item) => canShowInterfaceLink(item.href, user));
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
 
   return (
     <nav className="section-container hidden flex-wrap items-center justify-center gap-1 border-t border-white/5 py-1.5 xl:flex" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Primary navigation"}>
-      {items.map((item) => {
+      {visibleItems.map((item) => {
         const active = isActive(item.href);
         if (item.cta) {
           return (

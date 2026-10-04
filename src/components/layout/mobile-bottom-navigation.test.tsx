@@ -132,6 +132,15 @@ describe("MobileBottomNavigation", () => {
     expect(screen.getByRole("link", { name: "Trades" }).getAttribute("href")).toBe("/trades");
   });
 
+  it.each(["guest", "student"])("does not give a signed-in %s an empty trading workspace", (role) => {
+    navigationState.role = role;
+    navigationState.sellerStatus = "buyer";
+    render(<MobileBottomNavigation locale="en" />);
+    expect(screen.queryByRole("link", { name: "Trades" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Account" }).getAttribute("href")).toBe("/profile");
+    expect(screen.getAllByRole("link")).toHaveLength(4);
+  });
+
   it("stays hidden for signed-out visitors and focused active trade rooms", () => {
     navigationState.authenticated = false;
     const { rerender } = render(<MobileBottomNavigation locale="en" />);

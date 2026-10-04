@@ -24,6 +24,7 @@ import { SessionUnavailable } from "@/components/auth/session-unavailable";
 import { logEvent } from "@/lib/structured-logging";
 import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 import { isMarketplacePhoneVerificationRequired, marketplacePhoneVerificationDestination } from "@/lib/phone-verification";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -89,6 +90,10 @@ export default async function LocaleLayout({
   const pagePath = (await headers()).get(APP_PAGE_PATH_HEADER) ?? "";
   if (!sessionUser) {
     if (isProtectedPage(pagePath)) redirect(getSignedOutPageDestination(pagePath));
+  }
+  if (sessionUser) {
+    const roleDestination = getInterfacePageDestination(sessionUser, pagePath, appLocale);
+    if (roleDestination) redirect(roleDestination);
   }
   const phoneVerificationDestination = marketplacePhoneVerificationDestination(sessionUser, pagePath, appLocale);
   if (phoneVerificationDestination) redirect(phoneVerificationDestination);

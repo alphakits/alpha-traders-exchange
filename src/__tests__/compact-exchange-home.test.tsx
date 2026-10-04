@@ -653,5 +653,13 @@ describe("desktop buyer workspace", () => {
     expect(welcome.querySelector("#workspace-summary")).toBeNull();
     expect(within(welcome).getByRole("link", { name: "Owner Dashboard" }).getAttribute("href")).toBe("/admin/alpha-exchange");
     await screen.findByText("My Trade History");
+    expect(screen.queryByRole("heading", { name: "Buyer Dashboard" })).toBeNull();
+  });
+  it.each(["owner", "admin"] as const)("does not invent a buyer workspace for a %s without the buyer role", async (role) => {
+    user = { ...buyer, role, roles: [role] };
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    expect(screen.queryByText("My Trade History")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Buyer Dashboard" })).toBeNull();
+    expect(screen.getByRole("button", { name: role === "owner" ? "Owner Dashboard" : "Admin Dashboard" })).toBeTruthy();
   });
 });
