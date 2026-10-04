@@ -51,14 +51,17 @@ for (const locale of ["en", "ar"] as const) {
   });
 }
 
-test("session controls revoke the current session and preserve the sign-out boundary", async ({ page }) => {
+for (const locale of ["en", "ar"] as const) {
+test(`session controls revoke the current session and restore English after sign-out (${locale})`, async ({ page }) => {
   expect((await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.233" }, data: { email: process.env.E2E_BUYER_EMAIL!, password: process.env.E2E_BUYER_PASSWORD!, rememberMe: true } })).ok()).toBeTruthy();
-  await page.goto("/en/settings?tab=security");
-  await page.getByRole("button", { name: "Sign out this session", exact: true }).click();
+  await page.goto(`/${locale}/settings?tab=security`);
+  await page.getByRole("button", { name: locale === "ar" ? "تسجيل الخروج من هذه الجلسة" : "Sign out this session", exact: true }).click();
   await expect(page).toHaveURL(/\/en\/login/);
   expect((await page.request.get("/api/alpha-exchange/account-sessions")).status()).toBe(401);
-  await expect(page.getByRole("region", { name: "Your account sessions" })).toBeHidden();
+  await expect(page.getByRole("region", { name: locale === "ar" ? "جلسات حسابك" : "Your account sessions" })).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Login", exact: true })).toBeVisible();
 });
+}
 
 test("another sign-in replaces the earlier session without changing the one-session policy", async ({ page }) => {
   const loginData = { email: process.env.E2E_BUYER_EMAIL!, password: process.env.E2E_BUYER_PASSWORD!, rememberMe: true };

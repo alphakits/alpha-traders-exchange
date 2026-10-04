@@ -1,4 +1,5 @@
 "use client";
+import { clearClientLocaleChoice } from "@/i18n/locale-preference";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Monitor, ShieldCheck } from "lucide-react";
@@ -45,8 +46,9 @@ export function AccountSessionsPanel({ userId, isAr }: { userId: string; isAr: b
       if (request.signal.aborted) return;
       setSessions(current => current?.filter(item => item.id !== session.id) ?? []);
       if (payload.currentSessionRevoked) {
+        clearClientLocaleChoice();
         window.dispatchEvent(new Event("alpha-auth-signed-out"));
-        window.location.replace(`/${isAr ? "ar" : "en"}/login`);
+        window.location.replace("/en/login");
       } else setMessage(isAr ? "تم إنهاء الجلسة." : "Session signed out.");
     } catch {
       if (!request.signal.aborted) { setSessions(null); setMessage(isAr ? "لم نتأكد من إنهاء الجلسة. أعد التحميل للتحقق." : "Sign-out could not be confirmed. Reload to check before retrying."); }

@@ -3340,7 +3340,7 @@ function TradeRoomPageSession({
                   <div data-testid="trade-primary-action" className="space-y-2">
                     <Button
                       type="button"
-                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 sm:text-base"
+                      className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center text-sm font-semibold leading-5 hover:translate-y-0 sm:text-base"
                       disabled={primaryActionLoading || actionBusy || Boolean(evidenceBusy) || adjustingAmount || Boolean(primaryActionDisabledReason)}
                       onClick={() => void handlePrimaryAction()}
                     >
