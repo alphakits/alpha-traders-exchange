@@ -81,7 +81,7 @@ function StatCard({ stat, isRtl }: { stat: StatItem; isRtl: boolean }) {
 
       {/* Value */}
       <p
-        className="text-3xl font-bold tabular-nums tracking-tight text-white"
+        className="min-w-0 max-w-full break-words text-3xl font-bold tabular-nums tracking-tight text-white"
         aria-live="polite"
         aria-atomic="true"
       >
