@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!acceptedCommissionPolicy) {
-      return NextResponse.json({ error: "You must confirm Alpha Traders 1% commission policy before publishing this listing." }, { status: 400 });
+      return NextResponse.json({ error: "You must confirm Alpha Traders commission policy (1% buyer + 1% seller = 2% total) before publishing this listing." }, { status: 400 });
     }
     if (!minimumTrade) {
       return NextResponse.json({ error: "Minimum trade must be a valid non-negative USDT amount with no more than six decimal places." }, { status: 400 });

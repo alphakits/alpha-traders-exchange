@@ -225,7 +225,7 @@ export default function NewSellerListingScreen() {
       return;
     }
     if (!isEditing && !acceptedCommission) {
-      setError(isAr ? "يجب الموافقة على سياسة العمولة 1%." : "You must accept the 1% commission policy.");
+      setError(isAr ? "يجب الموافقة على سياسة العمولة: 1% على المشتري + 1% على البائع = 2% إجمالاً." : "You must accept the commission policy: 1% buyer + 1% seller = 2% total.");
       return;
     }
     if (isEditing && changeExplanation.trim().length < 5) {

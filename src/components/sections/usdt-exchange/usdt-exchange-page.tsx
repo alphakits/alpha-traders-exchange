@@ -1,5 +1,5 @@
 "use client";
-import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
@@ -318,6 +318,7 @@ type FeatureCard = {
   icon: typeof ShieldCheck;
   title: string;
   body: string;
+  commissionNotice?: boolean;
 };
 
 export type SellerBankAccount = {
@@ -2861,8 +2862,9 @@ export function UsdtExchangePage({
     },
     {
       icon: BadgePercent,
-      title: isAr ? "رسوم خدمة شفافة 1%" : "Transparent 1% Service Fee",
-      body: isAr ? "رسوم ثابتة وواضحة على كل عملية تتم عبر Alpha Exchange." : "A simple, transparent 1% fee for each facilitated marketplace transaction.",
+      commissionNotice: true,
+      title: isAr ? "1% على المشتري + 1% على البائع" : "1% Buyer + 1% Seller Fees",
+      body: isAr ? "عمولة الصفقات الجديدة 2% إجمالاً. البائع يدفع الحصتين إلى Alpha بعملة USDT ويغطي أي نقص في حصة المشتري." : "New trades carry a 2% total fee. The seller remits both shares to Alpha in USDT and covers any uncollected buyer share.",
     },
     {
       icon: HandCoins,
@@ -2894,10 +2896,9 @@ export function UsdtExchangePage({
         : "Alpha Exchange is a structured marketplace where Alpha Traders coordinates and verifies transactions between buyers and sellers.",
     },
     {
-      q: isAr ? "كيف يتم احتساب رسوم الخدمة 1%؟" : "How is the 1% service fee calculated?",
-      a: isAr
-        ? "يتم احتساب نسبة 1% بشكل واضح على العملية المنسقة عبر Alpha Exchange ويتم توضيحها قبل الإتمام."
-        : "A transparent 1% service fee is calculated on each facilitated exchange and confirmed before finalization.",
+      q: isAr ? "كيف يتم احتساب عمولة المشتري والبائع؟" : "How are buyer and seller fees calculated?",
+      a: marketplaceFeeTerms(isAr ? "ar" : "en"),
+      commissionNotice: true,
     },
     {
       q: isAr ? "ما الشبكات المدعومة لـ USDT؟" : "Which USDT networks are supported?",
@@ -5642,11 +5643,11 @@ export function UsdtExchangePage({
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
                       <Icon className="h-4.5 w-4.5" />
                     </span>
-                    <CardTitle className="text-xl">{currencyText(feature.title)}</CardTitle>
+                    <CardTitle className={`text-xl ${feature.commissionNotice ? "commission-notice" : ""}`}>{currencyText(feature.title)}</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription className="text-sm leading-7">{currencyText(feature.body)}</CardDescription>
+                  <CardDescription className={`text-sm leading-7 ${feature.commissionNotice ? "commission-notice" : ""}`}>{currencyText(feature.body)}</CardDescription>
                 </CardContent>
               </Card>
             );
@@ -5896,11 +5897,11 @@ export function UsdtExchangePage({
         <div className="mt-5 space-y-3">
           {faqs.map((item) => (
             <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5 transition-colors hover:border-white/20">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
+              <summary className={`flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white ${item.commissionNotice ? "commission-notice" : ""}`}>
                 {currencyText(item.q)}
                 <CheckCircle2 className="h-4 w-4 text-[#C9A227] transition group-open:rotate-12" />
               </summary>
-              <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{currencyText(item.a)}</p>
+              <p className={`mt-3 text-sm leading-7 text-[#9CA3AF] ${item.commissionNotice ? "commission-notice" : ""}`}>{currencyText(item.a)}</p>
             </details>
           ))}
         </div>

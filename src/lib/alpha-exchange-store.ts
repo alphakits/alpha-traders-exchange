@@ -9091,7 +9091,7 @@ export async function createMarketplaceListing(input: {
   const { db, fromCache } = await readDbForListingCreation();
   logProfile("readDb");
   if (!input.acceptedCommissionPolicy) {
-    throw new Error("You must confirm Alpha Traders 1% commission policy before publishing a listing.");
+    throw new Error("You must confirm Alpha Traders commission policy (1% buyer + 1% seller = 2% total) before publishing a listing.");
   }
   const blockReason = getSellerListingBlockReason(db, input.sellerId);
   if (blockReason) throw new Error(blockReason);
