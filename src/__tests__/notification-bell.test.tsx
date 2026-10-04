@@ -117,8 +117,14 @@ describe("Notification bell conversation navigation", () => {
       isRead: false, createdAt: new Date().toISOString(),
     };
     const payload = { notifications: [notice], unreadCount: 1 };
-    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
-      new Response(JSON.stringify(init?.method === "PATCH" ? {} : payload), { status: 200 })));
+    let serverRead = false;
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        serverRead = true;
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      return new Response(JSON.stringify(serverRead ? { notifications: [], unreadCount: 0 } : payload), { status: 200 });
+    }));
     render(<NotificationBell locale="en" />);
     const bell = screen.getByRole("button", { name: "Notifications" });
     fireEvent.click(bell);
@@ -135,6 +141,7 @@ describe("Notification bell conversation navigation", () => {
       notificationStream.onNotifications?.(new MessageEvent("notifications", { data: JSON.stringify(payload) }));
     });
     fireEvent.click(bell);
+    await act(async () => { await Promise.resolve(); });
     expect(screen.queryByRole("button", { name: "Mark as read" })).toBeNull();
     expect(screen.queryByText("1 unread")).toBeNull();
     expect(navigation.push).not.toHaveBeenCalled();
@@ -197,6 +204,33 @@ describe("Notification bell conversation navigation", () => {
     });
     fireEvent.click(bell);
     expect(screen.getByRole("button", { name: "Mark as read" })).toBeTruthy();
+  });
+
+  it.each(["one", "all"] as const)("accepts authoritative unread data after a confirmed %s read", async (action) => {
+    const notice = {
+      id: "authoritative-unread", userId: "buyer-1", category: "listing",
+      title: "A listing alert", message: "A guest fixture notification.",
+      isRead: false, createdAt: new Date().toISOString(),
+    };
+    const payload = { notifications: [notice], unreadCount: 1 };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Response(JSON.stringify(init?.method === "PATCH" ? {} : payload), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationBell locale="en" />);
+    const bell = screen.getByRole("button", { name: "Notifications" });
+    fireEvent.click(bell);
+    await screen.findByRole("button", { name: "Mark as read" });
+    fireEvent.click(screen.getByRole("button", { name: action === "all" ? "Mark all as read" : "Mark as read" }));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole("button", { name: "Mark as read" })).toBeNull();
+    fireEvent.click(bell);
+    // The full Notification Center subsequently marked this item unread.
+    // Reopening must trust the new server read even without an empty stream.
+    fireEvent.click(bell);
+    await screen.findByRole("button", { name: "Mark as read" });
+    expect(screen.getByText("1 unread")).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([, init]) => !init?.method)).toHaveLength(2);
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it("opens a legacy lifecycle notice without a trade snapshot and preserves its request ID", async () => {

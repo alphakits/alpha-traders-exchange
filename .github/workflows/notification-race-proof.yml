@@ -48,15 +48,24 @@ jobs:
           } finally {
             fs.writeFileSync(path, fixed);
           }
+          try {
+            fs.writeFileSync(path, execFileSync('git', ['show', '8200ceaf35e9a4406f664e07b0b623bd814483af:' + path], { encoding: 'utf8' }));
+            const guard = run('notification-unread-before.json', ['-t', 'accepts authoritative unread data after a confirmed']);
+            if (guard.result.status !== 1 || guard.report.numFailedTests !== 2) throw new Error('Both authoritative unread regressions must fail on the earlier candidate.');
+          } finally {
+            fs.writeFileSync(path, fixed);
+          }
           const after = run('notification-race-after.json');
-          if (after.result.status !== 0 || after.report.numFailedTests !== 0 || after.report.numPassedTests !== 17) throw new Error('The complete notification navigation suite must pass after the fix.');
-          console.log('All six stale-update regressions reproduced; all seventeen notification tests passed after the repair.');
+          if (after.result.status !== 0 || after.report.numFailedTests !== 0 || after.report.numPassedTests !== 19) throw new Error('The complete notification navigation suite must pass after the fix.');
+          console.log('All six stale-update regressions reproduced; all nineteen notification tests passed after the repair.');
           JS
       - name: Preserve before and after evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: notification-race-proof
-          path: notification-race-*.json
+          path: |
+            notification-race-*.json
+            notification-unread-*.json
           if-no-files-found: error
           retention-days: 14
