@@ -16,6 +16,7 @@ name: English footer and canonical commission terms
     env:
       TARGET_TEXT: ".*Legal.*"
 - tapOn: ".*Legal.*"
+- takeScreenshot: footer-legal-open-en
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
     env:
