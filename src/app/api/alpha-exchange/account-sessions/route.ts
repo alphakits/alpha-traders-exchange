@@ -8,11 +8,15 @@ import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
 const privateHeaders = { "Cache-Control": "private, no-store", Vary: "Cookie" };
+function privateResponse(response: NextResponse) {
+  for (const [name, value] of Object.entries(privateHeaders)) response.headers.set(name, value);
+  return response;
+}
 const revokeSchema = z.object({ sessionId: z.string().regex(/^[a-f0-9]{32}$/) }).strict();
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
-  if (!user) return unauthorized;
+  if (!user) return privateResponse(unauthorized);
   const token = await getCurrentSessionToken();
   if (!token) return NextResponse.json({ error: "Session unavailable." }, { status: 401, headers: privateHeaders });
   try {
@@ -24,10 +28,10 @@ export async function GET() {
 
 export async function DELETE(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
-  if (!user) return unauthorized;
+  if (!user) return privateResponse(unauthorized);
   if (!hasTrustedSameOrigin(request)) return NextResponse.json({ error: "Untrusted request origin." }, { status: 403, headers: privateHeaders });
   const rate = await checkSharedRateLimit({ headers: request.headers, key: "account:revoke-session", identifier: user.id, maxRequests: 8, windowMs: 60_000 });
-  if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
+  if (!rate.allowed) return privateResponse(createRateLimitResponse(rate.retryAfterSeconds));
   const token = await getCurrentSessionToken();
   if (!token) return NextResponse.json({ error: "Session unavailable." }, { status: 401, headers: privateHeaders });
   let parsed;

@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ auth: vi.fn(), token: vi.fn(), list: vi.fn(), 
 vi.mock("@/lib/api-auth", () => ({ requireApiUser: mocks.auth }));
 vi.mock("@/lib/auth", () => ({ getCurrentSessionToken: mocks.token, expireAuthCookies: mocks.expire }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ listAccountSessions: mocks.list, revokeAccountSession: mocks.revoke }));
-vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.rate, createRateLimitResponse: () => NextResponse.json({}, { status: 429 }) }));
+vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.rate, createRateLimitResponse: () => NextResponse.json({}, { status: 429, headers: { "Retry-After": "9" } }) }));
 import { GET, DELETE } from "./route";
 const sessionId = "a".repeat(32);
 const request = (body: unknown, origin = "http://localhost") => new NextRequest("http://localhost/api/alpha-exchange/account-sessions", { method: "DELETE", headers: { origin, "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -18,4 +18,6 @@ describe("account session security boundary", () => {
   it("rejects a foreign origin", async () => { expect((await DELETE(request({ sessionId }, "https://foreign.example"))).status).toBe(403); expect(mocks.revoke).not.toHaveBeenCalled(); });
   it("fails closed on a session database outage", async () => { mocks.list.mockRejectedValue(new Error("sensitive connection")); const response = await GET(); expect(response.status).toBe(503); expect(await response.text()).not.toContain("sensitive connection"); });
   it("does not treat a missing session cookie as an active session", async () => { mocks.token.mockResolvedValue(null); expect((await GET()).status).toBe(401); expect((await DELETE(request({ sessionId }))).status).toBe(401); });
+  it("keeps authentication failures private and never calls the session store", async () => { mocks.auth.mockImplementation(async () => ({ user: null, unauthorized: NextResponse.json({ error: "unauthorized" }, { status: 401 }) })); for (const response of [await GET(), await DELETE(request({ sessionId }))]) { expect(response.status).toBe(401); expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(response.headers.get("vary")).toBe("Cookie"); } expect(mocks.list).not.toHaveBeenCalled(); expect(mocks.revoke).not.toHaveBeenCalled(); });
+  it("keeps a rate-limit response private while preserving its retry delay", async () => { mocks.rate.mockResolvedValue({ allowed: false }); const response = await DELETE(request({ sessionId })); expect(response.status).toBe(429); expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(response.headers.get("vary")).toBe("Cookie"); expect(response.headers.get("retry-after")).toBe("9"); expect(mocks.revoke).not.toHaveBeenCalled(); });
 });
