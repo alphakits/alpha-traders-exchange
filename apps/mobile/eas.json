@@ -11,6 +11,12 @@
     "preview": {
       "distribution": "internal"
     },
+    "audit-simulator": {
+      "extends": "preview",
+      "ios": {
+        "simulator": true
+      }
+    },
     "production": {
       "autoIncrement": true
     }

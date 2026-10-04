@@ -1,0 +1,27 @@
+appId: com.alphakits.alphatraders
+name: Arabic footer and canonical commission terms
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "التبديل إلى العربية"
+    commands:
+      - tapOn: "التبديل إلى العربية"
+- scrollUntilVisible:
+    element: ".*قانوني.*"
+    timeout: 60000
+- tapOn: ".*قانوني.*"
+- scrollUntilVisible:
+    element: ".*الشروط.*"
+    timeout: 30000
+- tapOn: ".*الشروط.*"
+- scrollUntilVisible:
+    element: ".*1%.*المشتري.*1%.*البائع.*2%.*"
+    timeout: 30000
+    visibilityPercentage: 30
+- assertVisible: ".*1%.*المشتري.*1%.*البائع.*2%.*"
+- takeScreenshot: terms-ar

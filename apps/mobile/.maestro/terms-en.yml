@@ -1,0 +1,27 @@
+appId: com.alphakits.alphatraders
+name: English footer and canonical commission terms
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Switch to English"
+    commands:
+      - tapOn: "Switch to English"
+- scrollUntilVisible:
+    element: ".*Legal.*"
+    timeout: 60000
+- tapOn: ".*Legal.*"
+- scrollUntilVisible:
+    element: ".*Terms.*"
+    timeout: 30000
+- tapOn: ".*Terms.*"
+- scrollUntilVisible:
+    element: ".*1% buyer.*1% seller.*2%.*"
+    timeout: 30000
+    visibilityPercentage: 30
+- assertVisible: ".*1% buyer.*1% seller.*2%.*"
+- takeScreenshot: terms-en

@@ -1,0 +1,87 @@
+name: Native App Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/native-audit-*]
+    paths:
+      - .github/workflows/native-audit.yml
+      - apps/mobile/**
+      - packages/**
+      - scripts/patch-audit-security.mjs
+      - scripts/security-backports/**
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-emulators:
+    name: Android and iOS installed app verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Require existing Expo access
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - run: npm run mobile:typecheck
+      - run: npm run mobile:doctor
+      - name: Build standalone apps and wait for native UI results
+        working-directory: apps/mobile
+        run: eas workflow:run .eas/workflows/native-audit.yml --non-interactive --wait --json > native-audit-result.json
+      - name: Preserve native workflow result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-audit-result
+          path: apps/mobile/native-audit-result.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  signed-ios:
+    name: Signed iPhone candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Require existing Expo access
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - run: npm run mobile:typecheck
+      - name: Build signed iPhone candidate with existing credentials
+        working-directory: apps/mobile
+        run: eas build --platform ios --profile preview --non-interactive --wait --json > signed-ios-result.json
+      - name: Preserve signed build result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-ios-result
+          path: apps/mobile/signed-ios-result.json
+          if-no-files-found: ignore
+          retention-days: 14

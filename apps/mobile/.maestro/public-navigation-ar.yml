@@ -1,0 +1,30 @@
+appId: com.alphakits.alphatraders
+name: Arabic homepage and guest navigation
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "التبديل إلى العربية"
+    commands:
+      - tapOn: "التبديل إلى العربية"
+- assertVisible: "فتح القائمة"
+- tapOn: "فتح القائمة"
+- tapOn: "المجتمع"
+- assertVisible: "مساحة تعليمية منظمة للتطبيق والمتابعة والنقاش المهني."
+- tapOn: "الرئيسية"
+- tapOn: "فتح القائمة"
+- tapOn: "تواصل معنا"
+- assertVisible: "كيف يمكننا مساعدتك؟"
+- tapOn: "الرئيسية"
+- scrollUntilVisible:
+    element: "ادخل إلى Alpha Exchange"
+    timeout: 30000
+- tapOn: "ادخل إلى Alpha Exchange"
+- assertVisible: "البريد الإلكتروني"
+- tapOn: "الرئيسية"
+- assertVisible: "فتح القائمة"
+- takeScreenshot: public-navigation-ar

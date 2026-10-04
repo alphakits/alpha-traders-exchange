@@ -1,0 +1,39 @@
+appId: com.alphakits.alphatraders
+name: English homepage and guest navigation
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Switch to English"
+    commands:
+      - tapOn: "Switch to English"
+- assertVisible: "Open menu"
+- tapOn: "Open menu"
+- tapOn: "Community"
+- assertVisible: "A structured space for practice, accountability, and professional discussion."
+- tapOn: "Home"
+- tapOn: "Open menu"
+- tapOn: "Contact"
+- assertVisible: "How can we help?"
+- tapOn: "Home"
+- tapOn: "Open menu"
+- tapOn: "Academy"
+- assertVisible: "Premium Sign In"
+- scrollUntilVisible:
+    element: "Forgot your password?"
+    timeout: 30000
+- tapOn: "Forgot your password?"
+- assertVisible: "Reset Password"
+- tapOn: "Home"
+- scrollUntilVisible:
+    element: "Enter Alpha Exchange"
+    timeout: 30000
+- tapOn: "Enter Alpha Exchange"
+- assertVisible: "Premium Sign In"
+- tapOn: "Home"
+- assertVisible: "Open menu"
+- takeScreenshot: public-navigation-en

@@ -1,0 +1,40 @@
+name: Alpha Traders Native App Audit
+
+# Started by GitHub's Native App Audit job, with the exact checked-out source.
+# Public navigation uses no customer accounts and submits no transactions.
+jobs:
+  android:
+    type: build
+    environment: preview
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    params:
+      platform: android
+      profile: preview
+
+  ios_simulator:
+    type: build
+    environment: preview
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    params:
+      platform: ios
+      profile: audit-simulator
+
+  android_navigation:
+    needs: [android]
+    type: maestro
+    params:
+      build_id: ${{ needs.android.outputs.build_id }}
+      flow_path: .maestro
+      retries: 0
+      record_screen: true
+
+  ios_navigation:
+    needs: [ios_simulator]
+    type: maestro
+    params:
+      build_id: ${{ needs.ios_simulator.outputs.build_id }}
+      flow_path: .maestro
+      retries: 0
+      record_screen: true

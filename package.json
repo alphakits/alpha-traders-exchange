@@ -46,7 +46,7 @@
     "mobile:review-surface": "node scripts/verify-mobile-review-surface.mjs",
     "mobile:export": "npm run mobile:clean && npm --workspace @alpha-traders/mobile run export",
     "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:store-readiness && npm run mobile:export",
-    "postinstall": "node scripts/patch-expo-uri-decoder.mjs"
+    "postinstall": "node scripts/patch-expo-uri-decoder.mjs && node scripts/patch-audit-security.mjs"
   },
   "dependencies": {
     "@alpha-traders/contracts": "*",
