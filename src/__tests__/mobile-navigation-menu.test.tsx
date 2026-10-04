@@ -28,7 +28,7 @@ describe("MobileNavigationMenu", () => {
     );
 
     const details = screen.getByText("Academy").closest("details");
-    const trigger = screen.getByText("Open menu").closest("summary");
+    const trigger = screen.getByLabelText("Open menu");
     expect(details).not.toBeNull();
     expect(trigger).not.toBeNull();
     details!.open = true;
