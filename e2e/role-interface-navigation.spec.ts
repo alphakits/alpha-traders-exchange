@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const ROLES = ["BUYER", "SELLER", "ADMIN", "OWNER"] as const;
+const ROLES = ["BUYER", "SELLER", "ADMIN", "OWNER", "GUEST", "STUDENT"] as const;
 for (const locale of ["en", "ar"] as const) {
   test(`anonymous ${locale} visitors see public footer links and account entry only`, async ({ page, baseURL }) => {
     expect(new URL(baseURL!).hostname).toBe("localhost");
@@ -15,6 +15,8 @@ for (const locale of ["en", "ar"] as const) {
     await expect(footer.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login", exact: true })).toBeVisible();
     await page.goto(`/${locale}/dashboard/seller`);
     await expect(page).toHaveURL(new RegExp(`/${locale}/login\\?`));
+    await page.goto(`/${locale}/learn-trading-free`);
+    await expect(page.getByRole("main").locator("a[href*='/login?']")).toHaveCount(2);
   });
 
   for (const role of ROLES) {
@@ -29,7 +31,8 @@ for (const locale of ["en", "ar"] as const) {
         data: { email, password, rememberMe: false },
       });
       expect(response.ok()).toBe(true);
-      const dashboard = role === "SELLER" ? "/dashboard/seller" : role === "BUYER" ? "/dashboard" : "/admin/alpha-exchange";
+      const dashboard = role === "SELLER" ? "/dashboard/seller" : role === "BUYER" ? "/dashboard"
+        : role === "GUEST" || role === "STUDENT" ? "/profile" : "/admin/alpha-exchange";
       for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`/${locale}`);
@@ -51,6 +54,32 @@ for (const locale of ["en", "ar"] as const) {
         await expect(page).toHaveURL(new RegExp(`/${locale}/dashboard$`));
         await page.goto(`/${locale}/dashboard/seller`);
         await expect(page).toHaveURL(new RegExp(`/${locale}/dashboard$`));
+      }
+      await page.goto(`/${locale}/learn-trading-free`);
+      const learning = page.getByRole("main");
+      await expect(learning.locator("a[href*='/login']")).toHaveCount(0);
+      await expect(learning.locator(`a[href='/${locale}/academy']`)).toHaveCount(2);
+      if (role === "STUDENT") {
+        await expect(learning.getByRole("link", { name: locale === "ar" ? "تابع الدورة المجانية" : "Continue the Free Course", exact: true })).toHaveCount(2);
+      }
+      if (role === "GUEST" || role === "STUDENT") {
+        for (const route of ["trades", "trade-room", "trade-room/no-trading-access"]) {
+          await page.goto(`/${locale}/${route}`);
+          await expect(page).toHaveURL(new RegExp(`/${locale}/profile$`));
+        }
+        await page.goto(`/${locale}/onboarding?mode=manage`);
+        const setup = page.getByRole("main");
+        await expect(setup.getByRole("heading", { name: locale === "ar" ? "كن مشتريًا" : "Become a Buyer", exact: true })).toBeVisible();
+        if (role === "STUDENT") {
+          await expect(setup.getByRole("button", { name: locale === "ar" ? "متابعة التعلّم" : "Continue learning", exact: true })).toBeVisible();
+          await expect(setup.getByRole("button", { name: locale === "ar" ? "تفعيل دور الطالب" : "Become a Student", exact: true })).toHaveCount(0);
+        }
+      }
+      if (role === "BUYER" || role === "SELLER") {
+        await page.goto(`/${locale}/onboarding?mode=manage`);
+        const setup = page.getByRole("main");
+        await expect(setup.getByRole("button", { name: locale === "ar" ? "فتح مساحة المشتري" : "Open buyer workspace", exact: true })).toBeVisible();
+        await expect(setup.getByRole("button", { name: locale === "ar" ? "المتابعة كمشتري" : "Continue as Buyer", exact: true })).toHaveCount(0);
       }
       await page.goto(`/${locale}`);
       await page.locator("header").getByRole("button", { name: locale === "ar" ? "تسجيل الخروج" : "Sign out", exact: true }).click();
