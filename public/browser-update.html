@@ -18,11 +18,13 @@
       <h1>Update your browser</h1>
       <p>Your browser needs an update to display Alpha Traders correctly. Install the latest browser update, then close and reopen the app or browser.</p>
       <p class="android" hidden>On Android, update Android System WebView and Google Chrome in Google Play.</p>
+      <p class="ios" hidden>On iPhone or iPad, update to iOS or iPadOS 16.4 or later in Settings → General → Software Update. Other browsers on an older iOS version may use the same outdated engine.</p>
     </section>
     <section id="arabic" class="ar" hidden>
       <h1>حدّث متصفح جهازك</h1>
       <p>يحتاج متصفح جهازك إلى تحديث لعرض Alpha Traders بشكل صحيح. ثبّت آخر تحديث للمتصفح، ثم أغلق التطبيق أو المتصفح وافتحه مجددًا.</p>
       <p class="android" hidden>على Android، حدّث Android System WebView وGoogle Chrome من Google Play.</p>
+      <p class="ios" hidden>على iPhone أو iPad، حدّث إلى iOS أو iPadOS 16.4 أو أحدث من الإعدادات ← عام ← تحديث البرنامج. قد تستخدم المتصفحات الأخرى على إصدار iOS قديم نفس محرك التصفح غير المدعوم.</p>
     </section>
     <div class="android" hidden>
       <a id="webview" href="https://play.google.com/store/apps/details?id=com.google.android.webview">Update Android System WebView</a>
@@ -35,12 +37,16 @@
     (function(){
       var ar=window.location.hash==='#ar';
       var android=/Android/i.test(navigator.userAgent);
+      var ios=/(iPhone|iPad|iPod)/i.test(navigator.userAgent)||(/Macintosh/i.test(navigator.userAgent)&&navigator.maxTouchPoints>1);
       document.documentElement.lang=ar?'ar':'en';
       document.documentElement.dir=ar?'rtl':'ltr';
       document.getElementById('english').hidden=ar;
       document.getElementById('arabic').hidden=!ar;
       var androidElements=document.querySelectorAll('.android');
       for(var i=0;i<androidElements.length;i++)androidElements[i].hidden=!android;
+      var iosElements=document.querySelectorAll('.ios');
+      for(var j=0;j<iosElements.length;j++)iosElements[j].hidden=!ios;
+      document.getElementById('chrome').hidden=ios;
       if(android)document.getElementById('chrome').href='https://play.google.com/store/apps/details?id=com.android.chrome';
       if(ar){
         document.title='تحديث المتصفح | Alpha Traders';
