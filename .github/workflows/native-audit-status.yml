@@ -1,4 +1,4 @@
-name: Native audit status snapshot
+name: Native Completed Journey Evidence
 
 on:
   push:
@@ -10,148 +10,110 @@ permissions:
   actions: read
 
 jobs:
-  snapshot:
-    name: Read current native workflow status
+  completed-evidence:
+    name: Verify all eighteen installed journeys from completed JUnit reports
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: expo/expo-github-action@v8
+      - uses: actions/download-artifact@v4
         with:
-          eas-version: 23.2.0
-          token: ${{ secrets.EXPO_TOKEN }}
+          name: native-audit-result
+          run-id: 37174652077
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-new-baseline
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-ui-recheck-result
+          run-id: 37175709005
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-prior-baseline
       - uses: actions/download-artifact@v4
         with:
           name: native-android-recheck-result
-          run-id: 37179301325
+          run-id: 37180538596
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          path: native-completed
+          path: native-new-android
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-android-recheck-result
+          run-id: 37179743637
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-prior-android
       - uses: actions/download-artifact@v4
         with:
           name: native-ios-recheck-result
-          run-id: 37179163724
+          run-id: 37180374325
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          path: native-prior-completed
-      - run: npm ci
-      - name: Read workflow metadata without starting builds or tests
-        working-directory: apps/mobile
+          path: native-prior-ios
+      - name: Require all unique native journeys to pass across the exact completed runs
         run: |
-          eas workflow:runs --limit 8 --json > native-workflow-runs.json
           node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import { spawnSync } from 'node:child_process';
-          const documents = [
-            { directory: '../../native-completed', filename: 'native-android-recheck-result.json', source: '6e9048c5fd867e3e676de82c14a9a7592bf755be' },
-            { directory: '../../native-prior-completed', filename: 'native-ios-recheck-result.json', source: '32cd19030fea61c65b20a3e5776b5f19a986894a' },
-          ];
-          for (const document of documents) {
-          const paths = [document.directory + '/' + document.filename, document.directory + '/apps/mobile/' + document.filename];
-          const matches = paths.filter(path => fs.existsSync(path));
-          if (matches.length !== 1) throw new Error('Expected exactly one completed native result.');
-          const completed = JSON.parse(fs.readFileSync(matches[0], 'utf8'));
-          if (completed.gitCommitHash !== document.source) throw new Error('Completed native source differs');
-          for (const job of completed.jobs ?? []) {
-            const build = job.turtleBuild;
-            if (['android_terms_en', 'android_navigation', 'ios_navigation', 'ios_terms_en'].includes(job.key) && job.status === 'FAILURE') {
-              const archive = (job.turtleJobRun?.artifacts ?? []).find(item => item.filename === 'artifacts.tar.gz');
-              if (!archive || archive.fileSizeBytes > 150000000) throw new Error('Android trace archive unavailable');
-              const url = new URL(archive.downloadUrl);
-              if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected Android trace origin');
-              const response = await fetch(archive.downloadUrl, { signal: AbortSignal.timeout(45000) });
-              if (!response.ok) throw new Error('Could not fetch Android trace');
-              const path = 'native-report-' + completed.id + '-' + job.key + '.tar.gz';
-              fs.writeFileSync(path, Buffer.from(await response.arrayBuffer()));
-              const list = spawnSync('tar', ['-tzf', path], { encoding: 'utf8', maxBuffer: 8000000 });
-              if (list.status !== 0) throw new Error('Invalid Android report archive');
-              const names = list.stdout.split('\n').filter(Boolean);
-              if (names.some(name => name.startsWith('/') || name.split('/').includes('..'))) throw new Error('Unsafe report entry');
-              const selectedNames = names.filter(name => /commands.*\.json$/i.test(name) || /maestro\.log$/i.test(name));
-              if (job.key === 'android_terms_en' || job.key === 'ios_navigation' || job.key === 'ios_terms_en') {
-                const pngs = names.filter(name => /\.png$/i.test(name));
-                const failed = pngs.find(name => /fail|error/i.test(name)) ?? pngs.find(name => name.includes('English footer and canonical commission terms'));
-                console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, pngCandidates: pngs.slice(0,20), selectedScreenshot: failed }));
-                if (failed) {
-                  const screenshot = spawnSync('tar', ['-xOzf', path, '--', failed], { maxBuffer: 2000000 });
-                  if (screenshot.status !== 0) throw new Error('Could not read failure screenshot.');
-                  if (screenshot.stdout.length <= 600000) console.log(JSON.stringify({ nativeScreenshot: { source: completed.gitCommitHash, job: job.key, file: failed, base64: screenshot.stdout.toString('base64') } }));
-                }
+          await (async function completedJourneys() {
+           const fs=await import("node:fs");
+           const documents=[{"label":"new-baseline","cohort":"new","directory":"native-new-baseline","run":37174652077,"name":"native-audit-result","filename":"native-audit-result.json","source":"055efe49dd203c33d0ed0dd41ad07441f59b8aaa"},{"label":"prior-baseline","cohort":"prior","directory":"native-prior-baseline","run":37175709005,"name":"native-ui-recheck-result","filename":"native-audit-result.json","source":"60008e9da12e40dd42f1c08d1e65fe5dab625bc1"},{"label":"new-android","cohort":"new","directory":"native-new-android","run":37180538596,"name":"native-android-recheck-result","filename":"native-android-recheck-result.json","source":"8200ceaf35e9a4406f664e07b0b623bd814483af","focused":true},{"label":"prior-android","cohort":"prior","directory":"native-prior-android","run":37179743637,"name":"native-android-recheck-result","filename":"native-android-recheck-result.json","source":"bf3ca8ddd007d5f39e3e5db4e06baed81bf20694","focused":true},{"label":"prior-ios","cohort":"prior","directory":"native-prior-ios","run":37180374325,"name":"native-ios-recheck-result","filename":"native-ios-recheck-result.json","source":"9be40864c1dc21c38d338010a1af211c9df14144","focused":true}];
+           const results=[];const current=new Map();
+           const platform={android_navigation:"android-35",android_terms_en:"android-35",ios_navigation:"ios-18.3",ios_terms_en:"ios-18.3",legacy_android_recovery:"android-29"};
+           for(const document of documents){
+            const paths=[document.directory+"/"+document.filename,document.directory+"/apps/mobile/"+document.filename];
+            const existing=paths.filter(path=>fs.existsSync(path));
+            if(existing.length!==1)throw new Error("Completed native result is missing or duplicated.");
+            const workflow=JSON.parse(fs.readFileSync(existing[0],"utf8"));
+            if(workflow.gitCommitHash!==document.source)throw new Error("Native artifact source mismatch.");
+            if(document.focused&&workflow.status!=="SUCCESS")throw new Error("Focused native journey did not pass.");
+            const cases=[];
+            for(const job of workflow.jobs??[]){
+             if(!platform[job.key])continue;
+             const reports=(job.turtleJobRun?.artifacts??[]).filter(a=>a.filename?.endsWith(".xml"));
+             if(reports.length!==1)throw new Error("Expected exactly one zero-retry JUnit report per native job.");
+             for(const report of reports){
+              const url=new URL(report.downloadUrl);
+              if(url.protocol!=="https:"||url.hostname!=="wf-artifacts.eascdn.net")throw new Error("Unexpected native report origin.");
+              const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
+              if(!response.ok)throw new Error("Could not read completed native JUnit.");
+              const xml=await response.text();
+              if(xml.length>500000||/<!DOCTYPE|<!ENTITY/i.test(xml))throw new Error("Unexpected JUnit document.");
+              fs.writeFileSync("native-junit-"+document.label+"-"+job.key+".xml",xml);
+              for(const match of xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)){
+               const attrs=Object.fromEntries([...match[1].matchAll(/([\w-]+)="([^"]*)"/g)].map(m=>[m[1],m[2]]));
+               if(!attrs.name)throw new Error("Native testcase has no name.");
+               const failed=/<(?:failure|error)\b/.test(match[2]??"")||attrs.status==="ERROR";
+               const skipped=/<skipped\b/.test(match[2]??"")||attrs.status==="SKIPPED";
+               const item={cohort:document.cohort,platform:platform[job.key],name:attrs.name,status:failed?"failed":skipped?"skipped":"passed",durationSeconds:Number(attrs.time),source:document.source,githubRun:document.run,easRun:workflow.id};
+               cases.push(item);
+               const key=[item.cohort,item.platform,item.name].join("|");
+               if(item.status==="passed"||!current.has(key))current.set(key,item);
               }
-              console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, archiveCount: names.length, diagnosticEntries: selectedNames }));
-              for (const name of selectedNames) {
-                const text = spawnSync('tar', ['-xOzf', path, '--', name], { encoding: 'utf8', maxBuffer: 8000000 });
-                if (text.status !== 0) throw new Error('Could not read Android command trace');
-                if (name.endsWith('.log')) {
-                  const lines = text.stdout.split('\n').filter(line => /offline|exception|unable|failed|clearState|launchApp|assert/i.test(line));
-                  console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, androidTraceFile: name, traceFailureLines: lines.slice(-100).filter(line => !line.includes('https://') && !line.includes('http://')) }));
-                } else if (text.stdout.includes('FAILED') || /offline|exception/i.test(text.stdout)) {
-                  const parsed = JSON.parse(text.stdout);
-                  if (name.includes('English footer and canonical commission terms')) console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, startupCommands: parsed.slice(-12).map(item => ({ command: JSON.stringify(item.command ?? {}).slice(0,1300), status: item.metadata?.status, error: item.metadata?.error })) }));
-                  const failures = [];
-                  const walk = (value, path = '') => {
-                    if (!value || typeof value !== 'object') return;
-                    if (value.status === 'FAILED') failures.push({ path, error: value.error, status: value.status });
-                    if (value.metadata?.status === 'FAILED') failures.push({ path, command: JSON.stringify(value.command ?? {}).slice(0,1000), error: value.metadata.error });
-                    if (Array.isArray(value)) value.forEach((child, index) => walk(child, path + '[' + index + ']'));
-                    else for (const [key, child] of Object.entries(value)) if (child && typeof child === 'object') walk(child, path + '.' + key);
-                  };
-                  walk(parsed);
-                  console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, androidTraceFile: name, failures }));
-                }
-              }
+             }
             }
-            if (build) console.log(JSON.stringify({ nativeBuild: { job: job.key, id: build.id, status: build.status, platform: build.platform, profile: build.buildProfile, version: build.appVersion, buildNumber: build.appBuildVersion, source: build.gitCommitHash, simulator: build.isForIosSimulator } }));
-            for (const artifact of job.turtleJobRun?.artifacts ?? []) {
-              if (!artifact.filename?.toLowerCase().endsWith('.xml')) continue;
-              const url = new URL(artifact.downloadUrl);
-              if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected completed report origin');
-              const response = await fetch(artifact.downloadUrl, { signal: AbortSignal.timeout(30000) });
-              if (!response.ok) throw new Error('Could not fetch completed native report');
-              const junit = await response.text();
-              fs.writeFileSync('native-junit-' + completed.id + '-' + job.key + '.xml', junit);
-              console.log(JSON.stringify({ run: completed.id, source: completed.gitCommitHash, job: job.key, junit }));
-            }
-          }
-          }
-          const raw = JSON.parse(fs.readFileSync('native-workflow-runs.json', 'utf8'));
-          const runs = Array.isArray(raw) ? raw : raw.workflowRuns ?? raw.runs ?? [];
-          if (!Array.isArray(runs)) throw new Error('Unexpected workflow list shape');
-          const sources = new Set(['055efe49dd203c33d0ed0dd41ad07441f59b8aaa', '60008e9da12e40dd42f1c08d1e65fe5dab625bc1', '6e9048c5fd867e3e676de82c14a9a7592bf755be', '522d16115b87748ebdfa302683b541769b5b76b0']);
-          const selected = runs.filter(run => run.status === 'IN_PROGRESS' || sources.has(run.gitCommitHash));
-          console.log(JSON.stringify({ selected: selected.map(run => ({ id: run.id, status: run.status, source: run.gitCommitHash })) }));
-          for (const run of selected) {
-            if (!/^[a-f0-9-]{36}$/i.test(run.id)) throw new Error('Invalid returned workflow ID');
-            const result = spawnSync('eas', ['workflow:view', run.id, '--json', '--non-interactive'], { encoding: 'utf8', timeout: 60000 });
-            if (result.status !== 0) throw new Error('Could not read workflow status');
-            const view = JSON.parse(result.stdout);
-            fs.writeFileSync('native-workflow-' + run.id + '.json', JSON.stringify(view, null, 2));
-            console.log(JSON.stringify({ id: view.id, status: view.status, source: view.gitCommitHash, jobs: (view.jobs ?? []).map(job => ({ key: job.key, status: job.status, type: job.type })) }));
-            for (const job of view.jobs ?? []) {
-              for (const artifact of job.turtleJobRun?.artifacts ?? []) {
-                if (!artifact.filename?.toLowerCase().endsWith('.xml')) continue;
-                const url = new URL(artifact.downloadUrl);
-                if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected report origin');
-                const response = await fetch(artifact.downloadUrl, { signal: AbortSignal.timeout(30000) });
-                if (!response.ok) throw new Error('Could not fetch current native report');
-                const junit = await response.text();
-                fs.writeFileSync('native-junit-' + run.id + '-' + job.key + '.xml', junit);
-                console.log(JSON.stringify({ run: run.id, source: view.gitCommitHash, job: job.key, junit }));
-              }
-            }
-          }
+            if(document.focused&&(cases.length!==1||cases[0].status!=="passed"))throw new Error("Focused evidence does not contain exactly one passed journey.");
+            if(!document.focused&&cases.length!==9)throw new Error("Baseline evidence does not contain nine journeys.");
+            results.push({label:document.label,source:document.source,githubRun:document.run,easRun:workflow.id,status:workflow.status,cases});
+           }
+           const unique=[...current.values()];
+           const groups={};
+           for(const item of unique){const key=item.cohort+":"+item.platform;groups[key]??={total:0,passed:0};groups[key].total++;if(item.status==="passed")groups[key].passed++;}
+           for(const cohort of ["new","prior"])for(const [system,count]of Object.entries({"android-35":4,"ios-18.3":4,"android-29":1})){const group=groups[cohort+":"+system];if(!group||group.total!==count||group.passed!==count)throw new Error("Installed native coverage is incomplete.");}
+           const evidence={checkedAt:new Date().toISOString(),groups,totalUnique:unique.length,passedUnique:unique.filter(x=>x.status==="passed").length,combinedAcrossCompletedRuns:true,results,unique};
+           fs.writeFileSync("native-completed-journeys.json",JSON.stringify(evidence,null,2));
+           console.log(JSON.stringify({checkedAt:evidence.checkedAt,groups,totalUnique:evidence.totalUnique,passedUnique:evidence.passedUnique,combinedAcrossCompletedRuns:true}));
+          })();
           JS
-      - name: Preserve metadata snapshot
+      - name: Preserve completed native evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-status-snapshot
+          name: native-completed-journeys
           path: |
-            apps/mobile/native-workflow-*.json
-            apps/mobile/native-junit-*.xml
+            native-completed-journeys.json
+            native-junit-*.xml
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
