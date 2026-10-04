@@ -3,6 +3,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { PUBLIC_TRUST_LAST_UPDATED } from "@/lib/public-trust";
 import { buildPageMetadata } from "@/lib/seo";
+import { marketplaceFeeTerms } from "@alpha-traders/contracts";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -43,7 +44,7 @@ const sections = {
       id: "fees",
       title: "4. Fees and listing access",
       paragraphs: [
-        "For new marketplace trades where the two-sided fee is shown before submission, the buyer pays a 1% platform fee with the selected trade payment and the seller owes a separate 1% seller fee. The seller collects the buyer fee for Alpha Traders and remits the buyer-collected portion together with the seller fee after completion. Legacy trades retain the fee terms shown when they were submitted. Sellers may be prevented from publishing or renewing listings while commission payments are pending. Fees and fee rules may change prospectively after notice on the website.",
+        marketplaceFeeTerms("en"),
       ],
     },
     {
@@ -104,7 +105,7 @@ const sections = {
       id: "fees",
       title: "4. العمولات وصلاحية نشر العروض",
       paragraphs: [
-        "العمولة الحالية للمنصة هي 1% من صفقات السوق المكتملة ما لم تظهر عمولة مختلفة بوضوح قبل الإجراء المعني. قد يُمنع البائع من نشر العروض أو تجديدها أثناء وجود عمولات معلقة. يمكن تعديل العمولات وقواعدها مستقبلًا بعد إشعار على الموقع.",
+        marketplaceFeeTerms("ar"),
       ],
     },
     {
