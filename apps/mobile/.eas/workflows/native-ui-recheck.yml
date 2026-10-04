@@ -14,6 +14,10 @@ jobs:
   android_navigation:
     type: maestro
     runs_on: linux-large-nested-virtualization
+    hooks:
+      before_maestro_tests:
+        - name: Require a stable Android emulator transport
+          run: bash .maestro-helpers/prepare-android-transport.sh
     params:
       build_id: ${{ inputs.android_build_id }}
       flow_path: .maestro
