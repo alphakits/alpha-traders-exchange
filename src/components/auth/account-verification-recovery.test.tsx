@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/components/auth/canonical-session-provider", () => ({
   useCanonicalSession: () => ({ user: mocks.user, isResolving: false, error: null, refresh: mocks.refresh }),
 }));
-vi.mock("@/components/auth/logout-button", () => ({ LogoutButton: () => <button type="button">Sign out</button> }));
+vi.mock("@/components/auth/logout-button", () => ({ LogoutButton: () => <span>Sign out</span> }));
 vi.mock("@/i18n/navigation", () => ({ Link: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
 
 type Action = "send" | "verify" | "email";
