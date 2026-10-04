@@ -3267,7 +3267,7 @@ export function UsdtExchangePage({
   const isApprovedSeller = isApprovedSellerSession;
   const isSellerWorkspaceUser = hasSellerWorkspaceAccess;
   const hasBuyerRole = interfaceAccess.buyer;
-  const canViewBuyerWorkspace = !isAdminSession && !isSellerWorkspaceUser && (hasBuyerRole || interfaceAccess.pendingSeller);
+  const canViewBuyerWorkspace = !isSellerWorkspaceUser && (hasBuyerRole || interfaceAccess.pendingSeller);
   const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = canViewOwnerExchangeIdentity(sessionUser);
@@ -4116,9 +4116,9 @@ export function UsdtExchangePage({
 
   const compactBuyerWorkspace = isDashboardWorkspace && !isSellerWorkspaceUser && !desktopBuyerNavigation;
   const roleWorkspaceCards = workspaceCards.filter((card) => (card.key !== "create-listing" || canAccessListingCreation)
-    && ((interfaceAccess.trading && !isAdminSession)
+    && ((interfaceAccess.trading && (!isAdminSession || hasBuyerRole))
       || ["browse-marketplace", "notifications", "market", "buyer-profile"].includes(card.key)))
-    .map((card) => card.key === "buyer-profile" && !hasBuyerRole
+    .map((card) => card.key === "buyer-profile" && (!hasBuyerRole || isAdminSession)
       ? { ...card, title: isAr ? "ملفي الشخصي" : "My Profile", subtitle: isAr ? "تفاصيل الحساب" : "Account details", icon: ShieldCheck }
       : card);
   const visibleWorkspaceCards = desktopBuyerNavigation
@@ -5112,7 +5112,7 @@ export function UsdtExchangePage({
       </CardContent>
     </Card>
   ) : null;
-  const buyerOverviewCard = sessionUser && canViewBuyerWorkspace ? (
+  const buyerOverviewCard = sessionUser && canViewBuyerWorkspace && !isAdminSession ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader className="pb-4">
         <CardTitle>{isAr ? "لوحة المشتري" : "Buyer Dashboard"}</CardTitle>

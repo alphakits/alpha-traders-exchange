@@ -37,10 +37,10 @@ describe("Role appropriate account settings", () => {
   it("removes seller bank controls as soon as seller access is revoked", () => {
     sessionState.user = { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" };
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ profile: {}, preferences: {}, accounts: [] }), { status: 200 }));
-    const { rerender } = render(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="account" initialSellerBankAccess={true} />);
+    const { rerender } = render(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="profile" initialSellerBankAccess={true} />);
     expect(screen.getByText("Bank Accounts")).toBeTruthy();
     sessionState.user = { role: "buyer", roles: ["buyer"], sellerStatus: "rejected" };
-    rerender(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="account" initialSellerBankAccess={true} />);
+    rerender(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="profile" initialSellerBankAccess={true} />);
     expect(screen.queryByText("Bank Accounts")).toBeNull();
   });
 });
