@@ -17,12 +17,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-audit-${{ github.ref }}
+  group: native-audit-${{ github.ref }}-${{ contains(github.event.head_commit.message, '[ios-only]') && 'ios-only' || 'all' }}
   cancel-in-progress: true
 
 jobs:
   native-emulators:
     name: Android and iOS installed app verification
+    if: ${{ !contains(github.event.head_commit.message, '[ios-only]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -55,7 +56,7 @@ jobs:
           retention-days: 14
 
   signed-ios:
-    name: Signed iPhone candidate
+    name: Signed iOS release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -74,9 +75,9 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
       - run: npm ci
       - run: npm run mobile:typecheck
-      - name: Build signed iPhone candidate with existing credentials
+      - name: Build signed iOS release candidate with existing credentials
         working-directory: apps/mobile
-        run: eas build --platform ios --profile preview --non-interactive --wait --json > signed-ios-result.json
+        run: eas build --platform ios --profile production --non-interactive --wait --json > signed-ios-result.json
       - name: Preserve signed build result
         if: always()
         uses: actions/upload-artifact@v4

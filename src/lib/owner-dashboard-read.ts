@@ -1,7 +1,8 @@
 /** Read-only transport for the owner dashboard. Never submits or replays a command. */
 export type OwnerDashboardReadPath =
   | "/api/alpha-exchange/admin-prep"
-  | "/api/alpha-exchange/admin/sms-deliveries";
+  | "/api/alpha-exchange/admin/sms-deliveries"
+  | "/api/admin/system-health";
 
 export type OwnerDashboardJsonRead = {
   ok: boolean;
