@@ -48,6 +48,40 @@ describe("web to native remembered login protocol", () => {
     expect(window.__alphaRememberedLoginRequestId).toBeUndefined();
     expect(vi.getTimerCount()).toBe(0);
   });
+  it("cancels a pending request immediately and removes its timeout", async () => {
+    window.ReactNativeWebView = { postMessage: vi.fn() };
+    const controller = new AbortController();
+    const pending = requestAppRememberedLogin("load", undefined, controller.signal);
+    expect(window.__alphaRememberedLoginRequestId).toBeDefined();
+    controller.abort();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(await pending).toBeNull();
+    expect(window.__alphaRememberedLoginRequestId).toBeUndefined();
+  });
+  it("does not send credentials for a request that was already cancelled", async () => {
+    const postMessage = vi.fn();
+    window.ReactNativeWebView = { postMessage };
+    const controller = new AbortController();
+    controller.abort();
+    const pending = requestAppRememberedLogin("save", credentials, controller.signal);
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(await pending).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("finishes a timeout on the originating window after the global document is torn down", async () => {
+    const requestWindow = window;
+    requestWindow.ReactNativeWebView = { postMessage: vi.fn() };
+    const pending = requestAppRememberedLogin("load");
+    try {
+      vi.stubGlobal("window", undefined);
+      await vi.advanceTimersByTimeAsync(REMEMBERED_LOGIN_TIMEOUT_MS);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(await pending).toBeNull();
+    expect(requestWindow.__alphaRememberedLoginRequestId).toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("does nothing outside the installed app", async () => {
     expect(await requestAppRememberedLogin("load")).toBeNull();
     expect(mocks.load).not.toHaveBeenCalled();

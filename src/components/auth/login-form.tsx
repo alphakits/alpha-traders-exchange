@@ -105,9 +105,10 @@ export function LoginForm({
   useEffect(() => {
     if (!window.ReactNativeWebView?.postMessage) return;
     let cancelled = false;
+    const rememberedLoginController = new AbortController();
     let optedOut = false;
     try { optedOut = localStorage.getItem(REMEMBER_ME_PREFERENCE) === "false"; } catch { /* Optional preference storage. */ }
-    const ready = requestAppRememberedLogin(optedOut || passwordResetSuccess ? "clear" : "load");
+    const ready = requestAppRememberedLogin(optedOut || passwordResetSuccess ? "clear" : "load", undefined, rememberedLoginController.signal);
     rememberedLoginReady.current = ready;
     void ready.then(response => {
       if (cancelled) return;
@@ -118,7 +119,10 @@ export function LoginForm({
       setForm(previous => previous.rememberMe && !previous.email && !previous.password
         ? { ...previous, ...credentials } : previous);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      rememberedLoginController.abort();
+    };
   }, [passwordResetSuccess]);
   useEffect(() => {
     // A restored phone document can still show Login even though its HttpOnly
