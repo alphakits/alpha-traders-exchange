@@ -77,6 +77,7 @@ describe("logout request recovery", () => {
     await act(async () => { fireEvent.click(button(locale)); });
     expect(response.json).not.toHaveBeenCalled(); expect(mocks.clearLocale).toHaveBeenCalledTimes(1);
     expect(mocks.signedOut).toHaveBeenCalledTimes(1); expect(replace).toHaveBeenCalledExactlyOnceWith("/en");
+    expect(screen.getByRole("button").hasAttribute("disabled")).toBe(true);
     expect(events.mock.calls.filter(([event]) => event.type === "alpha-auth-signed-out")).toHaveLength(1);
     expect(events.mock.calls.filter(([event]) => event.type === "alpha-auth-changed")).toHaveLength(1);
   });

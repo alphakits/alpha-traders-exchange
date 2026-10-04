@@ -54,6 +54,7 @@ export function LogoutButton({
     // server has revoked the session and returned the expired cookies.
     const controller = new AbortController();
     requestRef.current = controller;
+    let navigationStarted = false;
     try {
       const { response, payload } = await runClientRequest(controller, 8_000, async signal => {
         const response = await fetch("/api/auth/logout", {
@@ -74,6 +75,7 @@ export function LogoutButton({
       window.dispatchEvent(new Event("alpha-auth-signed-out"));
       window.dispatchEvent(new Event("alpha-auth-changed"));
       window.location.replace("/en");
+      navigationStarted = true;
     } catch (error) {
       if (!mountedRef.current || requestRef.current !== controller) return;
       if (error instanceof ClientRequestTimeoutError || (error instanceof Error && error.name === "AbortError")) {
@@ -92,7 +94,7 @@ export function LogoutButton({
         timeoutRef.current = null;
       }, 4000);
     } finally {
-      if (mountedRef.current && requestRef.current === controller) {
+      if (!navigationStarted && mountedRef.current && requestRef.current === controller) {
         requestRef.current = null;
         setIsPending(false);
       }
