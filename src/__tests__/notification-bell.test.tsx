@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
@@ -60,6 +60,45 @@ describe("Notification bell conversation navigation", () => {
     })));
     expect(navigation.push).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("button", { name: "View listing" })).toBeNull());
+  });
+
+
+  it.each(["one", "all"] as const)("keeps %s read actions ahead of an already-running refresh", async (action) => {
+    const notice = {
+      id: "listing-read-race", userId: "buyer-1", category: "listing",
+      title: "New USDT Listing Available", message: "A seller published 700 USDT.",
+      relatedListingId: "listing-public", isRead: false, createdAt: new Date().toISOString(),
+    };
+    const payload = { notifications: [notice], unreadCount: 1 };
+    let finishRefresh!: (response: Response) => void;
+    let reads = 0;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Promise.resolve(new Response("{}", { status: 200 }));
+      reads += 1;
+      if (reads === 1) return Promise.resolve(new Response(JSON.stringify(payload), { status: 200 }));
+      return new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NotificationBell locale="en" />);
+    const bell = screen.getByRole("button", { name: "Notifications" });
+    fireEvent.click(bell);
+    await screen.findByRole("button", { name: "View listing" });
+    fireEvent.click(bell);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31_000);
+    try {
+      fireEvent.click(bell);
+      expect(reads).toBe(2);
+      fireEvent.click(screen.getByRole("button", { name: action === "all" ? "Mark all as read" : "Mark as read" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "View listing" })).toBeNull());
+      await act(async () => {
+        finishRefresh(new Response(JSON.stringify(payload), { status: 200 }));
+      });
+      expect(screen.queryByRole("button", { name: "View listing" })).toBeNull();
+      expect(screen.queryByText("1 unread")).toBeNull();
+      expect(navigation.push).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("opens a legacy lifecycle notice without a trade snapshot and preserves its request ID", async () => {

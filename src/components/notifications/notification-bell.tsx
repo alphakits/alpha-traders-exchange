@@ -168,6 +168,7 @@ function NotificationBellSession({
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
+  const notificationMutationVersionRef = useRef(0);
   const refreshSession = canonicalSession?.refresh;
   const canonicalUserId = canonicalSession?.user?.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -222,7 +223,9 @@ function NotificationBellSession({
       return;
     }
     if (openNotificationsSnapshot === null && notifications.length > 0) {
-      setOpenNotificationsSnapshot(notifications);
+      // A read/dismiss action may have cleared the snapshot after this
+      // render. Do not restore an older list over that newer user action.
+      setOpenNotificationsSnapshot((current) => current ?? notifications);
     }
   }, [isOpen, notifications, openNotificationsSnapshot]);
 
@@ -261,6 +264,7 @@ function NotificationBellSession({
     loadControllerRef.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 12_000);
     const operationScope = notificationAccountScope;
+    const operationMutationVersion = notificationMutationVersionRef.current;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
     if (!shouldPreserveList) {
@@ -275,7 +279,11 @@ function NotificationBellSession({
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
-      if (activeNotificationAccountScopeRef.current !== operationScope || loadControllerRef.current !== controller) return;
+      if (
+        activeNotificationAccountScopeRef.current !== operationScope
+        || loadControllerRef.current !== controller
+        || notificationMutationVersionRef.current !== operationMutationVersion
+      ) return;
       const incoming = activeBellNotifications(payload.notifications ?? []);
       forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
       const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
@@ -347,10 +355,11 @@ function NotificationBellSession({
     const target = notifications.find((item) => item.id === notificationId)
       ?? openNotificationsSnapshot?.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
+    notificationMutationVersionRef.current += 1;
     // The bell is an active-inbox surface. Read items remain available in the
     // full Notification Center, but disappear from this quick-action list.
     setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notificationId) ?? prev);
+    setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notificationId));
     applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
@@ -371,8 +380,9 @@ function NotificationBellSession({
     const actionKey = `${notification.id}:dismiss`;
     if (actionLoading[actionKey]) return;
     setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    notificationMutationVersionRef.current += 1;
     setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notification.id) ?? prev);
+    setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notification.id));
     if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
@@ -392,6 +402,7 @@ function NotificationBellSession({
   async function handleMarkAllRead() {
     // The quick-action bell contains unread items only. Keep read history in
     // the Notification Center and clear this surface immediately.
+    notificationMutationVersionRef.current += 1;
     setNotifications([]);
     setOpenNotificationsSnapshot([]);
     applyUnreadCount(0);
