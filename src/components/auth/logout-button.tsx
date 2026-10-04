@@ -6,6 +6,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { clearClientLocaleChoice } from "@/i18n/locale-preference";
 import { ClientRequestTimeoutError, runClientRequest } from "@/lib/client-request-deadline";
+import { useOptionalCanonicalSession } from "./canonical-session-provider";
 
 type LogoutButtonProps = Omit<ButtonProps, "onClick"> & {
   locale: AppLocale;
@@ -22,6 +23,7 @@ export function LogoutButton({
   children,
   ...buttonProps
 }: LogoutButtonProps) {
+  const session = useOptionalCanonicalSession();
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage, errorMessageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -55,6 +57,7 @@ export function LogoutButton({
     const controller = new AbortController();
     requestRef.current = controller;
     let navigationStarted = false;
+    const finishSignOut = session?.beginSignOut?.();
     try {
       const { response, payload } = await runClientRequest(controller, 8_000, async signal => {
         const response = await fetch("/api/auth/logout", {
@@ -93,6 +96,7 @@ export function LogoutButton({
         timeoutRef.current = null;
       }, 4000);
     } finally {
+      finishSignOut?.();
       if (!navigationStarted && mountedRef.current && requestRef.current === controller) {
         requestRef.current = null;
         setIsPending(false);

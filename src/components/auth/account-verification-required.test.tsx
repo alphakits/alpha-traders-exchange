@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   user: { id: "seller-test", role: "approved_seller", fullName: "Test Seller", email: "seller@example.test", emailVerified: false, isPhotoVerified: false, whatsappNumber: "+972521234567" },
 }));
 vi.mock("@/components/auth/canonical-session-provider", () => ({
+  useOptionalCanonicalSession: () => ({ user: mocks.user, refresh: mocks.refresh }),
   useCanonicalSession: () => ({
     user: mocks.user,
     isResolving: false, error: null, refresh: mocks.refresh,

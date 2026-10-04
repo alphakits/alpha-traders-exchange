@@ -29,7 +29,10 @@ vi.mock("@/i18n/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock("@/lib/alpha-exchange-store", () => ({ getTradeHeaderStateForUser: vi.fn().mockResolvedValue({ activeTrade: null, tradeReminder: null }) }));
-vi.mock("@/components/auth/canonical-session-provider", () => ({ useCanonicalSession: () => session }));
+vi.mock("@/components/auth/canonical-session-provider", () => ({
+  useCanonicalSession: () => session,
+  useOptionalCanonicalSession: () => session,
+}));
 vi.mock("@/components/layout/trade-header-notice", () => ({ TradeHeaderNotice: () => null }));
 vi.mock("@/components/notifications/notification-bell", () => ({ NotificationBell: () => <button type="button" onClick={vi.fn()}>Notifications</button> }));
 vi.mock("@/components/layout/locale-switcher", () => ({ LocaleSwitcher: () => <button type="button" onClick={vi.fn()}>Language</button> }));
