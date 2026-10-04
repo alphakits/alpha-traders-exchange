@@ -1,0 +1,56 @@
+name: Native audit status snapshot
+
+on:
+  push:
+    branches: [fix/native-status-*]
+    paths: [.github/workflows/native-audit-status.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: Read current native workflow status
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Read workflow metadata without starting builds or tests
+        working-directory: apps/mobile
+        run: |
+          eas workflow:runs --limit 8 --json > native-workflow-runs.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          const raw = JSON.parse(fs.readFileSync('native-workflow-runs.json', 'utf8'));
+          const runs = Array.isArray(raw) ? raw : raw.workflowRuns ?? raw.runs ?? [];
+          if (!Array.isArray(runs)) throw new Error('Unexpected workflow list shape');
+          const sources = new Set(['055efe49dd203c33d0ed0dd41ad07441f59b8aaa', '60008e9da12e40dd42f1c08d1e65fe5dab625bc1']);
+          const selected = runs.filter(run => run.status === 'IN_PROGRESS' || sources.has(run.gitCommitHash));
+          console.log(JSON.stringify({ selected: selected.map(run => ({ id: run.id, status: run.status, source: run.gitCommitHash })) }));
+          for (const run of selected) {
+            if (!/^[a-f0-9-]{36}$/i.test(run.id)) throw new Error('Invalid returned workflow ID');
+            const result = spawnSync('eas', ['workflow:view', run.id, '--json', '--non-interactive'], { encoding: 'utf8', timeout: 60000 });
+            if (result.status !== 0) throw new Error('Could not read workflow status');
+            const view = JSON.parse(result.stdout);
+            fs.writeFileSync('native-workflow-' + run.id + '.json', JSON.stringify(view, null, 2));
+            console.log(JSON.stringify({ id: view.id, status: view.status, source: view.gitCommitHash, jobs: (view.jobs ?? []).map(job => ({ key: job.key, status: job.status, type: job.type })) }));
+          }
+          JS
+      - name: Preserve metadata snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-status-snapshot
+          path: apps/mobile/native-workflow-*.json
+          if-no-files-found: error
+          retention-days: 14
