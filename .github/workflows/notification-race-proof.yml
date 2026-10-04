@@ -1,0 +1,62 @@
+name: Notification Read Race Proof
+
+on:
+  push:
+    branches: [fix/notification-race-proof-*]
+    paths: [.github/workflows/notification-race-proof.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: Reproduce stale unread refresh and verify the repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Require the regression to fail before and pass after the fix
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { execFileSync, spawnSync } from 'node:child_process';
+          const path = 'src/components/notifications/notification-bell.tsx';
+          const fixed = fs.readFileSync(path, 'utf8');
+          const original = execFileSync('git', ['show', '5de7802dc140f11184a96b7ed686cd1f6dbc0752:' + path], { encoding: 'utf8' });
+          if (original === fixed) throw new Error('The fixed component was not checked out.');
+          const test = 'src/__tests__/notification-bell.test.tsx';
+          const run = (output, extra = []) => {
+            const result = spawnSync('npx', ['--no-install', 'vitest', 'run', test, '--reporter=json', '--outputFile=' + output, ...extra], { encoding: 'utf8', timeout: 180000, maxBuffer: 16000000 });
+            if (!fs.existsSync(output)) throw new Error('Vitest did not return a structured test report.');
+            const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+            console.log(JSON.stringify({ report: output, exit: result.status, passed: report.numPassedTests, failed: report.numFailedTests, total: report.numTotalTests }));
+            return { result, report };
+          };
+          try {
+            fs.writeFileSync(path, original);
+            const before = run('notification-race-before.json', ['-t', 'keeps.*read actions ahead of an already-running refresh']);
+            if (before.result.status !== 1 || before.report.numFailedTests !== 2) throw new Error('Both controlled stale-refresh cases must fail on the original component.');
+          } finally {
+            fs.writeFileSync(path, fixed);
+          }
+          const after = run('notification-race-after.json');
+          if (after.result.status !== 0 || after.report.numFailedTests !== 0 || after.report.numPassedTests !== 11) throw new Error('The complete notification navigation suite must pass after the fix.');
+          console.log('Both late-refresh regressions reproduced; all eleven notification tests passed after the repair.');
+          JS
+      - name: Preserve before and after evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-race-proof
+          path: notification-race-*.json
+          if-no-files-found: error
+          retention-days: 14
