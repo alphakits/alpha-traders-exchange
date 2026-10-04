@@ -1,4 +1,4 @@
-name: Alpha Traders iOS English Terms Recheck
+name: Alpha Traders Published iOS Navigation and Menu Verification
 
 on:
   workflow_dispatch:
@@ -12,6 +12,6 @@ jobs:
     type: maestro
     params:
       build_id: ${{ inputs.ios_build_id }}
-      flow_path: .maestro/terms-en.yml
+      flow_path: .maestro/public-navigation-en.yml
       retries: 0
       record_screen: true

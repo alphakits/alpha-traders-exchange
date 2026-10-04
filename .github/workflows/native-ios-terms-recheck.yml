@@ -1,4 +1,4 @@
-name: iOS Terms Recheck
+name: Published iOS Navigation and Menu Verification
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   ios-terms:
-    name: Verify English footer on the source-matching installed iOS app
+    name: Verify the published menu and navigation in the matching installed iOS app
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
@@ -38,11 +38,39 @@ jobs:
       - name: Require matching native source and locked dependencies
         id: builds
         run: node scripts/resolve-native-audit-builds.mjs
-      - name: Recheck the previously blocked iOS journey
+      - name: Verify published English homepage and guest navigation
         working-directory: apps/mobile
         env:
           AUDIT_IOS_BUILD_ID: ${{ steps.builds.outputs.ios_build_id }}
         run: eas workflow:run .eas/workflows/native-ios-terms-recheck.yml --ref "$GITHUB_SHA" --input "ios_build_id=$AUDIT_IOS_BUILD_ID" --non-interactive --wait --json > native-ios-recheck-result.json
+      - name: Preserve the actual installed iOS menu screenshot
+        working-directory: apps/mobile
+        run: |
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          import cp from "node:child_process";
+          const workflow=JSON.parse(fs.readFileSync("native-ios-recheck-result.json","utf8"));
+          if(workflow.status!=="SUCCESS"||workflow.gitCommitHash!==process.env.GITHUB_SHA)throw new Error("Installed verification source or status mismatch.");
+          const job=workflow.jobs.find(job=>job.key==="ios_terms_en");
+          const artifacts=job?.turtleJobRun?.artifacts??[];
+          const archives=artifacts.filter(artifact=>artifact.filename==="artifacts.tar.gz");
+          if(archives.length!==1)throw new Error("Expected one installed screenshot archive.");
+          const url=new URL(archives[0].downloadUrl);
+          if(url.protocol!=="https:"||url.hostname!=="wf-artifacts.eascdn.net")throw new Error("Unexpected installed evidence origin.");
+          const response=await fetch(url,{signal:AbortSignal.timeout(45000)});
+          if(!response.ok)throw new Error("Installed screenshot archive is unavailable.");
+          const bytes=Buffer.from(await response.arrayBuffer());
+          if(bytes.length>100000000)throw new Error("Installed screenshot archive exceeds the expected limit.");
+          fs.writeFileSync("native-ios-menu-artifacts.tar.gz",bytes);
+          const names=cp.execFileSync("tar",["-tzf","native-ios-menu-artifacts.tar.gz"],{encoding:"utf8",maxBuffer:8000000}).trim().split("\n");
+          if(names.some(name=>name.startsWith("/")||name.split("/").includes("..")))throw new Error("Unsafe installed archive path.");
+          const screenshots=names.filter(name=>name.endsWith("/takeScreenshot/public-navigation-en.png"));
+          if(screenshots.length!==1)throw new Error("Expected the actual completed homepage screenshot.");
+          const png=cp.execFileSync("tar",["-xOf","native-ios-menu-artifacts.tar.gz",screenshots[0]],{maxBuffer:8000000});
+          if(png.subarray(0,8).toString("hex")!=="89504e470d0a1a0a")throw new Error("Installed screenshot is not PNG.");
+          fs.writeFileSync("native-ios-menu.png",png);
+          console.log(JSON.stringify({source:workflow.gitCommitHash,easRun:workflow.id,status:workflow.status,screenshotBytes:png.length}));
+          JS
       - name: Preserve native verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,6 +78,7 @@ jobs:
           name: native-ios-recheck-result
           path: |
             apps/mobile/native-ios-recheck-result.json
+            apps/mobile/native-ios-menu.png
             native-audit-build-selection.json
           if-no-files-found: error
           retention-days: 14
