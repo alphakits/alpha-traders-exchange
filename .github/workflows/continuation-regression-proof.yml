@@ -1,0 +1,60 @@
+name: Continuation regression proof
+on:
+  push:
+    branches: [fix/continuation-regression-proof-20261004]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install reviewed dependencies
+        run: npm ci
+      - name: Prove the published regressions and corrected behavior
+        shell: bash
+        run: |
+          git fetch --depth=1 origin 858bfcbad82e2aac1c63b7d589e3aa289e924911
+          git fetch --depth=1 origin b3a4463c745bda9230eb53b2030de3eac52033cd
+          python - <<'PY'
+          import json, subprocess, pathlib
+          baseline = '858bfcbad82e2aac1c63b7d589e3aa289e924911'
+          fixed = 'b3a4463c745bda9230eb53b2030de3eac52033cd'
+          changed = ['scripts/patch-expo-uri-decoder.mjs', 'src/components/pwa/pwa-install-prompt.tsx']
+          def restore(ref):
+              for path in changed:
+                  pathlib.Path(path).write_bytes(subprocess.check_output(['git', 'show', ref + ':' + path]))
+          restore(baseline)
+          before = subprocess.run(['node', './node_modules/vitest/vitest.mjs', 'run', 'src/__tests__/expo-uri-decoder-installation.test.ts', 'src/__tests__/pwa-install-prompt.test.tsx', '--reporter=json', '--outputFile=continuation-before.json'])
+          restore(fixed)
+          b = json.loads(pathlib.Path('continuation-before.json').read_text())
+          failures = [t['fullName'] for suite in b['testResults'] for t in suite['assertionResults'] if t['status'] == 'failed']
+          for name in ['rejects an unpatched release', 'patches scoped nested and both workspace copies', 'shows an accessible browser recovery path']:
+              assert any(name in f for f in failures), (name, failures)
+          assert before.returncode != 0 and b['numFailedTests'] > 0
+          after = subprocess.run(['node', './node_modules/vitest/vitest.mjs', 'run', 'src/__tests__/expo-uri-decoder-installation.test.ts', 'src/__tests__/pwa-install-prompt.test.tsx', 'src/__tests__/dependency-security-installation.test.ts', 'src/__tests__/dependency-security-guards.test.ts', 'src/__tests__/mobile-query-string-compat.test.ts', '--reporter=json', '--outputFile=continuation-after.json'])
+          a = json.loads(pathlib.Path('continuation-after.json').read_text())
+          assert after.returncode == 0 and a['numFailedTests'] == 0 and a['numPassedTests'] == a['numTotalTests']
+          proof = {'baseline': baseline, 'fixed': fixed, 'before': {'total': b['numTotalTests'], 'failed': b['numFailedTests'], 'passed': b['numPassedTests'], 'exit': before.returncode, 'failures': failures}, 'after': {'total': a['numTotalTests'], 'passed': a['numPassedTests'], 'failed': a['numFailedTests'], 'exit': after.returncode}, 'nativeSourceUnchanged': True, 'lockedDependenciesUnchanged': True}
+          subprocess.check_call(['git', 'diff', '--exit-code', fixed, '--', 'apps/mobile', 'packages/contracts', 'package-lock.json'])
+          pathlib.Path('continuation-regression-proof.json').write_text(json.dumps(proof, indent=2))
+          print(json.dumps(proof, indent=2))
+          PY
+      - name: Save actual regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuation-regression-proof
+          path: |
+            continuation-before.json
+            continuation-after.json
+            continuation-regression-proof.json
+          if-no-files-found: error
+          retention-days: 14
