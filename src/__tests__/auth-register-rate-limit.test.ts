@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getSupabaseEmailRedirectUrl: vi.fn(),
   signUp: vi.fn(),
   findUserByEmail: vi.fn(),
+  assertRegistrationPhoneAvailable: vi.fn(),
   upsertUserProfileForAuth: vi.fn(),
 }));
 
@@ -28,6 +29,7 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   findUserByEmail: mocks.findUserByEmail,
+  assertRegistrationPhoneAvailable: mocks.assertRegistrationPhoneAvailable,
   upsertUserProfileForAuth: mocks.upsertUserProfileForAuth,
 }));
 
@@ -41,6 +43,7 @@ describe("auth register route", () => {
     mocks.getSupabaseEmailRedirectUrl.mockReset();
     mocks.signUp.mockReset();
     mocks.findUserByEmail.mockReset();
+    mocks.assertRegistrationPhoneAvailable.mockReset().mockResolvedValue(undefined);
     mocks.upsertUserProfileForAuth.mockReset();
 
     mocks.resolveClientIp.mockReturnValue("198.51.100.23");
@@ -75,6 +78,16 @@ describe("auth register route", () => {
       }),
     });
   }
+
+  it.each(["en", "ar"])("rejects a reused phone before provider signup in %s", async locale => {
+    mocks.inferLocaleFromRequest.mockReturnValue(locale);
+    mocks.assertRegistrationPhoneAvailable.mockRejectedValue(new Error("This phone number is already linked to another account."));
+    const response = await POST(makeRequest("new-user@example.com", locale));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "PHONE_ALREADY_IN_USE" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
 
   it("returns localized arabic message when ip limiter blocks", async () => {
     mocks.inferLocaleFromRequest.mockReturnValue("ar");

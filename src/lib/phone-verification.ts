@@ -7,7 +7,7 @@ function isExplicitlyEnabled(value: string | undefined) {
 }
 
 /**
- * Every production exchange participant must verify their phone. Feature
+ * Production participants verify their phone or match an exact owner-authorized account. Feature
  * switches are retained only for isolated local development and test fixtures.
  */
 export function isMarketplacePhoneVerificationEnabled(env: NodeJS.ProcessEnv = process.env) {
@@ -28,6 +28,8 @@ export function isMarketplacePhoneVerificationRequired(env: NodeJS.ProcessEnv = 
 }
 
 type MarketplaceVerificationUser = {
+  id?: string | null;
+  disabled?: boolean;
   role: string;
   roles?: string[];
   sellerStatus?: string;

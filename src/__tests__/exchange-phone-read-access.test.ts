@@ -47,7 +47,15 @@ describe("exchange reads enforce canonical phone verification", () => {
     expect(mocks.profile).not.toHaveBeenCalled();
     expect(mocks.pulse).not.toHaveBeenCalled();
   });
-  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("blocks previously exempt unverified email %s", async email => {
+  it.each([
+    ["user-030c4619-e1a6-4147-9d91-a8bbd2e2db4a", "alphatradersai@gmail.com"],
+    ["user-6f3a0120-5d36-423f-8dee-9a875e8e064e", "claudiahttps11@gmail.com"],
+    ["user-cfa3bd2c-25e7-4a9e-9ae5-55ac4900846f", "jozenmark834@yahoo.com"],
+  ])("allows exchange reads for the exact authorized account %s", async (id, email) => {
+    mocks.currentUser.mockResolvedValue({ ...base, id, email });
+    for (const response of await reads()) expect(response?.status).toBe(200);
+  });
+  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("blocks an authorized email with a different account ID %s", async email => {
     mocks.currentUser.mockResolvedValue({ ...base, email });
     for (const response of await reads()) expect(response?.status).toBe(403);
   });

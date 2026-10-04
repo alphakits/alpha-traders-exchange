@@ -1,4 +1,5 @@
 import { allowsTestOnlyRuntime } from "@/lib/runtime-safety";
+import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
 
 function parseBypassEmails(raw: string | undefined) {
   if (!raw) return new Set<string>();
@@ -20,13 +21,16 @@ export function isPhotoVerificationBypassed(email: string | null | undefined) {
 }
 
 type VerificationState = {
+  id?: string | null;
+  disabled?: boolean;
   email?: string | null;
   verifiedPhone?: string | null;
   phoneVerifiedAt?: string | null;
 };
 
 export function isVerified(user: VerificationState | null | undefined) {
-  if (!user) return false;
+  if (!user || user.disabled === true) return false;
+  if (isAccountPhoneVerificationExempt(user)) return true;
   if (isPhotoVerificationBypassed(user.email)) return true;
   return Boolean(
     /^\+[1-9]\d{7,14}$/.test(user.verifiedPhone ?? "")
