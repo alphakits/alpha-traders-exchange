@@ -70,6 +70,19 @@ beforeEach(() => {
 });
 
 describe("mobile seller commission route", () => {
+  it("ignores a forged seller ID and returns only the authenticated seller's commission data", async () => {
+    const response = await GET(new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/seller/commissions?sellerId=other-seller", { headers }));
+    expect(response.status).toBe(200);
+    expect(mocks.getSellerCommissionStatus).toHaveBeenCalledExactlyOnceWith("seller-1");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("denies a buyer access to private commission records", async () => {
+    mocks.requireMobileApiUser.mockResolvedValue({ user: { id: "buyer-1", role: "buyer", sellerStatus: "buyer" }, unauthorized: null });
+    const response = await GET(request("GET"));
+    expect(response.status).toBe(403);
+    expect(mocks.getSellerCommissionStatus).not.toHaveBeenCalled();
+  });
   it("requires the exact-amount-capable mobile release and blocks installed 1.1 clients", async () => {
     const response = await GET(new NextRequest(
       "https://www.alphatraders.co.il/api/mobile/v1/seller/commissions",

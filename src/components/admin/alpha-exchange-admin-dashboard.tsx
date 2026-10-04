@@ -628,7 +628,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
     void (async () => {
       try {
-        const response = await fetch(`/api/alpha-exchange/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
+        const response = await fetch(`/api/alpha-exchange/admin/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
         const payload = await response.json() as { profile?: PremiumSellerProfileData; error?: string };
         if (!response.ok || !payload.profile) {
           if (!cancelled) setSelectedSellerProfile(null);

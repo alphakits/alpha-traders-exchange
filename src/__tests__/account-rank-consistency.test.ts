@@ -159,7 +159,7 @@ describe("account rank consistency and privacy", () => {
     request.buyerReview.hidden = true;
     const hiddenPublic = await getPremiumSellerProfile({ sellerId: request.sellerId, dbInput: db });
     expect(hiddenPublic?.latestReviews).toHaveLength(0);
-    const hiddenOwner = await getPremiumSellerProfile({ sellerId: request.sellerId, viewerUserId: owner.id, dbInput: db });
+    const hiddenOwner = await getPremiumSellerProfile({ sellerId: request.sellerId, viewerUserId: owner.id, includePrivateData: true, dbInput: db });
     expect(hiddenOwner?.latestReviews[0].hidden).toBe(true);
   });
 

@@ -18,9 +18,8 @@ import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/isra
 import { getMarketplacePaymentMethodOptions, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { formatMeasuredResponseTime } from "@alpha-traders/contracts";
 import { useLiveUserPresence } from "@/lib/user-presence-client";
-import { formatTradeId } from "@/lib/format-id";
 import { cn } from "@/lib/utils";
-import type { AuditAction, MarketplaceListing, PremiumSellerProfileData, PurchaseRequest, SellerLevel } from "@/types/alpha-exchange";
+import type { MarketplaceListing, PremiumSellerProfileData, SellerLevel } from "@/types/alpha-exchange";
 
 type Locale = "ar" | "en";
 
@@ -45,8 +44,6 @@ type PurchaseListingDialogProps = {
   estimatedTradeValue: number;
   estimatedBuyerFee: number;
   estimatedTotal: number;
-  isOwnerViewer: boolean;
-  isOwnerProfileActionLoading: boolean;
   purchaseSubmitted: boolean;
   buyerInfo: BuyerInfo;
   onBuyerDetailsChange?: (details: Partial<BuyerInfo>) => void;
@@ -79,27 +76,15 @@ type PurchaseListingDialogProps = {
   onOfferedPriceChange: (value: string) => void;
   onSafetyAcknowledgedChange: (value: boolean) => void;
   onGoToVerification: () => void;
-  onOwnerSellerProfileState: (
-    sellerId: string,
-    state: { feature?: boolean; hidden?: boolean },
-    successMessage: string,
-  ) => void;
-  onOwnerSuspendSeller: (sellerId: string) => void;
   formatIls: (value: number) => string;
-  localizedAuditAction: (action: AuditAction | string, isAr: boolean) => string;
   paymentMethodEmoji: (method: string) => string;
   paymentMethodLabel: (method: string, isAr?: boolean) => string;
   sellerLevelToneKey: (level?: SellerLevel) => string;
-  tradeStatusLabel: (status: PurchaseRequest["status"], isAr?: boolean) => string;
 };
 
 function safeText(value: unknown, fallback = "—") {
   if (typeof value === "string" && value.trim()) return value;
   return fallback;
-}
-
-function shortTradeRef(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id">) {
-  return `Trade ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`;
 }
 
 export function PurchaseListingDialog({
@@ -112,8 +97,6 @@ export function PurchaseListingDialog({
   estimatedTradeValue,
   estimatedBuyerFee,
   estimatedTotal,
-  isOwnerViewer,
-  isOwnerProfileActionLoading,
   purchaseSubmitted,
   buyerInfo,
   onBuyerDetailsChange,
@@ -146,14 +129,10 @@ export function PurchaseListingDialog({
   onOfferedPriceChange,
   onSafetyAcknowledgedChange,
   onGoToVerification,
-  onOwnerSellerProfileState,
-  onOwnerSuspendSeller,
   formatIls,
-  localizedAuditAction,
   paymentMethodEmoji,
   paymentMethodLabel,
   sellerLevelToneKey,
-  tradeStatusLabel,
 }: PurchaseListingDialogProps) {
   const isAr = locale === "ar";
   const paymentMethodOptions = getMarketplacePaymentMethodOptions(selectedPaymentMethods);
@@ -263,42 +242,6 @@ export function PurchaseListingDialog({
                 </p>
                 <p className="commission-notice mt-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "عمولتك 1% ضمن دفعتك للبائع. البائع يدفع 1% من حصته؛ إجمالي عمولة Alpha هو 2%. تستلم كامل كمية USDT المتفق عليها." : "Your 1% fee is included in your payment to the seller. The seller pays their own 1%; Alpha’s total fee is 2%. You receive the full agreed USDT amount.")}</p>
               </div>
-
-              {isOwnerViewer && sellerProfileData ? (
-                <div className="rounded-2xl border border-[#C9A227]/25 bg-black/25 p-4 text-sm text-[#D1D5DB]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "أدوات المالك" : "Owner Tools"}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button type="button" size="sm" variant="secondary" disabled={isOwnerProfileActionLoading} onClick={() => onOwnerSellerProfileState(sellerProfileData.sellerId, { feature: !sellerProfileData.profile.isFeaturedSeller }, sellerProfileData.profile.isFeaturedSeller ? (isAr ? "تمت إزالة البائع من المميزين." : "Seller unfeatured.") : (isAr ? "تم تمييز البائع." : "Seller featured."))}>
-                      {sellerProfileData.profile.isFeaturedSeller ? (isAr ? "إلغاء تمييز البائع" : "Unfeature Seller") : (isAr ? "تمييز البائع" : "Feature Seller")}
-                    </Button>
-                    <Button type="button" size="sm" variant="secondary" disabled={isOwnerProfileActionLoading} onClick={() => onOwnerSellerProfileState(sellerProfileData.sellerId, { hidden: !sellerProfileData.profile.isProfileHidden }, sellerProfileData.profile.isProfileHidden ? (isAr ? "تم إظهار ملف البائع." : "Seller profile unhidden.") : (isAr ? "تم إخفاء ملف البائع." : "Seller profile hidden."))}>
-                      {sellerProfileData.profile.isProfileHidden ? (isAr ? "إظهار البائع" : "Unhide Seller") : (isAr ? "إخفاء البائع" : "Hide Seller")}
-                    </Button>
-                    <Button type="button" size="sm" variant="secondary" disabled={isOwnerProfileActionLoading} onClick={() => onOwnerSuspendSeller(sellerProfileData.sellerId)}>
-                      {isAr ? "تعليق البائع" : "Suspend Seller"}
-                    </Button>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="font-medium text-white">{isAr ? "سجل التدقيق" : "Audit History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.auditHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="commission-notice font-medium text-white">{isAr ? "سجل العمولات" : "Commission History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.commissionHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs"><p className="font-medium text-white">{isAr ? "سجل الصفقات" : "Trade History"}</p><p className="mt-1">{sellerProfileData.ownerTools?.tradeHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p></div>
-                  </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{isAr ? "أحدث عمليات التدقيق" : "Recent Audit"}</p>
-                      {(sellerProfileData.ownerTools?.auditHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{currencyText(localizedAuditAction(entry.action, isAr))} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL")}</p>)}
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="commission-notice font-medium text-white">{isAr ? "أحدث العمولات" : "Recent Commission"}</p>
-                      {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{currencyText(`${entry.commissionAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`)} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>)}
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{isAr ? "أحدث الصفقات" : "Recent Trades"}</p>
-                      {(sellerProfileData.ownerTools?.tradeHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{currencyText(shortTradeRef(entry))} • {currencyText(tradeStatusLabel(entry.status, isAr))}</p>)}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
 
               <form id="buy-usdt-form" className="grid gap-3" onSubmit={onSubmit}>
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">

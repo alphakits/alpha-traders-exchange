@@ -1790,7 +1790,7 @@ function buildPublicUserProfileDataForUser(input: {
           reviewsWritten,
           reviewsReceived,
           activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
+          pendingListings: viewerIsOwner || platformOwner ? db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length : 0,
         }
       : null,
   };
@@ -2255,6 +2255,8 @@ export async function getPremiumSellerProfile(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
+  /** Only the separately authorized owner endpoint opts into private tools. */
+  includePrivateData?: boolean;
   dbInput?: AlphaExchangeDb;
 }): Promise<PremiumSellerProfileData | null> {
   const db = await withLiveUserPresence(input.dbInput ?? await readDb());
@@ -2262,18 +2264,20 @@ export async function getPremiumSellerProfile(input: {
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
   if (!isTrustEligibleSeller(seller)) return null;
+  const viewer = db.users.find((user) => user.id === input.viewerUserId);
+  const viewerIsOwner = input.includePrivateData === true && isPublicOwnerIdentity(viewer);
+  const viewerIsSellerOwner = viewer?.disabled !== true && viewer?.id === seller.id;
+  const profileViewer = viewerIsOwner || viewerIsSellerOwner ? viewer : undefined;
   const trustSnapshot = computeSellerReputationSnapshot(db, seller.id);
   const publicAccount = buildPublicUserProfileDataForUser({
     db,
     user: seller,
-    viewerUserId: input.viewerUserId,
+    viewerUserId: profileViewer?.id,
     viewerRole: input.viewerRole,
     enforceSearchVisibility: false,
     trustSnapshot,
   });
   if (!publicAccount) return null;
-  const viewerIsOwner = isPublicOwnerIdentity(db.users.find(user => user.id === input.viewerUserId));
-  const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const canSeeExactSellerStats = viewerIsSellerOwner || viewerIsOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -2292,17 +2296,21 @@ export async function getPremiumSellerProfile(input: {
   const reviews = completedTrades
     .filter((request) => request.buyerReview && (viewerIsOwner || viewerIsSellerOwner || request.buyerReview.hidden !== true))
     .map((request) => ({
-      id: `review-${request.id}`,
-      tradeId: request.tradeId ?? request.id,
+      id: canSeeExactSellerStats ? `review-${request.id}` : `review-${createHash("sha256").update(request.id).digest("hex").slice(0, 24)}`,
+      tradeId: canSeeExactSellerStats ? request.tradeId ?? request.id : "",
       rating: request.buyerReview!.rating,
       comment: reviewText(request.buyerReview!.comment),
       createdAt: request.buyerReview!.createdAt,
-      buyerId: request.buyerId,
+      buyerId: canSeeExactSellerStats ? request.buyerId : publicAccountId({ id: request.buyerId }),
       buyerName: publicAccountId(usersById.get(request.buyerId) ?? { id: request.buyerId }),
       verifiedPurchase: true,
       hidden: request.buyerReview!.hidden === true,
       sellerResponse: request.sellerResponse
-        ? { ...request.sellerResponse, message: reviewText(request.sellerResponse.message) }
+        ? {
+            responderUserId: canSeeExactSellerStats ? request.sellerResponse.responderUserId : publicAccountId(seller),
+            message: reviewText(request.sellerResponse.message),
+            createdAt: request.sellerResponse.createdAt,
+          }
         : request.sellerResponse,
     }))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
@@ -2355,7 +2363,7 @@ export async function getPremiumSellerProfile(input: {
     .slice(0, 12);
 
   const profile: SellerPublicProfile = {
-    ...buildSellerPublicProfile(seller, db.users.find(user => user.id === input.viewerUserId)),
+    ...buildSellerPublicProfile(seller, profileViewer),
     ...(viewerIsOwner ? { contact: publicAccount.profile.contact } : {}),
     sellerName: publicAccount.profile.publicTradingName,
     publicTradingName: publicAccount.profile.publicTradingName,
@@ -2439,8 +2447,8 @@ export async function getPremiumSellerProfile(input: {
     prestigeVolumePublicLabel: canSeeExactSellerStats ? getSellerPublicVolumeLabel(currentRank) : "",
     hallOfFameEligible,
     latestReviews: reviews.slice(0, 12),
-    recentActivity,
-    ownerTools,
+    recentActivity: canSeeExactSellerStats ? recentActivity : [],
+    ...(ownerTools ? { ownerTools } : {}),
   };
 }
 
@@ -13369,10 +13377,37 @@ export async function getSellerReviews(input: {
     .map((request) => buildSellerReviewRecordFromRequest(request))
     .filter((review): review is SellerReviewRecord => Boolean(review))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-  const canViewHidden = input.actorRole === "admin" || input.actorRole === "owner" || input.actorUserId === input.sellerId;
-  const canViewPrivateContent = isPublicOwnerIdentity(db.users.find(user => user.id === input.actorUserId));
+  const actor = db.users.find((user) => user.id === input.actorUserId && !user.disabled);
+  const canModerate = Boolean(actor && (hasRole(actor, "admin") || hasRole(actor, "owner")));
+  const canViewHidden = canModerate || actor?.id === input.sellerId;
+  const canViewPrivateContent = isPublicOwnerIdentity(actor);
+  const publicText = identityTextRedactor(db.users, true);
   return (canViewHidden ? reviews : reviews.filter((review) => !review.hidden))
-    .map((review) => sanitizeSellerReviewForCounterparty(review, canViewPrivateContent));
+    .map((review) => {
+      const sanitized = canViewPrivateContent ? review : {
+        ...sanitizeSellerReviewForCounterparty(review, false),
+        comment: publicText(review.comment),
+        sellerReply: review.sellerReply ? publicText(review.sellerReply) : undefined,
+        hiddenReason: review.hiddenReason ? publicText(review.hiddenReason) : undefined,
+      };
+      if (canModerate || actor?.id === review.sellerId || actor?.id === review.buyerId) return sanitized;
+      // A public review is reputation, not permission to inspect its trade.
+      return {
+        id: `review-${createHash("sha256").update(review.id).digest("hex").slice(0, 24)}`,
+        tradeId: "",
+        buyerId: publicAccountId({ id: review.buyerId }),
+        sellerId: review.sellerId,
+        rating: review.rating,
+        comment: publicText(review.comment),
+        sellerReply: review.sellerReply ? publicText(review.sellerReply) : undefined,
+        createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
+        hidden: false,
+        verifiedTrade: review.verifiedTrade,
+        tradeAmount: "",
+        network: "",
+      };
+    });
 }
 
 export async function moderateSellerReview(input: {

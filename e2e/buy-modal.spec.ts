@@ -191,6 +191,42 @@ test.describe("Direct Buy USDT modal", () => {
     await login(page, buyerFixture!.email, buyerFixture!.password);
   });
 
+  for (const viewer of ["buyer", "owner"] as const) {
+    test(`keeps seller private histories out of the buying flow for ${viewer} on mobile`, async ({ page }) => {
+      const db = await readRuntimeDb(page.request);
+      const now = new Date().toISOString();
+      const privateCommissionId = `private-commission-${sellerId}`;
+      db.commissionRecords = [
+        ...(Array.isArray(db.commissionRecords) ? db.commissionRecords : []),
+        { id: privateCommissionId, sellerId, source: "admin_manual", rate: 0, grossAmount: 0,
+          commissionAmount: 20, paymentStatus: "paid", paymentVerificationStatus: "verified",
+          dueAt: now, createdAt: now, updatedAt: now },
+      ];
+      await writeRuntimeDb(page.request, db);
+      if (viewer === "owner") await login(page, process.env.E2E_OWNER_EMAIL!, process.env.E2E_OWNER_PASSWORD!);
+      const publicResponse = await page.request.get(`/api/alpha-exchange/sellers/${sellerId}/profile?includePrivateData=true&viewerRole=owner`);
+      expect(publicResponse.status()).toBe(200);
+      const publicPayload = await publicResponse.json();
+      expect(publicPayload.profile.ownerTools).toBeUndefined();
+      expect(publicPayload.profile.commissionPaid).toBeUndefined();
+      expect(publicPayload.profile.recentActivity).toEqual([]);
+      expect(JSON.stringify(publicPayload)).not.toContain(privateCommissionId);
+      const privateResponse = await page.request.get(`/api/alpha-exchange/admin/sellers/${sellerId}/profile`);
+      expect(privateResponse.status()).toBe(viewer === "owner" ? 200 : 403);
+      if (viewer === "owner") {
+        const privatePayload = await privateResponse.json();
+        expect(privatePayload.profile.ownerTools.commissionHistory).toContainEqual(expect.objectContaining({ id: privateCommissionId }));
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto("/en/usdt-exchange");
+      await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
+      const dialog = page.getByRole("dialog", { name: "Buy USDT", exact: true });
+      await expect(dialog.getByLabel(/USDT Amount/i)).toBeVisible();
+      await expect(dialog.getByText(/Commission History|Recent Commission|Trade History|Recent Trades|Recent Audit|Owner Tools/)).toHaveCount(0);
+      await expect(dialog.getByRole("button", { name: /Suspend Seller|Feature Seller|Hide Seller/ })).toHaveCount(0);
+    });
+  }
+
   test("opens a purchase-first modal with the form immediately visible (desktop)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/en/usdt-exchange");
