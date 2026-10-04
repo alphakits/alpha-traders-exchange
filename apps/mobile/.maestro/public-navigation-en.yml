@@ -32,6 +32,13 @@ name: English homepage and guest navigation
 - tapOn: "Home"
 - tapOn: "Open menu"
 - tapOn: "Academy"
+# Guests can discover the free course before entering the protected lessons.
+- assertVisible: ".*Free Trading Course for Beginners.*"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "Start the Free Course"
+- tapOn: "Start the Free Course"
 - assertVisible: "Premium Sign In"
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
