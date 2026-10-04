@@ -99,7 +99,7 @@ describe("app Remember me integration", () => {
   it("clears outdated credentials after a password reset", async () => {
     mocks.request.mockResolvedValue(ok);
     render(<LoginForm locale="en" passwordResetSuccess />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("clear"));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("clear", undefined, expect.any(AbortSignal)));
     expect(password().value).toBe("");
   });
   it("keeps old app login usable and explains that remembering credentials needs the app update", async () => {
@@ -111,6 +111,20 @@ describe("app Remember me integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/en/usdt-exchange"));
     expect(mocks.request.mock.calls.map(([action]) => action)).toEqual(["load"]);
+  });
+  it("cancels the native lookup when the login screen closes", async () => {
+    const cancelled = vi.fn();
+    mocks.request.mockImplementation((_action: string, _credentials: unknown, signal?: AbortSignal) => new Promise(resolve => {
+      signal?.addEventListener("abort", () => {
+        cancelled();
+        resolve(null);
+      }, { once: true });
+    }));
+    const view = render(<LoginForm locale="en" />);
+    expect(mocks.request).toHaveBeenCalledOnce();
+    view.unmount();
+    await waitFor(() => expect(cancelled).toHaveBeenCalledOnce());
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
   it("leaves browser Remember me behavior unchanged", () => {
     delete window.ReactNativeWebView;
