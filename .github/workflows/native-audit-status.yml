@@ -44,6 +44,18 @@ jobs:
             const view = JSON.parse(result.stdout);
             fs.writeFileSync('native-workflow-' + run.id + '.json', JSON.stringify(view, null, 2));
             console.log(JSON.stringify({ id: view.id, status: view.status, source: view.gitCommitHash, jobs: (view.jobs ?? []).map(job => ({ key: job.key, status: job.status, type: job.type })) }));
+            for (const job of view.jobs ?? []) {
+              for (const artifact of job.turtleJobRun?.artifacts ?? []) {
+                if (!artifact.filename?.toLowerCase().endsWith('.xml')) continue;
+                const url = new URL(artifact.downloadUrl);
+                if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected report origin');
+                const response = await fetch(artifact.downloadUrl, { signal: AbortSignal.timeout(30000) });
+                if (!response.ok) throw new Error('Could not fetch current native report');
+                const junit = await response.text();
+                fs.writeFileSync('native-junit-' + run.id + '-' + job.key + '.xml', junit);
+                console.log(JSON.stringify({ run: run.id, source: view.gitCommitHash, job: job.key, junit }));
+              }
+            }
           }
           JS
       - name: Preserve metadata snapshot
@@ -51,6 +63,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-status-snapshot
-          path: apps/mobile/native-workflow-*.json
+          path: |
+            apps/mobile/native-workflow-*.json
+            apps/mobile/native-junit-*.xml
           if-no-files-found: error
           retention-days: 14
