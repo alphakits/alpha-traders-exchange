@@ -9,6 +9,7 @@ import { useRouter } from "@/i18n/navigation";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { sellerApplicationErrorMessage } from "@/lib/seller-application-errors";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
@@ -38,6 +39,7 @@ function sellerMethodLabel(method: SellerMethod, isAr: boolean) {
 type Props = {
   locale: "ar" | "en";
   isBuyer?: boolean;
+  isStudent?: boolean;
   sellerStatus?: string;
   sellerApprovalVerified?: boolean;
   phoneVerificationEnabled: boolean;
@@ -98,14 +100,25 @@ function PremiumCard({ title, subtitle, icon: Icon, accent, children }: PremiumC
 
 export function GuestOnboarding({
   locale,
-  isBuyer = false,
-  sellerStatus,
-  sellerApprovalVerified = false,
+  isBuyer: initialIsBuyer = false,
+  isStudent: initialIsStudent = false,
+  sellerStatus: initialSellerStatus,
+  sellerApprovalVerified: initialSellerApprovalVerified = false,
   phoneVerificationEnabled,
   phoneVerificationChannels,
 }: Props) {
   const router = useRouter();
   const canonicalSession = useOptionalCanonicalSession();
+  const canonicalUser = canonicalSession?.user;
+  const sellerStatus = canonicalUser?.sellerStatus ?? initialSellerStatus;
+  const access = getInterfaceAccess(canonicalUser ?? {
+    role: initialIsBuyer ? "buyer" : initialIsStudent ? "student" : "guest",
+    roles: [initialIsBuyer ? "buyer" : "guest", ...(initialIsStudent ? ["student"] : [])],
+    sellerStatus,
+  });
+  const isBuyer = access.buyer;
+  const isStudent = access.student;
+  const sellerApprovalVerified = canonicalUser ? canonicalUser.sellerApprovalVerified === true : initialSellerApprovalVerified;
   const isAr = locale === "ar";
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError, errorFeedbackKey] = useActionFeedbackState<string | null>(null);
@@ -323,6 +336,13 @@ export function GuestOnboarding({
     }
   }
 
+  if (access.administration) {
+    return <section className="section-container page-shell">
+      <p className="page-subtitle">{isAr ? "إدارة حسابك متاحة من لوحة التحكم." : "Manage your account from your dashboard."}</p>
+      <Button type="button" onClick={() => router.replace(access.dashboardHref)}>{isAr ? "فتح لوحة التحكم" : "Open dashboard"}</Button>
+    </section>;
+  }
+
   return (
     <section className="section-container page-shell">
       <div className="alpha-reveal-rise surface-panel mx-auto w-full max-w-6xl p-6 md:p-8">
@@ -350,14 +370,18 @@ export function GuestOnboarding({
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <PremiumCard
-            title={isAr ? "كن مشتريًا" : "Become a Buyer"}
-            subtitle={isAr
+            title={isBuyer ? (isAr ? "صلاحية المشتري" : "Buyer access") : (isAr ? "كن مشتريًا" : "Become a Buyer")}
+            subtitle={isBuyer ? (isAr ? "صلاحية المشتري مفعّلة في حسابك." : "Buyer access is active on your account.") : isAr
               ? "تحقق من بريدك الإلكتروني ثم فعّل وصول المشتري إلى السوق."
               : "Verify your email, then activate Buyer access to the marketplace."}
             icon={ShieldCheck}
             accent="gold"
           >
-            <div className="grid gap-2">
+            {isBuyer ? (
+              <Button type="button" className="w-full" onClick={() => router.replace("/dashboard")}>
+                {isAr ? "فتح مساحة المشتري" : "Open buyer workspace"}
+              </Button>
+            ) : <div className="grid gap-2">
               <Input
                 aria-label={isAr ? "الاسم الأول" : "First Name"}
                 placeholder={isAr ? "الاسم الأول" : "First Name"}
@@ -373,7 +397,9 @@ export function GuestOnboarding({
               <p className="text-xs text-[#9CA3AF]">{isAr ? "سيظهر معرّف AT كاسمك العام. تبقى معلوماتك الشخصية خاصة." : "Your AT ID will be your public name. Your personal details stay private."}</p>
               <div className="space-y-3">
                 <p className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
-                  {isAr
+                  {phoneVerificationEnabled ? (isAr
+                    ? "فعّل صلاحية المشتري بعد تأكيد بريدك. يلزم التحقق من هاتفك قبل استخدام Alpha Exchange."
+                    : "Activate buyer access after verifying your email. Verify your phone before using Alpha Exchange.") : isAr
                     ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المطلوبة حاليًا. التحقق من الهاتف متوقف."
                     : "Email verification is the only verification method currently required. Phone verification is off."}
                 </p>
@@ -388,14 +414,16 @@ export function GuestOnboarding({
                   {isAr ? "المتابعة كمشتري" : "Continue as Buyer"}
                 </Button>
               </div>
-            </div>
+            </div>}
             {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="mt-2 text-xs text-rose-300">{currencyText(error)}</ActionFeedback> : null}
             {status ? <p className="mt-2 text-xs text-emerald-300">{currencyText(status)}</p> : null}
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "التقدّم للحصول على صفة بائع" : "Apply for Seller Status"}
-            subtitle={isAr ? "قدّم كبائع وابدأ بعد الموافقة الرسمية." : "Submit as a seller and start after admin approval."}
+            title={access.sellerWorkspace || sellerNeedsReview ? (isAr ? "حساب البائع" : "Seller account") : (isAr ? "التقدّم للحصول على صفة بائع" : "Apply for Seller Status")}
+            subtitle={access.sellerWorkspace || sellerNeedsReview
+              ? (isAr ? "تابع حالة صلاحية البائع في حسابك." : "Review your seller access and account status.")
+              : (isAr ? "قدّم كبائع وابدأ بعد الموافقة الرسمية." : "Submit as a seller and start after admin approval.")}
             icon={Store}
             accent="blue"
           >
@@ -421,6 +449,13 @@ export function GuestOnboarding({
                 >
                   <p className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4" />{isAr ? "أنت بائع معتمد بالفعل." : "You are already an approved seller."}</p>
                   <Button type="button" className="mt-3 w-full" onClick={() => router.replace("/dashboard/seller")}>
+                    {isAr ? "فتح لوحة البائع" : "Open seller dashboard"}
+                  </Button>
+                </div>
+              ) : sellerStatus === "suspended" ? (
+                <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  <p>{isAr ? "إنشاء عروض جديدة متوقف. يمكنك متابعة صفقاتك الحالية وحالة حسابك." : "New listings are paused. You can review your existing trades and account status."}</p>
+                  <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => router.replace("/dashboard/seller")}>
                     {isAr ? "فتح لوحة البائع" : "Open seller dashboard"}
                   </Button>
                 </div>
@@ -662,12 +697,14 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "انضم إلى أكاديمية Alpha" : "Join Alpha Academy"}
+            title={isStudent ? (isAr ? "حساب الأكاديمية" : "Academy access") : (isAr ? "انضم إلى أكاديمية Alpha" : "Join Alpha Academy")}
             subtitle={isAr ? "تعلم عبر فيديوهات وملفات PDF واختبارات تتبع التقدم." : "Learn through videos, PDFs, and progress-based quizzes."}
             icon={GraduationCap}
             accent="green"
           >
-            <Button
+            {isStudent ? <Button type="button" className="w-full" onClick={() => router.replace("/academy")}>
+              {isAr ? "متابعة التعلّم" : "Continue learning"}
+            </Button> : <Button
               type="button"
               className="w-full"
               loading={loading === "student"}
@@ -676,10 +713,10 @@ export function GuestOnboarding({
               disabled={isLoading}
             >
               {isAr ? "تفعيل دور الطالب" : "Become a Student"}
-            </Button>
+            </Button>}
           </PremiumCard>
 
-          <PremiumCard
+          {!access.trading && !isStudent ? <PremiumCard
             title={isAr ? "المتابعة كضيف" : "Continue as Guest"}
             subtitle={isAr ? "استكشف الواجهة الآن وحدد دورك لاحقًا." : "Explore now and choose your role later."}
             icon={UserCircle2}
@@ -696,7 +733,7 @@ export function GuestOnboarding({
             >
               {isAr ? "المتابعة كضيف" : "Continue as Guest"}
             </Button>
-          </PremiumCard>
+          </PremiumCard> : null}
         </div>
       </div>
     </section>

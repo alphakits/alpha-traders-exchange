@@ -31,6 +31,28 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
+  it.each(["/en/trades", "/en/trade-room", "/en/trade-room/owned-trade"])("never mounts %s for a student with a legacy buyer status", async pathname => {
+    navigation.pathname = pathname;
+    const student = { ...user, role: "student" as const, roles: ["student" as const] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: student })));
+    renderPage(student);
+    await act(async () => {});
+    expect(privateMount).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledWith("/en/profile");
+  });
+  it("removes a trade workspace immediately when buyer access is revoked", async () => {
+    navigation.pathname = "/en/trades";
+    const student = { ...user, role: "student" as const, roles: ["student" as const] };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ user }))
+      .mockResolvedValueOnce(Response.json({ user: student })));
+    renderPage(user);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-changed")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(replace).toHaveBeenCalledWith("/en/profile");
+  });
   it("discards private props before mounting them for a different account", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(Response.json({ user }))

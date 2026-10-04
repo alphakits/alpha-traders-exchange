@@ -59,6 +59,6 @@ export function getInterfacePageDestination(user: InterfaceSessionUser, pathname
   const path = (pathname.split(/[?#]/, 1)[0] ?? "").replace(/^\/(?:ar|en)(?=\/|$)/, "");
   if (/^\/admin(?:\/|$)/.test(path) && !access.administration) return `/${locale}${access.dashboardHref}`;
   if (/^\/dashboard\/seller(?:\/|$)/.test(path) && !access.sellerWorkspace && !access.administration) return `/${locale}${access.dashboardHref}`;
-  if (path === "/dashboard" && !access.trading) return `/${locale}/profile`;
+  if (/^\/(?:dashboard|trades|trade-room)(?:\/|$)/.test(path) && !access.trading) return `/${locale}/profile`;
   return null;
 }
