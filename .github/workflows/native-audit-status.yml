@@ -56,12 +56,17 @@ jobs:
               if (list.status !== 0) throw new Error('Invalid Android report archive');
               const names = list.stdout.split('\n').filter(Boolean);
               if (names.some(name => name.startsWith('/') || name.split('/').includes('..'))) throw new Error('Unsafe report entry');
-              const selectedNames = names.filter(name => name.includes('terms-en') && name.endsWith('.json'));
-              console.log(JSON.stringify({ androidArchiveEntries: selectedNames }));
+              const selectedNames = names.filter(name => /commands.*\.json$/i.test(name) || /maestro\.log$/i.test(name));
+              console.log(JSON.stringify({ androidArchiveEntries: names.slice(0,80), diagnosticEntries: selectedNames }));
               for (const name of selectedNames) {
                 const text = spawnSync('tar', ['-xOzf', path, '--', name], { encoding: 'utf8', maxBuffer: 8000000 });
                 if (text.status !== 0) throw new Error('Could not read Android command trace');
-                console.log(JSON.stringify({ androidTraceFile: name, trace: text.stdout.slice(0,25000) }));
+                if (name.endsWith('.log')) {
+                  const lines = text.stdout.split('\n').filter(line => /offline|exception|unable|failed|clearState|launchApp/i.test(line));
+                  console.log(JSON.stringify({ androidTraceFile: name, traceFailureLines: lines.slice(0,100).map(line => line.replace(/https?:\\/\\/\\S+/g, '[url]')) }));
+                } else if (text.stdout.includes('FAILED') || /offline|exception/i.test(text.stdout)) {
+                  console.log(JSON.stringify({ androidTraceFile: name, trace: text.stdout.slice(0,25000) }));
+                }
               }
             }
             if (build) console.log(JSON.stringify({ nativeBuild: { job: job.key, id: build.id, status: build.status, platform: build.platform, profile: build.buildProfile, version: build.appVersion, buildNumber: build.appBuildVersion, source: build.gitCommitHash, simulator: build.isForIosSimulator } }));
