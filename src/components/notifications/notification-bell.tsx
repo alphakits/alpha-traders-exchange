@@ -305,6 +305,13 @@ function NotificationBellSession({
     const timeout = window.setTimeout(() => controller.abort(), 12_000);
     const operationScope = notificationAccountScope;
     const operationMutationVersion = notificationMutationVersionRef.current;
+    // A no-store read started after a successful write is authoritative. Let
+    // a later explicit unread change replace that confirmed local read.
+    const confirmedReadVersions = new Map(
+      [...optimisticReadIdsRef.current].filter(([, action]) => action.confirmed).map(([id, action]) => [id, action.version]),
+    );
+    const confirmedMarkAllVersion = optimisticMarkAllRef.current?.confirmed
+      ? optimisticMarkAllRef.current.version : null;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
     if (!shouldPreserveList) {
@@ -324,6 +331,12 @@ function NotificationBellSession({
         || loadControllerRef.current !== controller
         || notificationMutationVersionRef.current !== operationMutationVersion
       ) return;
+      for (const [id, version] of confirmedReadVersions) {
+        if (optimisticReadIdsRef.current.get(id)?.version === version) optimisticReadIdsRef.current.delete(id);
+      }
+      if (confirmedMarkAllVersion !== null && optimisticMarkAllRef.current?.version === confirmedMarkAllVersion) {
+        optimisticMarkAllRef.current = null;
+      }
       const reconciled = reconcileIncomingNotifications(payload.notifications ?? [], payload.unreadCount ?? 0);
       const incoming = reconciled.notifications;
       forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
