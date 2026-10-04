@@ -170,6 +170,7 @@ function NotificationBellSession({
   const loadControllerRef = useRef<AbortController | null>(null);
   const notificationMutationVersionRef = useRef(0);
   const optimisticReadIdsRef = useRef(new Map<string, { version: number; confirmed: boolean }>());
+  const optimisticMarkAllRef = useRef<{ version: number; confirmed: boolean; unreadCount: number; ids: Set<string> } | null>(null);
   const refreshSession = canonicalSession?.refresh;
   const canonicalUserId = canonicalSession?.user?.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -201,10 +202,16 @@ function NotificationBellSession({
       if (action.confirmed && !activeIds.has(id)) optimisticReadIdsRef.current.delete(id);
     }
     const visibleIncoming = activeIncoming.filter((notification) => !optimisticReadIdsRef.current.has(notification.id));
-    return {
-      notifications: visibleIncoming,
-      unreadCount: Math.max(0, incomingUnreadCount - (activeIncoming.length - visibleIncoming.length)),
-    };
+    const markAll = optimisticMarkAllRef.current;
+    if (markAll?.confirmed && !activeIncoming.some((notification) => markAll.ids.has(notification.id))) {
+      optimisticMarkAllRef.current = null;
+    }
+    // A stream snapshot is limited, while the bulk action clears every unread
+    // item. Account for the full count until the server acknowledges that clear.
+    const unreadCount = optimisticMarkAllRef.current
+      ? Math.max(visibleIncoming.length, incomingUnreadCount - optimisticMarkAllRef.current.unreadCount)
+      : Math.max(0, incomingUnreadCount - (activeIncoming.length - visibleIncoming.length));
+    return { notifications: visibleIncoming, unreadCount };
   }, []);
 
   function finishOptimisticRead(ids: string[], version: number, succeeded: boolean) {
@@ -214,6 +221,13 @@ function NotificationBellSession({
       if (succeeded) optimisticReadIdsRef.current.set(id, { version, confirmed: true });
       else optimisticReadIdsRef.current.delete(id);
     }
+  }
+
+  function finishOptimisticMarkAll(version: number, succeeded: boolean) {
+    const action = optimisticMarkAllRef.current;
+    if (action?.version !== version) return;
+    if (succeeded) action.confirmed = true;
+    else optimisticMarkAllRef.current = null;
   }
 
   useEffect(() => () => {
@@ -443,6 +457,9 @@ function NotificationBellSession({
       ...(openNotificationsSnapshot ?? []).map((notification) => notification.id),
       ...optimisticReadIdsRef.current.keys(),
     ])];
+    optimisticMarkAllRef.current = {
+      version: actionVersion, confirmed: false, unreadCount: unreadCountRef.current, ids: new Set(actionIds),
+    };
     for (const id of actionIds) optimisticReadIdsRef.current.set(id, { version: actionVersion, confirmed: false });
     setNotifications([]);
     setOpenNotificationsSnapshot([]);
@@ -454,11 +471,13 @@ function NotificationBellSession({
         body: JSON.stringify({ action: "mark_all_read" }),
       });
       finishOptimisticRead(actionIds, actionVersion, response.ok);
+      finishOptimisticMarkAll(actionVersion, response.ok);
       if (!response.ok) {
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
       finishOptimisticRead(actionIds, actionVersion, false);
+      finishOptimisticMarkAll(actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }

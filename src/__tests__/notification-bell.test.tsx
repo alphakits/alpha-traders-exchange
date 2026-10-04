@@ -140,6 +140,26 @@ describe("Notification bell conversation navigation", () => {
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
+  it("keeps the entire unread count cleared after reading a limited notification page", async () => {
+    const notifications = Array.from({ length: 3 }, (_, index) => ({
+      id: "limited-unread-" + index, userId: "buyer-1", category: "listing",
+      title: "A listing alert", message: "A guest fixture notification.",
+      isRead: false, createdAt: new Date().toISOString(),
+    }));
+    const payload = { notifications, unreadCount: 37 };
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Response(JSON.stringify(init?.method === "PATCH" ? {} : payload), { status: 200 })));
+    render(<NotificationBell locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    await screen.findByText("37 unread");
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+    await act(async () => {
+      notificationStream.onNotifications?.(new MessageEvent("notifications", { data: JSON.stringify(payload) }));
+    });
+    expect(screen.queryByText(/^\d+ unread$/)).toBeNull();
+    expect(screen.queryAllByRole("button", { name: "Mark as read" })).toHaveLength(0);
+  });
+
   it("restores an unread notification when the read write fails", async () => {
     const notice = {
       id: "read-write-failed", userId: "buyer-1", category: "listing",
@@ -151,7 +171,7 @@ describe("Notification bell conversation navigation", () => {
     render(<NotificationBell locale="en" />);
     fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
     fireEvent.click(await screen.findByRole("button", { name: "Mark as read" }));
-    await screen.findByRole("button", { name: "View listing" });
+    await screen.findByRole("button", { name: "Mark as read" });
     expect(screen.getByRole("button", { name: "Mark as read" })).toBeTruthy();
     expect(navigation.push).not.toHaveBeenCalled();
   });
@@ -176,7 +196,7 @@ describe("Notification bell conversation navigation", () => {
       notificationStream.onNotifications?.(new MessageEvent("notifications", { data: JSON.stringify(payload) }));
     });
     fireEvent.click(bell);
-    expect(screen.getByRole("button", { name: "View listing" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark as read" })).toBeTruthy();
   });
 
   it("opens a legacy lifecycle notice without a trade snapshot and preserves its request ID", async () => {
