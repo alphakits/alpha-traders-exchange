@@ -3,10 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
 
-const navigationState = vi.hoisted(() => ({ search: "" }));
+const navigationState = vi.hoisted(() => ({ search: "", router: { refresh: vi.fn() } }));
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.search),
+  useRouter: () => navigationState.router,
 }));
 
 const listing = {
@@ -89,6 +90,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
   const scrollIntoView = vi.fn();
 
   beforeEach(() => {
+    navigationState.router.refresh.mockReset();
     sessionStorage.clear();
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value() { this.open = true; } });
     Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value() { this.open = false; } });
@@ -629,6 +631,66 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
 
     expect(await screen.findByRole("heading", { name: "Purchase Requests" })).toBeTruthy();
     expect((screen.getByPlaceholderText("Search buyer, seller, listing...") as HTMLInputElement).value).toBe("request-1");
+  });
+
+  it.each([401, 403])("clears old health data and refreshes canonical access after HTTP %s", async status => {
+    navigationState.search = "section=system-health";
+    let denied = false;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) {
+        return denied ? Response.json({ error: "Access unavailable" }, { status }) : Response.json(systemHealthPayload());
+      }
+      return Response.json(adminPayload());
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
+    denied = true;
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
+    await waitFor(() => expect(navigationState.router.refresh).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();
+    expect(screen.queryByText("Website health could not be loaded. Try again.")).toBeNull();
+  });
+
+  it("preserves owner data through a temporary health error and recovers with a read", async () => {
+    navigationState.search = "section=system-health";
+    let unavailable = false;
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) {
+        return unavailable ? Response.json({ error: "Unavailable" }, { status: 503 }) : Response.json(systemHealthPayload());
+      }
+      return Response.json(adminPayload());
+    });
+    render(<AlphaExchangeAdminDashboard isOwner />);
+    expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
+    unavailable = true;
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
+    expect(await screen.findByText("Website health could not be loaded. Try again.")).toBeTruthy();
+    expect(screen.getByText("Marketplace Operational Guard")).toBeTruthy();
+    expect(navigationState.router.refresh).not.toHaveBeenCalled();
+    unavailable = false;
+    fireEvent.click(screen.getByRole("button", { name: /^Check Now$/ }));
+    await waitFor(() => expect(screen.queryByText("Website health could not be loaded. Try again.")).toBeNull());
+    expect(screen.getByText("Marketplace Operational Guard")).toBeTruthy();
+  });
+
+  it("ignores an earlier health response after the dashboard loses access", async () => {
+    navigationState.search = "section=system-health";
+    let dashboardReads = 0;
+    const healthResolvers: Array<(response: Response) => void> = [];
+    vi.mocked(fetch).mockImplementation(async input => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) return new Promise<Response>(resolve => healthResolvers.push(resolve));
+      return ++dashboardReads === 1 ? Response.json(adminPayload()) : Response.json({ error: "Signed out" }, { status: 401 });
+    });
+    const view = render(<AlphaExchangeAdminDashboard isOwner />);
+    await waitFor(() => expect(healthResolvers.length).toBe(1));
+    view.rerender(<AlphaExchangeAdminDashboard isOwner locale="ar" />);
+    await waitFor(() => expect(navigationState.router.refresh).toHaveBeenCalledOnce());
+    await act(async () => healthResolvers.forEach(resolve => resolve(Response.json(systemHealthPayload()))));
+    expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();
+    expect(screen.queryByText("مراقبة عمليات السوق")).toBeNull();
   });
 
   it("renders the operational guard completely in Arabic", async () => {

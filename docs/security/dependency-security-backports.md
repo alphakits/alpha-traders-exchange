@@ -13,6 +13,7 @@ Keep the supported toolchain and apply the narrowly scoped guards below.
 `patches/security-dependencies.json` records the original and patched SHA-256
 hashes, exact edits, versions, source commits, and original license identifiers.
 The installed packages keep their original license files and version metadata.
+Copies of the upstream license notices are retained in `patches/licenses/`.
 The backports do not imply that npm has published a patched package: npm audit
 continues to report those version-based advisories.
 

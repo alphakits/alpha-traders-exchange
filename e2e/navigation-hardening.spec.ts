@@ -130,12 +130,20 @@ test.describe("Navigation hardening", () => {
   test("mobile menu can navigate to Alpha Exchange without refresh loops", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.request.post("/api/auth/logout").catch(() => {});
-    await page.goto("/en");
-
-    await page.locator("summary").first().click();
-    await page.locator("details[open] a[href$='/en/usdt-exchange']").first().click();
-
-    await expect(page).toHaveURL(/\/en\/(usdt-exchange|login\?redirectTo=%2Fen%2Fusdt-exchange)$/);
+    for (const { locale, label } of [{ locale: "en", label: "Open menu" }, { locale: "ar", label: "فتح القائمة" }]) {
+      await page.goto(`/${locale}`);
+      const menu = page.locator("header summary");
+      await expect(menu).toHaveAttribute("aria-label", label);
+      // A separate hidden text node can be reported outside the tappable
+      // summary bounds by a WebView accessibility tree.
+      await expect(menu.locator(".sr-only")).toHaveCount(0);
+      const bounds = await menu.boundingBox();
+      expect(bounds?.width).toBeGreaterThanOrEqual(44);
+      expect(bounds?.height).toBeGreaterThanOrEqual(44);
+      await menu.click();
+      await page.locator(`details[open] a[href$='/${locale}/usdt-exchange']`).first().click();
+      await expect(page).toHaveURL(new RegExp(`/${locale}/(usdt-exchange|login\\?redirectTo=%2F${locale}%2Fusdt-exchange)$`));
+    }
   });
 
   test("locale switch updates document language and direction without a reload", async ({ page }) => {

@@ -1,0 +1,39 @@
+name: Alpha Traders Installed UI Recheck
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_build_id:
+        type: string
+        required: true
+      ios_build_id:
+        type: string
+        required: true
+
+jobs:
+  android_navigation:
+    type: maestro
+    runs_on: linux-large-nested-virtualization
+    params:
+      build_id: ${{ inputs.android_build_id }}
+      flow_path: .maestro
+      retries: 0
+      record_screen: true
+      android_system_image_package: 'system-images;android-35;google_apis;x86_64'
+
+  ios_navigation:
+    type: maestro
+    params:
+      build_id: ${{ inputs.ios_build_id }}
+      flow_path: .maestro
+      retries: 0
+      record_screen: true
+
+  legacy_android_recovery:
+    type: maestro
+    params:
+      build_id: ${{ inputs.android_build_id }}
+      flow_path: .maestro-legacy
+      retries: 0
+      record_screen: true
+      android_system_image_package: 'system-images;android-29;default;x86_64'

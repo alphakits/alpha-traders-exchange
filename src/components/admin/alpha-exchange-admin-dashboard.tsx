@@ -5,7 +5,7 @@ import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-f
 import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { useAdminActionDialog } from "@/components/admin/use-admin-action-dialog";
 import { isProtectedOwnerTarget, type OwnerAccountTarget } from "@/lib/owner-account-command";
@@ -335,6 +335,7 @@ function paginate<T>(items: T[], page: number) {
 
 export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: { locale?: "ar" | "en"; isOwner?: boolean }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const isArabic = locale === "ar";
   const { confirmAction, promptAction, actionDialog } = useAdminActionDialog(isArabic);
   const t = useCallback((english: string, arabic: string) => isArabic ? arabic : english, [isArabic]);
@@ -525,6 +526,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [systemHealth, setSystemHealth] = useState<SystemHealthSnapshot | null>(null);
   const [systemHealthLoading, setSystemHealthLoading] = useState(false);
   const [systemHealthError, setSystemHealthError] = useState<string | null>(null);
+  const systemHealthReadEpoch = useRef(0);
 
   const [applicationsQuery, setApplicationsQuery] = useState("");
   const [applicationsStatus, setApplicationsStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
@@ -699,6 +701,22 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
+  const clearOwnerReadData = useCallback(() => {
+    // Ignore any earlier successful read that completes after access is lost.
+    dashboardReadEpoch.current++;
+    systemHealthReadEpoch.current++;
+    setData(null);
+    setSystemHealth(null);
+    setSelectedSeller(null);
+    setSelectedSellerProfile(null);
+    setSelectedRequest(null);
+    setOwnerRankBatchResult(null);
+    ownerAccountTargetRef.current = null;
+    setOwnerAccountTarget(null);
+    setLoading(false);
+    setSystemHealthLoading(false);
+  }, []);
+
   const fetchData = useCallback(async (options: { silent?: boolean } = {}): Promise<AdminPayload | null> => {
     const epoch = ++dashboardReadEpoch.current;
     const current = () => dashboardMounted.current && epoch === dashboardReadEpoch.current;
@@ -708,8 +726,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
       const response = await readOwnerDashboardJson("/api/alpha-exchange/admin-prep");
       if (!current()) return null;
       if (response.status === 401 || response.status === 403) {
-        setData(null); setSelectedSeller(null); setSelectedRequest(null); setOwnerRankBatchResult(null);
-        ownerAccountTargetRef.current = null; setOwnerAccountTarget(null);
+        clearOwnerReadData();
+        // The server chooses the canonical sign-in or access-denied destination.
+        // A temporary service failure must never revoke a valid session.
+        router.refresh();
+        return null;
       }
       if (!response.ok || !isOwnerDashboardSnapshot(response.payload)) throw new Error(safeAdminError("load", locale));
       const payload = response.payload as Omit<AdminPayload, "smsDeliveries">;
@@ -730,28 +751,36 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     } finally {
       if (current()) setLoading(false);
     }
-  }, [isArabic, locale]);
+  }, [clearOwnerReadData, isArabic, locale, router]);
 
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
 
   const fetchSystemHealth = useCallback(async () => {
+    const epoch = ++systemHealthReadEpoch.current;
+    const current = () => dashboardMounted.current && epoch === systemHealthReadEpoch.current;
     setSystemHealthLoading(true);
     setSystemHealthError(null);
     try {
-      const response = await fetch("/api/admin/system-health", { cache: "no-store" });
-      const payload = await response.json() as SystemHealthSnapshot & { error?: string };
-      if (!response.ok || !Array.isArray(payload.checks)) {
+      const response = await readOwnerDashboardJson("/api/admin/system-health");
+      if (!current()) return;
+      if (response.status === 401 || response.status === 403) {
+        clearOwnerReadData();
+        router.refresh();
+        return;
+      }
+      const payload = response.payload as SystemHealthSnapshot | null;
+      if (!response.ok || !payload || !Array.isArray(payload.checks)) {
         throw new Error("health_check_failed");
       }
       setSystemHealth(payload);
     } catch {
-      setSystemHealthError(t("Website health could not be loaded. Try again.", "تعذر تحميل حالة الموقع. حاول مرة أخرى."));
+      if (current()) setSystemHealthError(t("Website health could not be loaded. Try again.", "تعذر تحميل حالة الموقع. حاول مرة أخرى."));
     } finally {
-      setSystemHealthLoading(false);
+      if (current()) setSystemHealthLoading(false);
     }
-  }, [t]);
+  }, [clearOwnerReadData, router, t]);
 
   const openOperationalIncident = useCallback((incident: MarketplaceOperationalIncident) => {
     if (incident.requestId) {

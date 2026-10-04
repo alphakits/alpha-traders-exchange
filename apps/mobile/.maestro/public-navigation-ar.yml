@@ -1,0 +1,43 @@
+appId: com.alphakits.alphatraders
+name: Arabic homepage and guest navigation
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Switch to Arabic|العربية"
+    commands:
+      - tapOn: "Switch to Arabic|العربية"
+- assertVisible: "فتح القائمة"
+- tapOn: "فتح القائمة"
+- tapOn: "المجتمع"
+- assertVisible: "مساحة تعليمية منظمة للتطبيق.*"
+- tapOn: "فتح القائمة"
+- tapOn: "الرئيسية"
+- tapOn: "فتح القائمة"
+- tapOn: "تواصل معنا"
+- assertVisible: ".*للاستفسارات والشراكات التعليمية.*"
+- tapOn: "فتح القائمة"
+- tapOn: "الرئيسية"
+- tapOn: "فتح القائمة"
+- tapOn: "الأكاديمية"
+- assertVisible: "تجربة دخول مميزة"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "هل نسيت كلمة المرور؟"
+- tapOn: "هل نسيت كلمة المرور؟"
+- assertVisible: "نسيت كلمة المرور"
+- tapOn: "شعار Alpha Traders"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "ادخل إلى Alpha Exchange"
+- tapOn: "ادخل إلى Alpha Exchange"
+- assertVisible: "تجربة دخول مميزة"
+- tapOn: "شعار Alpha Traders"
+- assertVisible: "فتح القائمة"
+- takeScreenshot: public-navigation-ar

@@ -1,0 +1,29 @@
+appId: com.alphakits.alphatraders
+name: Arabic footer and canonical commission terms
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Switch to Arabic|العربية"
+    commands:
+      - tapOn: "Switch to Arabic|العربية"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*قانوني.*"
+- tapOn: ".*قانوني.*"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*الشروط.*"
+- tapOn: ".*الشروط.*"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*1%.*المشتري.*1%.*البائع.*2%.*"
+- assertVisible: ".*1%.*المشتري.*1%.*البائع.*2%.*"
+- takeScreenshot: terms-ar
