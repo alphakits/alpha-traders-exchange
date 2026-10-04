@@ -43,6 +43,27 @@ jobs:
           if (completed.gitCommitHash !== '055efe49dd203c33d0ed0dd41ad07441f59b8aaa') throw new Error('Completed native source differs');
           for (const job of completed.jobs ?? []) {
             const build = job.turtleBuild;
+            if (job.key === 'android_navigation') {
+              const archive = (job.turtleJobRun?.artifacts ?? []).find(item => item.filename === 'artifacts.tar.gz');
+              if (!archive || archive.fileSizeBytes > 150000000) throw new Error('Android trace archive unavailable');
+              const url = new URL(archive.downloadUrl);
+              if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected Android trace origin');
+              const response = await fetch(archive.downloadUrl, { signal: AbortSignal.timeout(45000) });
+              if (!response.ok) throw new Error('Could not fetch Android trace');
+              const path = 'native-android-report.tar.gz';
+              fs.writeFileSync(path, Buffer.from(await response.arrayBuffer()));
+              const list = spawnSync('tar', ['-tzf', path], { encoding: 'utf8', maxBuffer: 8000000 });
+              if (list.status !== 0) throw new Error('Invalid Android report archive');
+              const names = list.stdout.split('\n').filter(Boolean);
+              if (names.some(name => name.startsWith('/') || name.split('/').includes('..'))) throw new Error('Unsafe report entry');
+              const selectedNames = names.filter(name => name.includes('terms-en') && name.endsWith('.json'));
+              console.log(JSON.stringify({ androidArchiveEntries: selectedNames }));
+              for (const name of selectedNames) {
+                const text = spawnSync('tar', ['-xOzf', path, '--', name], { encoding: 'utf8', maxBuffer: 8000000 });
+                if (text.status !== 0) throw new Error('Could not read Android command trace');
+                console.log(JSON.stringify({ androidTraceFile: name, trace: text.stdout.slice(0,25000) }));
+              }
+            }
             if (build) console.log(JSON.stringify({ nativeBuild: { job: job.key, id: build.id, status: build.status, platform: build.platform, profile: build.buildProfile, version: build.appVersion, buildNumber: build.appBuildVersion, source: build.gitCommitHash, simulator: build.isForIosSimulator } }));
             for (const artifact of job.turtleJobRun?.artifacts ?? []) {
               if (!artifact.filename?.toLowerCase().endsWith('.xml')) continue;
