@@ -2,7 +2,7 @@
 
 import { brandText } from "@/components/ui/currency-text";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AppLocale } from "@/i18n/routing";
 
@@ -17,6 +17,7 @@ export function PwaInstallPrompt({ locale }: { locale: AppLocale }) {
   const isAr = locale === "ar";
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [visible, setVisible] = useState(false);
+  const dismissedRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -28,6 +29,15 @@ export function PwaInstallPrompt({ locale }: { locale: AppLocale }) {
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
+      if (dismissedRef.current) return;
+      try {
+        if (window.localStorage.getItem(DISMISS_KEY) === "1") {
+          dismissedRef.current = true;
+          return;
+        }
+      } catch {
+        return;
+      }
       setPromptEvent(event as BeforeInstallPromptEvent);
       setVisible(true);
     };
@@ -45,7 +55,9 @@ export function PwaInstallPrompt({ locale }: { locale: AppLocale }) {
   }
 
   function dismiss() {
+    dismissedRef.current = true;
     setVisible(false);
+    setPromptEvent(null);
     try {
       window.localStorage.setItem(DISMISS_KEY, "1");
     } catch {
