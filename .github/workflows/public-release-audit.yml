@@ -44,6 +44,15 @@ jobs:
               check(!url.pathname.startsWith("/api/") || ["/api/health", "/api/mobile/v1/app-config"].includes(url.pathname), "Customer-record API requests are excluded.");
               return fetch(url, { redirect: "manual", cache: "no-store", headers, signal: AbortSignal.timeout(15000) });
             };
+            const documentRedirect = (html) => {
+              for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+                const attrs=Object.fromEntries([...tag[0].matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)].map(match=>[match[1].toLowerCase(),match[2].replace(/&amp;/g,"&")]));
+                if(attrs.id!=="__next-page-redirect"||attrs["http-equiv"]?.toLowerCase()!=="refresh")continue;
+                const value=attrs.content?.match(/^\d+(?:\.\d+)?\s*;\s*url\s*=\s*(.+)$/i)?.[1];
+                if(value)return value;
+              }
+              return null;
+            };
             const followPublic = async (path) => {
               let current = path;
               for (let hop = 0; hop < 5; hop++) {
@@ -54,7 +63,15 @@ jobs:
                   current = location.pathname + location.search;
                   continue;
                 }
-                return { response, html: await response.text(), finalPath: current };
+                const html=await response.text();
+                const streamed=documentRedirect(html);
+                if(streamed){
+                  const location=new URL(streamed,new URL(current,base));
+                  check(location.origin===base&&!location.pathname.startsWith("/api/"),"Unexpected streamed public redirect.");
+                  current=location.pathname+location.search;
+                  continue;
+                }
+                return { response, html, finalPath: current };
               }
               throw new Error("Public redirect did not settle.");
             };
@@ -87,22 +104,23 @@ jobs:
               check(!result.html.includes("NEXT_HTTP_ERROR_FALLBACK;404"), "Public page returned a not-found boundary.");
               if (/\/terms$/.test(path)) check(/1%/.test(result.html) && /2%/.test(result.html), "Published commission terms are missing.");
               if (/\/p2p-usdt-israel$/.test(path)) check(result.finalPath === path.replace("p2p-usdt-israel", "buy-usdt-israel"), "Legacy P2P alias is incorrect.");
-              if (/\/about-founder$/.test(path)) check(result.finalPath === path.replace("about-founder", "founder"), "Founder alias is incorrect.");
+              if (/\/about-founder$/.test(path)) check(result.finalPath===path && /<h1\b[^>]*>[\s\S]*?(?:About Founder|عن المؤسس)[\s\S]*?<\/h1>/i.test(result.html), "About Founder page is missing its own heading.");
               publicHtml.set(path, result.html);
               return { status: result.response.status, finalPath: result.finalPath };
             });
             const gate = (type, path) => task(type, path, async () => {
               const response = await read(path);
-              const location = new URL(response.headers.get("location") || "", base);
+              const streamed = response.status===200 ? documentRedirect(await response.text()) : null;
+              const location = new URL(response.headers.get("location") || streamed || "", base);
               const locale = path.startsWith("/ar/") ? "ar" : "en";
               const cache = response.headers.get("cache-control") || "";
               const vary = response.headers.get("vary") || "";
-              check([302, 303, 307, 308].includes(response.status), "Protected page did not redirect a signed-out visitor.");
+              check([302, 303, 307, 308].includes(response.status)||(response.status===200&&Boolean(streamed)), "Protected page did not redirect a signed-out visitor.");
               check(location.origin === base && location.pathname === "/" + locale + "/login", "Protected page did not retain its sign-in language.");
               check(location.searchParams.get("redirectTo") === path, "Protected page lost its intended destination or query.");
               check(/no-store/i.test(cache), "Protected page can be cached.");
               if (protectedFamily.test(new URL(path, base).pathname)) check(/private/i.test(cache) && /(?:^|,\s*)Cookie(?:,|$)/i.test(vary), "Protected page lacks its private cache or Cookie variation.");
-              return { status: response.status, destinationPreserved: true, cacheControl: cache, vary };
+              return { status: response.status, redirectMechanism: streamed ? "next-streamed-meta" : "http", destinationPreserved: true, cacheControl: cache, vary };
             });
             await batches(publicPaths.map(path => () => publicPage("public", path)));
             await batches(gatePaths.map(path => () => gate("gate", path)));
