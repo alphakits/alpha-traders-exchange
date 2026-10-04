@@ -16,6 +16,9 @@ name: Arabic footer and canonical commission terms
       visible: "Switch to Arabic|العربية"
     commands:
       - tapOn: "Switch to Arabic|العربية"
+- extendedWaitUntil:
+    visible: "فتح القائمة"
+    timeout: 60000
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
     env:
@@ -27,6 +30,9 @@ name: Arabic footer and canonical commission terms
     env:
       TARGET_TEXT: ".*الشروط.*"
 - tapOn: ".*الشروط.*"
+- extendedWaitUntil:
+    visible: "الشروط والأحكام"
+    timeout: 60000
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
     env:

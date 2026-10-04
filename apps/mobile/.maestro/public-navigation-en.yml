@@ -16,6 +16,9 @@ name: English homepage and guest navigation
       visible: "English|التبديل إلى الإنجليزية"
     commands:
       - tapOn: "English|التبديل إلى الإنجليزية"
+- extendedWaitUntil:
+    visible: "Open menu"
+    timeout: 60000
 - assertVisible: "Open menu"
 - tapOn: "Open menu"
 - tapOn: "Community"
