@@ -1,0 +1,19 @@
+name: Alpha Traders Android Startup Recheck
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_build_id:
+        type: string
+        required: true
+
+jobs:
+  android_terms_en:
+    type: maestro
+    runs_on: linux-large-nested-virtualization
+    params:
+      build_id: ${{ inputs.android_build_id }}
+      flow_path: .maestro/terms-en.yml
+      retries: 0
+      record_screen: true
+      android_system_image_package: 'system-images;android-35;google_apis;x86_64'
