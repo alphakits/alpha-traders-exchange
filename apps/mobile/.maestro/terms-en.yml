@@ -16,6 +16,9 @@ name: English footer and canonical commission terms
       visible: "English|التبديل إلى الإنجليزية"
     commands:
       - tapOn: "English|التبديل إلى الإنجليزية"
+- extendedWaitUntil:
+    visible: "Open menu"
+    timeout: 60000
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
     env:
@@ -27,6 +30,9 @@ name: English footer and canonical commission terms
     env:
       TARGET_TEXT: ".*Terms.*"
 - tapOn: ".*Terms.*"
+- extendedWaitUntil:
+    visible: "Terms of Service"
+    timeout: 60000
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
     env:

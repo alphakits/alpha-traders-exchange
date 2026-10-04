@@ -16,6 +16,9 @@ name: Arabic homepage and guest navigation
       visible: "Switch to Arabic|العربية"
     commands:
       - tapOn: "Switch to Arabic|العربية"
+- extendedWaitUntil:
+    visible: "فتح القائمة"
+    timeout: 60000
 - assertVisible: "فتح القائمة"
 - tapOn: "فتح القائمة"
 - tapOn: "المجتمع"
