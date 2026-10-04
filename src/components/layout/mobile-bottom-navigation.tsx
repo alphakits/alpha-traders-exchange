@@ -7,6 +7,7 @@ import { useCanonicalSession } from "@/components/auth/canonical-session-provide
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
 import { cn } from "@/lib/utils";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
 
 type MobileDestination = {
   href: string;
@@ -35,15 +36,9 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
   // covering the other on short phones and landscape displays.
   if (pathname.startsWith("/trade-room/")) return null;
 
-  const isAdminOwner = user.role === "owner"
-    || user.role === "admin"
-    || (user.roles ?? []).some((role) => role === "owner" || role === "admin");
-  const isSellerWorkspaceUser = (
-    (user.role === "approved_seller" || (user.roles ?? []).includes("approved_seller"))
-    && user.sellerStatus === "approved_seller"
-    && user.sellerApprovalVerified === true
-  )
-    || user.sellerStatus === "suspended";
+  const access = getInterfaceAccess(user);
+  const isAdminOwner = access.administration;
+  const isSellerWorkspaceUser = access.sellerWorkspace;
   const isOwnerPurchaseRequests = isAdminOwner
     && pathname === "/admin/alpha-exchange"
     && section === "purchase-requests";
@@ -94,6 +89,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
       ),
     },
   ];
+  const visibleDestinations = destinations.filter((destination) => access.trading || destination.icon !== Handshake);
 
   return (
     <>
@@ -103,8 +99,8 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
         dir={isAr ? "rtl" : "ltr"}
         className="fixed inset-x-0 bottom-0 z-[45] border-t border-white/10 bg-[#070707]/95 shadow-[0_-12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:env(safe-area-inset-bottom)] lg:hidden"
       >
-        <div className="mx-auto grid h-16 w-full max-w-lg grid-cols-5 px-1">
-          {destinations.map((destination) => {
+        <div className={cn("mx-auto grid h-16 w-full max-w-lg px-1", visibleDestinations.length === 5 ? "grid-cols-5" : "grid-cols-4")}>
+          {visibleDestinations.map((destination) => {
             const active = destination.isActive(pathname, section);
             const Icon = destination.icon;
             return (

@@ -35,7 +35,7 @@ function stubProfileFetch(fetchMock: (...args: Parameters<typeof fetch>) => unkn
     : fetchMock(...args));
 }
 
-type TestRole = "guest" | "buyer" | "admin" | "owner";
+type TestRole = "guest" | "student" | "buyer" | "admin" | "owner";
 const eventSourceInstances: MockEventSource[] = [];
 
 class MockEventSource {
@@ -101,7 +101,7 @@ function makePayload(role: TestRole) {
       reviewsGiven: 3,
     },
     roleBadge: role === "owner" ? "owner" : role === "admin" ? "administrator" : role,
-    roleLabel: role === "owner" ? "Owner" : role === "admin" ? "Administrator" : role === "guest" ? "Guest" : "Buyer",
+    roleLabel: role === "owner" ? "Owner" : role === "admin" ? "Administrator" : role === "guest" ? "Guest" : role === "student" ? "Student" : "Buyer",
     accountStatuses: ["Active"],
   };
 }
@@ -223,6 +223,17 @@ describe("AccountProfilePanel", () => {
     await waitFor(() => expect(screen.getByText("Manage your account path:")).toBeTruthy());
     expect(screen.getByRole("link", { name: "Become a Buyer" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue as Guest" })).toBeTruthy();
+  });
+
+  it.each(["guest", "student"] as const)("does not give a %s profile a buyer rank or seller application", async (role) => {
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload(role) }));
+    render(<AccountProfilePanel locale="en" />);
+    await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
+    expect(screen.queryByText("Buyer rank")).toBeNull();
+    expect(screen.queryByText("Reputation board")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Apply as approved seller" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open buyer dashboard" })).toBeNull();
+    if (role === "student") expect(screen.queryByRole("button", { name: "Join Alpha Academy" })).toBeNull();
   });
 
   it("hides the administration section from buyers", async () => {
@@ -398,6 +409,24 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Silver Seller" })).toBeTruthy());
     expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  it.each(["guest", "student"] as const)("keeps a signed-in %s exchange visit free of buyer and seller tools", async (role) => {
+    const user = { id: "user-1", fullName: "Test User", email: "guest@example.test", role, roles: [role], sellerStatus: "buyer" as const, whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" };
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = url.includes("/api/auth/me") ? { user }
+        : url.includes("/api/auth/profile") ? makePayload(role)
+          : { listings: [], requests: [], notifications: [], activity: [], applications: [] };
+      return new Response(JSON.stringify(payload), { status: 200 });
+    }));
+    render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Welcome back, Test User" })).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: "Buyer Dashboard" })).toBeNull();
+    expect(screen.queryByRole("progressbar", { name: "Buyer rank progress" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /My Trade Requests|Active Trades|Create Listing|Apply as.*seller/i })).toBeNull();
+    expect(screen.queryByText("My Profile & Achievements")).toBeNull();
+    expect(screen.getByText("My Profile")).toBeTruthy();
   });
 
   it("renders the buyer landing when sellerStatus is buyer even if roles include approved_seller", async () => {

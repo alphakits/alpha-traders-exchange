@@ -115,7 +115,7 @@ export async function HomePage({
         </div>
       </section>
 
-      <section className="section-container">
+      {!isAuthenticated ? <section className="section-container">
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-semibold text-white">{isRtl ? "جديد في Alpha Traders؟" : "New to Alpha Traders?"}</p>
@@ -125,7 +125,7 @@ export async function HomePage({
             {isRtl ? "ابدأ من هنا" : "Start Here"}
           </Link>
         </div>
-      </section>
+      </section> : null}
 
       <TrustBar />
 
