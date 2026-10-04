@@ -25,16 +25,18 @@ name: English homepage and guest navigation
 - tapOn: "Open menu"
 - tapOn: "Academy"
 - assertVisible: "Premium Sign In"
-- scrollUntilVisible:
-    element: "Forgot your password?"
-    timeout: 30000
-- tapOn: "Forgot your password?"
-- assertVisible: "Reset Password"
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "Forgot your password[?]"
+- tapOn: "Forgot your password[?]"
+- assertVisible: "Forgot Password"
 - tapOn: "Open menu"
 - tapOn: "Home"
-- scrollUntilVisible:
-    element: "Enter Alpha Exchange"
-    timeout: 30000
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: "Enter Alpha Exchange"
 - tapOn: "Enter Alpha Exchange"
 - assertVisible: "Premium Sign In"
 - tapOn: "Open menu"

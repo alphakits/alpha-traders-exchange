@@ -1,0 +1,13 @@
+appId: com.alphakits.alphatraders
+---
+- repeat:
+    times: 60
+    while:
+      notVisible: "${TARGET_TEXT}"
+    commands:
+      - swipe:
+          start: 50%, 85%
+          end: 50%, 20%
+          duration: 250
+          waitToSettleTimeoutMs: 500
+- assertVisible: "${TARGET_TEXT}"

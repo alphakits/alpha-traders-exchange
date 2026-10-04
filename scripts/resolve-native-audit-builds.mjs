@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 
-const sourcePaths = ['apps/mobile', 'packages', 'package.json', 'package-lock.json', 'scripts/patch-expo-uri-decoder.mjs', 'scripts/patch-dependency-security.mjs', 'patches/security-dependencies.json', ':!apps/mobile/.maestro', ':!apps/mobile/.maestro-legacy', ':!apps/mobile/.eas'];
+const sourcePaths = ['apps/mobile', 'packages', 'package.json', 'package-lock.json', 'scripts/patch-expo-uri-decoder.mjs', 'scripts/patch-dependency-security.mjs', 'patches/security-dependencies.json', ':!apps/mobile/.maestro', ':!apps/mobile/.maestro-helpers', ':!apps/mobile/.maestro-legacy', ':!apps/mobile/.eas'];
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const appVersion = JSON.parse(readFileSync('apps/mobile/app.json', 'utf8')).expo.version;
 const selected = [];

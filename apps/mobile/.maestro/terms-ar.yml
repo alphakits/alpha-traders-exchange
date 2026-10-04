@@ -11,19 +11,19 @@ name: Arabic footer and canonical commission terms
       visible: "Switch to Arabic|العربية"
     commands:
       - tapOn: "Switch to Arabic|العربية"
-- scrollUntilVisible:
-    element: ".*قانوني.*"
-    timeout: 180000
-    speed: 85
-    visibilityPercentage: 60
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*قانوني.*"
 - tapOn: ".*قانوني.*"
-- scrollUntilVisible:
-    element: ".*الشروط.*"
-    timeout: 30000
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*الشروط.*"
 - tapOn: ".*الشروط.*"
-- scrollUntilVisible:
-    element: ".*1%.*المشتري.*1%.*البائع.*2%.*"
-    timeout: 30000
-    visibilityPercentage: 30
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*1%.*المشتري.*1%.*البائع.*2%.*"
 - assertVisible: ".*1%.*المشتري.*1%.*البائع.*2%.*"
 - takeScreenshot: terms-ar
