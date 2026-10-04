@@ -54,6 +54,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           path: native-prior-ios
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: "11294032159"
+          run-id: 37177511376
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-new-baseline-archive
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: "11294660135"
+          run-id: 37178555615
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-prior-baseline-archive
       - name: Require all unique native journeys to pass across the exact completed runs
         run: |
           node --input-type=module <<'JS'
@@ -75,11 +89,22 @@ jobs:
              const reports=(job.turtleJobRun?.artifacts??[]).filter(a=>a.filename?.endsWith(".xml"));
              if(reports.length!==1)throw new Error("Expected exactly one zero-retry JUnit report per native job.");
              for(const report of reports){
-              const url=new URL(report.downloadUrl);
-              if(url.protocol!=="https:"||url.hostname!=="wf-artifacts.eascdn.net")throw new Error("Unexpected native report origin.");
-              const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
-              if(!response.ok)throw new Error("Could not read completed native JUnit.");
-              const xml=await response.text();
+              let xml;
+              if(!document.focused){
+               const archivedDirectory=document.directory+"-archive";
+               const metadataPath=archivedDirectory+"/native-workflow-"+workflow.id+".json";
+               const reportPath=archivedDirectory+"/native-junit-"+workflow.id+"-"+job.key+".xml";
+               if(!fs.existsSync(metadataPath)||!fs.existsSync(reportPath))throw new Error("Archived native evidence is missing.");
+               const archived=JSON.parse(fs.readFileSync(metadataPath,"utf8"));
+               if(archived.id!==workflow.id||archived.gitCommitHash!==document.source||archived.status!==workflow.status)throw new Error("Archived native source or completion mismatch.");
+               xml=fs.readFileSync(reportPath,"utf8");
+              }else{
+               const url=new URL(report.downloadUrl);
+               if(url.protocol!=="https:"||url.hostname!=="wf-artifacts.eascdn.net")throw new Error("Unexpected native report origin.");
+               const response=await fetch(url,{signal:AbortSignal.timeout(30000)});
+               if(!response.ok)throw new Error("Could not read completed native JUnit.");
+               xml=await response.text();
+              }
               if(xml.length>500000||/<!DOCTYPE|<!ENTITY/i.test(xml))throw new Error("Unexpected JUnit document.");
               fs.writeFileSync("native-junit-"+document.label+"-"+job.key+".xml",xml);
               for(const match of xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)){
