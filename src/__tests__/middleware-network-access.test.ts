@@ -20,7 +20,7 @@ function request(path: string, method = "GET", headers: Record<string, string> =
 }
 
 describe("VPN checks cannot be skipped through application entry points", () => {
-  it.each(["/", "/en", "/ar/login", "/en/admin", "/en/trade-room/trade-1", "/api/auth/me", "/api/alpha-exchange/listings", "/api/mobile/v1/app-config"])("blocks %s before returning content or redirects", async (path) => {
+  it.each(["/", "/offline", "/en", "/ar/login", "/en/admin", "/en/trade-room/trade-1", "/api/auth/me", "/api/alpha-exchange/listings", "/api/mobile/v1/app-config"])("blocks %s before returning content or redirects", async (path) => {
     const response = await middleware(request(path, "GET", { cookie: `${AUTH_COOKIE_NAME}=forged; ${AUTH_VERIFIED_COOKIE_NAME}=1`, "x-middleware-subrequest": "middleware", "x-network-verified": "1" }));
     expect(response.status).toBe(403);
     expect(response.headers.get("x-middleware-next")).toBeNull();
