@@ -51,7 +51,7 @@ describe("role-appropriate footer", () => {
     });
 
     it.each(["guest", "student", "owner", "admin"])(`keeps ${locale} %s account links appropriate`, async (role) => {
-      session.user = { role, roles: [role] };
+      session.user = { role, roles: [role], sellerStatus: "buyer" };
       const container = document.createElement("div");
       container.innerHTML = renderToStaticMarkup(await SiteFooter({ locale }));
       expect(container.querySelectorAll(`a[href='/${locale}/login'],a[href='/${locale}/register']`)).toHaveLength(0);

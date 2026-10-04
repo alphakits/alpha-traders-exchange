@@ -737,8 +737,8 @@ export function AccountSettingsPanel({
       setShowDiscordUnlink(false);
       setDiscordMessage(
         isAr
-          ? "تم فصل Discord. ستتم إزالة أدوار البائع المُدارة في الخلفية."
-          : "Discord disconnected. Managed seller roles will be removed in the background.",
+          ? "تم فصل Discord. ستتم إزالة أدوار المجتمع المُدارة في الخلفية."
+          : "Discord disconnected. Managed community roles will be removed in the background.",
       );
     } catch {
       setDiscordMessage(isAr ? "تعذر فصل Discord." : "Could not disconnect Discord.");
@@ -1146,7 +1146,10 @@ export function AccountSettingsPanel({
                 </div>
               </div>
               <div className="space-y-3">
-                {NOTIFICATION_KEYS.map((key) => (
+                {NOTIFICATION_KEYS.filter((key) => !canonicalSession || key === "admin_announcements"
+                  || (key === "seller_application" ? interfaceAccess.canApplyToSell || interfaceAccess.pendingSeller
+                    : key === "purchase_requests" || key === "listing_updates" ? interfaceAccess.sellerWorkspace || interfaceAccess.administration
+                      : interfaceAccess.trading)).map((key) => (
                   <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <span className="text-sm text-[#D1D5DB]">
                       {isAr ? notifLabels[key].ar : notifLabels[key].en}
@@ -1180,7 +1183,8 @@ export function AccountSettingsPanel({
                   : "Your public identity uses your AT ID. Your personal name, phone and email stay private."}
               </div>
               <div className="space-y-3">
-                {PRIVACY_KEYS.filter(key => key !== "show_phone" && key !== "show_email").map((key) => (
+                {PRIVACY_KEYS.filter(key => key !== "show_phone" && key !== "show_email"
+                  && (key !== "show_trade_stats" || !canonicalSession || interfaceAccess.trading)).map((key) => (
                   <div key={key} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <div>
                       <p className="text-sm font-medium text-[#D1D5DB]">

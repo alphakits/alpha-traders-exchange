@@ -20,7 +20,7 @@ describe("shared interface access", () => {
     expect(canShowInterfaceLink("/usdt-exchange?mode=sell#create-listing", revoked)).toBe(false);
   });
   it.each(["guest", "student"])("keeps %s out of buyer dashboards and private seller/admin routes", (role) => {
-    const user = { role, roles: [role] };
+    const user = { role, roles: [role], sellerStatus: "buyer" };
     expect(getInterfacePageDestination(user, "/ar/dashboard", "ar")).toBe("/ar/profile");
     expect(getInterfacePageDestination(user, "/ar/dashboard/seller", "ar")).toBe("/ar/profile");
     expect(getInterfacePageDestination(user, "/ar/admin/alpha-exchange", "ar")).toBe("/ar/profile");

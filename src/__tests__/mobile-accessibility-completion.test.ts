@@ -92,7 +92,7 @@ describe("mobile accessibility completion", () => {
   });
 
   it("labels the footer newsletter field and keeps mobile footer targets usable", () => {
-    const footer = source("src/components/layout/site-footer.tsx");
+    const footer = source("src/components/layout/site-footer-content.tsx");
     const newsletter = source("src/components/layout/footer-newsletter-signup.tsx");
 
     expect(footer).toContain('<FooterNewsletterSignup locale={locale} />');

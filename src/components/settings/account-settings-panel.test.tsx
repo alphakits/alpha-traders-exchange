@@ -65,7 +65,7 @@ describe("Account settings Discord connection", () => {
       await screen.findByText("Alpha User");
       expect(screen.getByText("@alpha_user")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
-      expect(screen.getByText(/removes managed seller roles/i)).toBeTruthy();
+      expect(screen.getByText(/removes your managed community roles/i)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Confirm disconnect" })).toBeTruthy();
     },
   );

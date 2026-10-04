@@ -13,7 +13,8 @@ export function getInterfaceAccess(user: InterfaceSessionUser | null | undefined
   const approvedSeller = user?.sellerStatus === "approved_seller";
   const suspendedSeller = user?.sellerStatus === "suspended";
   const pendingSeller = user?.sellerStatus === "pending_seller_approval";
-  const buyer = Boolean(user && (roles.includes("buyer") || user.sellerStatus === "buyer"));
+  // Non-sellers also carry sellerStatus=buyer; that marker is not a buyer role.
+  const buyer = roles.includes("buyer");
   const sellerWorkspace = approvedSeller || suspendedSeller;
   const trading = administration || buyer || sellerWorkspace || pendingSeller;
   const canApplyToSell = buyer && !administration && !sellerWorkspace && !pendingSeller;
