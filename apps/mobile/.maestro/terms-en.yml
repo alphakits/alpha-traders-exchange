@@ -8,9 +8,9 @@ name: English footer and canonical commission terms
     timeout: 60000
 - runFlow:
     when:
-      visible: "Switch to English"
+      visible: "English|التبديل إلى الإنجليزية"
     commands:
-      - tapOn: "Switch to English"
+      - tapOn: "English|التبديل إلى الإنجليزية"
 - scrollUntilVisible:
     element: ".*Legal.*"
     timeout: 60000

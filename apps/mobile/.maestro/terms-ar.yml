@@ -8,9 +8,9 @@ name: Arabic footer and canonical commission terms
     timeout: 60000
 - runFlow:
     when:
-      visible: "التبديل إلى العربية"
+      visible: "Switch to Arabic|العربية"
     commands:
-      - tapOn: "التبديل إلى العربية"
+      - tapOn: "Switch to Arabic|العربية"
 - scrollUntilVisible:
     element: ".*قانوني.*"
     timeout: 60000

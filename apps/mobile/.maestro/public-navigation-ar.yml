@@ -8,23 +8,36 @@ name: Arabic homepage and guest navigation
     timeout: 60000
 - runFlow:
     when:
-      visible: "التبديل إلى العربية"
+      visible: "Switch to Arabic|العربية"
     commands:
-      - tapOn: "التبديل إلى العربية"
+      - tapOn: "Switch to Arabic|العربية"
 - assertVisible: "فتح القائمة"
 - tapOn: "فتح القائمة"
 - tapOn: "المجتمع"
-- assertVisible: "مساحة تعليمية منظمة للتطبيق والمتابعة والنقاش المهني."
+- assertVisible: "مساحة تعليمية منظمة للتطبيق.*"
+- tapOn: "فتح القائمة"
 - tapOn: "الرئيسية"
 - tapOn: "فتح القائمة"
 - tapOn: "تواصل معنا"
-- assertVisible: "كيف يمكننا مساعدتك؟"
+- assertVisible: ".*للاستفسارات والشراكات التعليمية.*"
+- tapOn: "فتح القائمة"
+- tapOn: "الرئيسية"
+- tapOn: "فتح القائمة"
+- tapOn: "الأكاديمية"
+- assertVisible: "تجربة دخول مميزة"
+- scrollUntilVisible:
+    element: "نسيت كلمة المرور؟"
+    timeout: 30000
+- tapOn: "نسيت كلمة المرور؟"
+- assertVisible: "إعادة تعيين كلمة المرور"
+- tapOn: "فتح القائمة"
 - tapOn: "الرئيسية"
 - scrollUntilVisible:
     element: "ادخل إلى Alpha Exchange"
     timeout: 30000
 - tapOn: "ادخل إلى Alpha Exchange"
-- assertVisible: "البريد الإلكتروني"
+- assertVisible: "تجربة دخول مميزة"
+- tapOn: "فتح القائمة"
 - tapOn: "الرئيسية"
 - assertVisible: "فتح القائمة"
 - takeScreenshot: public-navigation-ar

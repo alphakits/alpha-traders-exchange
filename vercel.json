@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
   "buildCommand": "node scripts/check-commission-checkout-release.mjs && node scripts/check-commission-batch-release.mjs && npm run build",
   "env": { "ALPHA_EXCHANGE_COMMISSION_BATCH_V1": "1", "ALPHA_EXCHANGE_COMMISSION_CHECKOUT_V1": "1" },
   "fluid": true,
