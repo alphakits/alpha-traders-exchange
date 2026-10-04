@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   return new NextResponse(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
+      "Cache-Control": "private, no-store, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
