@@ -1,0 +1,55 @@
+name: iOS Terms Recheck
+
+on:
+  push:
+    branches: [fix/native-ios-terms-recheck-*]
+    paths:
+      - .github/workflows/native-ios-terms-recheck.yml
+      - apps/mobile/.maestro/terms-en.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ios-terms:
+    name: Verify English footer on the prior installed iOS app
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Locate completed source-matching binaries
+        working-directory: apps/mobile
+        run: |
+          eas build:list --platform android --status finished --build-profile preview --limit 10 --non-interactive --json > ../../android-audit-builds.json
+          eas build:list --platform ios --status finished --build-profile audit-simulator --limit 10 --non-interactive --json > ../../ios-audit-builds.json
+      - name: Require matching native source and locked dependencies
+        id: builds
+        run: node scripts/resolve-native-audit-builds.mjs
+      - name: Recheck the previously blocked iOS journey
+        working-directory: apps/mobile
+        env:
+          AUDIT_IOS_BUILD_ID: ${{ steps.builds.outputs.ios_build_id }}
+        run: eas workflow:run .eas/workflows/native-ios-terms-recheck.yml --ref "$GITHUB_SHA" --input "ios_build_id=$AUDIT_IOS_BUILD_ID" --non-interactive --wait --json > native-ios-recheck-result.json
+      - name: Preserve native verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ios-recheck-result
+          path: |
+            apps/mobile/native-ios-recheck-result.json
+            native-audit-build-selection.json
+          if-no-files-found: error
+          retention-days: 14

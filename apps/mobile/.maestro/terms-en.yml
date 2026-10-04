@@ -24,6 +24,12 @@ name: English footer and canonical commission terms
     env:
       TARGET_TEXT: ".*Legal.*"
 - tapOn: ".*Legal.*"
+# Bring expanded links into the touch viewport before selecting one.
+- swipe:
+    start: "50%, 80%"
+    end: "50%, 45%"
+    duration: 800
+    waitToSettleTimeoutMs: 500
 - takeScreenshot: footer-legal-open-en
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
