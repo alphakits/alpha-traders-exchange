@@ -31,6 +31,13 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           path: native-completed
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-ui-recheck-result
+          run-id: 37175709005
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-prior-completed
       - run: npm ci
       - name: Read workflow metadata without starting builds or tests
         working-directory: apps/mobile
@@ -39,31 +46,39 @@ jobs:
           node --input-type=module <<'JS'
           import fs from 'node:fs';
           import { spawnSync } from 'node:child_process';
-          const completed = JSON.parse(fs.readFileSync('../../native-completed/native-android-recheck-result.json', 'utf8'));
-          if (completed.gitCommitHash !== '557a05a64f8611f3cb9d09e3ee84b282d4536edf') throw new Error('Completed native source differs');
+          const documents = [
+            { directory: '../../native-completed', filename: 'native-android-recheck-result.json', source: '557a05a64f8611f3cb9d09e3ee84b282d4536edf' },
+            { directory: '../../native-prior-completed', filename: 'native-audit-result.json', source: '60008e9da12e40dd42f1c08d1e65fe5dab625bc1' },
+          ];
+          for (const document of documents) {
+          const paths = [document.directory + '/' + document.filename, document.directory + '/apps/mobile/' + document.filename];
+          const matches = paths.filter(path => fs.existsSync(path));
+          if (matches.length !== 1) throw new Error('Expected exactly one completed native result.');
+          const completed = JSON.parse(fs.readFileSync(matches[0], 'utf8'));
+          if (completed.gitCommitHash !== document.source) throw new Error('Completed native source differs');
           for (const job of completed.jobs ?? []) {
             const build = job.turtleBuild;
-            if (job.key === 'android_terms_en') {
+            if (['android_terms_en', 'android_navigation', 'ios_navigation'].includes(job.key) && job.status === 'FAILURE') {
               const archive = (job.turtleJobRun?.artifacts ?? []).find(item => item.filename === 'artifacts.tar.gz');
               if (!archive || archive.fileSizeBytes > 150000000) throw new Error('Android trace archive unavailable');
               const url = new URL(archive.downloadUrl);
               if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected Android trace origin');
               const response = await fetch(archive.downloadUrl, { signal: AbortSignal.timeout(45000) });
               if (!response.ok) throw new Error('Could not fetch Android trace');
-              const path = 'native-android-report.tar.gz';
+              const path = 'native-report-' + completed.id + '-' + job.key + '.tar.gz';
               fs.writeFileSync(path, Buffer.from(await response.arrayBuffer()));
               const list = spawnSync('tar', ['-tzf', path], { encoding: 'utf8', maxBuffer: 8000000 });
               if (list.status !== 0) throw new Error('Invalid Android report archive');
               const names = list.stdout.split('\n').filter(Boolean);
               if (names.some(name => name.startsWith('/') || name.split('/').includes('..'))) throw new Error('Unsafe report entry');
               const selectedNames = names.filter(name => /commands.*\.json$/i.test(name) || /maestro\.log$/i.test(name));
-              console.log(JSON.stringify({ androidArchiveEntries: names.slice(0,80), diagnosticEntries: selectedNames }));
+              console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, archiveCount: names.length, diagnosticEntries: selectedNames }));
               for (const name of selectedNames) {
                 const text = spawnSync('tar', ['-xOzf', path, '--', name], { encoding: 'utf8', maxBuffer: 8000000 });
                 if (text.status !== 0) throw new Error('Could not read Android command trace');
                 if (name.endsWith('.log')) {
-                  const lines = text.stdout.split('\n').filter(line => /offline|exception|unable|failed|clearState|launchApp/i.test(line));
-                  console.log(JSON.stringify({ androidTraceFile: name, traceFailureLines: lines.slice(0,100).filter(line => !line.includes('https://') && !line.includes('http://')) }));
+                  const lines = text.stdout.split('\n').filter(line => /offline|exception|unable|failed|clearState|launchApp|assert/i.test(line));
+                  console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, androidTraceFile: name, traceFailureLines: lines.slice(-100).filter(line => !line.includes('https://') && !line.includes('http://')) }));
                 } else if (text.stdout.includes('FAILED') || /offline|exception/i.test(text.stdout)) {
                   const parsed = JSON.parse(text.stdout);
                   const failures = [];
@@ -75,7 +90,7 @@ jobs:
                     else for (const [key, child] of Object.entries(value)) if (child && typeof child === 'object') walk(child, path + '.' + key);
                   };
                   walk(parsed);
-                  console.log(JSON.stringify({ androidTraceFile: name, failures }));
+                  console.log(JSON.stringify({ source: completed.gitCommitHash, job: job.key, androidTraceFile: name, failures }));
                 }
               }
             }
@@ -90,6 +105,7 @@ jobs:
               fs.writeFileSync('native-junit-' + completed.id + '-' + job.key + '.xml', junit);
               console.log(JSON.stringify({ run: completed.id, source: completed.gitCommitHash, job: job.key, junit }));
             }
+          }
           }
           const raw = JSON.parse(fs.readFileSync('native-workflow-runs.json', 'utf8'));
           const runs = Array.isArray(raw) ? raw : raw.workflowRuns ?? raw.runs ?? [];
