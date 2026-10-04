@@ -1,0 +1,60 @@
+name: Android Startup Recheck
+
+on:
+  push:
+    branches: [fix/native-android-recheck-*]
+    paths:
+      - .github/workflows/native-android-recheck.yml
+      - apps/mobile/.eas/workflows/native-android-recheck.yml
+      - apps/mobile/.maestro/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-startup-recheck-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  android-startup:
+    name: Verify Android startup and English commission terms
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Locate completed Android and iOS simulator binaries
+        working-directory: apps/mobile
+        run: |
+          eas build:list --platform android --status finished --build-profile preview --limit 10 --non-interactive --json > ../../android-audit-builds.json
+          eas build:list --platform ios --status finished --build-profile audit-simulator --limit 10 --non-interactive --json > ../../ios-audit-builds.json
+      - name: Require matching native source and locked dependencies
+        id: builds
+        run: node scripts/resolve-native-audit-builds.mjs
+      - name: Recheck the previously blocked Android journey
+        working-directory: apps/mobile
+        env:
+          AUDIT_ANDROID_BUILD_ID: ${{ steps.builds.outputs.android_build_id }}
+        run: eas workflow:run .eas/workflows/native-android-recheck.yml --ref "$GITHUB_SHA" --input "android_build_id=$AUDIT_ANDROID_BUILD_ID" --non-interactive --wait --json > native-android-recheck-result.json
+      - name: Preserve native verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-android-recheck-result
+          path: |
+            apps/mobile/native-android-recheck-result.json
+            native-audit-build-selection.json
+          if-no-files-found: error
+          retention-days: 14
