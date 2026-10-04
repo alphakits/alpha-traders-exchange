@@ -8,11 +8,20 @@ percent-encoded input can exhaust CPU or the call stack.
 The root dependency pins upstream decode-uri-component 0.5.0. During normal
 `npm install`/`npm ci`, `scripts/patch-expo-uri-decoder.mjs` resolves the decoder
 actually used by Expo Router and copies the integrity-locked upstream fix into
-that legacy package. Only `export default function` becomes `module.exports =
+every physical legacy decoder found in the hoisted, nested, and workspace
+dependency trees. Only `export default function` becomes `module.exports =
 function`. The decoding algorithm is unchanged from upstream; the existing
 query-string and Expo interfaces remain intact. Both packages use the MIT
 license. Version and source-format guards fail installation if the assumptions
-change, rather than silently applying a stale patch.
+change, rather than silently applying a stale patch. The source, original legacy
+decoder, and unchanged CommonJS output have exact SHA-256 guards. Every copy is
+validated before writes, and repeated installation performs no writes.
+
+The release gate runs `node scripts/patch-expo-uri-decoder.mjs --check`. This
+read-only check rejects unpatched copies, changed source, unknown versions, and
+unexpected options; it never repairs a failed release check. The installation
+tests cover nested and workspace copies, drift after installation, upstream
+changes, consumer resolution, and refusal before partially patching files.
 
 Run installation scripts in release builds. An `--ignore-scripts` install must
 be followed by `npm run postinstall` before using or exporting the native app.
