@@ -77,6 +77,7 @@ export function HeaderAuthArea({
       {sessionUser ? <NotificationBell locale={locale} /> : null}
       {sessionUser ? (
         <LogoutButton
+          key={sessionUser.id}
           locale={locale}
           size="sm"
           variant="secondary"
@@ -134,6 +135,7 @@ export function HeaderAuthArea({
             ) : null}
             {sessionUser ? (
               <LogoutButton
+                key={sessionUser.id}
                 locale={locale}
                 variant="ghost"
                 className="mt-1 w-full justify-start rounded-xl px-3 text-start text-sm text-[#D1D5DB] hover:bg-white/5 hover:text-white"
