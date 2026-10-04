@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   snapshot:
@@ -23,6 +24,13 @@ jobs:
         with:
           eas-version: 23.2.0
           token: ${{ secrets.EXPO_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-audit-result
+          run-id: 37174652077
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          path: native-completed
       - run: npm ci
       - name: Read workflow metadata without starting builds or tests
         working-directory: apps/mobile
@@ -31,6 +39,22 @@ jobs:
           node --input-type=module <<'JS'
           import fs from 'node:fs';
           import { spawnSync } from 'node:child_process';
+          const completed = JSON.parse(fs.readFileSync('../../native-completed/native-audit-result.json', 'utf8'));
+          if (completed.gitCommitHash !== '055efe49dd203c33d0ed0dd41ad07441f59b8aaa') throw new Error('Completed native source differs');
+          for (const job of completed.jobs ?? []) {
+            const build = job.turtleBuild;
+            if (build) console.log(JSON.stringify({ nativeBuild: { job: job.key, id: build.id, status: build.status, platform: build.platform, profile: build.buildProfile, version: build.appVersion, buildNumber: build.appBuildVersion, source: build.gitCommitHash, simulator: build.isForIosSimulator } }));
+            for (const artifact of job.turtleJobRun?.artifacts ?? []) {
+              if (!artifact.filename?.toLowerCase().endsWith('.xml')) continue;
+              const url = new URL(artifact.downloadUrl);
+              if (url.protocol !== 'https:' || url.hostname !== 'wf-artifacts.eascdn.net') throw new Error('Unexpected completed report origin');
+              const response = await fetch(artifact.downloadUrl, { signal: AbortSignal.timeout(30000) });
+              if (!response.ok) throw new Error('Could not fetch completed native report');
+              const junit = await response.text();
+              fs.writeFileSync('native-junit-' + completed.id + '-' + job.key + '.xml', junit);
+              console.log(JSON.stringify({ run: completed.id, source: completed.gitCommitHash, job: job.key, junit }));
+            }
+          }
           const raw = JSON.parse(fs.readFileSync('native-workflow-runs.json', 'utf8'));
           const runs = Array.isArray(raw) ? raw : raw.workflowRuns ?? raw.runs ?? [];
           if (!Array.isArray(runs)) throw new Error('Unexpected workflow list shape');
