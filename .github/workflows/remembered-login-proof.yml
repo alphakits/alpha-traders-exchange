@@ -1,0 +1,60 @@
+name: Remembered Login Lifecycle Regression Proof
+
+on:
+  push:
+    branches: [fix/remembered-login-proof-*]
+    paths: [.github/workflows/remembered-login-proof.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Require all four native request lifecycle regressions before the repair
+        run: |
+          git show 2ea60c041dc1081bb8b50741e763405d2113c862:src/lib/app-remembered-login.ts > src/lib/app-remembered-login.ts
+          git show 2ea60c041dc1081bb8b50741e763405d2113c862:src/components/auth/login-form.tsx > src/components/auth/login-form.tsx
+          set +e
+          npx vitest run src/__tests__/app-remembered-login-bridge.test.ts src/__tests__/app-remembered-login-form.test.tsx -t "cancels a pending request|does not send credentials for a request|finishes a timeout on the originating window|cancels the native lookup" --reporter=json --outputFile=remembered-login-before.json
+          native_before_status=$?
+          set -e
+          if [ "$native_before_status" -eq 0 ]; then
+            echo "Original native lookup unexpectedly passed the lifecycle regressions." >&2
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          const result=JSON.parse(fs.readFileSync("remembered-login-before.json","utf8"));
+          if(result.numFailedTests!==4||result.numPassedTests!==0)throw new Error("The original native lookup did not fail all four lifecycle regressions.");
+          console.log(JSON.stringify({phase:"before",passed:result.numPassedTests,failed:result.numFailedTests,total:result.numTotalTests,skipped:result.numPendingTests}));
+          JS
+      - name: Require native lookup and installation behavior to pass on the exact candidate
+        run: |
+          git show ba5e2a813c3d6880c60f44f4ace048dc11e62a2b:src/lib/app-remembered-login.ts > src/lib/app-remembered-login.ts
+          git show ba5e2a813c3d6880c60f44f4ace048dc11e62a2b:src/components/auth/login-form.tsx > src/components/auth/login-form.tsx
+          npx vitest run src/__tests__/app-remembered-login-bridge.test.ts src/__tests__/app-remembered-login-form.test.tsx src/__tests__/pwa-install-prompt.test.tsx --reporter=json --outputFile=remembered-login-after.json
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          const result=JSON.parse(fs.readFileSync("remembered-login-after.json","utf8"));
+          if(result.numFailedTests!==0||result.numPassedTests!==20||result.numTotalTests!==20)throw new Error("The repaired lookup and installation prompt did not pass all twenty cases.");
+          console.log(JSON.stringify({phase:"after",source:"ba5e2a813c3d6880c60f44f4ace048dc11e62a2b",passed:result.numPassedTests,failed:result.numFailedTests,total:result.numTotalTests}));
+          JS
+      - name: Preserve native request lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remembered-login-regression-proof
+          path: remembered-login-*.json
+          if-no-files-found: error
+          retention-days: 30
