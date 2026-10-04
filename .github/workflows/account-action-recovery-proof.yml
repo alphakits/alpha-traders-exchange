@@ -22,7 +22,7 @@ jobs:
       - name: Check out the exact candidate
         uses: actions/checkout@v4
         with:
-          ref: f6f31d331ea268cc3083f707be36aa4471b6dfe2
+          ref: 64c2e2c752f033effacd20cd8b6ceeb5b6c11eca
           lfs: false
       - name: Use Node.js 24
         uses: actions/setup-node@v4
@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "f6f31d331ea268cc3083f707be36aa4471b6dfe2"
+          test "$(git rev-parse HEAD)" = "64c2e2c752f033effacd20cd8b6ceeb5b6c11eca"
           git fetch --no-tags --depth=1 origin 1fd66b5b6af605782e7d5c98b9b91975c8efc678
           mkdir -p account-action-proof
           git show 1fd66b5b6af605782e7d5c98b9b91975c8efc678:src/components/auth/account-verification-gate.tsx > src/components/auth/account-verification-gate.tsx
@@ -46,10 +46,10 @@ jobs:
           npx vitest run src/components/auth/account-verification-recovery.test.tsx src/__tests__/buyer-contact-recovery.test.tsx src/__tests__/logout-request-recovery.test.tsx src/__tests__/header-logout-recovery.test.tsx --reporter=json --outputFile=account-action-proof/before.json > account-action-proof/before.log 2>&1
           before_exit=$?
           set -e
-          git show f6f31d331ea268cc3083f707be36aa4471b6dfe2:src/components/auth/account-verification-gate.tsx > src/components/auth/account-verification-gate.tsx
-          git show f6f31d331ea268cc3083f707be36aa4471b6dfe2:src/components/auth/buyer-contact-prompt.tsx > src/components/auth/buyer-contact-prompt.tsx
-          git show f6f31d331ea268cc3083f707be36aa4471b6dfe2:src/components/auth/logout-button.tsx > src/components/auth/logout-button.tsx
-          git show f6f31d331ea268cc3083f707be36aa4471b6dfe2:src/components/layout/header-auth-area.tsx > src/components/layout/header-auth-area.tsx
+          git show 64c2e2c752f033effacd20cd8b6ceeb5b6c11eca:src/components/auth/account-verification-gate.tsx > src/components/auth/account-verification-gate.tsx
+          git show 64c2e2c752f033effacd20cd8b6ceeb5b6c11eca:src/components/auth/buyer-contact-prompt.tsx > src/components/auth/buyer-contact-prompt.tsx
+          git show 64c2e2c752f033effacd20cd8b6ceeb5b6c11eca:src/components/auth/logout-button.tsx > src/components/auth/logout-button.tsx
+          git show 64c2e2c752f033effacd20cd8b6ceeb5b6c11eca:src/components/layout/header-auth-area.tsx > src/components/layout/header-auth-area.tsx
           set +e
           npx vitest run src/components/auth/account-verification-recovery.test.tsx src/__tests__/buyer-contact-recovery.test.tsx src/__tests__/logout-request-recovery.test.tsx src/__tests__/header-logout-recovery.test.tsx src/components/auth/account-verification-gate.test.tsx src/__tests__/buyer-contact-prompt.test.tsx src/__tests__/auth-request-recovery.test.tsx src/__tests__/logout-button.test.tsx src/__tests__/interactive-action-wiring.test.ts --reporter=json --outputFile=account-action-proof/after.json > account-action-proof/after.log 2>&1
           after_exit=$?
@@ -62,7 +62,7 @@ jobs:
           const before=JSON.parse(fs.readFileSync('account-action-proof/before.json','utf8'));
           const after=JSON.parse(fs.readFileSync('account-action-proof/after.json','utf8'));
           const summarize=r=>({total:r.numTotalTests,passed:r.numPassedTests,failed:r.numFailedTests,pending:r.numPendingTests,success:r.success,files:r.testResults.map(f=>({file:f.name.split('/').slice(-4).join('/'),status:f.status,assertions:f.assertionResults.map(a=>({name:a.fullName,status:a.status}))}))});
-          assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'f6f31d331ea268cc3083f707be36aa4471b6dfe2');
+          assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'64c2e2c752f033effacd20cd8b6ceeb5b6c11eca');
           assert.equal(before.numTotalTests,60);
           assert.ok(before.numFailedTests>0,'The new regression tests must reproduce original failures');
           assert.notEqual(Number(process.env.before_exit),0);
@@ -72,8 +72,8 @@ jobs:
           assert.equal(after.numFailedTests,0);
           assert.equal(after.numPendingTests,0);
           assert.equal(Number(process.env.after_exit),0);
-          for(const path of ["src/components/auth/account-verification-gate.tsx","src/components/auth/buyer-contact-prompt.tsx","src/components/auth/logout-button.tsx","src/components/layout/header-auth-area.tsx"]) assert.equal(fs.readFileSync(path,'utf8'),execFileSync('git',['show','f6f31d331ea268cc3083f707be36aa4471b6dfe2:'+path],{encoding:'utf8'}));
-          const proof={baseline:'1fd66b5b6af605782e7d5c98b9b91975c8efc678',candidate:'f6f31d331ea268cc3083f707be36aa4471b6dfe2',isolatedSyntheticFixtures:true,customerRecordsRead:false,messagesSent:false,financialTransactions:false,nativePackagesChanged:false,dependenciesChanged:false,before:summarize(before),after:summarize(after),completedAt:new Date().toISOString()};
+          for(const path of ["src/components/auth/account-verification-gate.tsx","src/components/auth/buyer-contact-prompt.tsx","src/components/auth/logout-button.tsx","src/components/layout/header-auth-area.tsx"]) assert.equal(fs.readFileSync(path,'utf8'),execFileSync('git',['show','64c2e2c752f033effacd20cd8b6ceeb5b6c11eca:'+path],{encoding:'utf8'}));
+          const proof={baseline:'1fd66b5b6af605782e7d5c98b9b91975c8efc678',candidate:'64c2e2c752f033effacd20cd8b6ceeb5b6c11eca',isolatedSyntheticFixtures:true,customerRecordsRead:false,messagesSent:false,financialTransactions:false,nativePackagesChanged:false,dependenciesChanged:false,before:summarize(before),after:summarize(after),completedAt:new Date().toISOString()};
           fs.writeFileSync('account-action-proof/proof.json',JSON.stringify(proof,null,2)+'\n');
           console.log(JSON.stringify({before:{total:before.numTotalTests,passed:before.numPassedTests,failed:before.numFailedTests},after:{total:after.numTotalTests,passed:after.numPassedTests,failed:after.numFailedTests},candidate:proof.candidate}));
           NODE
