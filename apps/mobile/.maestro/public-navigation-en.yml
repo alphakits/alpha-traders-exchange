@@ -31,15 +31,13 @@ name: English homepage and guest navigation
       TARGET_TEXT: "Forgot your password[?]"
 - tapOn: "Forgot your password[?]"
 - assertVisible: "Forgot Password"
-- tapOn: "Open menu"
-- tapOn: "Home"
+- tapOn: "Alpha Traders logo"
 - runFlow:
     file: ../.maestro-helpers/scroll-to-text.yml
     env:
       TARGET_TEXT: "Enter Alpha Exchange"
 - tapOn: "Enter Alpha Exchange"
 - assertVisible: "Premium Sign In"
-- tapOn: "Open menu"
-- tapOn: "Home"
+- tapOn: "Alpha Traders logo"
 - assertVisible: "Open menu"
 - takeScreenshot: public-navigation-en
