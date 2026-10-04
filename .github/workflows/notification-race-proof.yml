@@ -38,7 +38,7 @@ jobs:
             const result = spawnSync('npx', ['--no-install', 'vitest', 'run', test, '--reporter=json', '--outputFile=' + output, ...extra], { encoding: 'utf8', timeout: 180000, maxBuffer: 16000000 });
             if (!fs.existsSync(output)) throw new Error('Vitest did not return a structured test report.');
             const report = JSON.parse(fs.readFileSync(output, 'utf8'));
-            console.log(JSON.stringify({ report: output, exit: result.status, passed: report.numPassedTests, failed: report.numFailedTests, total: report.numTotalTests }));
+            console.log(JSON.stringify({ report: output, exit: result.status, passed: report.numPassedTests, failed: report.numFailedTests, total: report.numTotalTests, failures: (report.testResults ?? []).flatMap(suite => suite.assertionResults ?? []).filter(test => test.status === 'failed').map(test => ({ title: test.fullName, messages: test.failureMessages.map(message => message.slice(0,7000)) })) }));
             return { result, report };
           };
           try {
