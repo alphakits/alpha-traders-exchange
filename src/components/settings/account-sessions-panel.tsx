@@ -47,7 +47,7 @@ export function AccountSessionsPanel({ userId, isAr }: { userId: string; isAr: b
       setSessions(current => current?.filter(item => item.id !== session.id) ?? []);
       if (payload.currentSessionRevoked) {
         clearClientLocaleChoice();
-        window.dispatchEvent(new Event("alpha-auth-signed-out"));
+        window.dispatchEvent(new CustomEvent("alpha-auth-signed-out", { detail: { navigationStarted: true } }));
         window.location.replace("/en/login");
       } else setMessage(isAr ? "تم إنهاء الجلسة." : "Session signed out.");
     } catch {

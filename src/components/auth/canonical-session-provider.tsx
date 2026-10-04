@@ -182,7 +182,7 @@ export function CanonicalSessionProvider({
     const handleAuthChange = () => void refresh({ force: true });
     const sessionChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel("alpha.auth.session.v1") : null;
-    const clearSignedOutSession = () => {
+    const clearSignedOutSession = (navigationStarted = false) => {
       clearClientLocaleChoice();
       hadAuthenticatedSessionRef.current = false;
       expiryRedirectStartedRef.current = true;
@@ -194,11 +194,13 @@ export function CanonicalSessionProvider({
       cancelReadRef.current = null;
       setUser(null);
       setError(false);
-      setIsResolving(false);
+      // A confirmed sign-out may already be replacing this document. Hide
+      // private content without letting a page boundary race that navigation.
+      setIsResolving(navigationStarted);
       setIsRestoring(false);
     };
-    const handleSignedOut = () => {
-      clearSignedOutSession();
+    const handleSignedOut = (event: Event) => {
+      clearSignedOutSession(event instanceof CustomEvent && event.detail?.navigationStarted === true);
       sessionChannel?.postMessage("signed-out");
     };
     if (sessionChannel) sessionChannel.onmessage = (event) => {

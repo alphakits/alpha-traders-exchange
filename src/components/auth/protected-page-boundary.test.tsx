@@ -154,6 +154,18 @@ describe("protected page access", () => {
     expect(replace).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange");
   });
 
+  it("hides private content without replacing a confirmed sign-out navigation", async () => {
+    navigation.pathname = "/ar/settings";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user })));
+    renderPage(user);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new CustomEvent("alpha-auth-signed-out", { detail: { navigationStarted: true } })));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(screen.getByText("Checking your account…")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("does not mount private content or redirect on a session outage", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 503 })));
     renderPage();
