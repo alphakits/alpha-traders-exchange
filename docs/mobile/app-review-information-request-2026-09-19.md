@@ -1,5 +1,7 @@
 # App Review information-request response — 2026-09-19
 
+> Current status and corrected submission copy: [5 October release reconciliation](app-review-release-reconciliation-2026-10-05.md). The case narrative below is historical; do not reuse its old build numbers or attachment claims.
+
 This is the controlled response package for the first public Alpha Traders iOS
 submission. It answers Apple's Guideline 2.1 information request without
 hiding or reducing the Exchange. Replace bracketed values only from the final
@@ -154,24 +156,24 @@ limit. Add credentials only in App Store Connect immediately before submission;
 do not put them in this file.
 
 <!-- APP_REVIEW_NOTES_START -->
-Alpha Traders 1.2.0 build [FINAL_BUILD_NUMBER] is a final public iPhone app for adults 18+ in Israel. It combines bilingual Arabic/English trading education with a structured direct-settlement peer-to-peer USDT marketplace. Approved sellers publish owner-reviewed listings; buyers submit requests; both sides use a staged Trade Room with in-platform chat, evidence, status guidance, notifications, disputes, reporting, blocking, and verified post-trade reviews. Alpha Traders does not custody buyer fiat or seller USDT. The parties settle directly. A 1% seller service commission is recorded only after a completed marketplace trade; the app does not sell digital content or cryptocurrency through Apple In-App Purchase.
+Alpha Traders 1.2.0 build [FINAL_BUILD_NUMBER] is a final public iPhone app for adults 18+ in Israel. It combines bilingual Arabic/English trading education with a structured direct-settlement peer-to-peer USDT marketplace. Approved sellers publish owner-reviewed listings; buyers submit requests; both sides use a staged Trade Room with in-platform chat, evidence, status guidance, notifications, disputes, reporting, blocking, and verified post-trade reviews. Alpha Traders does not custody buyer fiat or seller USDT. The parties settle directly. New-policy completed trades incur a 2% total service commission: 1% buyer share and 1% seller share, with the seller remitting both shares to Alpha Traders; the app does not sell digital content or cryptocurrency through Apple In-App Purchase.
 
 The Academy material available in this build is not sold or unlocked inside the app. There are no In-App Purchase products or paid digital-feature unlocks in this version.
 
 REVIEW ACCESS — NO REAL FUNDS REQUIRED
 Buyer account: use the Username and Password fields above.
 Approved Seller account: [ENTER_SELLER_USERNAME_AND_PASSWORD_ONLY_IN_APP_STORE_CONNECT].
-Both accounts are fictional, email-verified, fully onboarded, and contain no real identity, bank, wallet, or customer data. Open Exchange > the listing named “[REVIEW_LISTING_NAME]” > Purchase Requests/Trade Room “[REVIEW_TRADE_REFERENCE]”. The prepared Trade Room lets you inspect both roles, timeline, chat, evidence UI, report/block, and dispute controls without making a bank payment or sending USDT. Do not register a new account or contact a real seller.
+Confirm before resubmission that both accounts are fictional, email-verified, fully onboarded, and contain no real identity, bank, wallet, or customer data. Open Exchange > the listing named “[REVIEW_LISTING_NAME]” > Purchase Requests/Trade Room “[REVIEW_TRADE_REFERENCE]”. The prepared Trade Room lets you inspect both roles, timeline, chat, evidence UI, report/block, and dispute controls without making a bank payment or sending USDT. Do not register a new account or contact a real seller.
 
-Suggested path: launch > English or Arabic > sign in as Buyer > Exchange > marked review listing > prepared Trade Room > Notifications > Profile/Settings > Support > Account Deletion. Sign out and use the Approved Seller account > Seller Workspace > My Listings/Purchase Requests > the same prepared Trade Room. Native push, badge routing, camera/photo evidence permissions, offline recovery, update enforcement, and app-switcher privacy masking are demonstrated in the attached physical-iPhone recording. The iOS rating prompt is requested only after a verified completed trade and iOS decides whether to display it.
+Suggested path: launch > English or Arabic > sign in as Buyer > Exchange > marked review listing > prepared Trade Room > Notifications > Profile/Settings > Support > Account Deletion. Sign out and use the Approved Seller account > Seller Workspace > My Listings/Purchase Requests > the same prepared Trade Room. Supply a current physical-iPhone recording of the selected replacement build covering native push, badge routing, evidence permissions, offline recovery, update enforcement, and app-switcher privacy masking. Build 16 recordings are historical evidence only. iOS controls whether the post-trade rating prompt appears.
 
-External services: Vercel (first-party app/API hosting); Supabase (authentication, PostgreSQL, object storage); Expo (native push); Resend (transactional email); TRON/TronGrid (read-only verification of submitted commission transaction IDs); and bounded Academy video hosting. No advertising SDK or cross-app tracking is used. Website market references use Binance/Coinbase and open.er-api/Frankfurter; charts use TradingView. SMS and automated WhatsApp sending were inactive at the last production check. Recheck optional Discord before submission.
+External services: Vercel (first-party app/API hosting); Supabase (authentication, PostgreSQL, object storage); Expo (native push); Resend (transactional email); TRON/TronGrid (read-only verification of submitted commission transaction IDs); bounded Academy video hosting; and read-only Binance receiving-account history for commission verification. No advertising SDK or cross-app tracking is used. Website market references use Binance/Coinbase and open.er-api/Frankfurter; charts use TradingView. Twilio provides required SMS phone verification for ordinary accounts; the existing owner-approved review-account exceptions avoid requiring reviewer SMS. Automated WhatsApp sending is off. Reconfirm optional Discord before submission.
 
-Region: Israel storefront only. English and Arabic have the same features. The native app presents monetary values in USD/USDT; ILS-denominated listing and settlement values are normalized using the live USD/ILS reference before display. Supported payment flows are Israeli bank transfer, cardless ATM, and face-to-face. No feature is hidden or remotely enabled after review.
+News: weekly USD calendar updated Sundays; no live results or event alerts. Region: Israel storefront only. English and Arabic have the same features. The native app presents monetary values in USD/USDT; ILS-denominated listing and settlement values are normalized using the live USD/ILS reference before display. Supported payment flows are Israeli bank transfer, cardless ATM, and face-to-face. No feature is hidden or remotely enabled after review.
 
 Regulated-service evidence: submitting provider [EXACT_LEGAL_ENTITY]. Attached: [ENTITY_DOCUMENT], [COUNSEL_OR_PERMISSION_DOCUMENT], and [CONTENT_RIGHTS_STATEMENT]. A business/tax registration is entity evidence and is not described as a cryptocurrency licence. The full non-custodial workflow and Israel-only scope are shown in the recording and attachments.
 
-Support: support@alphatraders.co.il. The production backend and reviewer fixtures will stay available throughout review.
+Support: support@alphatraders.co.il. Backend and review fixtures remain available.
 <!-- APP_REVIEW_NOTES_END -->
 
 ## Required attachment manifest

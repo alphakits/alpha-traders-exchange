@@ -5,6 +5,8 @@ source readiness separate from Apple-account, legal, signed-build, and
 real-device evidence. Do not submit an Academy-only build or remove the
 Exchange without an explicit product decision.
 
+Current release reconciliation and corrected review copy: [5 October 2026](app-review-release-reconciliation-2026-10-05.md).
+
 ## Reviewed feature consistency
 
 The owner has made the full Exchange a non-negotiable part of the app. The
@@ -26,9 +28,8 @@ before resubmission.
 Create the controlled evidence/case record from
 `docs/mobile/app-review-private-record-template.md`; never populate the
 repository template with credentials, identity documents, or user data.
-The requested high-impact economic-calendar feature is planned separately in
-`docs/mobile/economic-calendar-post-release-plan.md` and is not part of this
-first stable release candidate.
+News now includes a weekly USD events calendar updated on Sundays. Live event results and event alerts are not part of that feature. The broader plan in
+`docs/mobile/economic-calendar-post-release-plan.md` is not evidence that those future features have shipped.
 
 ## Release identity
 

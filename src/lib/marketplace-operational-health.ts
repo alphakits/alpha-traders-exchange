@@ -61,6 +61,7 @@ export function buildMarketplaceOperationalSnapshot(
     purchaseRequests: PurchaseRequest[];
   },
   now = new Date(),
+  options: { includeAllIncidents?: boolean } = {},
 ): MarketplaceOperationalSnapshot {
   const nowMs = now.getTime();
   const requestsById = new Map(input.purchaseRequests.map((request) => [request.id, request]));
@@ -187,6 +188,6 @@ export function buildMarketplaceOperationalSnapshot(
     stalledTrades,
     overdueUsdtReleases,
     dataIntegrityIssues,
-    incidents: incidents.slice(0, 12),
+    incidents: options.includeAllIncidents ? incidents : incidents.slice(0, 12),
   };
 }
