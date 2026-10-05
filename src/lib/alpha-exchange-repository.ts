@@ -2519,19 +2519,20 @@ export class AlphaExchangeRepository {
     );
   }
 
-  /** Load only the newest status-matching trade candidate for one actor. */
+  /** One navigation candidate by default; owners may request all active matches. */
   async loadPurchaseRequestCandidateSnapshotForActor(input: {
     userId: string;
     includeAll: boolean;
     activeStatuses: readonly PurchaseRequest["status"][];
     includeBuyerPending: boolean;
+    allMatching?: boolean;
   }): Promise<SnapshotWithVersion> {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       const source = getLatestAvailableFallbackSnapshot();
       const activeStatuses = new Set(input.activeStatuses);
-      const purchaseRequest = source.purchaseRequests
+      const matches = source.purchaseRequests
         .filter((request) => (
           input.includeAll || request.buyerId === input.userId || request.sellerId === input.userId
         ))
@@ -2539,14 +2540,15 @@ export class AlphaExchangeRepository {
           activeStatuses.has(request.status)
           || (input.includeBuyerPending && request.status === "pending" && request.buyerId === input.userId)
         ))
-        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null;
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() || left.id.localeCompare(right.id));
+      const purchaseRequests = input.includeAll && input.allMatching ? matches : matches.slice(0, 1);
+      const participantIds = new Set([input.userId, ...purchaseRequests.flatMap(request => [request.buyerId, request.sellerId])]);
+      const listingIds = new Set(purchaseRequests.map(request => request.listingId));
       return attachVersion({
         ...emptySnapshotCollections(),
-        users: purchaseRequest ? cloneSnapshot(source.users.filter(user => user.id === input.userId || user.id === purchaseRequest.buyerId || user.id === purchaseRequest.sellerId)) : [],
-        marketplaceListings: purchaseRequest
-          ? cloneSnapshot(source.marketplaceListings.filter((listing) => listing.id === purchaseRequest.listingId))
-          : [],
-        purchaseRequests: purchaseRequest ? cloneSnapshot([purchaseRequest]) : [],
+        users: cloneSnapshot(source.users.filter(user => participantIds.has(user.id))),
+        marketplaceListings: cloneSnapshot(source.marketplaceListings.filter(listing => listingIds.has(listing.id))),
+        purchaseRequests: cloneSnapshot(purchaseRequests),
       }, getVersion(source));
     }
 
@@ -2559,8 +2561,8 @@ export class AlphaExchangeRepository {
              status = any($3::text[])
              or ($4::boolean and status = 'pending' and buyer_id = $1)
            )
-         order by updated_at desc
-         limit 1
+         order by updated_at desc, id asc
+         limit $5::integer
        )
        select
          (select version::text from alpha_exchange.runtime_meta where singleton = true) as version,
@@ -2575,7 +2577,7 @@ export class AlphaExchangeRepository {
            where listing.id in (select listing_id from candidate_request)
          ), '[]'::jsonb) as listings,
          coalesce((select jsonb_agg(payload order by sort_index asc) from candidate_request), '[]'::jsonb) as purchase_requests`,
-      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending],
+      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending, input.includeAll && input.allMatching ? null : 1],
     );
     const row = result.rows[0];
     return attachVersion(

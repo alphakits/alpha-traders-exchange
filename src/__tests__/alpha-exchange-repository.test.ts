@@ -621,9 +621,9 @@ describe("AlphaExchangeRepository", () => {
         return Promise.resolve({ rows: [{ version: "22", users: [account], listings: [listing], purchase_requests: [request], evidence: [] }] });
       }
       if (queryText.includes("with candidate_request as materialized")) {
-        expect(values).toEqual(["buyer-1", false, ["accepted", "payment_sent"], true]);
+        expect(values).toEqual(["buyer-1", false, ["accepted", "payment_sent"], true, 1]);
         expect(queryText).toContain("order by updated_at desc");
-        expect(queryText).toContain("limit 1");
+        expect(queryText).toContain("limit $5::integer");
         return Promise.resolve({ rows: [{ version: "22", users: [account], listings: [listing], purchase_requests: [request] }] });
       }
       if (queryText.includes("with recipient_notifications as materialized")) {
