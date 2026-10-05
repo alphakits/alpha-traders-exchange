@@ -56,6 +56,9 @@ test.describe("Owner payment-stage overrides", () => {
       listingId, sellerId: template.sellerId, buyerId: buyer.id, buyerName: buyer.fullName,
       usdtAmount: "250", fiatAmount: "800", pricePerUsdt: "3.20", currency: "ILS", network: "TRC20",
       paymentMethod: "Cardless ATM Withdrawal", status: "accepted", timeline: [],
+      // Seed canonical acknowledgement defaults so a login normalization is
+      // not mistaken for an unauthorized trade mutation in the exact snapshot check.
+      buyerSafetyAcknowledged: true, sellerSafetyAcknowledged: true,
       sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: now,
       createdAt: now, updatedAt: now,
       actionReminderState: { stage: "accepted", actionStartedAt: now, seller: { userId: template.sellerId, lastSentAt: now, reminderCount: 1 } },
