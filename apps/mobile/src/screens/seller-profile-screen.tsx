@@ -161,6 +161,13 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
           </View>
         </View>
 
+        {seller.isEmailVerified || seller.isPhoneVerified ? (
+          <View style={[styles.badges, isRTL && styles.rowReverse]}>
+            {seller.isEmailVerified ? <Text style={styles.verificationBadge}>✓ {locale === "ar" ? "بريد موثّق" : "Verified Email"}</Text> : null}
+            {seller.isPhoneVerified === true ? <Text style={styles.verificationBadge}>✓ {locale === "ar" ? "هاتف موثّق" : "Verified Phone"}</Text> : null}
+          </View>
+        ) : null}
+
         <View style={styles.metricsGrid}>
           <Metric isRTL={isRTL} label={t("completedTrades")} value={formatCount(Math.round(finiteMetric(seller.completedTrades)))} />
           <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
@@ -254,6 +261,7 @@ const styles = StyleSheet.create({
   metricValue: { color: colors.goldBright, fontSize: typography.section, fontWeight: "900" },
   metricLabel: { color: colors.textMuted, fontSize: typography.caption, lineHeight: 15 },
   badges: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  verificationBadge: { color: "#6ee7b7", borderColor: "rgba(16,185,129,0.35)", backgroundColor: "rgba(16,185,129,0.10)", borderWidth: 1, borderRadius: radius.pill, fontSize: typography.caption, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   badge: { backgroundColor: "rgba(216, 180, 74, 0.10)", borderColor: colors.borderGold, borderRadius: radius.pill, borderWidth: 1, color: colors.goldBright, fontSize: typography.caption, fontWeight: "800", overflow: "hidden", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
   sectionTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },

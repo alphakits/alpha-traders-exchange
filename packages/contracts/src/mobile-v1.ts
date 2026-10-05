@@ -547,6 +547,7 @@ export interface MobileMarketplaceListing {
     isFoundingSeller: boolean;
     isFeaturedSeller: boolean;
     emailVerified: boolean;
+    isPhoneVerified?: boolean;
     onlineStatus: "online" | "offline";
   lastSeenAt?: string;
   presenceHidden?: boolean;
@@ -879,6 +880,7 @@ export interface MobileSellerProfile {
   presenceHidden?: boolean;
   availabilityStatus: "available" | "away" | "vacation";
   isEmailVerified: boolean;
+  isPhoneVerified?: boolean;
   isOwner: boolean;
   isFoundingMember: boolean;
   isFoundingSeller: boolean;

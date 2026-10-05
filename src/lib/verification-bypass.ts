@@ -28,13 +28,19 @@ type VerificationState = {
   phoneVerifiedAt?: string | null;
 };
 
-export function isVerified(user: VerificationState | null | undefined) {
+/** Public verification claims require actual OTP evidence, never an access exemption. */
+export function hasVerifiedPhone(user: VerificationState | null | undefined) {
   if (!user || user.disabled === true) return false;
-  if (isAccountPhoneVerificationExempt(user)) return true;
-  if (isPhotoVerificationBypassed(user.email)) return true;
   return Boolean(
     /^\+[1-9]\d{7,14}$/.test(user.verifiedPhone ?? "")
     && user.phoneVerifiedAt
     && Number.isFinite(Date.parse(user.phoneVerifiedAt)),
   );
+}
+
+export function isVerified(user: VerificationState | null | undefined) {
+  if (!user || user.disabled === true) return false;
+  if (isAccountPhoneVerificationExempt(user)) return true;
+  if (isPhotoVerificationBypassed(user.email)) return true;
+  return hasVerifiedPhone(user);
 }

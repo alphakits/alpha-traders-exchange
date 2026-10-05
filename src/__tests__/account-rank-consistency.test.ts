@@ -190,3 +190,29 @@ describe("account rank consistency and privacy", () => {
     expect((await getMarketplaceListings("active"))[0]?.sellerReputation?.level).toBe("diamond");
   });
 });
+
+
+describe("public verification state consistency", () => {
+  it("projects actual phone verification everywhere without exposing the number, and revokes it after a number change", async () => {
+    const db = seed();
+    const seller = db.users[0];
+    const phone = "+972501234567";
+    Object.assign(seller, { whatsappNumber: phone, verifiedPhone: phone, phoneVerifiedAt: now });
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    const readProfiles = async () => {
+      const listings = await getMarketplaceListings("active");
+      const premium = await getPremiumSellerProfile({ sellerId: seller.id });
+      const publicProfile = await getPublicUserProfileRouteData({ username: derivePublicProfileUsername(seller) });
+      return [listings.find(row => row.sellerId === seller.id)?.sellerProfile, premium?.profile, publicProfile?.profile];
+    };
+    for (const projection of await readProfiles()) {
+      expect(projection).toMatchObject({ isPhoneVerified: true });
+      expect(projection).not.toHaveProperty("verifiedPhone");
+      expect(projection).not.toHaveProperty("phoneVerifiedAt");
+      expect(JSON.stringify(projection)).not.toContain(phone);
+    }
+    await updateAccountProfileData({ userId: seller.id, whatsappNumber: "+972509876543" });
+    for (const projection of await readProfiles()) expect(projection).toMatchObject({ isPhoneVerified: false });
+  });
+});

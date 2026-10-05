@@ -17,6 +17,7 @@ import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-s
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
+import { hasVerifiedPhone } from "@/lib/verification-bypass";
 import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
@@ -1714,6 +1715,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser, viewer?: AlphaExchang
     lastSeenAt: visibleUserPresence(user, user, viewer).lastSeenAt ?? undefined,
     presenceHidden: visibleUserPresence(user, user, viewer).presenceHidden,
     emailVerified: user.emailVerified === true,
+    isPhoneVerified: hasVerifiedPhone(user),
   };
 }
 
@@ -1781,6 +1783,7 @@ function buildPublicUserProfileDataForUser(input: {
       isFoundingSeller: user.isFoundingSeller === true,
       allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
       isEmailVerified: user.emailVerified === true,
+      isPhoneVerified: hasVerifiedPhone(user),
       contact: {
         // Only the canonical platform owner can receive private contact details.
         email: platformOwner ? user.email : "",
@@ -2406,6 +2409,7 @@ export async function getPremiumSellerProfile(input: {
     sellerStatus: publicAccount.profile.sellerStatus,
     allowDirectMessages: publicAccount.profile.allowDirectMessages,
     isEmailVerified: publicAccount.profile.isEmailVerified,
+    isPhoneVerified: publicAccount.profile.isPhoneVerified,
     lastActiveAt: publicAccount.profile.lastActiveAt ?? undefined,
   };
   const lifetimeCompletedVolumeUsdt = Math.max(0, trustSnapshot.totalUsdtVolume);

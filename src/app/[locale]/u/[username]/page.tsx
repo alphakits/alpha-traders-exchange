@@ -1,4 +1,5 @@
 import { ProfileLiveRefresh } from "@/components/profile/profile-live-refresh";
+import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { UserPresence } from "@/components/ui/user-presence";
 import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
 import { brandText, currencyText } from "@/components/ui/currency-text";
@@ -280,12 +281,7 @@ export default async function PublicUserProfilePage({
                         {isAr ? "بائع مميز" : "Featured Seller"}
                       </span>
                     ) : null}
-                    {data.profile.isEmailVerified ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-sky-200">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        {isAr ? "بريد إلكتروني موثّق" : "Verified Email"}
-                      </span>
-                    ) : null}
+                    <AccountVerificationBadges emailVerified={data.profile.isEmailVerified} phoneVerified={data.profile.isPhoneVerified} isAr={isAr} />
                   </div>
                 </div>
               </div>

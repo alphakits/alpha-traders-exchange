@@ -155,7 +155,8 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
         <View style={[styles.badges, isRTL && styles.rowReverse]}>
           <Text style={[styles.verifiedBadge, { borderColor: tone.border }]}>{copy("✓ Approved seller", "✓ بائع معتمد")}</Text>
           <Text style={[styles.rankBadge, { backgroundColor: tone.pill, borderColor: tone.border, color: tone.name }]}>{rankLabel(listing.seller.level, isAr, isOwner)}</Text>
-          {listing.seller.emailVerified || isOwner ? <Text style={styles.emailBadge}>✓ {copy("Verified Email", "بريد موثّق")}</Text> : null}
+          {listing.seller.emailVerified ? <Text style={styles.emailBadge}>✓ {copy("Verified Email", "بريد موثّق")}</Text> : null}
+          {listing.seller.isPhoneVerified === true ? <Text style={styles.emailBadge}>✓ {copy("Verified Phone", "هاتف موثّق")}</Text> : null}
           {isOwner ? <Text style={styles.platformBadge}>✓ {copy("Official Platform Account", "حساب المنصة الرسمي")}</Text> : null}
         </View>
 

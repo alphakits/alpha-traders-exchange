@@ -1,4 +1,5 @@
 "use client";
+import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
@@ -1167,7 +1168,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
   const formattedAvailableAmount = Math.trunc(toNumber(listing.availableAmount)).toLocaleString("en-US");
   const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
   const presence = useLiveUserPresence(listing.sellerId, listing.sellerProfile);
-  const sellerEmailVerified = listing.sellerProfile?.emailVerified === true;
+  const sellerEmailVerified = listing.sellerProfile?.emailVerified === true || listing.sellerProfile?.isEmailVerified === true;
   const sellerRankBorderColor: Record<string, string> = {
     bronze: "rgba(var(--rank-bronze-rgb),0.62)",
     silver: "rgba(var(--rank-silver-rgb),0.68)",
@@ -1248,17 +1249,8 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
               <div className="compact-listing__badges flex flex-wrap items-center gap-1.5">
                 <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
                 <RankBadge rank={sellerLevel} locale={isAr ? "ar" : "en"} audience="seller" />
-                {isOwnerListing ? (
-                  <>
-                    <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ {isAr ? "البريد موثّق" : "Email Verified"}</span>
-                    <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ {isAr ? "الهاتف موثّق" : "Phone Verified"}</span>
-                    <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ {isAr ? "حساب المنصة الرسمي" : "Official Platform Account"}</span>
-                  </>
-                ) : sellerEmailVerified ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">
-                    <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> {isAr ? "بريد موثّق" : "Verified Email"}
-                  </span>
-                ) : null}
+                <AccountVerificationBadges emailVerified={sellerEmailVerified} phoneVerified={listing.sellerProfile?.isPhoneVerified} isAr={isAr} />
+                {isOwnerListing ? <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ {isAr ? "حساب المنصة الرسمي" : "Official Platform Account"}</span> : null}
               </div>
       </CardHeader>
       <CardContent className="compact-listing__content">

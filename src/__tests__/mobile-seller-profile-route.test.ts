@@ -61,6 +61,7 @@ beforeEach(() => {
       onlineStatus: "online",
       availabilityStatus: "available",
       isEmailVerified: true,
+      isPhoneVerified: true,
       isOwner: false,
       isFoundingMember: true,
       isFoundingSeller: true,
@@ -114,6 +115,7 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
     expect(response.status).toBe(200);
     expect(payload.requestId).toBe("seller-request-1");
     expect(payload.seller).toMatchObject({
+      isPhoneVerified: true,
       listingId: "listing-1",
       displayName: "Alpha OTC",
       isCurrentUser: false,

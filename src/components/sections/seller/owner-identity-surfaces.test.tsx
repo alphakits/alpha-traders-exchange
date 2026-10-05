@@ -55,3 +55,26 @@ describe("actual owner identity surfaces", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent?.includes("Private Seller")).toBe(canViewPrivateIdentity);
   });
 });
+
+
+describe("phone verification badges across seller surfaces", () => {
+  it.each([true, false])("shows the saved verification state on cards and profiles (Arabic=%s)", isAr => {
+    const sellerProfile = { ...profile.profile, emailVerified: true, isPhoneVerified: true };
+    const listing = { id: "verified-listing", sellerId: "identity-seller", sellerDisplayName: id, status: "active", availableAmount: "100", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Cash", minimumTrade: "10", maximumTrade: "100", sellerProfile } as MarketplaceListing;
+    const props = { listing, isAr, marketPricePerUsdt: 3.2, isOwnerListing: false, isOwnListing: false, isBuying: false, onOpen: vi.fn(), onManageListing: vi.fn() };
+    const view = render(<ListingCard {...props} />);
+    expect(screen.getByText(isAr ? "بريد موثّق" : "Verified Email")).toBeTruthy();
+    expect(screen.getByText(isAr ? "هاتف موثّق" : "Verified Phone")).toBeTruthy();
+    view.rerender(<ListingCard {...props} listing={{ ...listing, sellerProfile: { ...sellerProfile, isPhoneVerified: false } }} />);
+    expect(screen.queryByText(isAr ? "هاتف موثّق" : "Verified Phone")).toBeNull();
+    // Owner status alone is not proof of phone verification.
+    view.rerender(<ListingCard {...props} isOwnerListing listing={{ ...listing, sellerProfile: { ...sellerProfile, isPhoneVerified: false } }} />);
+    expect(screen.queryByText(isAr ? "هاتف موثّق" : "Verified Phone")).toBeNull();
+    view.unmount();
+    const data = { profile: { ...profile, profile: sellerProfile }, sellerListings: [], similarSellers: [] };
+    const profileView = render(<PremiumSellerProfilePage locale={isAr ? "ar" : "en"} data={data} />);
+    expect(screen.getByText(isAr ? "هاتف موثّق" : "Verified Phone")).toBeTruthy();
+    profileView.rerender(<PremiumSellerProfilePage locale={isAr ? "ar" : "en"} data={{ ...data, profile: { ...data.profile, profile: { ...sellerProfile, isPhoneVerified: false } } }} />);
+    expect(screen.queryByText(isAr ? "هاتف موثّق" : "Verified Phone")).toBeNull();
+  });
+});

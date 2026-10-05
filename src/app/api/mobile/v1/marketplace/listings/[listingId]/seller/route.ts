@@ -42,6 +42,7 @@ function toMobileSellerProfile(
     presenceHidden: profile.profile.presenceHidden,
     availabilityStatus: profile.profile.availabilityStatus,
     isEmailVerified: profile.profile.isEmailVerified === true || profile.profile.emailVerified === true,
+    isPhoneVerified: profile.profile.isPhoneVerified === true,
     isOwner: profile.profile.isOwner === true,
     isFoundingMember: profile.profile.isFoundingMember === true,
     isFoundingSeller: profile.profile.isFoundingSeller === true,
