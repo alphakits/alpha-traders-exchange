@@ -4042,7 +4042,10 @@ export async function runOwnerFollowUpAlerts(input?: { now?: Date }) {
         if (publication) publications.push(publication);
       }
     }
-    return { publications, archived };
+    // A new episode can reuse a recent notification row. Do not publish its
+    // stale archived version after the latest unread update.
+    const republishedIds = new Set(publications.map(publication => publication.notification.id));
+    return { publications, archived: archived.filter(notification => !republishedIds.has(notification.id)) };
   };
   const db = await readDbForSelectedTables(tables);
   let changes = reconcile(db);

@@ -192,6 +192,26 @@ describe("owner follow-up alert lifecycle", () => {
     expect(mocks.scheduleMobilePushDelivery).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the latest owner alert visible when its payment issue changes within the dedupe window", async () => {
+    seedCommission();
+    await runOwnerFollowUpAlerts({ now: NOW });
+    const alertId = currentSnapshot().notifications[0].id;
+    vi.setSystemTime(new Date(NOW.getTime() + 10_000));
+    currentSnapshot().commissionRecords[0].paymentVerificationStatus = "failed";
+    mocks.publishRealtimeEvent.mockClear();
+
+    const result = await runOwnerFollowUpAlerts();
+    const alert = currentSnapshot().notifications[0];
+    expect(currentSnapshot().notifications).toHaveLength(1);
+    expect(alert).toMatchObject({ id: alertId, state: "unread" });
+    expect(alert.message).toContain("could not be verified");
+    expect(mocks.publishRealtimeEvent.mock.calls.at(-1)?.[0]).toMatchObject({
+      type: "notification.updated",
+      payload: { notification: { id: alertId, state: "unread", reason: alert.reason } },
+    });
+    expect(result).toEqual({ created: 1, archived: 0 });
+  });
+
   it("archives resolved payments without another push or any settlement mutation", async () => {
     seedCommission(); await runOwnerFollowUpAlerts({ now: NOW });
     const commission = currentSnapshot().commissionRecords[0];
