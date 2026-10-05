@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { runAlphaExchangeMaintenance, runTradeActionReminders } from "@/lib/alpha-exchange-store";
+import { runAlphaExchangeMaintenance, runTradeActionReminders, runOwnerFollowUpAlerts } from "@/lib/alpha-exchange-store";
 import { logEvent } from "@/lib/structured-logging";
 
 export const dynamic = "force-dynamic";
@@ -36,13 +36,14 @@ export async function GET(request: NextRequest) {
   try {
     const maintenance = await runAlphaExchangeMaintenance();
     const result = await runTradeActionReminders();
+    const ownerFollowUp = await runOwnerFollowUpAlerts();
     logEvent("info", {
       event: "trade_action_reminder_cron",
       outcome: "success",
-      metadata: { maintenanceChanged: maintenance.changed, ...result },
+      metadata: { maintenanceChanged: maintenance.changed, ...result, ownerFollowUp },
     });
     return NextResponse.json(
-      { ok: true, maintenanceChanged: maintenance.changed, ...result },
+      { ok: true, maintenanceChanged: maintenance.changed, ...result, ownerFollowUp },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

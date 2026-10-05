@@ -26,6 +26,9 @@ const mediaListeners = new Set<() => void>();
 const trade = { id: "home-active-trade", buyerId: buyer.id, sellerId: "home-seller", listingId: "listing-1", status: "accepted", paymentMethod: "Face-to-Face", usdtAmount: 200, pricePerUsdt: 3.1, totalIls: 620, createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z", timeline: [] };
 
 beforeEach(() => {
+  // Opening a trade updates the real URL even with the router mocked. Each
+  // case starts on the marketplace, without another case's listing deep link.
+  window.history.replaceState({}, "", "/en/usdt-exchange");
   pending = false;
   user = buyer;
   requests = [trade];

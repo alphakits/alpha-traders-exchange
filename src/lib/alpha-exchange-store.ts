@@ -2,6 +2,7 @@ import { calculateUsdtForPaymentTotal } from "@alpha-traders/contracts";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
 import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
+import { ownerFollowUpAlerts, OWNER_FOLLOW_UP_REASON } from "@/lib/owner-follow-up-alerts";
 import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { deriveUserPresence } from "@alpha-traders/contracts";
@@ -4002,6 +4003,61 @@ export async function runTradeActionReminders(input?: { now?: Date }) {
     emailsSent,
     emailFailures: claimed.emailDeliveries.length - emailsSent,
   };
+}
+
+/** Persist owner alerts atomically, then publish; resolution sends no new push. */
+export async function runOwnerFollowUpAlerts(input?: { now?: Date }) {
+  const now = input?.now ?? new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("A valid follow-up timestamp is required.");
+  const tables = ["users", "listings", "purchase_requests", "commissions", "notifications"] as const;
+  const reconcile = (snapshot: AlphaExchangeDb) => {
+    const owners = snapshot.users.filter(user => !user.disabled && hasRole(user, "owner"));
+    const ownerIds = new Set(owners.map(user => user.id));
+    const alerts = ownerFollowUpAlerts(snapshot, now);
+    const activeReasons = new Set(alerts.map(alert => alert.reason));
+    const archived: AlphaExchangeNotification[] = [];
+    const publications: DeferredNotificationPublication[] = [];
+    for (const notification of snapshot.notifications) {
+      if (!notification.reason?.startsWith(OWNER_FOLLOW_UP_REASON) || notification.state === "archived") continue;
+      if (ownerIds.has(notification.userId) && activeReasons.has(notification.reason)) continue;
+      notification.state = "archived";
+      notification.isRead = true;
+      notification.archivedAt = now.toISOString();
+      notification.updatedAt = now.toISOString();
+      archived.push(notification);
+    }
+    for (const owner of owners) {
+      // An acknowledged/dismissed alert stays dismissed for this episode.
+      const existing = new Set(snapshot.notifications.filter(item => item.userId === owner.id).map(item => item.reason));
+      for (const alert of alerts) {
+        if (existing.has(alert.reason)) continue;
+        const publication = pushNotification(snapshot, {
+          userId: owner.id, category: "system", title: alert.title, titleEn: alert.title, titleAr: alert.titleAr,
+          message: alert.message, messageEn: alert.message, messageAr: alert.messageAr,
+          relatedRequestId: alert.requestId, relatedListingId: alert.listingId,
+          actionHref: alert.href, relatedHref: alert.href, actionLabel: "Open record",
+          reason: alert.reason, priority: alert.priority, dedupeKey: alert.href,
+          forceInApp: true, deferRealtime: true,
+        });
+        if (publication) publications.push(publication);
+      }
+    }
+    // A new episode can reuse a recent notification row. Do not publish its
+    // stale archived version after the latest unread update.
+    const republishedIds = new Set(publications.map(publication => publication.notification.id));
+    return { publications, archived: archived.filter(notification => !republishedIds.has(notification.id)) };
+  };
+  const db = await readDbForSelectedTables(tables);
+  let changes = reconcile(db);
+  if (changes.publications.length || changes.archived.length) {
+    await writeDb(db, {
+      selectedTables: ["notifications"], rebaseTables: tables, cacheResult: false,
+      rebaseOnLatest: latest => { changes = reconcile(latest); return latest; },
+    });
+    for (const publication of changes.publications) publishNotificationPublication(publication);
+    publishArchivedNotifications(changes.archived);
+  }
+  return { created: changes.publications.length, archived: changes.archived.length };
 }
 
 const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];

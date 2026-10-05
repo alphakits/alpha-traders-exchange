@@ -8,11 +8,13 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   runAlphaExchangeMaintenance: vi.fn(),
   runTradeActionReminders: vi.fn(),
+  runOwnerFollowUpAlerts: vi.fn(),
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   runAlphaExchangeMaintenance: mocks.runAlphaExchangeMaintenance,
   runTradeActionReminders: mocks.runTradeActionReminders,
+  runOwnerFollowUpAlerts: mocks.runOwnerFollowUpAlerts,
 }));
 
 import { GET } from "@/app/api/cron/trade-action-reminders/route";
@@ -30,6 +32,7 @@ describe("hourly trade action reminder cron", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     mocks.runAlphaExchangeMaintenance.mockResolvedValue({ changed: false });
+    mocks.runOwnerFollowUpAlerts.mockResolvedValue({ created: 1, archived: 2 });
     mocks.runTradeActionReminders.mockResolvedValue({
       activeTradesChecked: 2,
       notificationsCreated: 1,
@@ -45,6 +48,7 @@ describe("hourly trade action reminder cron", () => {
 
     expect(response.status).toBe(503);
     expect(mocks.runTradeActionReminders).not.toHaveBeenCalled();
+    expect(mocks.runOwnerFollowUpAlerts).not.toHaveBeenCalled();
   });
 
   it("rejects a request with the wrong bearer secret", async () => {
@@ -54,6 +58,7 @@ describe("hourly trade action reminder cron", () => {
 
     expect(response.status).toBe(401);
     expect(mocks.runTradeActionReminders).not.toHaveBeenCalled();
+    expect(mocks.runOwnerFollowUpAlerts).not.toHaveBeenCalled();
   });
 
   it("runs the sweep for Vercel's authenticated request without caching", async () => {
@@ -66,6 +71,7 @@ describe("hourly trade action reminder cron", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body).toEqual({
       ok: true,
+      ownerFollowUp: { created: 1, archived: 2 },
       maintenanceChanged: false,
       activeTradesChecked: 2,
       notificationsCreated: 1,
@@ -74,6 +80,7 @@ describe("hourly trade action reminder cron", () => {
     });
     expect(mocks.runAlphaExchangeMaintenance).toHaveBeenCalledTimes(1);
     expect(mocks.runTradeActionReminders).toHaveBeenCalledTimes(1);
+    expect(mocks.runOwnerFollowUpAlerts).toHaveBeenCalledTimes(1);
   });
 
   it("runs from Dublin and staggers five-minute cron checks", () => {
