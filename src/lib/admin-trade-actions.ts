@@ -12,9 +12,10 @@ export function adminTradeActions(request: PurchaseRequest, hasOpenDispute: bool
   return {
     completed,
     cancelled,
-    canComplete: !hasOpenDispute && !completed && !cancelled && request.status !== "pending" && request.termsProposal?.status !== "pending",
-    canClose: !hasOpenDispute && !request.closedAt && !cancelled
-      && (completed ? isOwner : !hasIrreversibleRequestProgress(request)),
-    canUnlockReview: completed && !hasOpenDispute,
+    canComplete: !completed && (isOwner || (!hasOpenDispute && !cancelled && request.status !== "pending" && request.termsProposal?.status !== "pending")),
+    canClose: !cancelled && (isOwner
+      ? !completed || !request.closedAt
+      : !hasOpenDispute && !request.closedAt && !completed && !hasIrreversibleRequestProgress(request)),
+    canUnlockReview: completed && (isOwner || !hasOpenDispute),
   };
 }

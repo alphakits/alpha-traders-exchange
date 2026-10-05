@@ -3034,7 +3034,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
                 id: typeof item.id === "string" ? item.id : `timeline-${request.id}-${index + 1}`,
                 type: typeof item.type === "string" && isValidTradeTimelineType(item.type) ? item.type : "request_submitted",
                 actorUserId: typeof item.actorUserId === "string" ? item.actorUserId : request.buyerId,
-                actorRole: item.actorRole === "admin" || item.actorRole === "approved_seller" ? item.actorRole : "buyer",
+                actorRole: item.actorRole === "owner" || item.actorRole === "admin" || item.actorRole === "approved_seller" ? item.actorRole : "buyer",
                 message: typeof item.message === "string" && item.message.trim() ? item.message : "Trade event",
                 createdAt: typeof item.createdAt === "string" ? item.createdAt : request.createdAt,
               };
@@ -13616,11 +13616,14 @@ async function updatePurchaseRequestStatusAttempt(
 
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
+  const isAdminCompletion = input.completionMode === "admin_override";
+  const completionActor = isAdminCompletion ? assertTradeAdmin(db, input.actorUserId, input.completionReason ?? "") : null;
+  const isOwnerCompletion = Boolean(completionActor && hasRole(completionActor, "owner"));
   const acceptingCounter = isBuyer && input.nextStatus === "accepted" && Boolean(input.acceptCounterOfferId)
     && request.termsProposal?.kind === "counter_offer" && request.termsProposal.id === input.acceptCounterOfferId
     && ["pending", "accepted"].includes(request.termsProposal.status);
   if (input.acceptCounterOfferId && !acceptingCounter) throw new TradeBlockedError("stale-counter-offer", "This counter-offer is no longer current. Refresh the trade.", request.id);
-  if (request.termsProposal?.status === "pending" && !acceptingCounter && !["cancelled", "declined"].includes(input.nextStatus)) throw new TradeBlockedError("trade-terms-pending", "Respond to the proposed terms before continuing this trade.", request.id);
+  if (request.termsProposal?.status === "pending" && !isOwnerCompletion && !acceptingCounter && !["cancelled", "declined"].includes(input.nextStatus)) throw new TradeBlockedError("trade-terms-pending", "Respond to the proposed terms before continuing this trade.", request.id);
   const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
   const isSystemActor = input.actorUserId === SYSTEM_ACTOR_USER_ID;
   const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
@@ -13646,8 +13649,6 @@ async function updatePurchaseRequestStatusAttempt(
   // validates the actual payment method before applying the shared cash flow.
   const isCashTradeCompletion = input.completionMode === "cash_trade" || input.completionMode === "face_to_face";
   const isSellerCompletion = input.completionMode === "seller";
-  const isAdminCompletion = input.completionMode === "admin_override";
-  if (isAdminCompletion) assertTradeAdmin(db, input.actorUserId, input.completionReason ?? "");
   const isCompletionOverride = isCashTradeCompletion || isSellerCompletion || isAdminCompletion;
   const isCashUsdtSentConfirmation = isSeller
     && input.nextStatus === "usdt_sent"
@@ -13674,7 +13675,8 @@ async function updatePurchaseRequestStatusAttempt(
   const openDisputeAtRead = db.disputes.find((candidate) => (
     candidate.purchaseRequestId === request.id && candidate.status === "open"
   ));
-  if (openDisputeAtRead) {
+  const disputeVersionAtRead = openTradeDisputeVersion(db, request.id);
+  if (openDisputeAtRead && !isOwnerCompletion) {
     throw new TradeBlockedError(
       "trade-disputed",
       "This trade is paused while an admin reviews the open dispute.",
@@ -13886,7 +13888,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (isAdminCompletion && !["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(currentStatus)) {
+  if (isAdminCompletion && !isOwnerCompletion && !["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(currentStatus)) {
     throw new TradeBlockedError("admin-completion-status-not-eligible", "Only an accepted, active trade can be force-completed.", request.id, {
       guard: "admin-completion-active-status",
       currentStatus,
@@ -14447,6 +14449,13 @@ async function updatePurchaseRequestStatusAttempt(
         : undefined,
     });
   } else if (input.nextStatus === "completed") {
+    if (isOwnerCompletion) {
+      await resolveDisputesForOwnerOverride(db, next, input.actorUserId, input.completionReason!, now);
+      if (next.termsProposal?.status === "pending") next.termsProposal = { ...next.termsProposal, status: "withdrawn", resolvedAt: now };
+      next.closedAt = undefined;
+      next.closedByUserId = undefined;
+      next.closeReason = undefined;
+    }
     // In-person completion records the seller's explicit USDT confirmation in
     // the same transaction as settlement, so retries cannot double-deduct stock.
     if (isSellerCompletion && currentStatus !== "usdt_sent") {
@@ -14604,6 +14613,8 @@ async function updatePurchaseRequestStatusAttempt(
         ? `Completed ${cashTradeLabel} trade ${next.tradeId ?? request.id}; marked complete by ${completionActorLabel}.`
         : `Completed trade ${next.tradeId ?? request.id}`,
       reason: isAdminCompletion ? input.completionReason?.trim() || undefined : undefined,
+      oldValue: isAdminCompletion ? { status: request.status, closedAt: request.closedAt, closeReason: request.closeReason } : undefined,
+      newValue: isAdminCompletion ? { status: next.status } : undefined,
     });
     pushNotification(db, {
       userId: request.buyerId,
@@ -14779,7 +14790,7 @@ async function updatePurchaseRequestStatusAttempt(
   try {
     await writeDb(db, {
       traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
-      selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
+      selectedTables: isOwnerCompletion ? [...TRADE_COMPLETION_CORE_TABLES, "disputes"] : shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
       cacheResult: statusRead.fromFullCache,
       // A snapshot can become stale between validation and the repository's
       // cross-instance advisory lock. Reject only relevant stale state here,
@@ -14787,7 +14798,7 @@ async function updatePurchaseRequestStatusAttempt(
       // This prevents Accept-vs-Cancel races, duplicate lifecycle effects, and
       // exceeding seller capacity or reserved inventory while preserving unrelated writes.
       validateLatestBeforeCommit: (canonicalSnapshot) => {
-        if (isAdminCompletion) assertTradeAdmin(canonicalSnapshot, input.actorUserId, input.completionReason ?? "");
+        if (isAdminCompletion) assertTradeAdmin(canonicalSnapshot, input.actorUserId, input.completionReason ?? "", isOwnerCompletion);
         const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
         if (!canonicalRequest || canonicalRequest.status !== stateBefore
           || JSON.stringify(canonicalRequest.termsProposal) !== JSON.stringify(request.termsProposal)
@@ -14795,9 +14806,8 @@ async function updatePurchaseRequestStatusAttempt(
           || canonicalRequest.pricePerUsdt !== request.pricePerUsdt) {
           throw new ConcurrentTradeMutationError();
         }
-        if (canonicalSnapshot.disputes.some((candidate) => (
-          candidate.purchaseRequestId === request.id && candidate.status === "open"
-        ))) {
+        if (isOwnerCompletion ? openTradeDisputeVersion(canonicalSnapshot, request.id) !== disputeVersionAtRead
+          : canonicalSnapshot.disputes.some((candidate) => candidate.purchaseRequestId === request.id && candidate.status === "open")) {
           throw new ConcurrentTradeMutationError();
         }
         if (isBuyer && input.nextStatus === "cancelled" && hasRevealedBankDetails(canonicalRequest)) throw new ConcurrentTradeMutationError();
@@ -18308,6 +18318,32 @@ function assertTradeAdmin(db: AlphaExchangeDb, actorUserId: string, reason: stri
   return actor;
 }
 
+function openTradeDisputeVersion(db: AlphaExchangeDb, requestId: string) {
+  return JSON.stringify(db.disputes.filter(item => item.purchaseRequestId === requestId && item.status === "open")
+    .map(item => JSON.stringify([item.id, item.updatedAt])).sort());
+}
+
+/** An explicit owner decision settles the open review in the same write. */
+async function resolveDisputesForOwnerOverride(db: AlphaExchangeDb, request: PurchaseRequest, actorUserId: string, reason: string, now: string) {
+  assertTradeAdmin(db, actorUserId, reason, true);
+  for (const dispute of db.disputes.filter(item => item.purchaseRequestId === request.id && item.status === "open")) {
+    dispute.status = "resolved";
+    dispute.resolvedAt = now;
+    dispute.resolvedByUserId = actorUserId;
+    dispute.resolutionNotes = reason.trim();
+    dispute.updatedAt = now;
+    appendTradeTimelineEntry(request, {
+      type: "dispute_resolved", actorUserId, actorRole: "owner",
+      message: "Owner resolved the dispute with a manual trade decision.", createdAt: now,
+    });
+    await appendAuditLog(db, {
+      action: "trade_dispute_resolved", actorUserId, purchaseRequestId: request.id, listingId: request.listingId,
+      details: `Owner resolved dispute ${dispute.id} with a manual trade decision.`, reason: reason.trim(),
+      oldValue: { status: "open" }, newValue: { status: "resolved", resolvedAt: now },
+    });
+  }
+}
+
 export async function forceCompleteTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
   const result = await updatePurchaseRequestStatus({
     requestId: input.requestId,
@@ -18376,18 +18412,22 @@ export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: strin
 export async function forceCancelTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string; ownerOnly?: boolean }) {
   const db = await readDb({ bypassCache: true });
   assertTradeAdmin(db, input.actorUserId, input.reason, input.ownerOnly);
+  const ownerOverride = input.ownerOnly === true;
   const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
   if (request.status === "cancelled" || request.status === "declined") return enrichRequestWithEvidence(db, request, input.actorUserId);
-  if (db.disputes.some((dispute) => dispute.purchaseRequestId === request.id && dispute.status === "open")) {
+  if (ownerOverride && isFinishedTrade(request)) throw new Error("Completed trades must use owner closure to preserve settlement.");
+  const disputeVersion = openTradeDisputeVersion(db, request.id);
+  if (!ownerOverride && db.disputes.some((dispute) => dispute.purchaseRequestId === request.id && dispute.status === "open")) {
     throw new Error("Resolve the open dispute before closing this trade.");
   }
-  assertTradeCanBeForceClosed(db, request);
+  if (!ownerOverride) assertTradeCanBeForceClosed(db, request);
   const now = nowIsoAfter(request.updatedAt);
   const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
+    timeline: [...(request.timeline ?? [])],
     status: "cancelled",
     closedAt: now,
     closedByUserId: input.actorUserId,
@@ -18396,11 +18436,13 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     inactivityWarningSentAt: undefined,
     actionReminderState: undefined,
   };
+  if (next.termsProposal?.status === "pending") next.termsProposal = { ...next.termsProposal, status: "withdrawn", resolvedAt: now };
+  if (ownerOverride) await resolveDisputesForOwnerOverride(db, next, input.actorUserId, input.reason, now);
   appendTradeTimelineEntry(next, {
     type: "request_cancelled",
     actorUserId: input.actorUserId,
     actorRole: resolveActorRole(db, input.actorUserId),
-    message: "Admin cancelled this trade before payment started",
+    message: ownerOverride ? "Owner cancelled this trade after manual review" : "Admin cancelled this trade before payment started",
     createdAt: now,
   });
   const listing = db.marketplaceListings.find((candidate) => candidate.id === request.listingId);
@@ -18423,26 +18465,29 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     targetUserId: request.sellerId,
     listingId: request.listingId,
     purchaseRequestId: input.requestId,
-    details: "Admin force-cancelled trade before payment or transfer progress began.",
+    details: ownerOverride ? "Owner cancelled trade after manual review, overriding payment-stage restrictions." : "Admin force-cancelled trade before payment or transfer progress began.",
     reason: input.reason,
     oldValue: { status: request.status },
     newValue: { status: "cancelled" },
   });
-  for (const userId of [request.buyerId, request.sellerId]) {
-    pushNotification(db, {
+  const publications: DeferredNotificationPublication[] = [];
+  for (const userId of new Set([request.buyerId, request.sellerId])) {
+    const publication = pushNotification(db, {
       userId,
       category: "trade",
-      title: "Trade cancelled by admin",
-      message: "An admin cancelled this trade before payment or transfer progress began.",
+      title: ownerOverride ? "Trade cancelled by owner" : "Trade cancelled by admin",
+      message: ownerOverride ? "The owner reviewed and cancelled this trade. Its history remains available." : "An admin cancelled this trade before payment or transfer progress began.",
       relatedRequestId: request.id,
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_cancelled",
+      deferRealtime: true,
     });
+    if (publication) publications.push(publication);
   }
   await writeDb(db, {
-    selectedTables: TRADE_STATUS_BASE_TABLES,
+    selectedTables: ownerOverride ? [...TRADE_STATUS_BASE_TABLES, "disputes"] : TRADE_STATUS_BASE_TABLES,
     validateLatestBeforeCommit: (canonicalSnapshot) => {
       assertTradeAdmin(canonicalSnapshot, input.actorUserId, input.reason, input.ownerOnly);
       const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
@@ -18450,8 +18495,8 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
         !canonicalRequest
         || canonicalRequest.status !== request.status
         || canonicalRequest.updatedAt !== request.updatedAt
-        || hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest)
-        || canonicalSnapshot.disputes.some((dispute) => dispute.purchaseRequestId === request.id && dispute.status === "open")
+        || (!ownerOverride && hasIrreversibleTradeProgress(canonicalSnapshot, canonicalRequest))
+        || openTradeDisputeVersion(canonicalSnapshot, request.id) !== disputeVersion
       ) {
         throw new TradeBlockedError(
           "concurrent-force-cancel-change",
@@ -18478,6 +18523,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
       }
     },
   });
+  for (const publication of publications) publishNotificationPublication(publication);
   publishArchivedTradeActionReminders(archivedActionReminders);
   const enriched = enrichRequestWithEvidence(db, next);
   publishRealtimeEvent({
@@ -18523,12 +18569,14 @@ async function updateFinishedTradeByAdmin(
     const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
     if (!request) throw new Error("Purchase request not found.");
     if (!isFinishedTrade(request)) throw new Error("Only completed trades can use this action.");
-    if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) {
+    const ownerOverride = hasRole(actor, "owner");
+    if (!ownerOverride && snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) {
       throw new Error("Resolve the open dispute before changing this trade.");
     }
     committed = request;
     if (action === "close" && request.closedAt) return snapshot;
     const now = nowIsoAfter(request.updatedAt);
+    if (ownerOverride) await resolveDisputesForOwnerOverride(snapshot, request, input.actorUserId, input.reason, now);
     const message = action === "close" ? "Owner closed the completed trade; history and settlement preserved." : "Admin unlocked review window";
     if (action === "close") {
       request.closedAt = now;
@@ -18551,7 +18599,7 @@ async function updateFinishedTradeByAdmin(
     return snapshot;
   };
   await apply(db);
-  await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs"], rebaseOnLatest: apply });
+  await writeDb(db, { selectedTables: ["purchase_requests", "audit_logs", "disputes"], rebaseOnLatest: apply });
   if (!committed) throw new Error("Failed to update trade.");
   publishRealtimeEvent({ type: "trade.status_changed", payload: {
     requestId: committed.id, status: committed.status, timeline: committed.timeline, publishedAtEpochMs: Date.now(),

@@ -1239,13 +1239,107 @@ describe("guided cash-trade completion", () => {
     expect(closed).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID, closeReason: "Participants requested cancellation" });
     expect(closed.closedAt).toBeTruthy();
     await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Retry" });
-    expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Admin force-cancelled"))).toHaveLength(1);
+    expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Owner cancelled trade"))).toHaveLength(1);
   });
 
-  it("blocks owner cancellation after payment and active-trade review unlock", async () => {
+  it("allows owner cancellation after payment while keeping reviews tied to completed trades", async () => {
     const { requestId } = seedTrade({ status: "payment_sent" });
-    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Review" })).rejects.toThrow("cannot be force-closed");
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Bank declined; funds not received" })).resolves.toMatchObject({ status: "cancelled" });
     await expect(unlockTradeReviewByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Review" })).rejects.toThrow("Only completed trades");
+  });
+
+  describe.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("owner intervention: %s", paymentMethod => {
+    it.each(["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("cancels %s without creating fees or deducting inventory", async status => {
+      const { requestId, listingId } = seedTrade({ paymentMethod, status });
+      const before = structuredClone(currentSnapshot().marketplaceListings.find(item => item.id === listingId)!);
+      const reason = "Bank declined the withdrawal; seller received no money";
+      await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason });
+      const db = currentSnapshot();
+      expect(db.purchaseRequests.find(item => item.id === requestId)).toMatchObject({ status: "cancelled", closedByUserId: OWNER_ID, closeReason: reason, actionReminderState: undefined });
+      expect(db.marketplaceListings.find(item => item.id === listingId)).toMatchObject({ availableAmount: before.availableAmount, activeTradeRequestId: undefined });
+      expect(db.commissionRecords).toHaveLength(0);
+      expect(db.notifications.filter(item => item.title === "Trade cancelled by owner")).toHaveLength(2);
+      await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason });
+      expect(currentSnapshot().auditLogs.filter(item => item.details?.includes("Owner cancelled trade"))).toHaveLength(1);
+    });
+  });
+
+  it("cancels a disclosed ATM code with evidence, an open dispute and a pending proposal in one audited decision", async () => {
+    const { requestId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "accepted" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request.sensitivePaymentKind = "cardless_code";
+    request.sensitivePaymentSharedAt = request.updatedAt;
+    request.messages = [{ id: "credential-history", credentialKind: "cardless_code", message: "Encrypted test credential" }] as never;
+    request.termsProposal = { id: "unaccepted", status: "pending", kind: "amount_correction", usdtAmount: "500", fiatAmount: "1600", pricePerUsdt: "3.20", createdAt: request.updatedAt };
+    currentSnapshot().tradeEvidenceFiles.push({
+      id: "evidence", purchaseRequestId: requestId, side: "buyer", uploadedByUserId: BUYER_ID,
+      uploadedAt: request.updatedAt, fileName: "declined-payment.png", mimeType: "image/png",
+      sizeBytes: 68, storagePath: "evidence/declined-payment.png", status: "uploaded",
+    });
+    currentSnapshot().disputes.push({ id: "withdrawal-failed", purchaseRequestId: requestId, status: "open", reason: "Bank declined withdrawal", updatedAt: request.updatedAt } as never);
+    const messages = structuredClone(request.messages);
+    const evidence = structuredClone(currentSnapshot().tradeEvidenceFiles);
+    const reason = "The bank declined the code; no cash or USDT was delivered";
+    await forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason });
+    const result = currentSnapshot();
+    expect(result.purchaseRequests[0]).toMatchObject({ status: "cancelled", termsProposal: { status: "withdrawn" }, usdtAmount: "250" });
+    expect(result.purchaseRequests[0].messages).toEqual(messages);
+    expect(result.tradeEvidenceFiles).toEqual(evidence);
+    expect(result.disputes[0]).toMatchObject({ status: "resolved", resolvedByUserId: OWNER_ID, resolutionNotes: reason });
+    expect(result.auditLogs).toContainEqual(expect.objectContaining({ action: "trade_dispute_resolved", reason }));
+    expect(result.purchaseRequests[0].timeline).toContainEqual(expect.objectContaining({ type: "request_cancelled", actorRole: "owner" }));
+    expect(result.commissionRecords).toHaveLength(0);
+  });
+
+  it.each(["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent", "cancelled", "declined"] as const)("lets an owner complete %s after manual verification, with exactly one settlement", async status => {
+    const { requestId, listingId } = seedTrade({ status });
+    const request = currentSnapshot().purchaseRequests[0];
+    if (["cancelled", "declined"].includes(status)) {
+      request.closedAt = request.updatedAt;
+      request.closedByUserId = OWNER_ID;
+      request.closeReason = "Previously closed";
+    }
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Owner verified payment and delivery" });
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Receipt retry" });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ status: "review_open", closedAt: undefined });
+    expect(currentSnapshot().commissionRecords.filter(item => item.purchaseRequestId === requestId)).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe("750");
+  });
+
+  it("owner completion resolves a dispute and withdraws an unaccepted amount without applying it", async () => {
+    const { requestId } = seedTrade({ status: "accepted" });
+    const request = currentSnapshot().purchaseRequests[0];
+    request.termsProposal = { id: "amount-proposal", status: "pending", kind: "amount_correction", usdtAmount: "900", fiatAmount: "2880", pricePerUsdt: "3.20", createdAt: request.updatedAt };
+    currentSnapshot().disputes.push({ id: "delivery-review", purchaseRequestId: requestId, status: "open", updatedAt: request.updatedAt } as never);
+    await forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Verified the agreed 250 USDT exchange" });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ status: "review_open", usdtAmount: "250", termsProposal: { status: "withdrawn" } });
+    expect(currentSnapshot().disputes[0].status).toBe("resolved");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+  });
+
+  it("ordinary admins cannot inherit the owner's cancellation or pending-completion override", async () => {
+    const { requestId } = seedTrade({ status: "payment_sent" });
+    const owner = currentSnapshot().users.find(item => item.id === OWNER_ID)!;
+    currentSnapshot().users.push({ ...owner, id: "ordinary-admin", role: "admin", roles: ["admin"] });
+    await expect(forceCloseTradeByOwner({ requestId, actorUserId: "ordinary-admin", reason: "Attempt" })).rejects.toThrow("Owner access required");
+    await expect(forceCancelTradeByAdmin({ requestId, actorUserId: "ordinary-admin", reason: "Attempt" })).rejects.toThrow("cannot be force-closed");
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    invalidateAlphaExchangeStoreCache();
+    await expect(forceCompleteTradeByAdmin({ requestId, actorUserId: "ordinary-admin", reason: "Attempt" })).rejects.toMatchObject({ code: "admin-completion-status-not-eligible" });
+  });
+
+  it("a cancellation racing completion never double-settles or restores sold inventory", async () => {
+    const { requestId, listingId } = seedTrade({ status: "usdt_sent" });
+    const results = await Promise.allSettled([
+      forceCloseTradeByOwner({ requestId, actorUserId: OWNER_ID, reason: "Owner cancellation decision" }),
+      forceCompleteTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Owner completion decision" }),
+    ]);
+    expect(results.some(item => item.status === "fulfilled")).toBe(true);
+    const db = currentSnapshot();
+    const completed = Boolean(db.purchaseRequests[0].completedAt);
+    expect(db.commissionRecords).toHaveLength(completed ? 1 : 0);
+    expect(db.marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe(completed ? "750" : "1000");
+    expect(db.purchaseRequests[0].status).toBe(completed ? "review_open" : "cancelled");
   });
 
   it("persists review unlock and its audit entry while retaining completed status", async () => {
