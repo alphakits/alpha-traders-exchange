@@ -12,6 +12,7 @@ import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
 import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
+import { buildOwnerActiveTradeSummaries } from "@/lib/owner-active-trades";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
@@ -4270,6 +4271,7 @@ async function readDbForTradeCandidate(
   role: UserRole,
   activeStatuses: readonly PurchaseRequestStatus[],
   includeBuyerPending: boolean,
+  allMatching = false,
 ) {
   const repository = await getAlphaExchangeRepository();
   if (typeof repository.loadPurchaseRequestCandidateSnapshotForActor !== "function") {
@@ -4280,6 +4282,7 @@ async function readDbForTradeCandidate(
     includeAll: role === "admin" || role === "owner",
     activeStatuses,
     includeBuyerPending,
+    allMatching,
   });
   const normalized = normalizeDb(parsed);
   ensureDisplayNumbers(normalized);
@@ -11343,6 +11346,13 @@ async function resolveTradeHeaderStateForUser(userId: string, role: UserRole) {
 }
 
 export const getTradeHeaderStateForUser = cache(resolveTradeHeaderStateForUser);
+
+/** Read-only, compact owner navigation. Never runs trade lifecycle mutations. */
+export const getOwnerActiveTradeHeaderState = cache(async (userId: string, role: UserRole) => {
+  if (role !== "owner") return [];
+  const db = await readDbForTradeCandidate(userId, role, ACTIVE_TRADE_STATUSES, false, true);
+  return buildOwnerActiveTradeSummaries(db.purchaseRequests, db.users, userId);
+});
 
 export async function getTradeReminderForUser(userId: string, role: UserRole): Promise<AlphaExchangeTradeReminder | null> {
   const { tradeReminder } = await getTradeHeaderStateForUser(userId, role);

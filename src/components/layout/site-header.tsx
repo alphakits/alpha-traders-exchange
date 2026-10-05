@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { getTradeHeaderStateForUser } from "@/lib/alpha-exchange-store";
+import { getOwnerActiveTradeHeaderState, getTradeHeaderStateForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
@@ -11,6 +11,7 @@ import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 import { toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { TradeHeaderNotice } from "./trade-header-notice";
+import { OwnerActiveTradeNotices } from "./owner-active-trade-notices";
 
 async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
   if (!sessionUser) {
@@ -35,6 +36,10 @@ async function TradeHeaderStatus({
   sessionUser: AlphaExchangeUser | null;
 }) {
   if (!sessionUser) return null;
+  if (hasRole(sessionUser, "owner")) {
+    const trades = await getOwnerActiveTradeHeaderState(sessionUser.id, "owner").catch(() => []);
+    return <OwnerActiveTradeNotices key={sessionUser.id} locale={locale} actorId={sessionUser.id} initialTrades={trades} />;
+  }
   const { activeTrade } = await getNonBlockingTradeHeaderState(sessionUser);
   const activeTradeCounterparty = activeTrade
     ? (activeTrade.sellerId === sessionUser.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
