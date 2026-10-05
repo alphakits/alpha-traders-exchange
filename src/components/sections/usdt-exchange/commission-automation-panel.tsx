@@ -7,9 +7,15 @@ type CommissionScanState = "awaiting" | "confirming" | "review" | "verified" | "
 export function CommissionAutomationPanel({
   isAr,
   state,
+  lastCheckedAt,
+  verificationNotes,
+  restrictionReason,
 }: {
   isAr: boolean;
   state: CommissionScanState;
+  lastCheckedAt?: string;
+  verificationNotes?: string;
+  restrictionReason?: string;
 }) {
   const status = {
     awaiting: isAr ? "بانتظار مطابقة الدفعة" : "Waiting for a matching payment",
@@ -41,7 +47,7 @@ export function CommissionAutomationPanel({
     <section
       aria-label={isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}
       dir={isAr ? "rtl" : "ltr"}
-      className="relative isolate overflow-hidden rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-950/60 via-[#0B1514] to-[#091019] p-4 shadow-[inset_0_1px_0_rgba(110,231,183,0.08)] sm:p-5"
+      className="commission-surface relative isolate overflow-hidden rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-950/60 via-[#0B1514] to-[#091019] p-4 shadow-[inset_0_1px_0_rgba(110,231,183,0.08)] sm:p-5"
     >
       <div aria-hidden="true" className="pointer-events-none absolute -end-10 -top-14 -z-10 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
       <div className="flex items-start gap-3">
@@ -50,7 +56,7 @@ export function CommissionAutomationPanel({
           <span className="absolute -bottom-1 -end-1 h-2.5 w-2.5 rounded-full border-2 border-[#0B1514] bg-emerald-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold tracking-wide text-emerald-300">{isAr ? "تأكيد تلقائي للعمولة" : "AUTOMATIC COMMISSION CONFIRMATION"}</p>
+          <p className="commission-notice text-[10px] font-semibold tracking-wide text-emerald-300">{isAr ? "تأكيد تلقائي للعمولة" : "AUTOMATIC COMMISSION CONFIRMATION"}</p>
           <h3 className="mt-1 text-lg font-semibold leading-snug text-white">{isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}</h3>
           <p className="mt-1 text-xs leading-5 text-emerald-100/75">{isAr ? "فحص البلوك تشين وإيداعات Binance · كل دقيقة" : "Blockchain & Binance deposit checks · every minute"}</p>
         </div>
@@ -80,13 +86,16 @@ export function CommissionAutomationPanel({
           {status}
         </p>
         <p className="mt-1.5 text-xs leading-5 text-slate-300">{detail}</p>
+        <p className="mt-2 text-xs text-slate-300">{isAr ? "آخر نتيجة فحص" : "Last verification result"}: {lastCheckedAt && Number.isFinite(Date.parse(lastCheckedAt)) ? <time dateTime={lastCheckedAt}>{new Date(lastCheckedAt).toLocaleString(isAr ? "ar" : "en-US")}</time> : (isAr ? "لا توجد نتيجة فحص مسجّلة بعد" : "No recorded verification result yet")}</p>
+        {verificationNotes && state === "review" ? <p className="commission-notice mt-2 rounded-lg bg-amber-300/10 p-2 text-xs text-amber-200">{verificationNotes}</p> : null}
+        {restrictionReason ? <p className="commission-notice mt-2 text-xs text-amber-200">{restrictionReason}</p> : null}
       </div>
 
       <div className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-300">
         <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
         <p>{isAr ? "نتحقق من المبلغ والمستلم والشبكة، ونمنع احتساب الدفعة نفسها مرتين." : "Amount, recipient and network checked. Each payment can be credited only once."}</p>
       </div>
-      <p className="mt-2 text-[11px] leading-5 text-slate-400">{isAr ? "قد يستغرق تأكيد الشبكة وقتًا. تُزال قيود العمولة تلقائيًا بعد تسديد جميع المستحقات." : "Network confirmation can take time. Commission restrictions clear automatically once all dues are settled."}</p>
+      <p className="commission-notice mt-2 text-[11px] leading-5 text-slate-400">{isAr ? "قد يستغرق تأكيد الشبكة وقتًا. تُزال قيود العمولة تلقائيًا بعد تسديد جميع المستحقات." : "Network confirmation can take time. Commission restrictions clear automatically once all dues are settled."}</p>
     </section>
   );
 }

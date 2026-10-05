@@ -42,6 +42,7 @@ import {
   reviewMarketplaceListingByOwner,
   updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
+  updateMarketplacePriceAlert,
 } from "@/lib/alpha-exchange-store";
 import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination, sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 import { toMobileNotification } from "@/lib/mobile-notifications";
@@ -201,6 +202,31 @@ describe("marketplace listing publication broadcasts", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("filters opted-in publication alerts without changing generic alerts or creating purchases", async () => {
+    await updateMarketplacePriceAlert(BUYER_ID, { enabled: true, maxPrice: "3.10", minUsdt: "200", paymentMethod: "Bank Transfer" });
+    const listing = await createMarketplaceListing({ sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID });
+    await reviewMarketplaceListingByOwner({ listingId: listing.id, ownerUserId: OWNER_ID, decision: "approve" });
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.notifications.filter(item => item.userId === BUYER_ID && item.relatedListingId === listing.id)).toHaveLength(0);
+    expect(persisted.notifications.some(item => item.userId === DUAL_ROLE_BUYER_ID && item.title === "🟢 New USDT Listing Available")).toBe(true);
+    expect(persisted.purchaseRequests).toHaveLength(0);
+    expect(persisted.commissionRecords).toHaveLength(0);
+  });
+
+  it("only publishes a matching price alert after approval and keeps the account preference private", async () => {
+    await updateMarketplacePriceAlert(BUYER_ID, { enabled: true, maxPrice: "3.50", minUsdt: "200", paymentMethod: "Bank Transfer" });
+    const listing = await createMarketplaceListing({ sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID });
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).notifications.some(item => item.id.startsWith("price-alert-"))).toBe(false);
+    await reviewMarketplaceListingByOwner({ listingId: listing.id, ownerUserId: OWNER_ID, decision: "approve" });
+    const result = await getNotificationsForUser({ userId: BUYER_ID });
+    const alert = result.notifications.find(item => item.id.startsWith("price-alert-"));
+    expect(alert?.relatedListingId).toBe(listing.id);
+    expect(alert?.actionHref).toBe(listingDestination(listing));
+    expect(JSON.stringify(alert)).not.toContain(SELLER_EMAIL);
+    expect(JSON.stringify(alert)).not.toContain("maxPrice");
+    expect((await findUserById(DUAL_ROLE_BUYER_ID))?.marketplacePriceAlert).toBeUndefined();
   });
 
   it("does not create or send an SMS delivery when Twilio credentials exist but sending is off", async () => {

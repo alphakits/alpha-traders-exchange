@@ -65,6 +65,8 @@ const styles = StyleSheet.create({
     color: colors.goldBright,
     fontSize: typography.small,
     fontWeight: "800",
+    minHeight: 44,
+    minWidth: 44,
     overflow: "hidden",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,

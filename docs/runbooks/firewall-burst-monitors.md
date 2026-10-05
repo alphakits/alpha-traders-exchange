@@ -1,9 +1,9 @@
 # Firewall burst monitors
 
-Two log-only rate-limit rules are enabled in Vercel Firewall for the production
-project. On 3 October 2026 the account's audit log showed published configuration
-version #1 with both rules created and enabled. The rules log matching bursts;
-they do not block requests.
+Two log-only rate-limit rules were published in Vercel Firewall for the
+production project on 3 October 2026. The account's audit log showed version #1
+with both rules created and enabled. They log matching bursts and do not block
+requests. Recheck the current configuration before changing enforcement.
 
 | Rule | Scope | Threshold |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ reviewed thresholds in production. The Vercel Firewall skill requires the
 project owner to publish future configuration changes:
 Firewall → Rules → Review Changes → Publish. These log rules provide monitoring,
 not additional blocking mitigation. Existing Vercel system DDoS mitigations
-remain enabled; no system bypass rules were present when inspected.
+were enabled and no system bypass rules were present when inspected.
 
 The dashboard displayed rate-limit pricing of $0.50 per million allowed
 requests and no charge for blocked requests. Review current charges and

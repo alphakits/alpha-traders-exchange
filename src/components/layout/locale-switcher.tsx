@@ -32,7 +32,7 @@ export function LocaleSwitcher() {
       type="button"
       onClick={switchLocale}
       aria-label={locale === "ar" ? "التبديل إلى الإنجليزية" : "Switch to Arabic"}
-      className="inline-flex h-10 items-center gap-1 rounded-full border border-white/20 px-2 text-xs text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227] sm:h-11 sm:gap-2 sm:px-3 sm:text-sm"
+      className="inline-flex h-11 min-w-11 items-center gap-1 rounded-full border border-white/20 px-2 text-xs text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227] sm:gap-2 sm:px-3 sm:text-sm"
     >
       <Globe className="h-3.5 w-3.5" />
       <span lang={locale === "ar" ? "en" : "ar"}>{locale === "ar" ? "English" : "العربية"}</span>

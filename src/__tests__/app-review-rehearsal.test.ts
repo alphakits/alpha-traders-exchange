@@ -315,7 +315,7 @@ describe("full Exchange App Review rehearsal", () => {
     await submitSellerReviewResponse({
       requestId: created.request.id,
       sellerUserId: SELLER_ID,
-      message: "Thank you for completing the protected review journey.",
+      message: "Thank you for completing this protected transaction.",
     });
 
     const reviews = await getSellerReviews({ sellerId: SELLER_ID, actorUserId: BUYER_ID, actorRole: "buyer" });
@@ -324,7 +324,7 @@ describe("full Exchange App Review rehearsal", () => {
         tradeId: created.request.tradeId,
         rating: 5,
         verifiedTrade: true,
-        sellerReply: "Thank you for completing the protected review journey.",
+        sellerReply: "Thank you for completing this protected transaction.",
       }),
     ]);
 

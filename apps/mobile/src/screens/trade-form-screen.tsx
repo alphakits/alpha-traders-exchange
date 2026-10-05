@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   checkLabel: { color: colors.text, flex: 1, fontSize: typography.small, lineHeight: 20 },
   totalCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   total: { color: colors.goldBright, fontSize: typography.title, fontWeight: "900" },
-  fee: { color: colors.goldMuted, fontSize: typography.small, fontWeight: "700" },
+  fee: { color: colors.commissionNotice, fontSize: typography.small, fontWeight: "700", lineHeight: 22 },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   unavailable: { flex: 1, gap: spacing.lg, justifyContent: "center", padding: spacing.xl },
   rtlText: { textAlign: "right", writingDirection: "rtl" },

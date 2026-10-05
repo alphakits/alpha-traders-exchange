@@ -72,6 +72,9 @@ export default async function middleware(request: Parameters<typeof intlMiddlewa
   const networkDenied = await enforceNetworkAccess(request);
   if (networkDenied) return networkDenied;
 
+  // The bilingual recovery page is a root route, outside the locale layout.
+  if (pathname === "/offline") return NextResponse.next();
+
   if (!/^\/(ar|en)(?:\/|$)/i.test(pathname)) {
     // This cookie is written only by the explicit language switcher. Honour
     // the choice while exploring and while signed in; never infer from locale.

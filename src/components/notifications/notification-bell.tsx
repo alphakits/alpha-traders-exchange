@@ -168,6 +168,9 @@ function NotificationBellSession({
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
+  const notificationMutationVersionRef = useRef(0);
+  const optimisticReadIdsRef = useRef(new Map<string, { version: number; confirmed: boolean }>());
+  const optimisticMarkAllRef = useRef<{ version: number; confirmed: boolean; unreadCount: number; ids: Set<string> } | null>(null);
   const refreshSession = canonicalSession?.refresh;
   const canonicalUserId = canonicalSession?.user?.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +191,44 @@ function NotificationBellSession({
     setUnreadCount(normalized);
     syncNotificationCountToNative(normalized, canonicalSession?.user?.id, locale);
   }, [canonicalSession?.user?.id, locale]);
+
+  const reconcileIncomingNotifications = useCallback((
+    incomingNotifications: AlphaExchangeNotification[],
+    incomingUnreadCount: number,
+  ) => {
+    const activeIncoming = activeBellNotifications(incomingNotifications);
+    const activeIds = new Set(activeIncoming.map((notification) => notification.id));
+    for (const [id, action] of optimisticReadIdsRef.current) {
+      if (action.confirmed && !activeIds.has(id)) optimisticReadIdsRef.current.delete(id);
+    }
+    const visibleIncoming = activeIncoming.filter((notification) => !optimisticReadIdsRef.current.has(notification.id));
+    const markAll = optimisticMarkAllRef.current;
+    if (markAll?.confirmed && !activeIncoming.some((notification) => markAll.ids.has(notification.id))) {
+      optimisticMarkAllRef.current = null;
+    }
+    // A stream snapshot is limited, while the bulk action clears every unread
+    // item. Account for the full count until the server acknowledges that clear.
+    const unreadCount = optimisticMarkAllRef.current
+      ? Math.max(visibleIncoming.length, incomingUnreadCount - optimisticMarkAllRef.current.unreadCount)
+      : Math.max(0, incomingUnreadCount - (activeIncoming.length - visibleIncoming.length));
+    return { notifications: visibleIncoming, unreadCount };
+  }, []);
+
+  function finishOptimisticRead(ids: string[], version: number, succeeded: boolean) {
+    for (const id of ids) {
+      const action = optimisticReadIdsRef.current.get(id);
+      if (action?.version !== version) continue;
+      if (succeeded) optimisticReadIdsRef.current.set(id, { version, confirmed: true });
+      else optimisticReadIdsRef.current.delete(id);
+    }
+  }
+
+  function finishOptimisticMarkAll(version: number, succeeded: boolean) {
+    const action = optimisticMarkAllRef.current;
+    if (action?.version !== version) return;
+    if (succeeded) action.confirmed = true;
+    else optimisticMarkAllRef.current = null;
+  }
 
   useEffect(() => () => {
     // Prevent a response owned by an unmounted account-scoped bell from
@@ -222,7 +263,9 @@ function NotificationBellSession({
       return;
     }
     if (openNotificationsSnapshot === null && notifications.length > 0) {
-      setOpenNotificationsSnapshot(notifications);
+      // A read/dismiss action may have cleared the snapshot after this
+      // render. Do not restore an older list over that newer user action.
+      setOpenNotificationsSnapshot((current) => current ?? notifications);
     }
   }, [isOpen, notifications, openNotificationsSnapshot]);
 
@@ -261,6 +304,14 @@ function NotificationBellSession({
     loadControllerRef.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 12_000);
     const operationScope = notificationAccountScope;
+    const operationMutationVersion = notificationMutationVersionRef.current;
+    // A no-store read started after a successful write is authoritative. Let
+    // a later explicit unread change replace that confirmed local read.
+    const confirmedReadVersions = new Map(
+      [...optimisticReadIdsRef.current].filter(([, action]) => action.confirmed).map(([id, action]) => [id, action.version]),
+    );
+    const confirmedMarkAllVersion = optimisticMarkAllRef.current?.confirmed
+      ? optimisticMarkAllRef.current.version : null;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
     if (!shouldPreserveList) {
@@ -275,8 +326,19 @@ function NotificationBellSession({
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
-      if (activeNotificationAccountScopeRef.current !== operationScope || loadControllerRef.current !== controller) return;
-      const incoming = activeBellNotifications(payload.notifications ?? []);
+      if (
+        activeNotificationAccountScopeRef.current !== operationScope
+        || loadControllerRef.current !== controller
+        || notificationMutationVersionRef.current !== operationMutationVersion
+      ) return;
+      for (const [id, version] of confirmedReadVersions) {
+        if (optimisticReadIdsRef.current.get(id)?.version === version) optimisticReadIdsRef.current.delete(id);
+      }
+      if (confirmedMarkAllVersion !== null && optimisticMarkAllRef.current?.version === confirmedMarkAllVersion) {
+        optimisticMarkAllRef.current = null;
+      }
+      const reconciled = reconcileIncomingNotifications(payload.notifications ?? [], payload.unreadCount ?? 0);
+      const incoming = reconciled.notifications;
       forwardCompletedTradesToNative(incoming, canonicalUserId, locale);
       const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
@@ -286,7 +348,7 @@ function NotificationBellSession({
           setOpenNotificationsSnapshot(sortedIncoming);
         }
       }
-      applyUnreadCount(payload.unreadCount ?? 0);
+      applyUnreadCount(reconciled.unreadCount);
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
@@ -301,7 +363,7 @@ function NotificationBellSession({
         setIsLoading(false);
       }
     }
-  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canLoadNotifications, canonicalUserId, refreshSession, isAr, locale, notificationAccountScope, reconcileIncomingNotifications]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -313,9 +375,11 @@ function NotificationBellSession({
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-      const incoming = activeBellNotifications(
+      const reconciled = reconcileIncomingNotifications(
         Array.isArray(payload.notifications) ? payload.notifications : [],
+        typeof payload.unreadCount === "number" ? payload.unreadCount : 0,
       );
+      const incoming = reconciled.notifications;
       forwardCompletedTradesToNative(
         incoming,
         canonicalSession?.user?.id,
@@ -324,11 +388,11 @@ function NotificationBellSession({
       if (!isOpenRef.current) {
         setNotifications(sortNotificationsNewestFirst(incoming));
       }
-      applyUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      applyUnreadCount(reconciled.unreadCount);
     } catch {
       // Ignore malformed stream payloads and keep current state.
     }
-  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope]);
+  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope, reconcileIncomingNotifications]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
   function handleToggleOpen() {
@@ -347,10 +411,12 @@ function NotificationBellSession({
     const target = notifications.find((item) => item.id === notificationId)
       ?? openNotificationsSnapshot?.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
+    const actionVersion = ++notificationMutationVersionRef.current;
+    optimisticReadIdsRef.current.set(notificationId, { version: actionVersion, confirmed: false });
     // The bell is an active-inbox surface. Read items remain available in the
     // full Notification Center, but disappear from this quick-action list.
     setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notificationId) ?? prev);
+    setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notificationId));
     applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
@@ -358,11 +424,13 @@ function NotificationBellSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isRead: true }),
       });
+      finishOptimisticRead([notificationId], actionVersion, response.ok);
       if (!response.ok) {
         // Revert on failure with a fresh server fetch.
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
+      finishOptimisticRead([notificationId], actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }
@@ -371,8 +439,10 @@ function NotificationBellSession({
     const actionKey = `${notification.id}:dismiss`;
     if (actionLoading[actionKey]) return;
     setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    const actionVersion = ++notificationMutationVersionRef.current;
+    optimisticReadIdsRef.current.set(notification.id, { version: actionVersion, confirmed: false });
     setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
-    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notification.id) ?? prev);
+    setOpenNotificationsSnapshot((prev) => (prev ?? notifications).filter((item) => item.id !== notification.id));
     if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
@@ -381,7 +451,9 @@ function NotificationBellSession({
         body: JSON.stringify({ action: "dismiss" }),
       });
       if (!response.ok) throw new Error("notification_dismiss_failed");
+      finishOptimisticRead([notification.id], actionVersion, true);
     } catch {
+      finishOptimisticRead([notification.id], actionVersion, false);
       setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
       await loadNotifications(20, { forceListUpdate: true });
     } finally {
@@ -392,6 +464,16 @@ function NotificationBellSession({
   async function handleMarkAllRead() {
     // The quick-action bell contains unread items only. Keep read history in
     // the Notification Center and clear this surface immediately.
+    const actionVersion = ++notificationMutationVersionRef.current;
+    const actionIds = [...new Set([
+      ...notifications.map((notification) => notification.id),
+      ...(openNotificationsSnapshot ?? []).map((notification) => notification.id),
+      ...optimisticReadIdsRef.current.keys(),
+    ])];
+    optimisticMarkAllRef.current = {
+      version: actionVersion, confirmed: false, unreadCount: unreadCountRef.current, ids: new Set(actionIds),
+    };
+    for (const id of actionIds) optimisticReadIdsRef.current.set(id, { version: actionVersion, confirmed: false });
     setNotifications([]);
     setOpenNotificationsSnapshot([]);
     applyUnreadCount(0);
@@ -401,10 +483,14 @@ function NotificationBellSession({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_all_read" }),
       });
+      finishOptimisticRead(actionIds, actionVersion, response.ok);
+      finishOptimisticMarkAll(actionVersion, response.ok);
       if (!response.ok) {
         await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
+      finishOptimisticRead(actionIds, actionVersion, false);
+      finishOptimisticMarkAll(actionVersion, false);
       await loadNotifications(20, { forceListUpdate: true });
     }
   }
@@ -555,10 +641,10 @@ function NotificationBellSession({
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white"><bdi dir="auto">{brandText(formatNotificationTitle(notification, locale))}</bdi></p>
+                          <p className={`truncate text-sm font-medium text-white ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto">{brandText(formatNotificationTitle(notification, locale))}</bdi></p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]"><bdi dir="auto">{formatNotificationRelativeTime(notification.createdAt, locale)}</bdi></span>
                         </div>
-                        <p className="mt-1 line-clamp-2"><bdi dir="auto">{brandText(formatNotificationMessage(notification, locale))}</bdi></p>
+                        <p className={`mt-1 line-clamp-2 ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto">{brandText(formatNotificationMessage(notification, locale))}</bdi></p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">{isAr ? "غير مقروء" : "Unread"}</span> : null}
                           {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}

@@ -14,8 +14,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale: locale as "ar" | "en",
     title: isAr ? "Alpha Exchange" : "Alpha Exchange",
     description: isAr
-      ? "سوق Alpha Exchange يربط بين البائعين والمشترين لتبادل USDT عبر تنسيق احترافي ورسوم خدمة شفافة 1%."
-      : "Alpha Exchange is a premium USDT marketplace connecting buyers and sellers through transparent, professional coordination with a 1% service fee.",
+      ? "سوق Alpha Exchange يربط بين البائعين والمشترين لتبادل USDT. رسوم الصفقات الجديدة 1% على المشتري و1% على البائع، بإجمالي 2%."
+      : "Alpha Exchange connects USDT buyers and sellers. New trades carry a 1% buyer fee and a 1% seller fee, totaling 2%.",
     path: "/usdt-exchange",
   });
 }

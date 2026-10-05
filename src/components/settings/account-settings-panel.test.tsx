@@ -3,6 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AccountSettingsPanel } from "@/components/settings/account-settings-panel";
 
+const sessionState = vi.hoisted(() => ({
+  user: null as { role: string; roles: string[]; sellerStatus: string } | null,
+}));
+vi.mock("@/components/auth/canonical-session-provider", () => ({
+  useOptionalCanonicalSession: () => sessionState.user ? { user: sessionState.user } : null,
+}));
+
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>{children}</a>
@@ -10,8 +17,32 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 afterEach(() => {
+  sessionState.user = null;
   vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
+});
+
+describe("Role appropriate account settings", () => {
+  it.each(["guest", "student"])("hides trading and seller preferences from a signed-in %s", (role) => {
+    sessionState.user = { role, roles: [role], sellerStatus: "buyer" };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ preferences: {} }), { status: 200 }));
+    render(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="notifications" initialSellerBankAccess={true} />);
+    expect(screen.queryByText("Trade updates")).toBeNull();
+    expect(screen.queryByText("New purchase requests")).toBeNull();
+    expect(screen.queryByText("Listing updates")).toBeNull();
+    expect(screen.queryByText("Seller application updates")).toBeNull();
+    expect(screen.queryByText("Bank Accounts")).toBeNull();
+    expect(screen.getByText("Admin announcements")).toBeTruthy();
+  });
+  it("removes seller bank controls as soon as seller access is revoked", () => {
+    sessionState.user = { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ profile: {}, preferences: {}, accounts: [] }), { status: 200 }));
+    const { rerender } = render(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="profile" initialSellerBankAccess={true} />);
+    expect(screen.getByText("Bank Accounts")).toBeTruthy();
+    sessionState.user = { role: "buyer", roles: ["buyer"], sellerStatus: "rejected" };
+    rerender(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} initialTab="profile" initialSellerBankAccess={true} />);
+    expect(screen.queryByText("Bank Accounts")).toBeNull();
+  });
 });
 
 describe("Account settings Discord connection", () => {
@@ -65,7 +96,7 @@ describe("Account settings Discord connection", () => {
       await screen.findByText("Alpha User");
       expect(screen.getByText("@alpha_user")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
-      expect(screen.getByText(/removes managed seller roles/i)).toBeTruthy();
+      expect(screen.getByText(/removes your managed community roles/i)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Confirm disconnect" })).toBeTruthy();
     },
   );

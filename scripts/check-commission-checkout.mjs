@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {createCommissionCheckoutWorkflow, CHECKOUT_SETTLED, parseCheckoutAmount, allocateCheckout} from '../src/lib/commission-checkout-workflow.ts';
+import {createCommissionCheckoutWorkflow, CHECKOUT_SETTLED, CHECKOUT_RECOVERY, parseCheckoutAmount, allocateCheckout} from '../src/lib/commission-checkout-workflow.ts';
 const NOW=Date.parse('2026-09-25T16:00:00Z');
 function setup(amounts=[40]) {
  let db={users:[{id:'seller',role:'approved_seller',sellerStatus:'approved_seller'},{id:'other',role:'approved_seller',sellerStatus:'approved_seller'},{id:'buyer',role:'buyer'}],
@@ -40,7 +40,7 @@ test('network receipt and 0x/case alias cannot be used again',async()=>{const x=
 test('partial paid group blocks entire settlement rather than waiving each fee',async()=>{const x=setup([20,20]);const c=await issue(x);x.afterVerify(()=>x.patch(db=>db.commissionRecords[0].paymentStatus='paid'));const r=await reconcile(x,[deposit(c)]);assert.equal(r.verified,0);assert.equal(x.db().commissionRecords[1].paymentStatus,'pending');});
 test('receipt reserved by owner group cannot be claimed',async()=>{const x=setup();const c=await issue(x);x.patch(db=>db.auditLogs.push({id:'owner-approval',newValue:{kind:'commission_batch_receipt_approval_v1',batch:{signature:'binance-deposit:123456789'}}}));assert.equal((await reconcile(x,[deposit(c)])).verified,0);});
 test('commission mutation preserving group total is refused',async()=>{const x=setup([20,20]);const c=await issue(x);x.afterVerify(()=>x.patch(db=>{db.commissionRecords[0].commissionAmount=19;db.commissionRecords[1].commissionAmount=21;}));assert.equal((await reconcile(x,[deposit(c)])).verified,0);});
-test('new dues during verification are left unpaid and no full-unlock claim is made',async()=>{const x=setup();const c=await issue(x);x.afterVerify(()=>x.patch(db=>db.commissionRecords.push({...db.commissionRecords[0],id:'next',commissionAmount:5,paymentExpectedAmount:5.000001})));assert.equal((await reconcile(x,[deposit(c)])).verified,1);assert.equal(x.db().notifications[0].reason,'commission_payment_due');});
+test('new dues during verification are left unpaid and no full-unlock claim is made',async()=>{const x=setup();const c=await issue(x);x.afterVerify(()=>x.patch(db=>db.commissionRecords.push({...db.commissionRecords[0],id:'next',commissionAmount:5,paymentExpectedAmount:5.000001,paymentReservedExpectedAmounts:[]})));assert.equal((await reconcile(x,[deposit(c)])).verified,1);assert.equal(x.db().notifications[0].reason,'commission_payment_due');});
 test('zero budget never begins provider request',async()=>{const x=setup();const c=await issue(x);assert.equal((await x.api.reconcile({deposits:[deposit(c)],deadline:NOW})).verified,0);assert.equal(x.calls(),0);});
 test('database failure cannot partially credit or notify',async()=>{const x=setup([20,20]);const c=await issue(x);x.afterVerify(()=>x.fail());assert.equal((await reconcile(x,[deposit(c)])).verified,0);assert.ok(x.db().commissionRecords.every(c=>c.paymentStatus==='pending'));assert.equal(x.db().notifications.length,0);});
 test('users sessions listing status and fee rates are unchanged',async()=>{const x=setup();const before=JSON.stringify({users:x.db().users,sessions:x.db().authSessions,listings:x.db().marketplaceListings});const c=await issue(x);await reconcile(x,[deposit(c)]);assert.equal(JSON.stringify({users:x.db().users,sessions:x.db().authSessions,listings:x.db().marketplaceListings}),before);assert.equal(x.db().commissionRecords[0].rate,.01);});
@@ -49,3 +49,121 @@ test('1000 allocation cases conserve actual received and a single waiver/excess'
 
 test('single fee uses its own base amount without an unnecessary decimal reference',async()=>{const x=setup([3.54]);const c=await issue(x,'3.54');assert.equal(c.expectedMicros,3540000);assert.equal((await reconcile(x,[deposit(c)])).verified,1);assert.equal(x.db().commissionRecords[0].paymentStatus,'paid');});
 test('another seller or historical base amount remains reserved',async()=>{const x=setup([3.54]);x.patch(db=>db.commissionRecords.push({...db.commissionRecords[0],id:'other-fee',sellerId:'other',paymentStatus:'paid'}));const c=await issue(x,'3.54');assert.notEqual(c.expectedMicros,3540000);assert.equal((await reconcile(x,[deposit(c,{amountMicros:3540000})])).verified,0);});
+
+test('29.20 checkout reserves 30 before payment and records the actual 0.80 excess',async()=>{
+ const x=setup([29.2]);const c=await issue(x,'29.2');assert.equal(c.roundedMicros,30000000);
+ assert.ok(x.db().commissionRecords[0].paymentReservedExpectedAmounts.includes(30));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,1);
+ const paid=x.db().commissionRecords[0];assert.equal(paid.commissionAmount,29.2);
+ assert.equal(paid.paymentBatchSettlement.receivedMicros,30000000);assert.equal(paid.paymentBatchSettlement.excessMicros,800000);
+ assert.equal(paid.paymentBatchSettlement.waivedMicros,0);
+});
+test('a different seller or historical reference prevents issuing the rounded option',async()=>{
+ const x=setup([29.2]);x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:30,paymentExpectedAmount:30,paymentStatus:'paid'}));
+ const c=await issue(x,'29.2');assert.equal(c.roundedMicros,undefined);
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('colliding exact amounts do not receive a rounded alias',async()=>{
+ const x=setup([29.2]);x.patch(db=>db.commissionRecords.push({...db.commissionRecords[0],id:'other',sellerId:'other',paymentStatus:'paid'}));
+ const c=await issue(x,'29.2');assert.notEqual(c.expectedMicros,29200000);assert.equal(c.roundedMicros,undefined);
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,0);
+});
+test('combined rounded receipt conserves actual received funds across every allocation',async()=>{
+ const x=setup([14.6,14.6]);const c=await issue(x,'29.2');assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,1);
+ assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.receivedMicros,0),30000000);
+ assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.excessMicros,0),800000);
+});
+function recovery(x,c,changes={}) {
+ x.patch(db=>{db.users.push({id:'owner',role:'owner'});db.auditLogs.push({id:`${c.id}:receipt-recovery`,actorUserId:'owner',targetUserId:'seller',
+ newValue:{kind:CHECKOUT_RECOVERY,checkoutId:c.id,network:'BEP20',amountMicros:30000000,timestamp:NOW+100,timestampToleranceMs:60000,...changes}});});
+}
+test('an explicit owner deposit recovery still independently verifies a legacy exact-only checkout',async()=>{
+ const x=setup([29.2]);const c=await issue(x,'29.2');x.patch(db=>delete db.auditLogs[0].newValue.checkout.roundedMicros);
+ recovery(x,c);assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,1);assert.equal(x.calls(),1);
+ assert.equal(x.db().commissionRecords[0].paymentBatchSettlement.attribution,'owner_confirmed_received_deposit');
+});
+test('owner recovery cannot be spoofed by a seller, exceed tolerance, or claim another deposit time/network',async()=>{
+ for(const changes of [{timestamp:NOW-120000},{timestampToleranceMs:60001},{network:'TRC20'},{amountMicros:31000000}]){
+  const x=setup([29.2]);const c=await issue(x,'29.2');x.patch(db=>delete db.auditLogs[0].newValue.checkout.roundedMicros);recovery(x,c,changes);
+  assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,0);assert.equal(x.calls(),0);
+ }
+ const x=setup([29.2]);const c=await issue(x,'29.2');x.patch(db=>delete db.auditLogs[0].newValue.checkout.roundedMicros);recovery(x,c);
+ x.patch(db=>db.users.find(row=>row.id==='owner').role='buyer');assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,0);
+});
+test('revoked receipt recovery during independent verification does not unlock',async()=>{
+ const x=setup([29.2]);const c=await issue(x,'29.2');x.patch(db=>delete db.auditLogs[0].newValue.checkout.roundedMicros);recovery(x,c);
+ x.afterVerify(()=>x.patch(db=>db.users.find(row=>row.id==='owner').disabled=true));assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,0);
+});
+test('receiving both payment options does not silently discard one receipt',async()=>{
+ const x=setup([29.2]);const c=await issue(x,'29.2');const r=await reconcile(x,[deposit(c),deposit(c,{signature:'binance-deposit:2',amountMicros:30000000})]);
+ assert.equal(r.verified,0);assert.equal(r.review,1);assert.equal(x.calls(),0);
+});
+test('two distinct rounded receipts require review rather than choosing by order',async()=>{
+ const x=setup([29.2]);const c=await issue(x,'29.2');const r=await reconcile(x,[deposit(c,{amountMicros:30000000}),deposit(c,{signature:'binance-deposit:2',amountMicros:30000000})]);
+ assert.equal(r.verified,0);assert.equal(r.review,1);assert.equal(x.calls(),0);
+});
+test('a historical fee base with a different exact reference does not block an explicitly attributed recovery',async()=>{
+ const x=setup([29.2]);const c=await issue(x,'29.2');x.patch(db=>{delete db.auditLogs[0].newValue.checkout.roundedMicros;
+ db.commissionRecords.push({id:'historical',sellerId:'other',commissionAmount:30,paymentExpectedAmount:30.000001,paymentExpectedAmountMode:'unique_v1',paymentStatus:'paid'});});
+ recovery(x,c);assert.equal((await reconcile(x,[deposit(c,{amountMicros:30000000})])).verified,1);
+});
+
+test('incident: 14 received against 14.44 due automatically settles and records 0.44 waived',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,1);
+ const paid=x.db().commissionRecords[0];assert.equal(paid.commissionAmount,14.44);
+ assert.equal(paid.paymentStatus,'paid');assert.equal(paid.paymentVerificationStatus,'verified');
+ assert.equal(paid.paymentBatchSettlement.receivedMicros,14000000);
+ assert.equal(paid.paymentBatchSettlement.waivedMicros,440000);
+ assert.equal(paid.paymentBatchSettlement.attribution,'unambiguous_checkout_tolerance_v1');
+ assert.ok(paid.paymentReservedExpectedAmounts.includes(14));
+ assert.equal((await x.api.state('seller')).pendingCount,0);assert.equal(x.calls(),1);
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);
+ assert.equal(x.db().notifications.length,1);
+});
+for(const amount of [13440000,13750000,14000000,14875000,15440000])test(`actual receipt within symmetric tolerance: ${amount}`,async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:amount})])).verified,1);
+ const settlement=x.db().commissionRecords[0].paymentBatchSettlement;
+ assert.equal(settlement.receivedMicros,amount);assert.equal(settlement.waivedMicros,Math.max(0,14440000-amount));
+ assert.equal(settlement.excessMicros,Math.max(0,amount-14440000));
+});
+for(const amount of [0,13439999,15440001,14000000.5])test(`actual receipt outside tolerance or invalid: ${amount}`,async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:amount})])).verified,0);assert.equal(x.calls(),0);
+});
+test('tolerance is against base dues, not stacked on a seller-selected discount',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'13.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:13000000})])).verified,0);
+});
+test('two eligible checkouts never choose an underpayment by scan order',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+ await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'14.8'});
+ x.clock(NOW+2000);const r=await x.api.reconcile({deposits:[deposit(c,{amountMicros:14000000})],deadline:NOW+60000,limit:2});assert.equal(r.verified,0);assert.equal(x.calls(),0);
+ assert.ok(x.db().commissionRecords.every(row=>row.paymentStatus==='pending'));
+ assert.equal((await x.api.state('seller')).verificationCode,'ambiguous_payment_amount');
+});
+test('a competing checkout created while the receipt is verified prevents settlement',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ x.afterVerify(async()=>{x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));});
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);
+ assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');
+});
+test('paying a competing legacy commission later cannot manufacture receipt attribution',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,
+   paymentStatus:'paid',paidAt:new Date(NOW+500).toISOString(),createdAt:new Date(NOW-1000).toISOString()}));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('two distinct within-tolerance receipts require review and never silently discard funds',async()=>{
+ const x=setup([14.44]);const c=await issue(x,'14.44');
+ const r=await reconcile(x,[deposit(c,{amountMicros:14000000}),deposit(c,{amountMicros:14500000,signature:'binance-deposit:2'})]);
+ assert.equal(r.verified,0);assert.equal(r.review,1);assert.equal(x.calls(),0);
+});
+test('combined underpayment waives at most one USDT over the whole checkout',async()=>{
+ const x=setup([7.22,7.22]);const c=await issue(x,'14.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,1);
+ assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.waivedMicros,0),440000);
+ assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.receivedMicros,0),14000000);
+});

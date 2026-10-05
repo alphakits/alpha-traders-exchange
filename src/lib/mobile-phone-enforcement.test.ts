@@ -35,7 +35,21 @@ describe("mobile routes cannot bypass the SMS requirement", () => {
     const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
     expect(result.unauthorized).toBeNull();
   });
-  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("blocks a previously exempt unverified account %s", async email => {
+  it.each([
+    ["user-030c4619-e1a6-4147-9d91-a8bbd2e2db4a", "alphatradersai@gmail.com"],
+    ["user-6f3a0120-5d36-423f-8dee-9a875e8e064e", "claudiahttps11@gmail.com"],
+    ["user-cfa3bd2c-25e7-4a9e-9ae5-55ac4900846f", "jozenmark834@yahoo.com"],
+  ])("allows the exact authorized native account %s", async (id, email) => {
+    mocks.findUserById.mockResolvedValue({ ...user, id, email });
+    service.validateAccessToken.mockResolvedValue({ status: "valid", session: { userId: id } });
+    for (const path of ["marketplace/listings", "trades", "seller/listings", "admin/overview"]) {
+      const result = await requireMobileApiUser(request(path), "request-test", metadata, service as never);
+      expect(result.unauthorized).toBeNull();
+      expect(result.user?.id).toBe(id);
+    }
+    expect(service.revokeDevice).not.toHaveBeenCalled();
+  });
+  it.each(["alphatradersai@gmail.com", "claudiahttps11@gmail.com", "jozenmark834@yahoo.com"])("blocks the same email with an unauthorized ID %s", async email => {
     mocks.findUserById.mockResolvedValue({ ...user, email });
     const result = await requireMobileApiUser(request("trades"), "request-test", metadata, service as never);
     expect(result.unauthorized?.status).toBe(403);

@@ -4,6 +4,7 @@ import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileSellerListingCreateRequest, MobileSellerListingUpdateRequest, MobileSupportedNetwork } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileSellerListing,
@@ -224,7 +225,7 @@ export default function NewSellerListingScreen() {
       return;
     }
     if (!isEditing && !acceptedCommission) {
-      setError(isAr ? "يجب الموافقة على سياسة العمولة 1%." : "You must accept the 1% commission policy.");
+      setError(isAr ? "يجب الموافقة على سياسة العمولة: 1% على المشتري + 1% على البائع = 2% إجمالاً." : "You must accept the commission policy: 1% buyer + 1% seller = 2% total.");
       return;
     }
     if (isEditing && changeExplanation.trim().length < 5) {
@@ -364,8 +365,8 @@ export default function NewSellerListingScreen() {
           <Pressable onPress={() => { setAcceptedCommission((value) => !value); setError(""); }} style={[styles.commission, isRTL && styles.rowReverse]}>
             <View style={[styles.checkbox, acceptedCommission && styles.checkboxSelected]}><Text style={styles.check}>{acceptedCommission ? "✓" : ""}</Text></View>
             <View style={styles.commissionCopy}>
-              <Text style={[styles.commissionTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة المنصة 1%" : "1% platform commission"}</Text>
-              <Text style={[styles.helper, isRTL && styles.rtlText]}>{isAr ? "أفهم وأوافق على دفع العمولة بعد الصفقة الناجحة." : "I understand and agree to pay the commission after a successful trade."}</Text>
+              <Text style={[styles.commissionTitle, isRTL && styles.rtlText]}>{isAr ? "1% على المشتري + 1% على البائع = 2% إجمالاً" : "1% buyer + 1% seller = 2% total"}</Text>
+              <Text style={[styles.helper, { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{sellerFeeResponsibilityNotice(locale)}</Text>
             </View>
           </Pressable>
         )}
@@ -413,7 +414,7 @@ const styles = StyleSheet.create({
   checkboxSelected: { backgroundColor: colors.gold },
   check: { color: colors.background, fontWeight: "900" },
   commissionCopy: { flex: 1, gap: spacing.xs },
-  commissionTitle: { color: colors.goldBright, fontSize: typography.small, fontWeight: "900" },
+  commissionTitle: { color: colors.commissionNotice, fontSize: typography.small, fontWeight: "900" },
   error: { color: colors.danger, fontSize: typography.small, fontWeight: "700", lineHeight: 20 },
   pressed: { opacity: 0.72 },
   rowReverse: { flexDirection: "row-reverse" },

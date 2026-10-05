@@ -1,4 +1,5 @@
 "use client";
+import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
 
 import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -103,6 +104,7 @@ type AdminPayload = {
   notifications: AlphaExchangeNotification[];
   activityLog: AlphaExchangeActivityLogEntry[];
   ownerBusiness: OwnerBusinessDashboardMetrics;
+  operations?: MarketplaceOperationalSnapshot;
   trustEngine: {
     highestTrustSellers: Array<{ sellerId: string; sellerName: string; trustScore: number; level: string; summary: string }>;
     lowestTrustSellers: Array<{ sellerId: string; sellerName: string; trustScore: number; level: string; summary: string }>;
@@ -630,7 +632,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
     void (async () => {
       try {
-        const response = await fetch(`/api/alpha-exchange/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
+        const response = await fetch(`/api/alpha-exchange/admin/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
         const payload = await response.json() as { profile?: PremiumSellerProfileData; error?: string };
         if (!response.ok || !payload.profile) {
           if (!cancelled) setSelectedSellerProfile(null);
@@ -1760,6 +1762,11 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 <>
                   {activeSection === "overview" ? (
                     <div className="space-y-6 xl:space-y-8">
+                      {isOwner ? <OwnerAttentionQueue isAr={isArabic} operations={data.operations ?? null} disputes={data.disputes} commissions={data.commissionRecords} onOpen={item => {
+                        if (item.kind === "incident") openOperationalIncident(item.incident);
+                        else if (item.kind === "dispute") { setRequestsQuery(item.dispute.purchaseRequestId); setRequestsStatus("all"); setRequestsPage(1); setActiveSection("purchase-requests"); }
+                        else { setCommissionsQuery(item.commission.id); setCommissionsPage(1); setActiveSection("commissions"); }
+                      }} /> : null}
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
                           <CardTitle className="text-xl md:text-2xl">{isOwner ? t("Owner Business Dashboard", "لوحة أعمال المالك") : t("Admin Operations Dashboard", "لوحة عمليات الإدارة")}</CardTitle>
@@ -1771,7 +1778,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           {[
                             { label: t("Today • Completed Trades", "اليوم • الصفقات المكتملة"), value: data.ownerBusiness.today.completedTrades, icon: CheckCircle2 },
                             { label: t("Today • Trade Volume", "اليوم • حجم التداول"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt), icon: WalletCards },
-                            { label: t("Today • Estimated Commission", "اليوم • العمولة المقدّرة"), value: formatCurrency(data.ownerBusiness.today.estimatedCommission), icon: Coins },
+                            { label: t("Today • Estimated Commission", "اليوم • العمولة المقدّرة"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission), icon: Coins },
                             { label: t("Today • Trades Waiting Evidence", "اليوم • صفقات تنتظر الإثبات"), value: data.ownerBusiness.today.tradesWaitingEvidence, icon: AlertTriangle },
                           ].map((stat) => {
                             const Icon = stat.icon;
@@ -1838,7 +1845,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Completed Trades:", "الصفقات المكتملة:")} <span className="text-white">{data.ownerBusiness.today.completedTrades}</span></p>
                             <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.today.estimatedCommission))}</span></p>
+                            <p>{t("Estimated Commission:", "العمولة المقدّرة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.today.estimatedCommission))}</span></p>
                             <p>{t("New Buyers:", "المشترون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newBuyers}</span></p>
                             <p>{t("New Sellers:", "البائعون الجدد:")} <span className="text-white">{data.ownerBusiness.today.newSellers}</span></p>
                             <p>{t("New Listings:", "العروض الجديدة:")} <span className="text-white">{data.ownerBusiness.today.newListings}</span></p>
@@ -1863,7 +1870,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>{t("Trade Volume:", "حجم التداول:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt))}</span></p>
-                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.thisWeek.revenue))}</span></p>
+                            <p>{t("Revenue:", "الإيرادات:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.thisWeek.revenue))}</span></p>
                             <p>{t("Top Seller:", "أفضل بائع:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.topSeller)}</span></p>
                             <p>{t("Fastest Growing Seller:", "الأسرع نموًا:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.fastestGrowingSeller)}</span></p>
                             <p>{t("Highest Trust Score Increase:", "أكبر ارتفاع في الثقة:")} <span className="text-white">{currencyText(data.ownerBusiness.thisWeek.highestTrustScoreIncrease)}</span></p>
@@ -1924,9 +1931,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <CardDescription>{t("Commission and trade-value performance snapshot.", "ملخص أداء العمولات وقيمة الصفقات.")}</CardDescription>
                           </CardHeader>
                           <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
-                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
-                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
-                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{currencyText(formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
+                            <p>{t("Commission Today:", "عمولة اليوم:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionToday))}</span></p>
+                            <p>{t("Commission This Week:", "عمولة الأسبوع:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek))}</span></p>
+                            <p>{t("Commission This Month:", "عمولة الشهر:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth))}</span></p>
                             <p>{t("Largest Trade:", "أكبر صفقة:")} <span className="text-white">{currencyText(formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt))}</span></p>
                             <p>{t("Largest Trade ID:", "رقم أكبر صفقة:")} <span className="font-mono font-medium text-white">{currencyText(replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup))}</span></p>
                             <p>{t("Largest Seller:", "صاحب أكبر صفقة:")} <span className="text-white">{currencyText(data.ownerBusiness.financialOverview.largestSeller)}</span></p>
@@ -2999,7 +3006,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                         <form onSubmit={handleIssueManualCommission} className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/[0.06] p-4">
                           <div className="mb-4">
                             <p className="font-semibold text-white">{t("Issue Seller Commission", "إصدار عمولة للبائع")}</p>
-                            <p className="mt-1 text-xs leading-5 text-[#D1D5DB]">
+                            <p className="commission-notice mt-1 text-xs leading-5 text-[#D1D5DB]">
                               {currencyText(t(
                                 "Creates a real payable commission in the seller’s standard USDT-TRC20 Pay Now flow. This is separate from Recovery Fees and does not use the compliance recovery wallet.",
                                 "ينشئ عمولة فعلية قابلة للدفع في مسار ادفع الآن القياسي للبائع عبر USDT-TRC20. هذا النظام منفصل عن رسوم الاسترداد ولا يستخدم محفظة استرداد الامتثال.",
@@ -3729,9 +3736,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             { label: t("Active Trades", "الصفقات النشطة"), value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
                             { label: t("Completed Trades", "الصفقات المكتملة"), value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
                             { label: t("Open Listings", "العروض المفتوحة"), value: (data.listings ?? []).filter((l) => l.status === "active").length },
-                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatCurrency(data.ownerBusiness.today.estimatedCommission) },
-                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
-                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: t("Revenue Today (est.)", "إيراد اليوم (تقديري)"), value: formatUsdt(data.ownerBusiness.today.estimatedCommission) },
+                            { label: t("Revenue This Week", "إيراد هذا الأسبوع"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: t("Revenue This Month", "إيراد هذا الشهر"), value: formatUsdt(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
                             { label: t("Volume Today", "حجم اليوم"), value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
                             { label: t("Top Seller (Week)", "أفضل بائع (الأسبوع)"), value: data.ownerBusiness.thisWeek.topSeller || "—" },
                           ].map((stat) => (
@@ -4530,7 +4537,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                 </ActionFeedback>
               ) : null}
 
-              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
+              <div className="commission-notice mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-100">
                 {t(
                   "Confirmation marks this commission paid, records the audit reason, notifies the seller, and unlocks selling when no other commission is due.",
                   "سيؤدي التأكيد إلى تسجيل العمولة كمدفوعة وحفظ السبب وإشعار البائع وفتح البيع إذا لم تبقَ عمولة أخرى.",

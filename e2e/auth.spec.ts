@@ -253,7 +253,8 @@ test.describe("Role-based access", () => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.goto("/en/admin/alpha-exchange", { timeout: 75_000 });
-    await expect(page).toHaveURL(/\/en\/usdt-exchange$/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/en\/dashboard$/, { timeout: 10_000 });
+    await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
   });
 
   test("/api/auth/me returns user for authenticated session", async ({ page }) => {

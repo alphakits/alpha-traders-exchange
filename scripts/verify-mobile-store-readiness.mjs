@@ -183,7 +183,7 @@ check(websiteShell.includes("isTrustedWebsiteDocumentUrl(event.nativeEvent.url)"
 check(websiteShell.includes('mixedContentMode="never"'), "Mixed-content loading is not disabled.");
 check(websiteShell.includes("thirdPartyCookiesEnabled={false}"), "Third-party cookies are not disabled.");
 check(websiteShell.includes("allowFileAccess={false}"), "WebView file access is not disabled.");
-check(!websiteShell.includes('"https://*"'), "The WebView origin allowlist is too broad.");
+check(websiteShell.includes('originWhitelist={["*"]}') && websiteShell.includes("websiteRequestNavigationDecision(request)"), "Every WebView request must reach the strict frame-aware navigation validator before OS handoff.");
 check(!websiteShell.includes('"data:*"'), "Data-document navigation must not be allowlisted.");
 check(websiteShell.includes("registerForNativePushNotifications"), "Native lock-screen push registration is missing.");
 check(websiteShell.includes("sourcePreparationInFlightRef") && websiteShell.includes("resolvePreparedWebsiteSource"), "Cold-start push navigation is not protected from asynchronous source-preparation races.");

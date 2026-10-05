@@ -871,13 +871,13 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-base font-semibold leading-6 text-white"><bdi dir="auto">{currencyText(formatNotificationTitle(notification, locale))}</bdi></h3>
+                            <h3 className={`text-base font-semibold leading-6 text-white ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto">{currencyText(formatNotificationTitle(notification, locale))}</bdi></h3>
                             {!notification.isRead ? (
                               <span role="img" className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[#E5BD3D]" aria-label={isAr ? "غير مقروء" : "Unread"} />
                             ) : null}
                           </div>
                           <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
-                          <p className="mt-2 text-base leading-7 text-[#D7DBE2]"><bdi dir="auto" className="text-base">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p>
+                          <p className={`mt-2 text-base leading-7 text-[#D7DBE2] ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto" className="text-base">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p>
                           <div className="mt-3 flex flex-wrap gap-1.5 text-xs leading-5">
                             {actionRequired ? <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 font-semibold text-amber-200">{isAr ? "مطلوب منك إجراء" : "Action required"}</span> : null}
                             {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId))}</bdi></span> : null}

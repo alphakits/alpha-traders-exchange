@@ -26,6 +26,7 @@ import { deriveBuyerRankSummary } from "@/lib/buyer-rank";
 import { PrivateProfileHeader } from "@/components/profile/private-profile-header";
 import { AccountNotificationPreferences } from "@/components/profile/account-notification-preferences";
 import { NewsPreferences } from "@/components/news/news-preferences";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
 
 type AccountProfilePayload = {
   profile: {
@@ -240,7 +241,12 @@ function normalizeRoleValues(values: Array<string | undefined>) {
 function resolveAdminProfileAccess(input: {
   payload: AccountProfilePayload | null;
   sessionRoles: string[];
+  authoritativeRoles?: string[];
 }) {
+  if (input.authoritativeRoles) {
+    const isOwner = input.authoritativeRoles.includes("owner");
+    return { isOwner, hasAdminDashboardAccess: isOwner || input.authoritativeRoles.includes("admin"), payloadRoles: input.authoritativeRoles };
+  }
   const payloadRoles = input.payload
     ? normalizeRoleValues([...(input.payload.profile.roles ?? []), input.payload.profile.role])
     : [];
@@ -343,6 +349,9 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const isAr = locale === "ar";
   const canonicalSession = useOptionalCanonicalSession();
   const canonicalUser = canonicalSession?.user;
+  const authoritativeRoles = canonicalSession
+    ? normalizeRoleValues([...(canonicalUser?.roles ?? []), canonicalUser?.role])
+    : undefined;
   const hasCanonicalSession = Boolean(canonicalSession);
   const canonicalSessionResolving = canonicalSession?.isResolving ?? false;
   const canonicalSessionError = canonicalSession?.error ?? false;
@@ -744,6 +753,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     const { isOwner: sessionIsOwner, hasAdminDashboardAccess: sessionHasAdminDashboardAccess } = resolveAdminProfileAccess({
       payload,
       sessionRoles: canonicalSessionResolving ? [] : sessionRoles,
+      authoritativeRoles,
     });
     return (
       <section className="section-container page-shell">
@@ -775,12 +785,21 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const { isOwner, hasAdminDashboardAccess } = resolveAdminProfileAccess({
     payload,
     sessionRoles,
+    authoritativeRoles,
   });
-  const establishedAccountRoles = normalizeRoleValues([
+  const establishedAccountRoles = authoritativeRoles ?? normalizeRoleValues([
     ...(payload.profile.roles ?? []),
     payload.profile.role,
     ...sessionRoles,
   ]);
+  const interfaceAccess = getInterfaceAccess(canonicalUser ?? {
+    role: payload.profile.role,
+    roles: establishedAccountRoles,
+    sellerStatus: isSeller ? "approved_seller" : undefined,
+  });
+  const showBuyerActivity = isSeller
+    || establishedAccountRoles.includes("buyer")
+    || (!interfaceAccess.administration && interfaceAccess.pendingSeller);
   const showAccountPathManager = ![
     "buyer",
     "pending_seller_approval",
@@ -890,7 +909,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               {isSeller ? (
                 <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
               ) : null}
-              {!isSeller && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
+              {!isSeller && showBuyerActivity && payload.roleBadge === "buyer" ? <RankBadge rank={buyerRankSummary?.key} locale={locale} audience="buyer" /> : null}
             </div>
           </PrivateProfileHeader>
 
@@ -983,9 +1002,9 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
+                    {!establishedAccountRoles.includes("student") ? <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
                       {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
-                    </Button>
+                    </Button> : null}
                     <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
                       {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
                     </Link>
@@ -1017,7 +1036,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     { key: "showLastActive", labelAr: "عرض آخر نشاط", label: "Show last active" },
                     { key: "allowDirectMessages", labelAr: "السماح بالرسائل المباشرة", label: "Allow direct messages" },
                     { key: "allowProfileSearch", labelAr: "السماح بالبحث عن الملف", label: "Allow profile search" },
-                  ].map((item) => {
+                  ].filter((item) => item.key !== "showTradeStats" || interfaceAccess.trading).map((item) => {
                     const value = form[item.key as keyof ProfileFormState];
                     if (typeof value !== "boolean") return null;
                     return (
@@ -1058,7 +1077,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <AdministrationCard isAr={isAr} isOwner={isOwner} />
             ) : null}
 
-            <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
+            {isSeller || showBuyerActivity ? <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
               <CardHeader>
                 <CardTitle>{isAr ? "لوحة السمعة" : "Reputation board"}</CardTitle>
               </CardHeader>
@@ -1171,14 +1190,14 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                       <Link href="/dashboard" className={buttonVariants({ size: "sm" })}>
                         {isAr ? "فتح لوحة المشتري" : "Open buyer dashboard"}
                       </Link>
-                      <Link href="/dashboard#seller-application" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                        {isAr ? "التقديم كبائع معتمد" : "Apply as approved seller"}
-                      </Link>
+                      {interfaceAccess.canApplyToSell || interfaceAccess.pendingSeller ? <Link href="/dashboard#seller-application" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                        {interfaceAccess.pendingSeller ? (isAr ? "حالة طلب اعتماد البائع" : "Seller application status") : (isAr ? "التقديم كبائع معتمد" : "Apply as approved seller")}
+                      </Link> : null}
                     </div>
                   </>
                 )}
               </CardContent>
-            </Card>
+            </Card> : null}
           </div>
         </div>
 

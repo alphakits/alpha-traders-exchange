@@ -208,7 +208,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
             : message.kind === "system" ? localizeTradeRoomSystemMessage(message.message, locale).text : message.message;
           return <li key={message.id} className={`rounded-xl border p-3 text-sm ${message.kind === "system" ? "border-blue-400/20 bg-blue-400/5" : message.senderRole === "owner" ? "border-red-400/50 bg-red-950/40 text-red-100" : message.senderUserId === request.sellerId ? "border-[#C9A227]/25 bg-[#C9A227]/5" : "border-white/10 bg-white/[0.02]"}`}>
             <p className="text-xs font-medium text-[#D1D5DB]">{message.kind === "system" ? t("System", "النظام") : currencyText(actorLabel(message.senderUserId, message.senderRole))}</p>
-            {body ? <p dir="auto" className="mt-2 whitespace-pre-wrap break-words">{currencyText(body)}</p> : null}
+            {body ? <p dir="auto" className={`trade-chat-text mt-2 whitespace-pre-wrap break-words ${message.kind === "system" && /commission|عمول/i.test(body) ? "commission-notice" : ""}`}>{currencyText(body)}</p> : null}
             {message.imageUrl ? <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center break-all text-[#FDE68A] underline underline-offset-4">{currencyText(message.imageName || t("Open attachment", "فتح المرفق"))}</a> : null}
             <time dateTime={message.createdAt} className="mt-2 block text-xs text-[#9CA3AF]">{date(message.createdAt)}</time>
             {message.deletedAt ? <p className="mt-1 text-xs text-amber-200">{t("Deleted", "تم الحذف")} · {date(message.deletedAt)}</p> : null}
@@ -233,7 +233,7 @@ export function OwnerTradeHistory({ locale, room, onUpdated }: { locale: "ar" | 
           finally { sendLock.current = false; setSending(false); }
         }}>
           <label htmlFor="owner-chat-message" className="flex items-center gap-2 text-sm font-bold text-red-200"><ShieldCheck className="h-4 w-4" />{t("Owner message · visible to buyer and seller", "رسالة المالك · تظهر للمشتري والبائع")}</label>
-          <textarea id="owner-chat-message" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={sending} maxLength={1200} className="min-h-24 w-full rounded-lg border border-red-400/30 bg-black/40 p-3 text-sm text-white" />
+          <textarea id="owner-chat-message" dir="auto" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={sending} maxLength={1200} className="trade-chat-input min-h-24 w-full rounded-lg border border-red-400/30 bg-black/40 p-3 text-sm text-white" />
           {sendError ? <p role="alert" className="text-sm text-red-200">{sendError}</p> : null}
           <Button type="submit" disabled={sending || !draft.trim()} className="bg-red-700 text-white hover:bg-red-600">{sending ? t("Sending…", "جارٍ الإرسال…") : t("Send as Owner", "إرسال باسم المالك")}</Button>
         </form> : null}

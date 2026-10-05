@@ -15,6 +15,7 @@ type CanonicalSessionContextValue = {
   isRestoring: boolean;
   error: boolean;
   refresh: (options?: { force?: boolean; background?: boolean }) => Promise<CanonicalSessionRefreshResult>;
+  beginSignOut?: () => () => void;
 };
 
 const CanonicalSessionContext = createContext<CanonicalSessionContextValue | null>(null);
@@ -61,6 +62,8 @@ export function CanonicalSessionProvider({
   const mountedRef = useRef(true);
   const hadAuthenticatedSessionRef = useRef(Boolean(initialSessionUser));
   const expiryRedirectStartedRef = useRef(false);
+  const signOutNavigationRef = useRef(false);
+  const pendingSignOutsRef = useRef(new Set<symbol>());
   const recoveryAttemptsRef = useRef(0);
   const recoveryTimeoutRef = useRef<number | null>(null);
   const recoveryNeededRef = useRef(false);
@@ -74,6 +77,9 @@ export function CanonicalSessionProvider({
     force = false,
     background = false,
   }: { force?: boolean; background?: boolean } = {}) => {
+    // Revocation can reach the server before logout confirmation reaches this
+    // document. The sign-out caller owns navigation during that bounded gap.
+    if (pendingSignOutsRef.current.size || signOutNavigationRef.current) return "unavailable" as const;
     const shouldBlock = !background;
     if (force) {
       // An auth boundary changed while a request may still be in flight. Its
@@ -148,6 +154,26 @@ export function CanonicalSessionProvider({
     recoveryAttemptsRef.current = 0;
   }, []);
 
+  const beginSignOut = useCallback(() => {
+    const operation = Symbol("sign-out");
+    pendingSignOutsRef.current.add(operation);
+    requestIdRef.current += 1;
+    requestRef.current = null;
+    cancelReadRef.current?.();
+    cancelReadRef.current = null;
+    recoveryNeededRef.current = false;
+    clearSessionRecovery();
+    setIsResolving(false);
+    // Retain the confirmed account during the request; server actions still
+    // authorize independently. Failure or cancellation resumes verification.
+    return () => {
+      if (!pendingSignOutsRef.current.delete(operation)) return;
+      if (mountedRef.current && !pendingSignOutsRef.current.size && !signOutNavigationRef.current) {
+        void refresh({ force: true, background: true });
+      }
+    };
+  }, [clearSessionRecovery, refresh]);
+
   const scheduleSessionRecovery = useCallback(() => {
     if (
       !mountedRef.current
@@ -178,11 +204,13 @@ export function CanonicalSessionProvider({
 
   useEffect(() => {
     mountedRef.current = true;
+    const pendingSignOuts = pendingSignOutsRef.current;
     void refresh({ background: hasInitialSession });
     const handleAuthChange = () => void refresh({ force: true });
     const sessionChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel("alpha.auth.session.v1") : null;
-    const clearSignedOutSession = () => {
+    const clearSignedOutSession = (navigationStarted = false) => {
+      signOutNavigationRef.current ||= navigationStarted;
       clearClientLocaleChoice();
       hadAuthenticatedSessionRef.current = false;
       expiryRedirectStartedRef.current = true;
@@ -194,11 +222,13 @@ export function CanonicalSessionProvider({
       cancelReadRef.current = null;
       setUser(null);
       setError(false);
-      setIsResolving(false);
+      // A confirmed sign-out may already be replacing this document. Hide
+      // private content without letting a page boundary race that navigation.
+      setIsResolving(signOutNavigationRef.current);
       setIsRestoring(false);
     };
-    const handleSignedOut = () => {
-      clearSignedOutSession();
+    const handleSignedOut = (event: Event) => {
+      clearSignedOutSession(event instanceof CustomEvent && event.detail?.navigationStarted === true);
       sessionChannel?.postMessage("signed-out");
     };
     if (sessionChannel) sessionChannel.onmessage = (event) => {
@@ -218,6 +248,8 @@ export function CanonicalSessionProvider({
       // Back/forward cache can restore a page immediately after logout. Do not
       // let the normal resume throttle skip verification of that saved page.
       if (event.persisted) {
+        signOutNavigationRef.current = false;
+        pendingSignOutsRef.current.clear();
         setIsRestoring(true);
         void refresh({ force: true });
       } else resumeSessionRecovery();
@@ -231,6 +263,7 @@ export function CanonicalSessionProvider({
     return () => {
       sessionChannel?.close();
       mountedRef.current = false;
+      pendingSignOuts.clear();
       recoveryNeededRef.current = false;
       clearSessionRecovery();
       requestIdRef.current += 1;
@@ -302,7 +335,7 @@ export function CanonicalSessionProvider({
     window.location.replace(destination);
   }, [error, isResolving, user]);
 
-  return <CanonicalSessionContext.Provider value={{ user, isResolving, isRestoring, error, refresh }}>{children}</CanonicalSessionContext.Provider>;
+  return <CanonicalSessionContext.Provider value={{ user, isResolving, isRestoring, error, refresh, beginSignOut }}>{children}</CanonicalSessionContext.Provider>;
 }
 
 export function useCanonicalSession() {

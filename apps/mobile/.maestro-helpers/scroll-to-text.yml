@@ -1,0 +1,36 @@
+appId: com.alphakits.alphatraders
+---
+# Scan the complete page, then recover a target passed during inertial scroll.
+# Reaching the footer ends the downward search; the final assertion is required.
+- evalScript: ${output.alphaScrollReachedBottom = false}
+- repeat:
+    times: 100
+    while:
+      notVisible: "${TARGET_TEXT}"
+      true: ${!output.alphaScrollReachedBottom}
+    commands:
+      - runFlow:
+          when:
+            visible: ".*(Platform Status: Operational|حالة المنصة: تعمل).*"
+          commands:
+            - evalScript: ${output.alphaScrollReachedBottom = true}
+      - runFlow:
+          when:
+            true: ${!output.alphaScrollReachedBottom}
+          commands:
+            - swipe:
+                start: 50%, 80%
+                end: 50%, 25%
+                duration: 800
+                waitToSettleTimeoutMs: 500
+- repeat:
+    times: 50
+    while:
+      notVisible: "${TARGET_TEXT}"
+    commands:
+      - swipe:
+          start: 50%, 35%
+          end: 50%, 65%
+          duration: 800
+          waitToSettleTimeoutMs: 500
+- assertVisible: "${TARGET_TEXT}"

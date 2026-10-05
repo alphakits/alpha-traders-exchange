@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
-import { beginProfilePhoneVerification, confirmProfilePhoneVerification, findUserById, invalidateAlphaExchangeStoreCache, updateAccountProfileData } from "@/lib/alpha-exchange-store";
+import { assertRegistrationPhoneAvailable, createUser, upsertUserProfileForAuth, beginProfilePhoneVerification, confirmProfilePhoneVerification, findUserById, invalidateAlphaExchangeStoreCache, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 
 const phone = "+972521234567";
 const now = "2026-10-01T12:00:00.000Z";
@@ -39,6 +39,28 @@ afterEach(() => {
 });
 
 describe("persisted SMS verification challenges", () => {
+  it.each(["0521234567", "+972 (52) 123-4567", "00972521234567", "٠٥٢١٢٣٤٥٦٧"])("rejects an existing verified number expressed as %s", async alternative => {
+    globalThis.__alphaExchangeMemorySnapshot!.users[1].verifiedPhone = phone;
+    globalThis.__alphaExchangeMemorySnapshot!.users[1].phoneVerifiedAt = now;
+    invalidateAlphaExchangeStoreCache();
+    await expect(beginProfilePhoneVerification({ userId: "test-one", phone: alternative })).rejects.toThrow("already linked");
+  });
+  it("prevents registration and profile changes from taking another account's saved contact", async () => {
+    globalThis.__alphaExchangeMemorySnapshot!.users[1].whatsappNumber = phone;
+    invalidateAlphaExchangeStoreCache();
+    const input = { email: "new@example.test", fullName: "Test User", passwordHash: "hash", whatsappNumber: "0521234567" };
+    await expect(assertRegistrationPhoneAvailable("٠٥٢١٢٣٤٥٦٧")).rejects.toThrow("already linked");
+    await expect(createUser(input)).rejects.toThrow("already linked");
+    await expect(upsertUserProfileForAuth(input)).rejects.toThrow("already linked");
+    await expect(updateAccountProfileData({ userId: "test-one", whatsappNumber: phone })).rejects.toThrow("already linked");
+  });
+  it("serializes competing registrations of the same new phone", async () => {
+    const results = await Promise.allSettled(["one", "two"].map(name => createUser({
+      email: `${name}@new.example.test`, fullName: "Test User", passwordHash: "hash", whatsappNumber: phone,
+    })));
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(globalThis.__alphaExchangeMemorySnapshot!.users.filter(user => user.whatsappNumber === phone)).toHaveLength(1);
+  });
   it("normalizes Israeli input, saves only a digest, and preserves verification across a fresh read", async () => {
     const challenge = await beginProfilePhoneVerification({ userId: "test-one", phone: "052-123 4567" });
     expect(challenge.phone).toBe(phone);

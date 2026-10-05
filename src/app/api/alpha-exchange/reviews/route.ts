@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const sellerId = searchParams.get("sellerId")?.trim();
   if (!sellerId) return NextResponse.json({ error: "sellerId is required." }, { status: 400 });
   const reviews = await getSellerReviews({ sellerId, actorUserId: user.id, actorRole: user.role as never });
-  return NextResponse.json({ reviews });
+  return NextResponse.json({ reviews }, { headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" } });
 }
 
 export async function POST(request: NextRequest) {

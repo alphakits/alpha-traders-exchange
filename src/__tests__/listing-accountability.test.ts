@@ -18,6 +18,11 @@ import {
   getMarketplaceListings,
   getNotificationsForUser,
   getPremiumSellerProfile,
+  getSellerReviews,
+  getSellerCommissionStatus,
+  getMyPurchaseRequests,
+  getTradeRoomData,
+  getPublicUserProfileById,
   getSellerProfileRouteData,
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
@@ -25,8 +30,13 @@ import {
   updateUserSellerSettings,
   updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
+  updateCommissionPaymentStatus,
+  updateTradeTerms,
 } from "@/lib/alpha-exchange-store";
+import { toMobileTradeDetail } from "@/lib/mobile-trades";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
+import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
+import { realtimeEventForUser } from "@/lib/realtime-event-visibility";
 
 const OWNER_ID = "owner-1";
 const SELLER_ID = "seller-1";
@@ -150,6 +160,196 @@ describe("listing accountability: reason + audit + reliability", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it.each([
+    ["listing_price", "pending"], ["buyer_offer", "pending"],
+    ["listing_price", "overdue"], ["buyer_offer", "overdue"],
+    ["listing_price", "verifying"], ["buyer_offer", "verifying"],
+  ] as const)("receives %s requests with %s commission, then accepts the same request only after verified payment", async (priceMode, state) => {
+    const listing = await createApprovedListing("1000", "3.60");
+    await getNotificationsForUser({ userId: BUYER_ID, includeActivity: false });
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const now = new Date().toISOString();
+    canonical.commissionRecords.push({
+      id: "acceptance-commission", source: "admin_manual", sellerId: SELLER_ID,
+      issuedByUserId: OWNER_ID, issueReason: "Acceptance gate test", rate: 0, grossAmount: 0,
+      commissionAmount: 7, paymentStatus: state === "overdue" ? "overdue" : "pending",
+      paymentVerificationStatus: state === "verifying" ? "pending_verification" : undefined,
+      dueAt: new Date(Date.now() + (state === "overdue" ? -1 : 1) * 86400000).toISOString(),
+      createdAt: now, updatedAt: now,
+    });
+    const card = (await getMarketplaceListings("active")).find(item => item.id === listing.id);
+    expect(card).toMatchObject({ id: listing.id, newRequestBlockReason: undefined });
+    expect(JSON.stringify(card)).not.toContain("commission");
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "250",
+      buyerName: "Buyer", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      priceMode, offeredPrice: priceMode === "buyer_offer" ? "3.50" : undefined,
+    });
+    expect(request.status).toBe("pending");
+    const sellerNotifications = await getNotificationsForUser({ userId: SELLER_ID, includeActivity: false });
+    expect(sellerNotifications.notifications.some(n => n.relatedRequestId === request.id)).toBe(true);
+    const sellerRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(sellerRoom.sellerCommissionDueCount).toBe(1);
+    expect(toMobileTradeDetail(sellerRoom, SELLER_ID, "en").actions.canAccept).toBe(false);
+    const buyerRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", markMessagesRead: false });
+    expect(buyerRoom.sellerCommissionDueCount).toBe(0);
+    expect(toMobileTradeDetail(buyerRoom, BUYER_ID, "en").sellerCommissionDue).toBeUndefined();
+    const accept = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "accepted" as const };
+    await expect(updatePurchaseRequestStatus(accept)).rejects.toMatchObject({ code: "commission-due", details: expect.objectContaining({ commissionId: "acceptance-commission", actionHref: expect.stringContaining("commission=pay") }) });
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).purchaseRequests.find(r => r.id === request.id)).toMatchObject({ status: "pending" });
+    expect((await getMarketplaceListings("active")).find(item => item.id === listing.id)).toMatchObject({ availableAmount: "1000", sellerActiveTradeCount: 0 });
+    if (priceMode === "buyer_offer") {
+      const counter = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: "3.55", expectedUpdatedAt: request.updatedAt });
+      let error: unknown;
+      try { await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: counter.termsProposal!.id }); } catch (caught) { error = caught; }
+      expect(error).toMatchObject({ code: "seller-not-ready" });
+      expect(String(error)).not.toMatch(/commission|7 USDT/i);
+      await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "withdraw_terms", proposalId: counter.termsProposal!.id });
+    }
+    await updateCommissionPaymentStatus({ commissionId: "acceptance-commission", actorUserId: OWNER_ID, paymentStatus: "paid", paymentVerificationStatus: "verified", reason: "Verified test payment" });
+    const paidRoom = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(toMobileTradeDetail(paidRoom, SELLER_ID, "en").actions.canAccept).toBe(true);
+    await expect(updatePurchaseRequestStatus(accept)).resolves.toMatchObject({ request: { id: request.id, status: "accepted" } });
+  });
+
+  it("does not leak submitted inventory or hidden seller presence through real live mutations", async () => {
+    const events: RealtimeEvent[] = [];
+    const unsubscribe = subscribeRealtimeEvents((event) => events.push(event));
+    try {
+      const listing = await createApprovedListing("1000", "3.60");
+      const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      const draft = db.marketplaceListings.find((entry) => entry.id === listing.id)!;
+      draft.status = "draft";
+      draft.approvalStatus = "pending";
+      invalidateAlphaExchangeStoreCache();
+      await updateMarketplaceListingForSeller({ listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID,
+        availableAmount: "900", maximumTrade: "900", changeReason: "Changed available balance", changeExplanation: "Updated private inventory" });
+      await updateUserSellerSettings({ userId: SELLER_ID, showLastActive: false, onlineStatus: "offline" });
+      const otherSeller = (globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).users.find((entry) => entry.id === SELLER_TWO_ID)!;
+      const privateUpdates = events.filter((event) => ["listing.created", "listing.quantity_changed", "seller.status_changed"].includes(event.type));
+      expect(privateUpdates.map((event) => event.type)).toEqual(expect.arrayContaining(["listing.created", "listing.quantity_changed", "seller.status_changed"]));
+      for (const event of privateUpdates) {
+        expect(realtimeEventForUser(event, otherSeller)).toBeNull();
+        const seller = (globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).users.find((entry) => entry.id === SELLER_ID)!;
+        expect(realtimeEventForUser(event, seller)).not.toBeNull();
+      }
+    } finally { unsubscribe(); }
+  });
+
+  it("allowlists public listings without private review, bank, delivery or active-trade metadata", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const stored = db.marketplaceListings.find((entry) => entry.id === listing.id)!;
+    Object.assign(stored, { ownerReviewReason: "Private owner review", ownerReviewedBy: "private-reviewer", ownerReviewedAt: "private-review-time",
+      expirationEmailPendingAt: "private-email-queue", expirationEmailSentAt: "private-email-time", activeTradeRequestId: "private-other-trade",
+      lockedAt: "private-lock-time", blockingReason: "Private internal reason", futurePrivateField: "future-secret" });
+    invalidateAlphaExchangeStoreCache();
+    const publicListing = (await getMarketplaceListings("active", undefined, BUYER_ID)).find((entry) => entry.id === listing.id)!;
+    expect(publicListing).toMatchObject({ id: listing.id, availableAmount: "1000", price: "3.60" });
+    for (const key of ["ownerReviewReason", "ownerReviewedBy", "ownerReviewedAt", "expirationEmailPendingAt", "expirationEmailSentAt", "activeTradeRequestId", "lockedAt", "blockingReason", "futurePrivateField", "bankAccountId"]) expect(publicListing).not.toHaveProperty(key);
+    expect(JSON.stringify(publicListing)).not.toMatch(/Private owner review|private-reviewer|private-other-trade|future-secret/);
+  });
+
+  it("keeps commissions, audit logs, trade activity and review trade identifiers out of public seller profiles", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "250",
+      buyerName: "Buyer", buyerWhatsapp: "+972500000000", buyerNotes: "",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+    });
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    db.users.find((entry) => entry.id === SELLER_ID)!.lifetimeCompletedVolumeUsdt = 12345.67;
+    const stored = db.purchaseRequests.find((entry) => entry.id === request.id)!;
+    stored.status = "completed";
+    stored.completedAt = new Date().toISOString();
+    stored.buyerReview = { reviewerUserId: BUYER_ID, rating: 5, comment: "Excellent service.", createdAt: stored.completedAt };
+    stored.sellerResponse = { responderUserId: SELLER_ID, message: "Thank you.", createdAt: stored.completedAt };
+    db.commissionRecords.push({ id: "private-commission", sellerId: SELLER_ID, purchaseRequestId: request.id, listingId: listing.id,
+      buyerId: BUYER_ID, rate: 0.02, grossAmount: 250, commissionAmount: 5, paymentStatus: "paid",
+      dueAt: stored.completedAt, createdAt: stored.completedAt, updatedAt: stored.completedAt });
+    db.auditLogs.push({ id: "private-audit", action: "listing_renewed", targetUserId: SELLER_ID, actorUserId: SELLER_ID,
+      details: "Private seller audit details", createdAt: stored.completedAt } as AuditLogEntry);
+    db.trustScoreHistory.push({ id: "private-trust-history", sellerId: SELLER_ID, oldScore: 60, newScore: 70, createdAt: stored.completedAt } as never);
+    invalidateAlphaExchangeStoreCache();
+
+    for (const viewer of [
+      {}, { viewerUserId: BUYER_ID }, { viewerUserId: SELLER_TWO_ID }, { viewerUserId: OWNER_ID },
+      { viewerUserId: BUYER_ID, viewerRole: "owner" as const, viewerEmail: "jozenmark834@yahoo.com", includePrivateData: true },
+      { viewerUserId: SELLER_TWO_ID, includePrivateData: true },
+    ]) {
+      const profile = await getPremiumSellerProfile({ sellerId: SELLER_ID, ...viewer });
+      expect(profile).not.toHaveProperty("ownerTools");
+      expect(profile?.recentActivity).toEqual([]);
+      expect(profile?.commissionPaid).toBeUndefined();
+      expect(profile?.latestReviews[0]).toMatchObject({ tradeId: "", buyerId: expect.stringMatching(/^AT-/), comment: "Excellent service." });
+      expect(profile?.latestReviews[0].sellerResponse?.responderUserId).toMatch(/^AT-/);
+      for (const secret of [request.id, request.tradeId!, "private-commission", "private-audit", "Private seller audit details", "private-trust-history", BUYER_ID]) {
+        expect(JSON.stringify(profile)).not.toContain(secret);
+      }
+    }
+    const own = await getPremiumSellerProfile({ sellerId: SELLER_ID, viewerUserId: SELLER_ID });
+    expect(own?.tradeVolume).toBe(12345.67);
+    expect(own?.latestReviews[0].tradeId).toBe(request.tradeId);
+    expect(own).not.toHaveProperty("ownerTools");
+    const owner = await getPremiumSellerProfile({ sellerId: SELLER_ID, viewerUserId: OWNER_ID, includePrivateData: true });
+    expect(owner?.ownerTools?.commissionHistory).toContainEqual(expect.objectContaining({ id: "private-commission" }));
+    expect(owner?.ownerTools?.auditHistory).toContainEqual(expect.objectContaining({ id: "private-audit" }));
+    db.users.find((entry) => entry.id === OWNER_ID)!.disabled = true;
+    invalidateAlphaExchangeStoreCache();
+    expect(await getPremiumSellerProfile({ sellerId: SELLER_ID, viewerUserId: OWNER_ID, includePrivateData: true })).not.toHaveProperty("ownerTools");
+  });
+
+  it("isolates seller commissions and trade rooms and hides private pending-listing counts", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "250",
+      buyerName: "Buyer", buyerWhatsapp: "+972500000000", buyerNotes: "",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+    });
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const now = new Date().toISOString();
+    db.commissionRecords.push({ id: "other-seller-commission", sellerId: SELLER_TWO_ID, rate: 0,
+      grossAmount: 0, commissionAmount: 9, paymentStatus: "pending", dueAt: now, createdAt: now, updatedAt: now } as never);
+    db.marketplaceListings.push({ ...db.marketplaceListings[0], id: "private-pending-listing", status: "draft", approvalStatus: "pending" });
+    invalidateAlphaExchangeStoreCache();
+    const status = await getSellerCommissionStatus(SELLER_ID, db, { commissionId: "other-seller-commission" });
+    expect(status.payableRecords).toEqual([]);
+    expect(JSON.stringify(status)).not.toContain("other-seller-commission");
+    expect((await getSellerCommissionStatus(SELLER_TWO_ID, db)).payableRecords).toHaveLength(1);
+    expect(await getMyPurchaseRequests(SELLER_TWO_ID, "approved_seller", db)).toEqual([]);
+    await expect(getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_TWO_ID, actorRole: "approved_seller", markMessagesRead: false })).rejects.toThrow();
+    expect((await getPublicUserProfileById({ userId: SELLER_ID, viewerUserId: BUYER_ID }))?.stats?.pendingListings).toBe(0);
+    expect((await getPublicUserProfileById({ userId: SELLER_ID, viewerUserId: SELLER_ID }))?.stats?.pendingListings).toBeGreaterThan(0);
+  });
+
+  it("public reviews never reveal another trade's amount, network, reference or buyer identity", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "250",
+      buyerName: "Buyer", buyerWhatsapp: "+972500000000", buyerNotes: "",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+    });
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const stored = db.purchaseRequests.find((entry) => entry.id === request.id)!;
+    stored.status = "completed";
+    stored.completedAt = new Date().toISOString();
+    stored.buyerReview = { reviewerUserId: BUYER_ID, rating: 5, comment: "Excellent service.", createdAt: stored.completedAt };
+    invalidateAlphaExchangeStoreCache();
+    for (const actor of [{}, { actorUserId: SELLER_TWO_ID }, { actorUserId: SELLER_TWO_ID, actorRole: "owner" as const }]) {
+      const reviews = await getSellerReviews({ sellerId: SELLER_ID, ...actor });
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0]).toMatchObject({ tradeId: "", tradeAmount: "", network: "", buyerId: expect.stringMatching(/^AT-/), verifiedTrade: true });
+      expect(JSON.stringify(reviews)).not.toContain(request.id);
+      expect(JSON.stringify(reviews)).not.toContain(BUYER_ID);
+      expect(JSON.stringify(reviews)).not.toContain(request.tradeId!);
+    }
+    expect((await getSellerReviews({ sellerId: SELLER_ID, actorUserId: BUYER_ID }))[0].tradeId).toBe(request.tradeId);
+    expect((await getSellerReviews({ sellerId: SELLER_ID, actorUserId: SELLER_ID }))[0].tradeAmount).toBe("250");
+    stored.buyerReview.hidden = true;
+    invalidateAlphaExchangeStoreCache();
+    expect(await getSellerReviews({ sellerId: SELLER_ID, actorUserId: SELLER_TWO_ID, actorRole: "owner" })).toEqual([]);
+  });
+
   it("keeps pause, resume, edit and removal usable on legacy partially sold listings", async () => {
     const listing = await createApprovedListing("7000", "3.30");
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
@@ -232,11 +432,11 @@ describe("listing accountability: reason + audit + reliability", () => {
       responseTime: "5 min",
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
-    })).rejects.toThrow(/new requests are blocked until all outstanding commission is verified as paid/i);
+    })).rejects.toThrow(/Pay all outstanding commission before accepting new trades/i);
     expect(canonical.marketplaceListings).toHaveLength(0);
   });
 
-  it("keeps a seller's listing visible with a canonical commission block after a cross-instance assignment", async () => {
+  it("keeps buyer requests available without exposing a cross-instance commission assignment", async () => {
     const listing = await createApprovedListing("1000", "3.60");
     const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 
@@ -259,10 +459,10 @@ describe("listing accountability: reason + audit + reliability", () => {
       updatedAt: now,
     });
 
-    expect((await getMarketplaceListings("active")).find((item) => item.id === listing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
+    expect((await getMarketplaceListings("active")).find((item) => item.id === listing.id)).toMatchObject({ id: listing.id, newRequestBlockReason: undefined });
   });
 
-  it("shows the commission block on visible public seller profile listings too", async () => {
+  it("keeps commission private on public seller profile listings too", async () => {
     const listing = await createApprovedListing("1000", "3.60");
     const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 
@@ -289,7 +489,7 @@ describe("listing accountability: reason + audit + reliability", () => {
       viewerRole: "buyer",
     });
     expect(routeData).not.toBeNull();
-    expect(routeData?.sellerListings.find((item) => item.id === listing.id)).toMatchObject({ newRequestBlockReason: "commission_due" });
+    expect(routeData?.sellerListings.find((item) => item.id === listing.id)).toMatchObject({ id: listing.id, newRequestBlockReason: undefined });
   });
 
   it("records reason + before/after when a listing price is edited", async () => {

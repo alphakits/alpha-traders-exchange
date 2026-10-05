@@ -7,16 +7,16 @@ import { getWalletAddressValidationError } from "@/lib/wallet-address";
 import { calculateCardlessUsdtAmount, calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 type Props = ComponentProps<typeof PurchaseListingDialog>;
 const noop = () => {};
-type HarnessProps = Partial<Pick<Props, "locale" | "selectedMinTrade" | "selectedMaxTrade" | "selectedPrice" | "selectedPaymentMethod" | "priceMode" | "onClose" | "onSubmit" | "isSubmittingPurchase">> & { initialBuyerInfo?: Partial<Props["buyerInfo"]> };
-function Harness({ locale = "en", selectedMinTrade = 10, selectedMaxTrade = 1000, selectedPrice = 3.2, selectedPaymentMethod = "Cardless ATM Withdrawal", priceMode = "listing_price", onClose = noop, onSubmit = noop, isSubmittingPurchase = false, initialBuyerInfo = {} }: HarnessProps) {
+type HarnessProps = Partial<Pick<Props, "locale" | "sellerProfileData" | "selectedMinTrade" | "selectedMaxTrade" | "selectedPrice" | "selectedPaymentMethod" | "priceMode" | "onClose" | "onSubmit" | "isSubmittingPurchase">> & { initialBuyerInfo?: Partial<Props["buyerInfo"]> };
+function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 10, selectedMaxTrade = 1000, selectedPrice = 3.2, selectedPaymentMethod = "Cardless ATM Withdrawal", priceMode = "listing_price", onClose = noop, onSubmit = noop, isSubmittingPurchase = false, initialBuyerInfo = {} }: HarnessProps) {
   const [buyerInfo, setBuyerInfo] = useState<Props["buyerInfo"]>({ usdtAmount: "125", receivingNetwork: "TRC20", receivingWalletAddress: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8", cardlessVerificationKind: "date_of_birth", ...initialBuyerInfo });
   const [offeredPrice, setOfferedPrice] = useState("3.20");
   const price = priceMode === "buyer_offer" ? Number(offeredPrice) : selectedPrice;
   const amount = Number(buyerInfo.usdtAmount);
   const invalid = Boolean(getWalletAddressValidationError(buyerInfo.receivingNetwork!, buyerInfo.receivingWalletAddress));
   return <PurchaseListingDialog locale={locale} listing={{ id: "test", sellerId: "seller", sellerDisplayName: "Seller", bankName: "Bank Hapoalim, Bank Leumi", network: "TRC20" } as Props["listing"]}
-    sellerProfileData={null} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={Number(calculateFiatAmount(String(amount), price.toFixed(2)) ?? 0)} estimatedBuyerFee={Number(calculateTradeBuyerFiatFee(String(amount), price.toFixed(2)) ?? 0)} estimatedTotal={Number(calculateTradePaymentTotal(String(amount), price.toFixed(2), true) ?? 0)}
-    isOwnerViewer={false} isOwnerProfileActionLoading={false} purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
+    sellerProfileData={sellerProfileData} isSellerProfileLoading={false} selectedAmount={selectedMaxTrade} selectedPrice={selectedPrice} estimatedTradeValue={Number(calculateFiatAmount(String(amount), price.toFixed(2)) ?? 0)} estimatedBuyerFee={Number(calculateTradeBuyerFiatFee(String(amount), price.toFixed(2)) ?? 0)} estimatedTotal={Number(calculateTradePaymentTotal(String(amount), price.toFixed(2), true) ?? 0)}
+    purchaseSubmitted={false} buyerInfo={buyerInfo} onBuyerDetailsChange={(changes) => setBuyerInfo((current) => ({ ...current, ...changes }))}
     selectedPaymentMethods={[selectedPaymentMethod!]} selectedPaymentMethod={selectedPaymentMethod} buyerTradeAmount={amount} selectedMinTrade={selectedMinTrade} selectedMaxTrade={selectedMaxTrade} buyerTradeAmountInvalid={amount <= 0 || amount < selectedMinTrade || amount > selectedMaxTrade}
     buyerWalletValidationError={null} buyerWalletInvalid={invalid} priceMode={priceMode} offeredPrice={offeredPrice} minimumOfferedPrice="2.85" offerPriceInvalid={price < 2.85} offeredTradePrice={Number(offeredPrice)}
     requiresSafetyNotice={false} safetyAcknowledged={false} showVerificationCta={false} isRedirectingToVerification={false} statusMessage={null} isSubmittingPurchase={isSubmittingPurchase}
@@ -25,7 +25,7 @@ function Harness({ locale = "en", selectedMinTrade = 10, selectedMaxTrade = 1000
       setOfferedPrice(value);
       setBuyerInfo((current) => ({ ...current, usdtAmount: calculateCardlessUsdtAmount(current.cardlessIlsAmount ?? "", value, true) ?? "" }));
     }} onSafetyAcknowledgedChange={noop} onGoToVerification={noop}
-    onOwnerSellerProfileState={noop} onOwnerSuspendSeller={noop} formatIls={(value) => String(value)} localizedAuditAction={String} paymentMethodEmoji={() => ""} paymentMethodLabel={String} sellerLevelToneKey={() => "bronze"} tradeStatusLabel={String} />;
+    formatIls={(value) => String(value)} paymentMethodEmoji={() => ""} paymentMethodLabel={String} sellerLevelToneKey={() => "bronze"} />;
 }
 const preparedBankCode = { cardlessBankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationValue: "1995-08-25" };
 afterEach(cleanup);
@@ -169,5 +169,24 @@ describe("cardless listing limits and escape", () => {
     fireEvent.click(cancel);
     fireEvent.click(x);
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("purchase dialog seller privacy", () => {
+  it.each(["en", "ar"] as const)("never renders private histories or management controls in %s, even with a stale privileged payload", (locale) => {
+    const privatePayload = {
+      sellerId: "seller", sellerLevel: "bronze", trustScore: 75, completedTrades: 12, averageRating: 5, responseTimeMinutes: 4,
+      profile: { sellerId: "seller", sellerName: "AT-123456", onlineStatus: "offline", profilePhotoUrl: "" },
+      ownerTools: {
+        auditHistory: [{ id: "private-audit", action: "listing_renewed", createdAt: "2026-10-04" }],
+        commissionHistory: [{ id: "private-commission", commissionAmount: 987.65, createdAt: "2026-10-04" }],
+        tradeHistory: [{ id: "private-trade", tradeId: "TR-000151", status: "cancelled" }],
+      },
+    } as Props["sellerProfileData"];
+    render(<Harness locale={locale} sellerProfileData={privatePayload} />);
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/987\.65|TR-000151|Recent Commission|Commission History|Audit History|Recent Trades|أحدث العمولات|سجل العمولات|سجل التدقيق|أحدث الصفقات/);
+    expect(screen.queryByRole("button", { name: /Feature Seller|Unfeature Seller|Hide Seller|Suspend Seller|تعليق البائع/ })).toBeNull();
+    expect(screen.getByLabelText(locale === "en" ? /USDT Amount/ : /كمية USDT/)).toBeTruthy();
   });
 });

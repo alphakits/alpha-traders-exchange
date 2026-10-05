@@ -1,0 +1,47 @@
+appId: com.alphakits.alphatraders
+name: Arabic footer and canonical commission terms
+---
+# EAS can briefly lose its emulator transport during the first launch.
+# Retry only app startup; navigation and business assertions run once.
+- retry:
+    maxRetries: 2
+    commands:
+      - launchApp:
+          clearState: true
+- extendedWaitUntil:
+    visible: "Open menu|فتح القائمة"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Switch to Arabic|العربية"
+    commands:
+      - tapOn: "Switch to Arabic|العربية"
+- extendedWaitUntil:
+    visible: "فتح القائمة"
+    timeout: 60000
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*قانوني.*"
+- tapOn: ".*قانوني.*"
+# Bring expanded links into the touch viewport before selecting one.
+- swipe:
+    start: "50%, 80%"
+    end: "50%, 45%"
+    duration: 800
+    waitToSettleTimeoutMs: 500
+- takeScreenshot: footer-legal-open-ar
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*الشروط.*"
+- tapOn: ".*الشروط.*"
+- extendedWaitUntil:
+    visible: "الشروط والأحكام"
+    timeout: 60000
+- runFlow:
+    file: ../.maestro-helpers/scroll-to-text.yml
+    env:
+      TARGET_TEXT: ".*1%.*المشتري.*1%.*البائع.*2%.*"
+- assertVisible: ".*1%.*المشتري.*1%.*البائع.*2%.*"
+- takeScreenshot: terms-ar

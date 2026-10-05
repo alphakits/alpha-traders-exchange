@@ -22,6 +22,77 @@ describe("GuestOnboarding canonical session refresh", () => {
     mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh });
   });
 
+  it("does not offer buyer activation or guest mode to an existing buyer", () => {
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "buyer", roles: ["buyer"], sellerStatus: "buyer" } });
+    render(<GuestOnboarding locale="en" phoneVerificationEnabled />);
+    expect(screen.getByRole("heading", { name: "Buyer access" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Become a Buyer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue as Buyer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue as Guest" })).toBeNull();
+  });
+
+  it("lets an existing student continue learning without activating the same role", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "student", roles: ["student"], sellerStatus: "buyer" } });
+    render(<GuestOnboarding locale="en" phoneVerificationEnabled />);
+    expect(screen.getByRole("heading", { name: "Become a Buyer" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Become a Student" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue as Guest" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Continue learning" }));
+    expect(mocks.replace).toHaveBeenCalledWith("/academy");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves both active roles for a buyer who is also a student", () => {
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "buyer", roles: ["buyer", "student"], sellerStatus: "buyer" } });
+    render(<GuestOnboarding locale="en" phoneVerificationEnabled />);
+    expect(screen.getByRole("button", { name: "Open buyer workspace" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue learning" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue as Buyer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Become a Student" })).toBeNull();
+  });
+
+  it("uses the current guest role over stale buyer props", () => {
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "guest", roles: ["guest"], sellerStatus: "buyer" } });
+    render(<GuestOnboarding locale="ar" isBuyer isStudent phoneVerificationEnabled />);
+    expect(screen.getByRole("heading", { name: "كن مشتريًا" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "تفعيل دور الطالب" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "صلاحية المشتري" })).toBeNull();
+  });
+
+  it.each(["pending_seller_approval", "suspended"])("does not offer a fresh seller application to a %s account", sellerStatus => {
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "buyer", roles: ["buyer"], sellerStatus } });
+    render(<GuestOnboarding locale="en" phoneVerificationEnabled />);
+    const seller = within(screen.getByRole("heading", { name: "Seller account" }).closest("article")!);
+    expect(seller.queryAllByRole("textbox")).toHaveLength(0);
+    if (sellerStatus === "suspended") {
+      expect(seller.getByText(/New listings are paused/)).toBeTruthy();
+      fireEvent.click(seller.getByRole("button", { name: "Open seller dashboard" }));
+      expect(mocks.replace).toHaveBeenCalledWith("/dashboard/seller");
+    } else expect(seller.getByText("Your application is under review.")).toBeTruthy();
+  });
+
+  it("shows administration access when roles change while setup is open", () => {
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "buyer", roles: ["buyer"], sellerStatus: "buyer" } });
+    const page = render(<GuestOnboarding locale="en" isBuyer phoneVerificationEnabled />);
+    mocks.useOptionalCanonicalSession.mockReturnValue({ refresh: mocks.refresh, user: { role: "owner", roles: ["owner"], sellerStatus: "buyer" } });
+    page.rerender(<GuestOnboarding locale="en" isBuyer phoneVerificationEnabled />);
+    expect(screen.queryByRole("heading", { name: "Buyer access" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Become a Student" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open dashboard" }));
+    expect(mocks.replace).toHaveBeenCalledWith("/admin/alpha-exchange");
+  });
+
+  it.each([true, false])("explains phone verification according to the enabled setting %s", phoneVerificationEnabled => {
+    render(<GuestOnboarding locale="en" phoneVerificationEnabled={phoneVerificationEnabled} />);
+    const buyer = within(screen.getByRole("heading", { name: "Become a Buyer" }).closest("article")!);
+    if (phoneVerificationEnabled) {
+      expect(buyer.queryByText(/Phone verification is off/)).toBeNull();
+      expect(buyer.getByText(/Verify your phone before using Alpha Exchange/)).toBeTruthy();
+    } else expect(buyer.getByText(/Phone verification is off/)).toBeTruthy();
+  });
+
   it("refreshes the canonical session before navigating after buyer activation", async () => {
     const sequence: string[] = [];
     mocks.refresh.mockImplementation(async () => { sequence.push("refresh"); });

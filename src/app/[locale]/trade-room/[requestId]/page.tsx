@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { getInterfacePageDestination } from "@alpha-traders/contracts";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { TradeRoomPage } from "@/components/sections/trade-room/trade-room-page";
 
@@ -42,6 +43,9 @@ export default async function TradeRoomRoute({
     });
     redirect(`/${locale}/login?redirectTo=${encodeURIComponent(returnTo)}`);
   }
+
+  const destination = getInterfacePageDestination(user, returnTo, locale === "ar" ? "ar" : "en");
+  if (destination) redirect(destination);
 
   return (
     <TradeRoomPage

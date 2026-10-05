@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
+import type { MarketSnapshot } from "../src/types/market";
 
 const scrypt = promisify(scryptCb);
 const H = { "x-alpha-test-support": "enabled" };
@@ -206,27 +207,48 @@ test.describe("Marketplace Pulse", () => {
   const summaryMetricValue = (page: Page, label: string) =>
     page.locator("p", { hasText: label }).first().locator("xpath=following-sibling::p[1]");
 
-  test("tiles reflect the real pulse API; no fabricated/placeholder values", async ({ page }) => {
+  test("tiles match actual market data and disclose its live or degraded status", async ({ page }) => {
+    const seller = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+    try {
+      await login(seller, sellerEmail, sellerPassword);
+      expect((await seller.post("/api/alpha-exchange/presence", { data: { clientId: randomUUID(), sequence: 1, active: true, activity: true } })).ok()).toBe(true);
+    } finally {
+      await seller.dispose();
+    }
     await login(page.request, buyer!.email, buyer!.password);
     const api = await (await page.request.get("/api/alpha-exchange/marketplace-pulse")).json() as {
       sellersOnline: number; buyersOnline: number; activeTrades: number; activeListings: number;
       totalUsdtAvailable: number; completedTrades: number; lastCompletedTrade: { network: string } | null; recentActivity: unknown[];
     };
     expect(api.activeListings).toBeGreaterThanOrEqual(6);
-    // Only PV Online has an active listing and fresh presence. Other sellers
-    // may legitimately expire from presence during this sequential suite.
+    // An authenticated heartbeat above establishes fresh presence without
+    // depending on the order of earlier cases in this sequential suite.
     expect(api.sellersOnline).toBeGreaterThanOrEqual(1);
     expect(api.activeTrades).toBeGreaterThanOrEqual(1);
     expect(api.completedTrades).toBeGreaterThanOrEqual(1);
     expect(api.lastCompletedTrade).not.toBeNull();
     expect(api.recentActivity.length).toBeGreaterThan(0);
 
+    // Bind this rendering check to one real backend snapshot. Live refreshes
+    // may legitimately change a price while the sequential tile assertions run.
+    const marketResponse = await page.request.get("/api/market/center");
+    expect(marketResponse.ok()).toBe(true);
+    const marketPayload = await marketResponse.json() as { snapshot: MarketSnapshot };
+    await page.route("**/api/market/center", route => route.fulfill({ json: marketPayload }));
     await gotoMarketplace(page);
+    const { snapshot } = marketPayload;
+    expect(["live", "degraded"]).toContain(snapshot.status);
     const overview = page.locator("#market-overview");
-    await expect(overview.getByText(/^live$/i).first()).toBeVisible({ timeout: 20000 });
-    await expect(overview.getByText("USDT / ILS", { exact: true })).toBeVisible();
-    await expect(overview.getByText("BTC / USDT", { exact: true })).toBeVisible();
-    await expect(overview.getByText("ETH / USDT", { exact: true })).toBeVisible();
+    await expect(overview.getByText(snapshot.status === "live" ? "LIVE" : "Degraded", { exact: true }).first()).toBeVisible({ timeout: 20000 });
+    if (snapshot.status === "degraded") await expect(overview.getByText("LIVE", { exact: true })).toHaveCount(0);
+    for (const pair of Object.values(snapshot.pairs)) {
+      expect(Number.isFinite(pair.price) && pair.price > 0).toBe(true);
+      const tile = overview.getByRole("article").filter({ has: page.getByText(pair.label, { exact: true }) });
+      const expectedPrice = `${pair.key === "usdtIls" ? "₪" : "$"}${new Intl.NumberFormat(pair.key === "usdtIls" ? "en-IL" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pair.price)}`;
+      await expect(tile.getByText(expectedPrice, { exact: true })).toBeVisible();
+      const expectedChange = pair.changePercent === null ? "--" : `${pair.changePercent > 0 ? "+" : ""}${pair.changePercent.toFixed(2)}%`;
+      await expect(tile.getByText(expectedChange, { exact: true })).toBeVisible();
+    }
   });
 
   test("pulse reflects real backend changes (delta)", async ({ page }) => {

@@ -10,3 +10,4 @@ export * from "./user-presence";
 export * from "./trade-chat";
 
 export * from "./marketplace-fees";
+export * from "./interface-access";

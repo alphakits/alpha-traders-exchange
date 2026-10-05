@@ -1,4 +1,4 @@
-import { act, cleanup, configure, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
@@ -398,9 +398,9 @@ describe("seller commission Pay Now", () => {
     );
 
     const createListing = document.getElementById("create-listing");
-    expect(createListing).not.toBeNull();
-    expect(createListing?.textContent).toContain("Your seller account is suspended");
-    expect((within(createListing!).getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(createListing).toBeNull();
+    expect(screen.queryByRole("button", { name: "Submit Listing" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create Listing" })).toBeNull();
   });
 
   it("reacts to a commission reminder routed onto an already-mounted exchange page", async () => {

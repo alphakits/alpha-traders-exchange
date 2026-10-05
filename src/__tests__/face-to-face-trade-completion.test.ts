@@ -258,7 +258,7 @@ describe("guided cash-trade completion", () => {
       await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
       await expect(updatePurchaseRequestStatus({ requestId: ids[3], actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "commission-due" });
       cards = await getMarketplaceListings("active", currentSnapshot());
-      expect(cards.find(card => card.id === listingId)?.newRequestBlockReason).toBe("commission_due");
+      expect(cards.find(card => card.id === listingId)?.newRequestBlockReason).toBeUndefined();
     }
     expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)).toMatchObject({ availableAmount: "700", status: "active", activeTradeRequestId: undefined });
     expect(currentSnapshot().commissionRecords).toHaveLength(3);

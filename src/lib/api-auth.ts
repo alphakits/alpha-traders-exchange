@@ -61,7 +61,7 @@ export async function requireApiUser() {
   return { user, unauthorized: null };
 }
 
-export function hasPhoneVerification(user: { email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
+export function hasPhoneVerification(user: { id?: string; disabled?: boolean; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
   return isVerified(user);
 }
 
@@ -91,7 +91,7 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
 }
 
 /**
- * Production actions require a canonically verified phone for every account.
+ * Production actions require a verified phone or an exact owner-authorized account.
  * Local fixture switches cannot disable this boundary on a deployed host.
  */
 export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {

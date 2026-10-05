@@ -84,7 +84,7 @@ for (const width of [320, 390, 1280]) {
     await expect(page.getByRole("heading", { name: "Connected Accounts" })).toBeVisible();
     await expect(page.getByText("@alpha_user")).toBeVisible();
     await page.getByRole("button", { name: "Disconnect" }).click();
-    await expect(page.getByText(/removes managed seller roles/i)).toBeVisible();
+    await expect(page.getByText(/removes your managed community roles/i)).toBeVisible();
     await page.getByRole("button", { name: "Confirm disconnect" }).click();
     await expect(page.getByText(
       "Discord is not connected to this account. Refresh and try again.",

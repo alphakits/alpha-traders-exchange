@@ -4,7 +4,7 @@ import { toAdminSellerSummary, toAdminUserSummary, toClientSessionUser } from "@
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
 describe("toClientSessionUser", () => {
-  it("never exempts an account or fabricates a verified phone", () => {
+  it("does not exempt an unrelated account or fabricate a verified phone", () => {
     const account = { id: "exempt", role: "buyer", sellerStatus: "buyer", email: "Alphatradersai@gmail.com" } as AlphaExchangeUser;
     expect(toClientSessionUser(account)).toMatchObject({ phoneVerificationExempt: false, isPhotoVerified: false });
     const ordinary = { ...account, email: "other@example.test", role: "admin" as const };

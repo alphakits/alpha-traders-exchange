@@ -14,6 +14,13 @@ function request(path: string, cookie = "") {
 }
 
 describe("English default and explicit language choices", () => {
+  it.each(["", `${LOCALE_CHOICE_COOKIE}=ar`, `${LOCALE_CHOICE_COOKIE}=en`])("keeps the bilingual offline recovery route outside locale redirects (%s)", async (cookie) => {
+    const response = await middleware(request("/offline", cookie));
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-request-x-next-intl-locale")).toBeNull();
+  });
+
   it.each(["", "NEXT_LOCALE=ar", `${LOCALE_CHOICE_COOKIE}=invalid`])("opens English without an explicit language choice (%s)", async (cookie) => {
     const response = (await middleware(request("/", cookie)));
     expect(response.headers.get("location")).toBe(`${origin}/en`);

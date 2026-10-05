@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useLocale } from "next-intl";
 import { CalendarClock, CheckCircle2, Clock3, FileText, PlayCircle } from "lucide-react";
 import { getLessonBySlug, lessons } from "@/lib/content";
-import { getDashboardSnapshot, getLearningMeta } from "@/lib/learning-progress";
+import { getDashboardSnapshot, getLearningMeta, getLessonProgressState } from "@/lib/learning-progress";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -21,9 +21,12 @@ export function StudentDashboard() {
     recentNotes: [],
   });
   const [meta, setMeta] = useState<ReturnType<typeof getLearningMeta> | null>(null);
+  const [currentProgress, setCurrentProgress] = useState<ReturnType<typeof getLessonProgressState> | null>(null);
   useEffect(() => {
-    setSnapshot(getDashboardSnapshot(lessons));
+    const next = getDashboardSnapshot(lessons);
+    setSnapshot(next);
     setMeta(getLearningMeta());
+    if (next.currentLesson) setCurrentProgress(getLessonProgressState(next.currentLesson.id, next.currentLesson.courseId, next.currentLesson.slug));
   }, []);
   const overallProgress = lessons.length ? Math.round((snapshot.completedLessons / lessons.length) * 100) : 0;
   const lastLesson = meta?.lastLessonSlug ? getLessonBySlug(meta.lastLessonSlug) : undefined;
@@ -46,13 +49,16 @@ export function StudentDashboard() {
               {snapshot.currentLesson ? (isAr ? snapshot.currentLesson.titleAr : snapshot.currentLesson.title) : isAr ? "لا يوجد" : "No lesson"}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             {snapshot.currentLesson ? (
               <Link href={`/lessons/${snapshot.currentLesson.slug}`} className="inline-flex items-center gap-2 text-sm text-[#C9A227] hover:underline">
                 <PlayCircle className="h-4 w-4" />
                 {isAr ? "متابعة التعلم" : "Continue Learning"}
               </Link>
             ) : null}
+            {currentProgress && Number.isFinite(currentProgress.videoPositionSeconds) && currentProgress.videoPositionSeconds > 0 ? <p className="text-xs text-[#9CA3AF]">{isAr ? "موضع الفيديو المحفوظ" : "Saved video position"}: <bdi dir="ltr">{Math.floor(currentProgress.videoPositionSeconds / 60)}:{String(Math.floor(currentProgress.videoPositionSeconds % 60)).padStart(2, "0")}</bdi></p> : null}
+            {snapshot.currentLesson?.quiz.length ? <Link href={`/lessons/${snapshot.currentLesson.slug}#lesson-quiz`} className="inline-flex min-h-11 items-center rounded-xl border border-[#C9A227]/30 px-3 text-sm text-[#D4AF37]">{isAr ? "اختبر فهمك" : "Check your understanding"} · {snapshot.currentLesson.quiz.length} {isAr ? "أسئلة" : "questions"}</Link> : null}
+            <p className="text-xs text-[#9CA3AF]">{isAr ? "موضع الفيديو والملاحظات والتقدم محفوظة في هذا المتصفح." : "Video position, notes and learning progress are saved in this browser."}</p>
           </CardContent>
         </Card>
 

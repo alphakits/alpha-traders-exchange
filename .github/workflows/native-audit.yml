@@ -1,0 +1,148 @@
+name: Native App Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/native-audit-*]
+    paths:
+      - .github/workflows/native-audit.yml
+      - apps/mobile/**
+      - packages/**
+      - scripts/patch-dependency-security.mjs
+      - patches/**
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-audit-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  native-emulators:
+    name: Android and iOS installed app verification
+    if: ${{ !contains(github.event.head_commit.message, '[ios-only]') && !contains(github.event.head_commit.message, '[maestro-only]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Require existing Expo access
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - run: npm run mobile:typecheck
+      - run: npm run mobile:doctor
+      - name: Build standalone apps and wait for native UI results
+        working-directory: apps/mobile
+        run: eas workflow:run .eas/workflows/native-audit.yml --ref "$GITHUB_SHA" --non-interactive --wait --json > native-audit-result.json
+      - name: Preserve native workflow result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-audit-result
+          path: apps/mobile/native-audit-result.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  signed-ios:
+    name: Signed iOS release candidate
+    if: ${{ !contains(github.event.head_commit.message, '[native-only]') && !contains(github.event.head_commit.message, '[maestro-only]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Require existing Expo access
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - run: npm run mobile:typecheck
+      - name: Build signed iOS release candidate with existing credentials
+        working-directory: apps/mobile
+        run: eas build --platform ios --profile production --non-interactive --wait --json > signed-ios-result.json
+      - name: Preserve signed build result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-ios-result
+          path: apps/mobile/signed-ios-result.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  native-ui-recheck:
+    name: Verify unchanged binaries against the published website
+    if: ${{ contains(github.event.head_commit.message, '[maestro-only]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Locate completed Android and iOS simulator binaries
+        working-directory: apps/mobile
+        run: |
+          eas build:list --platform android --status finished --build-profile preview --limit 10 --non-interactive --json > ../../android-audit-builds.json
+          eas build:list --platform ios --status finished --build-profile audit-simulator --limit 10 --non-interactive --json > ../../ios-audit-builds.json
+      - name: Require matching native source and locked dependencies
+        id: builds
+        run: node scripts/resolve-native-audit-builds.mjs
+      - name: Wait for the browser recovery and accessible menu release
+        run: |
+          node --input-type=module <<'JS'
+          const deadline = Date.now() + 45 * 60_000;
+          let ready = false;
+          while (Date.now() < deadline) {
+            try {
+              const response = await fetch('https://www.alphatraders.co.il/en', { cache: 'no-store', signal: AbortSignal.timeout(12_000) });
+              const html = await response.text();
+              if (response.ok && html.includes('id="alpha-browser-support"') && html.includes('summary aria-label="Open menu"')) { ready = true; break; }
+            } catch {}
+            await new Promise(resolve => setTimeout(resolve, 15_000));
+          }
+          if (!ready) throw new Error('The required public website release was not published within 45 minutes.');
+          console.log('The public website contains the browser recovery and accessible menu release.');
+          JS
+      - name: Run modern Android, iOS, and legacy Android recovery checks
+        working-directory: apps/mobile
+        env:
+          AUDIT_ANDROID_BUILD_ID: ${{ steps.builds.outputs.android_build_id }}
+          AUDIT_IOS_BUILD_ID: ${{ steps.builds.outputs.ios_build_id }}
+        run: eas workflow:run .eas/workflows/native-ui-recheck.yml --ref "$GITHUB_SHA" --input "android_build_id=$AUDIT_ANDROID_BUILD_ID" --input "ios_build_id=$AUDIT_IOS_BUILD_ID" --non-interactive --wait --json > native-audit-result.json
+      - name: Preserve native verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ui-recheck-result
+          path: |
+            apps/mobile/native-audit-result.json
+            native-audit-build-selection.json
+          if-no-files-found: ignore
+          retention-days: 14

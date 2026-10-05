@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   getItem: vi.fn(),
   setItem: vi.fn(),
   loadTokens: vi.fn(),
+  canOpenURL: vi.fn(),
+  openURL: vi.fn(),
   props: null as WebViewProps | null,
   launchReady: null as (() => void) | null,
 }));
@@ -22,7 +24,7 @@ vi.mock("react-native", () => ({
   Pressable: ({ children }: PropsWithChildren) => children,
   AppState: { currentState: "active", addEventListener: () => ({ remove: vi.fn() }) },
   BackHandler: { addEventListener: () => ({ remove: vi.fn() }) },
-  Linking: {},
+  Linking: { canOpenURL: mocks.canOpenURL, openURL: mocks.openURL },
   Platform: { OS: "ios" },
   StyleSheet: { create: (styles: unknown) => styles },
 }));
@@ -77,10 +79,28 @@ beforeEach(() => {
   mocks.values.set("alpha.mobile.website.session-migrated.v1", "1");
   mocks.getItem.mockImplementation(async (key: string) => mocks.values.get(key) ?? null);
   mocks.setItem.mockImplementation(async (key: string, value: string) => { mocks.values.set(key, value); });
+  mocks.canOpenURL.mockResolvedValue(true);
+  mocks.openURL.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
 
 describe("active mobile website shell language", () => {
+  it("keeps iframe loads inside the frame-aware handler and opens only deliberate external navigation", async () => {
+    render(<WebsiteAppShell />);
+    await waitFor(() => expect(mocks.props).not.toBeNull());
+    expect(mocks.props?.originWhitelist).toEqual(["*"]);
+    const decide = (url: string, isTopFrame?: boolean, navigationType?: string) =>
+      mocks.props?.onShouldStartLoadWithRequest?.({ url, isTopFrame, navigationType } as never);
+    expect(decide("https://s.tradingview.com/widgetembed/?symbol=ETHUSDT", false, "other")).toBe(true);
+    expect(decide("https://unknown.example.test/frame", false, "other")).toBe(false);
+    expect(decide("https://unknown.example.test/frame", true, "other")).toBe(false);
+    expect(decide("javascript:alert(1)", true, "click")).toBe(false);
+    expect(mocks.canOpenURL).not.toHaveBeenCalled();
+    expect(decide("https://www.alphatraders.co.il/en/contact")).toBe(true);
+    expect(decide("https://example.test/help", true, "click")).toBe(false);
+    await waitFor(() => expect(mocks.openURL).toHaveBeenCalledExactlyOnceWith("https://example.test/help"));
+  });
+
   it("reveals the animated native screen before web loading finishes, then removes it immediately", async () => {
     const ready = vi.fn();
     render(<WebsiteAppShell onNativeReady={ready} />);

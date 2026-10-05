@@ -4,7 +4,9 @@ import type { AlphaExchangeDb, CommissionRecord } from "@/types/alpha-exchange";
 export const CHECKOUT_ISSUED = "commission_checkout_issued_v1";
 export const CHECKOUT_SETTLED = "commission_checkout_settled_v1";
 export const CHECKOUT_ATTEMPT = "commission_checkout_attempt_v1";
+export const CHECKOUT_RECOVERY = "commission_checkout_receipt_recovery_v1";
 export const CHECKOUT_TOLERANCE = 1_000_000;
+export const CHECKOUT_TOLERANCE_ATTRIBUTION = "unambiguous_checkout_tolerance_v1";
 export type CheckoutNetwork = "TRC20" | "BEP20";
 export interface CommissionCheckout {
   id: string;
@@ -12,6 +14,8 @@ export interface CommissionCheckout {
   network: CheckoutNetwork;
   createdAt: string;
   expectedMicros: number;
+  /** An independently reserved whole-USDT overpayment option, issued before payment. */
+  roundedMicros?: number;
   requestedMicros: number;
   dueMicros: number;
   commissions: Array<{ id: string; dueMicros: number; createdAt: string }>;
@@ -74,6 +78,12 @@ export function getCommissionCheckouts(snapshot: AlphaExchangeDb): CommissionChe
       || Math.abs(Number(raw.requestedMicros) - Number(raw.dueMicros)) > CHECKOUT_TOLERANCE
       || !Number.isSafeInteger(raw.dueMicros) || Number(raw.dueMicros) <= 0
       || Math.abs(Number(raw.expectedMicros) - Number(raw.dueMicros)) > CHECKOUT_TOLERANCE
+      || (raw.roundedMicros !== undefined && (!Number.isSafeInteger(raw.roundedMicros)
+        || Number(raw.roundedMicros) !== Math.ceil(Number(raw.expectedMicros) / 1e6) * 1e6
+        || Number(raw.roundedMicros) <= Number(raw.expectedMicros)
+        || Number(raw.roundedMicros) < Number(raw.dueMicros)
+        || Number(raw.roundedMicros) - Number(raw.dueMicros) > CHECKOUT_TOLERANCE
+        || raw.expectedMicros !== raw.requestedMicros))
       || !Array.isArray(raw.commissions) || !raw.commissions.length || raw.commissions.length > 100) fail("invalid_saved_checkout");
     const checkout = raw as unknown as CommissionCheckout;
     const ids = new Set<string>();
@@ -121,18 +131,23 @@ function reservedReceipts(snapshot: AlphaExchangeDb) {
   }
   return used;
 }
-function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, random: number, currentIds: ReadonlySet<string>) {
-  if (Math.abs(desired - due) > CHECKOUT_TOLERANCE) fail("outside_tolerance");
-  const used = new Set(getCommissionCheckouts(snapshot).map((checkout) => checkout.expectedMicros));
+function reservedAmounts(snapshot: AlphaExchangeDb, currentIds: ReadonlySet<string>, includeHistoricalBase = true) {
+  const used = new Set(getCommissionCheckouts(snapshot).flatMap((checkout) => [checkout.expectedMicros, ...(checkout.roundedMicros ? [checkout.roundedMicros] : [])]));
   for (const record of snapshot.commissionRecords) {
     // The current group's base fee is not a separate payment reference. Reserving
     // it against itself forced a needless micro suffix even for a single fee.
     // Keep all earlier/other fees, actual legacy references, and checkout history
     // reserved so a different seller can never claim the same displayed amount.
-    for (const amount of [currentIds.has(record.id) ? undefined : record.commissionAmount, record.paymentExpectedAmount, ...(record.paymentReservedExpectedAmounts ?? [])]) {
+    for (const amount of [currentIds.has(record.id) || (!includeHistoricalBase && record.paymentExpectedAmountMode !== "legacy_base"
+      && record.paymentExpectedAmount !== undefined) ? undefined : record.commissionAmount, record.paymentExpectedAmount, ...(record.paymentReservedExpectedAmounts ?? [])]) {
       if (typeof amount === "number" && amount > 0) used.add(checkoutMicros(amount));
     }
   }
+  return used;
+}
+function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, random: number, currentIds: ReadonlySet<string>) {
+  if (Math.abs(desired - due) > CHECKOUT_TOLERANCE) fail("outside_tolerance");
+  const used = reservedAmounts(snapshot, currentIds);
   // Keep a requested rounded amount only when it is an unused pre-payment reference.
   // Collisions receive a visible micro suffix; never silently accept an arbitrary rounded deposit.
   if (!used.has(desired)) return desired;
@@ -148,12 +163,65 @@ function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, 
   }
   fail("payment_reference_unavailable");
 }
-export function allocateCheckout(checkout: CommissionCheckout) {
+function isIssuedReference(checkout: CommissionCheckout, amount: number) {
+  return amount === checkout.expectedMicros || amount === checkout.roundedMicros;
+}
+function recoveryEntries(snapshot: AlphaExchangeDb, checkout: CommissionCheckout) {
+  return entries(snapshot, CHECKOUT_RECOVERY).filter((entry) => object(entry.newValue)?.checkoutId === checkout.id);
+}
+/** The tolerance applies to the actual received amount, once for the whole group.
+ * Colliding references and explicit recovery grants retain their stricter binding. */
+function acceptsDeposit(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
+  if (isIssuedReference(checkout, deposit.amountMicros)) return true;
+  if (!Number.isSafeInteger(deposit.amountMicros) || deposit.amountMicros <= 0
+    || Math.abs(deposit.amountMicros - checkout.dueMicros) > CHECKOUT_TOLERANCE) return false;
+  const recoveries = recoveryEntries(snapshot, checkout);
+  if (!recoveries.length) return checkout.expectedMicros === checkout.requestedMicros;
+  return recoveries.some((entry) => {
+    const grant = object(entry.newValue);
+    const owner = snapshot.users.find((user) => user.id === entry.actorUserId);
+    return entry.id === `${checkout.id}:receipt-recovery` && entry.targetUserId === checkout.sellerId
+      && owner && !owner.disabled && (owner.role === "owner" || owner.roles?.includes("owner"))
+      && grant?.checkoutId === checkout.id && grant.network === checkout.network
+      && grant.amountMicros === deposit.amountMicros && Number.isSafeInteger(grant.timestamp)
+      && Number.isSafeInteger(grant.timestampToleranceMs) && Number(grant.timestampToleranceMs) >= 0
+      && Number(grant.timestampToleranceMs) <= 60_000
+      && Math.abs(deposit.timestamp - Number(grant.timestamp)) <= Number(grant.timestampToleranceMs);
+  });
+}
+function receiptAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
+  return isIssuedReference(checkout, deposit.amountMicros) ? "seller_preissued_payment_reference"
+    : recoveryEntries(snapshot, checkout).length ? "owner_confirmed_received_deposit" : CHECKOUT_TOLERANCE_ATTRIBUTION;
+}
+function assertToleranceAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
+  if (receiptAttribution(snapshot, checkout, deposit) !== CHECKOUT_TOLERANCE_ATTRIBUTION) return;
+  // Retain historical checkout contenders: settling one first must never turn an
+  // ambiguous deposit into an apparent match for another seller on the next scan.
+  const otherCheckout = getCommissionCheckouts(snapshot).some((other) => other.id !== checkout.id
+    && other.network === checkout.network && Date.parse(other.createdAt) <= deposit.timestamp
+    && Math.abs(other.dueMicros - deposit.amountMicros) <= CHECKOUT_TOLERANCE);
+  const ids = new Set(checkout.commissions.map((row) => row.id));
+  const otherCommission = snapshot.commissionRecords.some((record) => !ids.has(record.id)
+    && (record.paymentStatus !== "paid" || !Number.isFinite(Date.parse(record.paidAt ?? ""))
+      || Date.parse(record.paidAt!) >= deposit.timestamp) && Date.parse(record.createdAt) <= deposit.timestamp
+    && Math.abs(checkoutMicros(record.commissionAmount) - deposit.amountMicros) <= CHECKOUT_TOLERANCE);
+  if (otherCheckout || otherCommission) fail("ambiguous_payment_amount");
+}
+function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, amount: number) {
+  const ids = new Set(checkout.commissions.map((row) => row.id));
+  return getCommissionCheckouts(snapshot).some((other) => other.id !== checkout.id
+    && (other.expectedMicros === amount || other.roundedMicros === amount))
+    || snapshot.commissionRecords.some((record) => !ids.has(record.id)
+      && [record.paymentExpectedAmountMode === "legacy_base" || record.paymentExpectedAmount === undefined ? record.commissionAmount : undefined,
+        record.paymentExpectedAmount, ...(record.paymentReservedExpectedAmounts ?? [])]
+        .some((value) => typeof value === "number" && value > 0 && checkoutMicros(value) === amount));
+}
+export function allocateCheckout(checkout: CommissionCheckout, receivedMicros = checkout.expectedMicros) {
   const parts = checkout.commissions.map((row) => {
-    const product = BigInt(checkout.expectedMicros) * BigInt(row.dueMicros);
+    const product = BigInt(receivedMicros) * BigInt(row.dueMicros);
     return { id: row.id, dueMicros: row.dueMicros, receivedMicros: Number(product / BigInt(checkout.dueMicros)), remainder: product % BigInt(checkout.dueMicros) };
   });
-  let remaining = checkout.expectedMicros - parts.reduce((sum, row) => sum + row.receivedMicros, 0);
+  let remaining = receivedMicros - parts.reduce((sum, row) => sum + row.receivedMicros, 0);
   const order = [...parts].sort((a, b) => a.remainder === b.remainder ? a.id.localeCompare(b.id) : a.remainder > b.remainder ? -1 : 1);
   for (const row of order) { if (remaining-- <= 0) break; row.receivedMicros++; }
   return parts.map(({ id, dueMicros, receivedMicros }) => ({ commissionId: id, amountDueMicros: dueMicros, receivedMicros,
@@ -188,12 +256,18 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         if (total > BigInt(Number.MAX_SAFE_INTEGER - CHECKOUT_TOLERANCE)) fail("invalid_amount");
         const dueMicros = Number(total);
         const expectedMicros = reserveAmount(snapshot, chosen ?? dueMicros, dueMicros, ports.random?.() ?? randomInt(9999), ids);
+        const rounded = Math.ceil(expectedMicros / 1e6) * 1e6;
+        const roundedMicros = expectedMicros === (chosen ?? dueMicros) && rounded > expectedMicros
+          && rounded >= dueMicros && rounded - dueMicros <= CHECKOUT_TOLERANCE
+          && !reservedAmounts(snapshot, ids, false).has(rounded) ? rounded : undefined;
         const checkout: CommissionCheckout = { id, sellerId: input.sellerId, network: input.network,
-          createdAt: new Date(now()).toISOString(), dueMicros, expectedMicros, requestedMicros: chosen ?? dueMicros, commissions };
+          createdAt: new Date(now()).toISOString(), dueMicros, expectedMicros, requestedMicros: chosen ?? dueMicros, commissions,
+          ...(roundedMicros ? { roundedMicros } : {}) };
         assertUnchanged(snapshot, checkout);
         // The legacy allocator already respects this permanent reservation list.
         const leader = records[0];
-        leader.paymentReservedExpectedAmounts = [...(leader.paymentReservedExpectedAmounts ?? []), expectedMicros / 1e6];
+        leader.paymentReservedExpectedAmounts = [...(leader.paymentReservedExpectedAmounts ?? []), expectedMicros / 1e6,
+          ...(roundedMicros ? [roundedMicros / 1e6] : [])];
         leader.updatedAt = new Date(Math.max(now(), (Date.parse(leader.updatedAt ?? "") || 0) + 1)).toISOString();
         snapshot.auditLogs.unshift({ id: `${id}:issued`, action: "commission_recorded", actorUserId: input.sellerId,
           targetUserId: input.sellerId, createdAt: checkout.createdAt,
@@ -214,8 +288,10 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
       if (!active && outstanding.length) status = "ready";
       const outstandingMicros = outstanding.reduce((sum, record) => sum + BigInt(checkoutMicros(record.commissionAmount)), BigInt(0));
       if (outstandingMicros > BigInt(Number.MAX_SAFE_INTEGER)) fail("invalid_amount");
+      const diagnostic = active ? entries(snapshot, CHECKOUT_ATTEMPT).filter(entry => object(entry.newValue)?.checkoutId === active.id && entry.targetUserId === sellerId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
       return { status, checkout: active ?? null, lastPaidCheckout: last ?? null, pendingCount: outstanding.length,
-        totalDueUsdt: Number(outstandingMicros) / 1e6 };
+        totalDueUsdt: Number(outstandingMicros) / 1e6,
+        ...(diagnostic && Number.isFinite(Date.parse(diagnostic.createdAt)) ? { lastVerificationCheckAt: diagnostic.createdAt, verificationCode: String(object(diagnostic.newValue)?.code ?? "") } : {}) };
     },
     async reconcile(input: { deposits: readonly CheckoutDeposit[]; deadline: number; limit?: number }) {
       const summary = { checked: 0, verified: 0, pending: 0, review: 0, errors: 0, budgetExhausted: false };
@@ -226,7 +302,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
       const reserved = reservedReceipts(initial);
       for (const checkout of checkouts) {
         if (summary.checked >= (input.limit ?? 1) || now() + 14_000 >= input.deadline) { summary.budgetExhausted = true; break; }
-        const deposits = input.deposits.filter((row) => row.network === checkout.network && row.amountMicros === checkout.expectedMicros
+        const deposits = input.deposits.filter((row) => row.network === checkout.network && acceptsDeposit(initial, checkout, row)
           && Number.isSafeInteger(row.timestamp) && row.timestamp >= Date.parse(checkout.createdAt) && row.timestamp <= now() + 300_000
           && checkoutReceiptKey(row.signature) && !reserved.has(checkoutReceiptKey(row.signature)));
         if (!deposits.length) continue;
@@ -236,8 +312,12 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         summary.checked++;
         let code = "receipt_pending";
         try {
-          if (aliases.some((row) => row.network !== checkout.network || row.amountMicros !== checkout.expectedMicros)) fail("conflicting_receipt");
+          if (aliases.some((row) => row.network !== checkout.network || row.amountMicros !== first.amountMicros)) fail("conflicting_receipt");
+          if (first.amountMicros !== checkout.expectedMicros && new Set(deposits.map((row) => checkoutReceiptKey(row.signature))).size !== 1) fail("ambiguous_rounded_receipts");
+          if (deposits.some((row) => checkoutReceiptKey(row.signature) !== key && row.amountMicros !== first.amountMicros)) fail("multiple_payment_options_received");
           assertUnchanged(initial, checkout);
+          if (referenceConflict(initial, checkout, first.amountMicros)) fail("payment_reference_conflict");
+          assertToleranceAttribution(initial, checkout, first);
           const receipt = { ...first, signature: key.startsWith("binance-deposit:") ? key : checkout.network === "BEP20" ? `0x${key}` : key };
           const proof = await ports.verify(receipt, Date.parse(checkout.createdAt));
           if (!proof.verified) { if (proof.pending) summary.pending++; else summary.review++; code = proof.pending ? "receipt_pending" : "receipt_rejected"; }
@@ -249,10 +329,12 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               if (settled(snapshot, checkout.id)) return false;
               assertUnchanged(snapshot, canonical);
               if (reservedReceipts(snapshot).has(key)) fail("receipt_already_used");
-              if (snapshot.commissionRecords.some((record) => !canonical.commissions.some((row) => row.id === record.id)
-                && typeof record.paymentExpectedAmount === "number" && checkoutMicros(record.paymentExpectedAmount) === canonical.expectedMicros)) fail("payment_reference_conflict");
+              if (!acceptsDeposit(snapshot, canonical, receipt)) fail("receipt_attribution_changed");
+              if (referenceConflict(snapshot, canonical, receipt.amountMicros)) fail("payment_reference_conflict");
+              assertToleranceAttribution(snapshot, canonical, receipt);
+              const attribution = receiptAttribution(snapshot, canonical, receipt);
               const paidAt = new Date(now()).toISOString();
-              const allocations = allocateCheckout(canonical);
+              const allocations = allocateCheckout(canonical, receipt.amountMicros);
               const waivedMicros = Math.max(0, canonical.dueMicros - receipt.amountMicros);
               const excessMicros = Math.max(0, receipt.amountMicros - canonical.dueMicros);
               const note = `Automatic checkout: ${(receipt.amountMicros / 1e6).toFixed(6)} USDT received; ${(canonical.dueMicros / 1e6).toFixed(6)} USDT due; ${(waivedMicros / 1e6).toFixed(6)} USDT waived; ${(excessMicros / 1e6).toFixed(6)} USDT excess recorded.`;
@@ -261,13 +343,16 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
                 const record: CommissionRecord & { paymentBatchSettlement: unknown } = { ...snapshot.commissionRecords[index],
                   paymentStatus: "paid", paymentProvider: "crypto_wallet", paymentNetwork: canonical.network,
                   paymentSignature: receipt.signature, recipientWalletAddress: ports.destination(canonical.network),
-                  paymentVerificationStatus: "verified", paymentVerificationNotes: note, paidAt, updatedAt: paidAt,
+                  paymentVerificationStatus: "verified", paymentVerificationNotes: note, paymentLastCheckedAt: paidAt, paidAt, updatedAt: paidAt,
                   paymentSubmittedAt: canonical.createdAt,
                   paymentBatchSettlement: { batchId: canonical.id, ...allocation, signatureKey: key,
                     groupReceivedMicros: receipt.amountMicros, groupDueMicros: canonical.dueMicros,
-                    attribution: "seller_preissued_payment_reference" } };
+                    attribution } };
                 snapshot.commissionRecords[index] = record;
               }
+              // Preserve the actual reference for the legacy allocator as well.
+              const leader = snapshot.commissionRecords.find((row) => row.id === canonical.commissions[0].id)!;
+              leader.paymentReservedExpectedAmounts = [...new Set([...(leader.paymentReservedExpectedAmounts ?? []), receipt.amountMicros / 1e6])];
               const remaining = snapshot.commissionRecords.filter((row) => row.sellerId === canonical.sellerId && row.paymentStatus !== "paid");
               for (const allocation of allocations) {
                 const record = snapshot.commissionRecords.find((row) => row.id === allocation.commissionId)!;
@@ -277,7 +362,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               }
               snapshot.auditLogs.unshift({ id: `${canonical.id}:settled`, action: "commission_paid", actorUserId: canonical.sellerId,
                 targetUserId: canonical.sellerId, createdAt: paidAt, details: note,
-                newValue: { kind: CHECKOUT_SETTLED, checkoutId: canonical.id, checkout: canonical, receipt,
+                newValue: { kind: CHECKOUT_SETTLED, checkoutId: canonical.id, checkout: canonical, receipt, attribution,
                   plan: { expectedMicros: canonical.dueMicros, receivedMicros: receipt.amountMicros, waivedMicros, excessMicros, allocations } } });
               snapshot.notifications.unshift({ id: `${canonical.id}:notification`, userId: canonical.sellerId, category: "trade",
                 title: "Commission payment verified", titleAr: "تم تأكيد دفعة العمولة", message: `${note} ${remaining.length ? "Other commission dues remain." : "Commission restrictions are cleared. Other account restrictions still apply."}`,

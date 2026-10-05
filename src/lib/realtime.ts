@@ -1,6 +1,6 @@
 import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, SellerOnlineStatus, SellerPublicProfile, PremiumSellerProfileData } from "@/types/alpha-exchange";
 
-export type RealtimeEvent =
+export type RealtimeEvent = (
   | { type: "listing.created"; payload: { listing: MarketplaceListing } }
   | { type: "listing.removed"; payload: { listingId: string } }
   | { type: "listing.quantity_changed"; payload: { listingId: string; availableAmount: string } }
@@ -14,7 +14,8 @@ export type RealtimeEvent =
   | { type: "notification.updated"; payload: { notification: AlphaExchangeNotification } }
   | { type: "notification.deleted"; payload: { notificationId: string; userId: string } }
   | { type: "reputation.updated"; payload: { sellerId: string; trustScore?: number; reviewCount?: number } }
-  | { type: "review.count_changed"; payload: { sellerId: string; reviewCount: number } };
+  | { type: "review.count_changed"; payload: { sellerId: string; reviewCount: number } }
+) & { recipientUserId?: string };
 
 const realtimeListeners = new Set<(event: RealtimeEvent) => void>();
 

@@ -20,7 +20,8 @@ test("owner health returns to the preserved sign-in destination after another ta
     await otherTab.goto("/en");
     await otherTab.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(otherTab.getByRole("button", { name: "Sign out", exact: true })).toBeHidden();
-    await page.getByRole("button", { name: "Check Now", exact: true }).click();
+    // The canonical session broadcast can redirect this tab before a manual
+    // health refresh; waiting for a now-removed button would reject recovery.
     await expect(page).toHaveURL(/\/en\/login\?redirectTo=/);
     expect(new URL(page.url()).searchParams.get("redirectTo")).toBe(healthPath);
     await expect(page.getByRole("heading", { name: "Website Health", exact: true })).toBeHidden();

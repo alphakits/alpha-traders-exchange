@@ -3,6 +3,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { PUBLIC_TRUST_LAST_UPDATED } from "@/lib/public-trust";
 import { buildPageMetadata } from "@/lib/seo";
+import { marketplaceFeeTerms } from "@alpha-traders/contracts";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -43,7 +44,7 @@ const sections = {
       id: "fees",
       title: "4. Fees and listing access",
       paragraphs: [
-        "For new marketplace trades where the two-sided fee is shown before submission, the buyer pays a 1% platform fee with the selected trade payment and the seller owes a separate 1% seller fee. The seller collects the buyer fee for Alpha Traders and remits the buyer-collected portion together with the seller fee after completion. Legacy trades retain the fee terms shown when they were submitted. Sellers may be prevented from publishing or renewing listings while commission payments are pending. Fees and fee rules may change prospectively after notice on the website.",
+        marketplaceFeeTerms("en"),
       ],
     },
     {
@@ -104,7 +105,7 @@ const sections = {
       id: "fees",
       title: "4. العمولات وصلاحية نشر العروض",
       paragraphs: [
-        "العمولة الحالية للمنصة هي 1% من صفقات السوق المكتملة ما لم تظهر عمولة مختلفة بوضوح قبل الإجراء المعني. قد يُمنع البائع من نشر العروض أو تجديدها أثناء وجود عمولات معلقة. يمكن تعديل العمولات وقواعدها مستقبلًا بعد إشعار على الموقع.",
+        marketplaceFeeTerms("ar"),
       ],
     },
     {
@@ -156,7 +157,7 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
 
         <div className="mt-8 space-y-4">
           {sections[locale].map((section) => (
-            <article key={section.id} id={section.id} className="scroll-mt-28 rounded-2xl border border-white/10 bg-black/30 p-5">
+            <article key={section.id} id={section.id} className={`scroll-mt-28 rounded-2xl border border-white/10 bg-black/30 p-5 ${section.id === "fees" ? "commission-surface" : ""}`}>
               <h2 className="text-base font-semibold text-white sm:text-lg">{section.title}</h2>
               <div className="mt-3 space-y-3 text-sm leading-7 text-[#D1D5DB]">
                 {section.paragraphs.map((paragraph) => <p key={paragraph}>{currencyText(paragraph)}</p>)}

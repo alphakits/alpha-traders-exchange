@@ -17,6 +17,16 @@ const steps = [
     arguments: ["diff", "--check"],
   },
   {
+    label: "Expo URI decoder backport integrity",
+    executable: process.execPath,
+    arguments: ["scripts/patch-expo-uri-decoder.mjs", "--check"],
+  },
+  {
+    label: "Dependency security backport integrity",
+    executable: process.execPath,
+    arguments: ["scripts/patch-dependency-security.mjs", "--check"],
+  },
+  {
     label: "Unit and integration tests",
     executable: process.execPath,
     arguments: ["./node_modules/vitest/vitest.mjs", "run"],

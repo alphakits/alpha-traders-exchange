@@ -14,7 +14,10 @@ export async function getCommissionCheckoutRuntime() {
   if (!pool) throw new Error("Durable checkout storage is required");
   const guard = await pool.query<{ ready: boolean }>(`SELECT
     to_regclass('alpha_exchange.commission_checkouts') IS NOT NULL
+    AND to_regclass('alpha_exchange.commission_checkout_amount_reservations') IS NOT NULL
+    AND to_regclass('alpha_exchange.commission_checkout_receipt_recoveries') IS NOT NULL
     AND to_regclass('alpha_exchange.commission_batch_receipt_reservations') IS NOT NULL
+    AND to_regprocedure('alpha_exchange.commission_checkout_tolerance_matches(jsonb,jsonb)') IS NOT NULL
     AND (SELECT count(*)=4 FROM pg_trigger WHERE tgenabled='O' AND
       (tgrelid='alpha_exchange.audit_logs'::regclass AND tgname IN ('reserve_commission_checkout','reserve_approved_commission_batch_receipt')
       OR tgrelid='alpha_exchange.commissions'::regclass AND tgname IN ('protect_commission_checkout_amount','enforce_commission_batch_receipt_reservation'))) AS ready`);

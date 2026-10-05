@@ -1,4 +1,4 @@
-import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation, tradeChatTextDirection } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "../components/branded-text";
 import { AttentionSiren } from "../components/attention-siren";
 import { TradeTermsPanel } from "../components/trade-terms-panel";
@@ -71,6 +71,11 @@ type BankDetails = {
   accountLast4: string;
 };
 
+function chatTextStyle(value: string, isRTL: boolean) {
+  const writingDirection = tradeChatTextDirection(value, isRTL ? "rtl" : "ltr");
+  return { writingDirection, textAlign: writingDirection === "rtl" ? "right" as const : "left" as const };
+}
+
 function stageInstruction(
   status: MobileTradeStatus,
   t: ReturnType<typeof useLocale>["t"],
@@ -104,10 +109,10 @@ function stageInstruction(
   return t("tradeEnded");
 }
 
-function DetailRow({ label, value, isRTL }: { label: string; value: string; isRTL: boolean }) {
+function DetailRow({ label, value, isRTL, commissionNotice }: { label: string; value: string; isRTL: boolean; commissionNotice?: boolean }) {
   return (
     <View style={[styles.detailRow, isRTL && styles.rowReverse]}>
-      <Text style={[styles.detailLabel, isRTL && styles.rtlText]}>{label}</Text>
+      <Text style={[styles.detailLabel, commissionNotice && { color: colors.commissionNotice }, isRTL && styles.rtlText]}>{label}</Text>
       <Text selectable style={[styles.detailValue, isRTL && styles.rtlText]}>{value}</Text>
     </View>
   );
@@ -776,12 +781,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View style={styles.summaryCard}>
-          {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={{ color: "#34d399", marginBottom: 8 }}>{trade.side === "seller"
+          {trade.feePolicyVersion === "buyer_seller_1pct_v1" ? <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{trade.side === "seller"
             ? sellerFeeResponsibilityNotice(locale)
             : (isRTL ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع للبائع، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the payment total to the seller. You receive the full agreed USDT amount.")}</Text> : null}
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
-          <DetailRow isRTL={isRTL} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+          <DetailRow isRTL={isRTL} commissionNotice={trade.feePolicyVersion === "buyer_seller_1pct_v1"} label={trade.feePolicyVersion === "buyer_seller_1pct_v1" ? (isRTL ? "الإجمالي للبائع (يشمل عمولة المشتري 1%)" : "Total to seller (includes buyer 1%)") : t("tradeValue")} value={`${trade.currency} ${Number(trade.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
           {isCardlessAtm && trade.bankName ? <DetailRow isRTL={isRTL} label={locale === "ar" ? "بنك السحب" : "Withdrawal bank"} value={trade.bankName} /> : null}
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
@@ -817,7 +822,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           <View key={`withdrawal-${message.createdAt}-${index}`} style={[styles.section, styles.importantPanel]}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren />{t("withdrawalDetailsTitle")}</Text>
             {trade.bankName ? <DetailRow isRTL={isRTL} label={t("bankName")} value={trade.bankName} /> : null}
-            <Text selectable style={[styles.messageText, isRTL && styles.rtlText]}>{message.message}</Text>
+            <Text selectable style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
           </View>
         )) : null}
 
@@ -831,10 +836,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View collapsable={false} onLayout={(event) => recordGuidanceLayout("actions", event)} style={styles.actions}>
+          {trade.side === "seller" && trade.status === "pending" && trade.sellerCommissionDue ? (
+            <View style={styles.section}>
+              <Text accessibilityRole="header" style={[styles.sectionTitle, styles.commissionNotice, isRTL && styles.rtlText]}>{isRTL ? "ادفع العمولة لقبول الطلب" : "Pay Commission to Accept"}</Text>
+              <Text style={[styles.commissionNotice, isRTL && styles.rtlText]}>{isRTL ? "سدّد جميع العمولات المستحقة أولاً لقبول هذا الطلب. يبقى الطلب محفوظاً ويمكنك قبوله بعد تأكيد السداد." : "Pay all outstanding commission before accepting this request. Your request stays available after payment is verified."}</Text>
+              <GoldButton onPress={() => router.push("/seller/commissions")}>{isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
+            </View>
+          ) : null}
           <TradeTermsPanel key={trade.id} trade={trade} isAr={locale === "ar"} disabled={busyAction !== null || trade.hasOpenDispute} onAction={updateTerms} />
           {actions.canAccept ? (
             <GoldButton
-              disabled={actionsDisabled}
+              disabled={actionsDisabled || Boolean(trade.sellerCommissionDue)}
               loading={busyAction === "accepted"}
               onPress={() => confirmStatus("accepted", isFaceToFace ? t("acceptSafetyConfirmation") : t("actionConfirmation"), isFaceToFace)}
             >
@@ -993,9 +1005,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {trade.side === "seller" && trade.sellerCommissionDue ? (
+        {trade.side === "seller" && trade.status !== "pending" && trade.sellerCommissionDue ? (
           <View style={[styles.section, styles.importantPanel]}>
-            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}><AttentionSiren />{isRTL ? "عمولة مستحقة" : "Commission Due"}</Text>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, styles.commissionNotice, isRTL && styles.rtlText]}><AttentionSiren />{isRTL ? "عمولة مستحقة" : "Commission Due"}</Text>
             <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{formatUsdt(trade.sellerCommissionDue.amount)}</Text>
             <GoldButton onPress={() => router.push("/seller/commissions")}>💳 {isRTL ? "دفع العمولة" : "Pay Commission"}</GoldButton>
           </View>
@@ -1103,7 +1115,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               if (message.sender === "system") {
                 return (
                   <View key={`${message.createdAt}-system-${index}`} style={styles.systemMessage}>
-                    <Text style={[styles.systemMessageText, isRTL && styles.rtlText]}>{message.message}</Text>
+                    <Text style={[styles.systemMessageText, chatTextStyle(message.message, isRTL), /commission|عمول/i.test(message.message) && { color: colors.commissionNotice }]}>{message.message}</Text>
                     <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
                   </View>
                 );
@@ -1119,7 +1131,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
                     {tradeChatRoleLabel(message.isOwnerMessage ? "owner" : message.participantRole ?? (isOwn ? trade.side : trade.side === "buyer" ? "seller" : "buyer"), locale)}
                     {isOwn ? (locale === "ar" ? " · أنت" : " · You") : ""}
                   </Text>
-                  <Text style={[styles.messageText, isRTL && styles.rtlText]}>{message.message}</Text>
+                  <Text style={[styles.messageText, chatTextStyle(message.message, isRTL)]}>{message.message}</Text>
                   <View style={styles.messageFooter}>
                     <Text style={styles.messageTime}>{new Date(message.createdAt).toLocaleTimeString(locale === "ar" ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</Text>
                     {message.status ? <Text style={styles.messageTime}>{tradeChatStatusLabel(message.status, locale)}</Text> : null}
@@ -1145,7 +1157,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               }}
               placeholder={t("messagePlaceholder")}
               placeholderTextColor={colors.textMuted}
-              style={[styles.messageInput, isRTL && styles.rtlInput]}
+              style={[styles.messageInput, chatTextStyle(draftMessage, isRTL)]}
               value={draftMessage}
             />
             <GoldButton
@@ -1219,7 +1231,8 @@ const styles = StyleSheet.create({
   actionGroup: { gap: spacing.sm },
   input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 52, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   policyWarningCard: { backgroundColor: "rgba(240, 106, 106, 0.08)", borderColor: "rgba(240, 106, 106, 0.35)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
-  policyWarningText: { color: colors.danger, fontSize: typography.caption, lineHeight: 19 },
+  policyWarningText: { color: colors.commissionNotice, fontSize: typography.caption, lineHeight: 19 },
+  commissionNotice: { color: colors.commissionNotice, fontSize: typography.small, lineHeight: 22, marginBottom: 8 },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   notice: { color: colors.success, fontSize: typography.small, fontWeight: "800", lineHeight: 21 },
   sectionBody: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24 },

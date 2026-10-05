@@ -28,7 +28,8 @@ describe("mobile website parity", () => {
     expect(shell).toContain("sharedCookiesEnabled");
     expect(shell).toContain("cacheEnabled");
     expect(shell).toContain("allowsBackForwardNavigationGestures");
-    expect(shell).toContain('if (!request.isTopFrame) return decision === "allow"');
+    expect(shell).toContain("websiteRequestNavigationDecision(request)");
+    expect(shell).toContain('originWhitelist={["*"]}');
     expect(shell).not.toContain("injectedJavaScript=");
     expect(shell).toContain("onMessage={handleWebsiteMessage}");
     expect(shell).toContain("addNotificationResponseReceivedListener");

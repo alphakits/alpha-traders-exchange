@@ -31,6 +31,68 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
+  it.each(["/en/trades", "/en/trade-room", "/en/trade-room/owned-trade"])("never mounts %s for a student with a legacy buyer status", async pathname => {
+    navigation.pathname = pathname;
+    const student = { ...user, role: "student" as const, roles: ["student" as const] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: student })));
+    renderPage(student);
+    await act(async () => {});
+    expect(privateMount).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledWith("/en/profile");
+  });
+  it("removes a trade workspace immediately when buyer access is revoked", async () => {
+    navigation.pathname = "/en/trades";
+    const student = { ...user, role: "student" as const, roles: ["student" as const] };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ user }))
+      .mockResolvedValueOnce(Response.json({ user: student })));
+    renderPage(user);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-changed")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(replace).toHaveBeenCalledWith("/en/profile");
+  });
+  it("discards private props before mounting them for a different account", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ user }))
+      .mockResolvedValueOnce(Response.json({ user: { ...user, id: "second-buyer" } })));
+    renderPage(user);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-changed")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(replace).toHaveBeenCalledWith("/en/usdt-exchange");
+  });
+
+  it("removes an admin page immediately when current roles are revoked", async () => {
+    navigation.pathname = "/en/admin/alpha-exchange";
+    const owner = { ...user, role: "owner" as const, roles: ["owner" as const] };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ user: owner }))
+      .mockResolvedValueOnce(Response.json({ user })));
+    renderPage(owner);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-changed")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(replace).toHaveBeenCalledWith("/en/dashboard");
+  });
+
+  it("keeps suspended seller settlement pages accessible but hides revoked seller pages", async () => {
+    navigation.pathname = "/en/dashboard/seller/compliance-payment";
+    const suspended = { ...user, role: "approved_seller" as const, roles: ["approved_seller" as const], sellerStatus: "suspended" as const };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(Response.json({ user: suspended }))
+      .mockResolvedValueOnce(Response.json({ user })));
+    renderPage(suspended);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new Event("alpha-auth-changed")));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(replace).toHaveBeenCalledWith("/en/dashboard");
+  });
+
   it.each(["buyer", "approved_seller", "pending_seller_approval", "admin", "owner"] as const)("never mounts exchange content for an unverified %s", async role => {
     const account = { ...user, role, roles: [role] };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: account })));
@@ -112,6 +174,18 @@ describe("protected page access", () => {
     await act(async () => window.dispatchEvent(new Event("alpha-auth-signed-out")));
     expect(screen.queryByText("Private trade history")).toBeNull();
     expect(replace).toHaveBeenCalledWith("/en/login?redirectTo=%2Fen%2Fusdt-exchange");
+  });
+
+  it("hides private content without replacing a confirmed sign-out navigation", async () => {
+    navigation.pathname = "/ar/settings";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user })));
+    renderPage(user);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    await act(async () => window.dispatchEvent(new CustomEvent("alpha-auth-signed-out", { detail: { navigationStarted: true } })));
+    expect(screen.queryByText("Private trade history")).toBeNull();
+    expect(screen.getByText("Checking your account…")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("does not mount private content or redirect on a session outage", async () => {

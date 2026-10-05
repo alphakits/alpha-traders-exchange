@@ -115,7 +115,7 @@ export async function HomePage({
         </div>
       </section>
 
-      <section className="section-container">
+      {!isAuthenticated ? <section className="section-container">
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-semibold text-white">{isRtl ? "جديد في Alpha Traders؟" : "New to Alpha Traders?"}</p>
@@ -125,7 +125,7 @@ export async function HomePage({
             {isRtl ? "ابدأ من هنا" : "Start Here"}
           </Link>
         </div>
-      </section>
+      </section> : null}
 
       <TrustBar />
 
@@ -238,14 +238,14 @@ export async function HomePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "تشغيل المالك" : "Owner Operations"}</p>
-                <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
+                <p className="commission-notice mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
                     ? "كل صفقة مكتملة تحدّث تلقائيًا: الحجم، العمولة، إحصاءات البائع، درجة الثقة، والتحليلات."
                     : "Every completed trade automatically updates volume, commission, seller statistics, trust score, and marketplace analytics."}
                 </p>
-                <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
+                <p className="commission-notice mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
                   <Coins className="h-3.5 w-3.5" />
-                  {isRtl ? "العمولة = قيمة الصفقة × نسبة العمولة" : "Commission = Trade Amount x Seller Commission %"}
+                  {currencyText(isRtl ? "الصفقات الجديدة: 1% على المشتري + 1% على البائع = 2% إجمالاً، تُدفع لألفا بعملة USDT." : "New trades: 1% buyer + 1% seller = 2% total, paid to Alpha in USDT.")}
                 </p>
               </div>
             </div>

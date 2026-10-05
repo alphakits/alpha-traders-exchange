@@ -1,4 +1,5 @@
 "use client";
+import { AccountSessionsPanel } from "@/components/settings/account-sessions-panel";
 
 import { brandText } from "@/components/ui/currency-text";
 
@@ -11,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { getIsraeliBankDisplayName, getIsraeliBankOptions } from "@/lib/israeli-banks";
 import { PhoneVerificationChannelPicker } from "@/components/auth/phone-verification-channel-picker";
 import type { PhoneVerificationChannel, PhoneVerificationChannels } from "@/lib/phone-verification-channel";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { getInterfaceAccess } from "@alpha-traders/contracts";
 
 type Tab = "profile" | "security" | "notifications" | "privacy" | "account";
 
@@ -156,6 +159,8 @@ export function AccountSettingsPanel({
   initialSellerBankAccess?: boolean;
 }) {
   const isAr = locale === "ar";
+  const canonicalSession = useOptionalCanonicalSession();
+  const interfaceAccess = getInterfaceAccess(canonicalSession?.user);
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "security");
   const [userId, setUserId] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
@@ -317,7 +322,8 @@ export function AccountSettingsPanel({
 
   // The server computes this from the seller's canonical approval and access policy.
   // Do not infer access again from a client-visible role or status.
-  const canManageSellerBankAccounts = initialSellerBankAccess === true;
+  const canManageSellerBankAccounts = initialSellerBankAccess === true
+    && (!canonicalSession || interfaceAccess.sellerWorkspace || interfaceAccess.administration);
   const hasMaxBankAccounts = bankAccounts.length >= 2;
   const bankOptions = getIsraeliBankOptions();
   const selectedBankIsKnown = bankOptions.some((option) => option.name === bankForm.bankName);
@@ -732,8 +738,8 @@ export function AccountSettingsPanel({
       setShowDiscordUnlink(false);
       setDiscordMessage(
         isAr
-          ? "تم فصل Discord. ستتم إزالة أدوار البائع المُدارة في الخلفية."
-          : "Discord disconnected. Managed seller roles will be removed in the background.",
+          ? "تم فصل Discord. ستتم إزالة أدوار المجتمع المُدارة في الخلفية."
+          : "Discord disconnected. Managed community roles will be removed in the background.",
       );
     } catch {
       setDiscordMessage(isAr ? "تعذر فصل Discord." : "Could not disconnect Discord.");
@@ -779,8 +785,8 @@ export function AccountSettingsPanel({
               <p className="font-medium text-white">Discord</p>
               <p className="mt-1 text-sm text-[#9CA3AF]">
                 {isAr
-                  ? "اربط هويتك على Discord لمزامنة دور البائع الخاص بك."
-                  : "Link your Discord identity to synchronize your seller role."}
+                  ? "اربط حساب Discord بمجتمع Alpha Traders لمزامنة الأدوار المناسبة لحسابك."
+                  : "Connect Discord to the Alpha Traders community and synchronize your eligible roles."}
               </p>
             </div>
             {!discordLoaded ? (
@@ -817,8 +823,8 @@ export function AccountSettingsPanel({
                   <div className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
                     <p className="max-w-sm text-xs text-amber-100">
                       {isAr
-                        ? "سيؤدي الفصل إلى إزالة أدوار البائع المُدارة. يمكنك إعادة الربط لاحقًا."
-                        : "Disconnecting removes managed seller roles. You can reconnect later."}
+                        ? "سيؤدي الفصل إلى إزالة أدوار المجتمع المرتبطة بحسابك. يمكنك إعادة الربط لاحقًا."
+                        : "Disconnecting removes your managed community roles. You can reconnect later."}
                     </p>
                     <div className="flex gap-2">
                       <Button
@@ -843,8 +849,8 @@ export function AccountSettingsPanel({
               <div className="space-y-3">
                 <p className="text-sm text-[#D1D5DB]">
                   {isAr
-                    ? "اربط حساب Discord لتلقي دور البائع المطابق لحالة حسابك. نطلب إذن التعريف فقط."
-                    : "Connect Discord to receive the seller role matching your account status. We request identity access only."}
+                    ? "اربط حساب Discord لتلقي الأدوار المناسبة لحسابك في مجتمع Alpha Traders. نطلب إذن التعريف فقط."
+                    : "Connect Discord to receive your eligible Alpha Traders community roles. We request identity access only."}
                 </p>
                 <Button
                   disabled={discordBusy}
@@ -1009,6 +1015,7 @@ export function AccountSettingsPanel({
               <CardTitle>{isAr ? "الأمان" : "Security"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {userId ? <AccountSessionsPanel key={userId} userId={userId} isAr={isAr} /> : null}
               {!phoneVerificationEnabled ? (
                 <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
                   {isAr
@@ -1021,13 +1028,12 @@ export function AccountSettingsPanel({
                   {isAr ? "كيفية تغيير كلمة المرور:" : "To change your password:"}
                 </p>
                 <ol className="space-y-1 text-sm text-[#D1D5DB]" style={{ listStyleType: "decimal", paddingInlineStart: "1.25rem" }}>
-                  <li>{isAr ? "تسجيل الخروج" : "Log out"}</li>
-                  <li>{isAr ? 'انقر على "نسيت كلمة المرور" في صفحة الدخول' : 'Click "Forgot Password" on the login page'}</li>
+                  <li>{isAr ? 'اضغط "إعادة تعيين كلمة المرور" أدناه' : 'Select "Reset password" below'}</li>
                   <li>{isAr ? "أدخل بريدك الإلكتروني لاستلام رابط إعادة التعيين" : "Enter your email to receive a reset link"}</li>
                 </ol>
               </div>
-              <Link href="/login" className={buttonVariants({ variant: "secondary" })}>
-                {isAr ? "انتقل إلى تسجيل الدخول" : "Go to Login"}
+              <Link href="/forgot-password" className={buttonVariants({ variant: "secondary" })}>
+                {isAr ? "إعادة تعيين كلمة المرور" : "Reset password"}
               </Link>
             </CardContent>
           </Card>
@@ -1093,7 +1099,7 @@ export function AccountSettingsPanel({
                       : "Email verification is the only verification method currently enabled. Phone verification and SMS are off."}
                   </div>
                 )}
-                <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
+                {!canonicalSession || interfaceAccess.trading ? <div className="space-y-3 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.04] p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">WhatsApp Business</p>
@@ -1139,10 +1145,13 @@ export function AccountSettingsPanel({
                     </Button>
                   ) : null}
                   {whatsappMessage ? <ActionFeedback revealKey={whatsappMessageFeedbackKey} as="p" role="status" className="text-xs text-[#C9A227]">{whatsappMessage}</ActionFeedback> : null}
-                </div>
+                </div> : null}
               </div>
               <div className="space-y-3">
-                {NOTIFICATION_KEYS.map((key) => (
+                {NOTIFICATION_KEYS.filter((key) => !canonicalSession || key === "admin_announcements"
+                  || (key === "seller_application" ? interfaceAccess.canApplyToSell || interfaceAccess.pendingSeller
+                    : key === "purchase_requests" || key === "listing_updates" ? interfaceAccess.sellerWorkspace || interfaceAccess.administration
+                      : interfaceAccess.trading)).map((key) => (
                   <div key={key} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <span className="text-sm text-[#D1D5DB]">
                       {isAr ? notifLabels[key].ar : notifLabels[key].en}
@@ -1176,7 +1185,8 @@ export function AccountSettingsPanel({
                   : "Your public identity uses your AT ID. Your personal name, phone and email stay private."}
               </div>
               <div className="space-y-3">
-                {PRIVACY_KEYS.filter(key => key !== "show_phone" && key !== "show_email").map((key) => (
+                {PRIVACY_KEYS.filter(key => key !== "show_phone" && key !== "show_email"
+                  && (key !== "show_trade_stats" || !canonicalSession || interfaceAccess.trading)).map((key) => (
                   <div key={key} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                     <div>
                       <p className="text-sm font-medium text-[#D1D5DB]">

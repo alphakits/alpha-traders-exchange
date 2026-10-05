@@ -98,6 +98,9 @@ export async function POST(request: NextRequest) {
       reason: "browser_error_boundary",
       metadata: {
         ...parsed.data,
+        // Node's object logger abbreviates nested frame objects to [Object].
+        // These validated public asset positions remain useful in runtime logs.
+        frames: parsed.data.frames.map(({ asset, line, column }) => `${asset}:${line}:${column}`),
         release: (process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown").slice(0, 12),
       },
     });

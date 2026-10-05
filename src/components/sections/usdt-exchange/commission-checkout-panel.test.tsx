@@ -155,3 +155,18 @@ it("rejects a contradictory paid result without notifying the workspace", async 
   expect(screen.queryByText(/Payment verified/)).toBeNull();
   expect(onSettled).not.toHaveBeenCalled();
 });
+it("shows the reserved rounded amount beside the exact amount with a single-payment instruction", async () => {
+  fetchMock.mockResolvedValue(response({ ...waiting, totalDueUsdt: 29.2,
+    checkout: { ...waiting.checkout, dueMicros: 29_200_000, expectedMicros: 29_200_000, roundedMicros: 30_000_000 } }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  await screen.findByText("29.200000 USDT");
+  expect(screen.getByText("30 USDT")).toBeTruthy();
+  expect(screen.getByText(/Send only one of these amounts/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Copy rounded amount" })).toBeTruthy();
+});
+it("hides instructions if a returned rounded option exceeds the allowed commission difference", async () => {
+  fetchMock.mockResolvedValue(response({ ...waiting, checkout: { ...waiting.checkout, roundedMicros: 42_000_000 } }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  await screen.findByRole("alert");
+  expect(screen.queryByText(wallet)).toBeNull();
+});

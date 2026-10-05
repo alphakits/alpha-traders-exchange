@@ -109,6 +109,8 @@ describe("seller settings approval boundary", () => {
     const response = await GET();
     await expect(response.json()).resolves.toMatchObject({ bankAccounts: [{ id: "bank-1" }], sellerApprovalVerified: true });
     expect(mocks.getSellerBankAccountsForUser).toHaveBeenCalledWith(user.id);
+    expect(response.headers.get("cache-control")).toContain("private, no-store");
+    expect(response.headers.get("vary")).toBe("Cookie");
   });
 
   it("allows an approved seller to manage a payout account without extra identity metadata", async () => {
