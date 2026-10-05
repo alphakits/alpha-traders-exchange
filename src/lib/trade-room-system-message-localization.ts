@@ -252,6 +252,14 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
     ar: "ألغت الإدارة هذه الصفقة.",
     en: "Admin cancelled this trade.",
   },
+  "Owner cancelled this trade after manual review": {
+    ar: "ألغى المالك هذه الصفقة بعد مراجعتها يدويًا.",
+    en: "Owner cancelled this trade after manual review.",
+  },
+  "Owner resolved the dispute with a manual trade decision.": {
+    ar: "حسم المالك النزاع بقرار يدوي بشأن الصفقة.",
+    en: "Owner resolved the dispute with a manual trade decision.",
+  },
   "Admin unlocked review window": {
     ar: "أتاحت الإدارة إضافة مراجعة.",
     en: "Admin unlocked review window.",

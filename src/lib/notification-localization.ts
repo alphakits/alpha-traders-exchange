@@ -52,6 +52,7 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "availability updated": "تم تحديث حالة التوفر",
   "seller entered vacation mode": "دخل البائع في وضع الإجازة",
   "trade cancelled": "تم إلغاء الصفقة",
+  "trade cancelled by owner": "ألغى المالك الصفقة",
   "listing expiration extended": "تم تمديد صلاحية العرض",
   "listing force closed": "تم إغلاق العرض إدارياً",
   "🟢 new usdt listing available": "🟢 عرض USDT جديد متاح",
@@ -210,6 +211,7 @@ const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
     "قبل البائع طلب الصفقة. يمكنك الآن رفع إيصال الدفع.",
   "your trade request was declined by the seller.": "رفض البائع طلب الصفقة الخاص بك.",
   "the buyer cancelled this trade request.": "ألغى المشتري طلب الصفقة هذا.",
+  "the owner reviewed and cancelled this trade. its history remains available.": "راجع المالك الصفقة وألغاها. يبقى سجلها متاحًا.",
   "seller verified the bank transfer and confirmed funds received.":
     "تحقّق البائع من التحويل البنكي وأكد استلام الأموال.",
   "seller confirmed cash was collected from the cardless atm.": "أكد البائع استلام النقد من الصراف الآلي دون بطاقة.",

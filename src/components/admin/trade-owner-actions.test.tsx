@@ -10,11 +10,12 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstub
 const snapshot = () => Response.json({ request: trade("completed"), hasOpenDispute: false, ownerHistory: { disputes: [] } });
 
 describe("owner trade actions", () => {
-  it("explains why completion is unavailable while a terms proposal is pending", () => {
+  it("allows the owner to complete agreed amounts while withdrawing an unaccepted proposal", () => {
     const request = { ...trade(), termsProposal: { status: "pending" } } as PurchaseRequest;
     render(<TradeOwnerActions locale="en" isOwner request={request} onUpdated={vi.fn()} />);
-    expect(disabled("Mark as completed")).toBe(true);
-    expect(screen.getByText(/pending amount or price proposal/)).toBeTruthy();
+    expect(disabled("Mark as completed")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Mark as completed" }));
+    expect(screen.getByText(/current agreed amounts/)).toBeTruthy();
   });
   it.each(["completed", "review_open", "locked"] as const)("keeps controls visible on %s and allows closing without completing twice", status => {
     render(<TradeOwnerActions locale="en" isOwner request={trade(status)} onUpdated={vi.fn()} />);
@@ -24,10 +25,10 @@ describe("owner trade actions", () => {
     expect(screen.getByText(/Already completed/)).toBeTruthy();
   });
 
-  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("allows completion but prevents cancellation after %s", status => {
+  it.each(["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("allows owner completion and cancellation at %s", status => {
     render(<TradeOwnerActions locale="en" isOwner request={trade(status)} onUpdated={vi.fn()} />);
     expect(disabled("Mark as completed")).toBe(false);
-    expect(disabled("Force close trade")).toBe(true);
+    expect(disabled("Cancel trade")).toBe(false);
     expect(disabled("Unlock Review")).toBe(true);
   });
 
@@ -71,14 +72,14 @@ describe("owner trade actions", () => {
     expect(screen.getByRole("status").textContent).toContain("No action was repeated");
   });
 
-  it("requires dispute resolution before trade actions and refreshes the parent", async () => {
+  it("keeps owner actions available during a dispute and supports separate resolution", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ dispute: { id: "dispute-1", status: "resolved" } })).mockImplementation(async () => snapshot());
     vi.stubGlobal("fetch", fetchMock);
     const updated = vi.fn();
     const dispute = { id: "dispute-1", reason: "Check payment", status: "open" } as TradeDisputeCase;
     render(<TradeOwnerActions locale="en" isOwner request={trade()} openDispute={dispute} onUpdated={updated} />);
-    expect(disabled("Mark as completed")).toBe(true);
-    expect(disabled("Force close trade")).toBe(true);
+    expect(disabled("Mark as completed")).toBe(false);
+    expect(disabled("Cancel trade")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Resolve Dispute" }));
     fireEvent.change(screen.getByLabelText("Resolution notes"), { target: { value: "Payment verified" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
@@ -90,6 +91,25 @@ describe("owner trade actions", () => {
     render(<TradeOwnerActions locale="ar" isOwner={false} request={trade("completed")} onUpdated={vi.fn()} />);
     expect(disabled("إغلاق الصفقة إجباريًا")).toBe(true);
     expect(disabled("فتح التقييم")).toBe(false);
+  });
+  it("allows Arabic owner cancellation after a cardless code was shared and verifies the cancelled result", async () => {
+    const request = { ...trade(), sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-05T13:00:00Z" } as PurchaseRequest;
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ success: true })).mockResolvedValueOnce(Response.json({ request: { ...request, status: "cancelled", closedAt: "2026-10-05T13:01:00Z" }, hasOpenDispute: false }));
+    vi.stubGlobal("fetch", fetchMock);
+    const updated = vi.fn();
+    render(<TradeOwnerActions locale="ar" isOwner request={request} onUpdated={updated} />);
+    expect(disabled("إلغاء الصفقة")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء الصفقة" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "السبب" }), { target: { value: "رفض البنك السحب ولم يستلم البائع الأموال" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأكيد الإجراء" }));
+    await waitFor(() => expect(updated).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/alpha-exchange/admin/purchase-requests/trade-1/force-close");
+    expect(disabled("إلغاء الصفقة")).toBe(true);
+  });
+  it("retains stage and dispute restrictions for an ordinary admin", () => {
+    render(<TradeOwnerActions locale="en" isOwner={false} request={trade("payment_sent")} openDispute={{ id: "open", status: "open" } as TradeDisputeCase} onUpdated={vi.fn()} />);
+    expect(disabled("Mark as completed")).toBe(true);
+    expect(disabled("Force close trade")).toBe(true);
   });
 });
 
