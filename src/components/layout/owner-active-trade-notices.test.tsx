@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OwnerActiveTradeSummary } from "@/lib/owner-active-trades";
 const mocks = vi.hoisted(() => ({ path: "/profile", user: { id: "owner", role: "owner" } as { id: string; role: string } | null, fetch: vi.fn() }));
@@ -29,11 +29,24 @@ const mount = async (locale: "en" | "ar" = "en") => {
   await act(async () => { result = render(<OwnerActiveTradeNotices actorId="owner" initialTrades={trades} locale={locale} />); });
   return result!;
 };
+const expand = (locale: "en" | "ar" = "en") => fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "الصفقات النشطة (2)" : "Active trades (2)" }));
 
-describe("owner stacked active trades", () => {
+describe("owner active trade disclosure", () => {
+  it("starts as a compact count without exposing the large list, and toggles on demand", async () => {
+    await mount();
+    const trigger = screen.getByRole("button", { name: "Active trades (2)" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "Active trades (2)" })).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("region", { name: "Active trades (2)" }).id).toBe(trigger.getAttribute("aria-controls"));
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
   it("shows two separate green cards with names, IDs, details and exact destinations", async () => {
     await mount();
-    expect(screen.getByText("Active trades (2)")).toBeTruthy();
+    expand();
     for (const index of [1, 2]) {
       expect(screen.getByText(`Buyer ${index}`)).toBeTruthy();
       expect(screen.getByText(`Seller ${index}`)).toBeTruthy();
@@ -44,21 +57,25 @@ describe("owner stacked active trades", () => {
   it("keeps the other trade accessible from an Arabic trade room", async () => {
     mocks.path = "/ar/trade-room/request-1";
     await mount("ar");
-    expect(screen.getByText("تشاهد هذه الصفقة")).toBeTruthy();
+    expand("ar");
+    expect(screen.getByText("مفتوحة الآن")).toBeTruthy();
     expect(screen.getByRole("link", { name: "استئناف الصفقة #TR-000102" }).getAttribute("href")).toBe("/ar/trade-room/request-2");
     expect(screen.getByTestId("owner-active-trades").getAttribute("dir")).toBe("rtl");
   });
   it("adds and removes trades on refresh, including transitioning to no active trades", async () => {
     await mount();
+    expand();
     mocks.fetch.mockResolvedValue(response([trades[1]]));
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(screen.queryByText("Buyer 1")).toBeNull();
-    expect(screen.getByText("Active trades (1)")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Active trades (1)" })).toBeTruthy();
     mocks.fetch.mockResolvedValue(response([]));
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(screen.queryByTestId("owner-active-trades")).toBeNull();
     mocks.fetch.mockResolvedValue(response(trades));
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByRole("button", { name: "Active trades (2)" }).getAttribute("aria-expanded")).toBe("false");
+    expand();
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
   it.each(["buyer", "approved_seller", "admin"])("never renders or fetches the owner list for %s", async role => {
@@ -84,11 +101,39 @@ describe("owner stacked active trades", () => {
   it("keeps the last snapshot during a transient failure, marks it stale and recovers", async () => {
     mocks.fetch.mockResolvedValue(response([], 503));
     await mount();
+    expand();
     expect(screen.getByText("Buyer 1")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("Retrying");
     mocks.fetch.mockResolvedValue(response([trades[1]]));
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+  it("dismisses with Escape, outside clicks and keyboard focus leaving the panel", async () => {
+    await mount();
+    const trigger = screen.getByRole("button", { name: "Active trades (2)" });
+    expand();
+    fireEvent.keyDown(screen.getAllByRole("link")[0], { key: "Escape" });
+    expect(document.activeElement).toBe(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expand();
+    fireEvent.pointerDown(document.body);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expand();
+    fireEvent.blur(screen.getAllByRole("link")[1], { relatedTarget: document.body });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("closes immediately when opening a trade and stays closed on route changes", async () => {
+    const view = await mount();
+    expand();
+    fireEvent.click(screen.getAllByRole("link")[0]);
+    expect(screen.queryByRole("link")).toBeNull();
+    expand();
+    mocks.path = "/trade-room/request-1";
+    view.rerender(<OwnerActiveTradeNotices actorId="owner" initialTrades={trades} locale="en" />);
+    expect(screen.queryByRole("link")).toBeNull();
+    mocks.path = "/profile";
+    view.rerender(<OwnerActiveTradeNotices actorId="owner" initialTrades={trades} locale="en" />);
+    expect(screen.queryByRole("link")).toBeNull();
   });
 });

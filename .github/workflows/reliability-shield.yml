@@ -69,6 +69,15 @@ jobs:
       - name: Verify authenticated marketplace and Trade Room flows
         run: npm run test:e2e
 
+      - name: Preserve owner header visual checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-header-mobile-screenshots
+          path: test-results/**/owner-trades-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Preserve failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
