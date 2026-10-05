@@ -143,7 +143,7 @@ export function TradeOwnerActions({ locale, request, isOwner, openDispute, onUpd
       <Button type="button" variant="secondary" disabled={locked} className="mt-3" onClick={() => select("resolve-dispute")}>{labels["resolve-dispute"]}</Button>
     </div> : null}
     <div className="mt-3 grid gap-2 sm:grid-cols-2">
-      <Button type="button" disabled={locked || !controls.canComplete} onClick={() => select("force-complete")} className="min-h-11 whitespace-normal border-[#C9A227]/40 bg-[#C9A227]/20 text-[#F4D87A]">{labels["force-complete"]}</Button>
+      <Button type="button" disabled={locked || !controls.canComplete} onClick={() => select("force-complete")} className="min-h-11 whitespace-normal">{labels["force-complete"]}</Button>
       <Button type="button" variant="secondary" disabled={locked || !controls.canClose} onClick={() => select("force-close")} className="min-h-11 whitespace-normal border-red-400/35 text-red-200">{labels["force-close"]}</Button>
       <Button type="button" variant="secondary" disabled={locked || !controls.canUnlockReview} onClick={() => select("unlock-review")} className="min-h-11 whitespace-normal">{labels["unlock-review"]}</Button>
     </div>
