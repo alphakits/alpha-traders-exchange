@@ -71,6 +71,7 @@ beforeEach(() => {
         onlineStatus: "online",
         availabilityStatus: "available",
         isOwner: false,
+        isPhoneVerified: true,
         isFoundingSeller: true,
         isFeaturedSeller: true,
         contact: { email: "private@example.test", phone: "+972500000000" },
@@ -114,6 +115,7 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
       seller: {
         displayName: "Verified Seller",
         isCurrentUser: false,
+        isPhoneVerified: true,
         trustScore: 98,
         rating: 4.9,
       },

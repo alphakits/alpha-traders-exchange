@@ -1,4 +1,5 @@
 import { OwnerPrivateContact } from "@/components/profile/owner-private-contact";
+import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
@@ -358,7 +359,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                         <RoleBadge variant="approved_seller" locale={locale} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
                         <RankBadge rank={profile.sellerLevel} locale={locale} audience="seller" />
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
-                        {seller.isEmailVerified ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{isAr ? "بريد إلكتروني موثّق" : "Verified Email"}</span> : null}
+                        <AccountVerificationBadges emailVerified={seller.isEmailVerified || seller.emailVerified} phoneVerified={seller.isPhoneVerified} isAr={isAr} />
                         {heroBadgeItems.map((badge) => (
                           <span key={badge} className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-[#D1D5DB]">{currencyText(badge)}</span>
                         ))}

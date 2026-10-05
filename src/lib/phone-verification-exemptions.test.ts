@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAccountPhoneVerificationExempt } from "@/lib/phone-verification-exemptions";
-import { isVerified } from "@/lib/verification-bypass";
+import { hasVerifiedPhone, isVerified } from "@/lib/verification-bypass";
 import { toClientSessionUser } from "@/lib/client-session-user";
 import { requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
 import { marketplacePhoneVerificationDestination } from "@/lib/phone-verification";
@@ -23,6 +23,7 @@ describe("owner-authorized existing account exceptions", () => {
     const user = { ...account, roles: [account.role], sellerStatus: "buyer", emailVerified: true };
     expect(isAccountPhoneVerificationExempt(user)).toBe(true);
     expect(isVerified(user)).toBe(true);
+    expect(hasVerifiedPhone(user)).toBe(false);
     expect(requireMarketplaceVerificationForTrading(user)).toBeNull();
     for (const path of ["/en/usdt-exchange", "/en/dashboard/seller", "/ar/trade-room/fixture"]) {
       expect(marketplacePhoneVerificationDestination(user, path, "en")).toBeNull();
@@ -47,5 +48,18 @@ describe("owner-authorized existing account exceptions", () => {
     const user = { id: "ordinary", email: "other@example.test", role, emailVerified: true, phoneVerificationExempt: true };
     expect(isVerified(user)).toBe(false);
     expect(requireMarketplaceVerificationForTrading(user)?.status).toBe(403);
+  });
+});
+
+
+describe("public phone verification evidence", () => {
+  it("requires both a valid number and verification timestamp", () => {
+    const verified = { verifiedPhone: "+972501234567", phoneVerifiedAt: "2026-10-04T11:15:02.788Z" };
+    expect(hasVerifiedPhone(verified)).toBe(true);
+    expect(hasVerifiedPhone({ ...verified, disabled: true })).toBe(false);
+    expect(hasVerifiedPhone({ ...verified, verifiedPhone: "0501234567" })).toBe(false);
+    expect(hasVerifiedPhone({ ...verified, verifiedPhone: undefined })).toBe(false);
+    expect(hasVerifiedPhone({ ...verified, phoneVerifiedAt: undefined })).toBe(false);
+    expect(hasVerifiedPhone({ ...verified, phoneVerifiedAt: "invalid" })).toBe(false);
   });
 });

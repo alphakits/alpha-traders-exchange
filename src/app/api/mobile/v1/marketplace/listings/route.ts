@@ -81,6 +81,7 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
       isFoundingSeller: profile?.isFoundingSeller === true,
       isFeaturedSeller: profile?.isFeaturedSeller === true,
       emailVerified: profile?.emailVerified === true || profile?.isEmailVerified === true,
+      isPhoneVerified: profile?.isPhoneVerified === true,
       onlineStatus: profile?.onlineStatus ?? "offline",
       availabilityStatus: profile?.availabilityStatus ?? "away",
       lastActiveAt: profile?.lastActiveAt,

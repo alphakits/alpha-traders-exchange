@@ -291,6 +291,7 @@ export interface SellerPublicProfile {
   sellerStatus?: SellerStatus;
   allowDirectMessages?: boolean;
   isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
   contact?: {
     email: string;
     phone: string;
