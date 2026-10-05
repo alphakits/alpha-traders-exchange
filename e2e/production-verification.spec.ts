@@ -229,9 +229,14 @@ test.describe("Marketplace Pulse", () => {
     expect(api.lastCompletedTrade).not.toBeNull();
     expect(api.recentActivity.length).toBeGreaterThan(0);
 
-    const marketResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/market/center" && response.ok());
+    // Bind this rendering check to one real backend snapshot. Live refreshes
+    // may legitimately change a price while the sequential tile assertions run.
+    const marketResponse = await page.request.get("/api/market/center");
+    expect(marketResponse.ok()).toBe(true);
+    const marketPayload = await marketResponse.json() as { snapshot: MarketSnapshot };
+    await page.route("**/api/market/center", route => route.fulfill({ json: marketPayload }));
     await gotoMarketplace(page);
-    const { snapshot } = await (await marketResponse).json() as { snapshot: MarketSnapshot };
+    const { snapshot } = marketPayload;
     expect(["live", "degraded"]).toContain(snapshot.status);
     const overview = page.locator("#market-overview");
     await expect(overview.getByText(snapshot.status === "live" ? "LIVE" : "Degraded", { exact: true }).first()).toBeVisible({ timeout: 20000 });
