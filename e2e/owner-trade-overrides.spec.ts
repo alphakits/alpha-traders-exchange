@@ -33,7 +33,7 @@ function removeFixture(db: AlphaExchangeDb) {
   db.purchaseRequests = db.purchaseRequests.filter(item => item.id !== requestId);
   db.marketplaceListings = db.marketplaceListings.filter(item => item.id !== listingId);
   db.disputes = db.disputes.filter(item => item.purchaseRequestId !== requestId);
-  db.tradeMessages = db.tradeMessages.filter(item => item.purchaseRequestId !== requestId);
+  db.tradeMessages = (db.tradeMessages ?? []).filter(item => item.purchaseRequestId !== requestId);
   db.tradeEvidenceFiles = db.tradeEvidenceFiles.filter(item => item.purchaseRequestId !== requestId);
   db.commissionRecords = db.commissionRecords.filter(item => item.purchaseRequestId !== requestId);
   db.auditLogs = db.auditLogs.filter(item => item.purchaseRequestId !== requestId);
@@ -57,7 +57,7 @@ test.describe("Owner payment-stage overrides", () => {
       usdtAmount: "250", fiatAmount: "800", pricePerUsdt: "3.20", currency: "ILS", network: "TRC20",
       paymentMethod: "Cardless ATM Withdrawal", status: "accepted", timeline: [],
       sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: now,
-      acceptedAt: now, createdAt: now, updatedAt: now,
+      createdAt: now, updatedAt: now,
       actionReminderState: { stage: "accepted", actionStartedAt: now, seller: { userId: template.sellerId, lastSentAt: now, reminderCount: 1 } },
     } satisfies PurchaseRequest);
     db.disputes.push({ id: `${prefix}dispute`, tradeId: `${prefix}trade`, purchaseRequestId: requestId,
