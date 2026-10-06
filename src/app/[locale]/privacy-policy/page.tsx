@@ -1,8 +1,9 @@
 import { brandText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
-import { PUBLIC_TRUST_LAST_UPDATED } from "@/lib/public-trust";
 import { buildPageMetadata } from "@/lib/seo";
+
+const PRIVACY_LAST_UPDATED = "2026-10-06";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -43,6 +44,11 @@ const privacySections = {
     {
       title: "Service providers and legal disclosure",
       body: "Information may be shared with vendors that help operate hosting, authentication, messaging, security, storage, or support, subject to their service role. We may also preserve or disclose information when reasonably necessary to investigate abuse, protect users or the service, enforce terms, respond to lawful requests, or meet applicable law. We do not treat private identity documents as public business proof.",
+    },
+    {
+      title: "Connection security",
+      body: "When connection-security checks are enabled, we send your connection's IP address to Ipregistry to check for VPNs, proxies, Tor and private relay services. This lookup does not include your account details, messages, identity documents or payment data. A detected service or an unavailable check may prevent access. Ipregistry states that API logs may be retained for up to 12 months for monitoring, alerting and reporting.",
+      providerPolicyLabel: "Ipregistry Privacy Policy",
     },
     {
       title: "Optional WhatsApp notifications",
@@ -91,6 +97,11 @@ const privacySections = {
       body: "قد نشارك المعلومات مع مزودين يساعدون في الاستضافة أو المصادقة أو المراسلة أو الأمان أو التخزين أو الدعم وفق دورهم في الخدمة. وقد نحفظ المعلومات أو نكشفها عند الحاجة المعقولة للتحقيق في إساءة أو حماية المستخدمين أو الخدمة أو تطبيق الشروط أو الاستجابة لطلب قانوني أو الوفاء بالقانون. لا نعامل وثائق الهوية الخاصة كدليل تجاري عام.",
     },
     {
+      title: "أمان الاتصال",
+      body: "عند تفعيل فحوصات أمان الاتصال، نرسل عنوان IP الخاص باتصالك إلى Ipregistry للتحقق من خدمات VPN والبروكسي وTor وخدمات الترحيل الخاصة. لا يتضمن هذا الفحص بيانات حسابك أو رسائلك أو وثائق هويتك أو بيانات الدفع. قد يُمنع الوصول عند اكتشاف إحدى هذه الخدمات أو عند تعذّر التحقق من الاتصال. يذكر Ipregistry أنه قد يحتفظ بسجلات API لمدة تصل إلى 12 شهرًا لأغراض المراقبة والتنبيه وإعداد التقارير.",
+      providerPolicyLabel: "سياسة خصوصية Ipregistry",
+    },
+    {
       title: "إشعارات WhatsApp الاختيارية",
       body: "إذا أصبح هذا الخيار متاحًا وفعّلته بموافقة صريحة، فقد تشارك Alpha Traders رقم هاتفك الموثّق ونموذج إشعار محدودًا مع Meta لإرسال تنبيهات عن الطلبات أو غرفة التداول النشطة أو وجود رسالة بانتظارك عبر WhatsApp. لا تتضمن التنبيهات نص المحادثة أو المبالغ أو عناوين المحافظ أو تفاصيل البنك أو تعليمات الدفع. يمكنك إيقاف أي فئة من الإعدادات في أي وقت أو الرد بكلمة STOP لسحب موافقة WhatsApp.",
     },
@@ -129,12 +140,17 @@ export default async function PrivacyPolicyPage({ params }: { params: Promise<{ 
             <article key={section.title} className="rounded-2xl border border-white/10 bg-black/30 p-5">
               <h2 className="text-base font-semibold text-white sm:text-lg">{index + 1}. {brandText(section.title)}</h2>
               <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{brandText(section.body)}</p>
+              {"providerPolicyLabel" in section ? (
+                <a className="mt-3 inline-block text-sm text-[#D4AF37] underline underline-offset-4" href="https://ipregistry.co/privacy" rel="noreferrer">
+                  {section.providerPolicyLabel}
+                </a>
+              ) : null}
             </article>
           ))}
         </div>
 
         <div className="mt-6 border-t border-white/10 pt-5 text-xs leading-6 text-[#9CA3AF]">
-          <p>{isAr ? "آخر مراجعة" : "Last reviewed"}: <time dateTime={PUBLIC_TRUST_LAST_UPDATED}>{PUBLIC_TRUST_LAST_UPDATED}</time></p>
+          <p>{isAr ? "آخر مراجعة" : "Last reviewed"}: <time dateTime={PRIVACY_LAST_UPDATED}>{PRIVACY_LAST_UPDATED}</time></p>
           <p className="break-words">{isAr ? "طلبات الخصوصية" : "Privacy requests"}: <a className="text-[#D4AF37] underline underline-offset-4" href={`mailto:${BRAND_SUPPORT_EMAIL}`}>{BRAND_SUPPORT_EMAIL}</a></p>
         </div>
       </div>
