@@ -58,6 +58,11 @@ describe("server-side network access", () => {
     if (tor) expect(response?.status).toBe(403);
     else expect(response).toBeNull();
   });
+  it.each([[true, false, 403], [false, true, 403], [false, false, 200]])("applies VPN/Tor recovery with proxycheck (%s/%s)", async (vpn, tor, status) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(result({ vpn, tor, proxy: true })));
+    expect((await enforceNetworkAccess(request()))?.status ?? 200).toBe(status);
+  });
   it("returns a private, self-contained 403 page without leaking request contents", async () => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     const response = (await enforceNetworkAccess(request('/en?returnTo=%3Cscript%3E&token=private-test-value')))!;
@@ -67,7 +72,8 @@ describe("server-side network access", () => {
     const html = await response.text();
     expect(html).toContain("Connection access restricted");
     expect(html).toContain("This detection can be incorrect");
-    expect(html).not.toContain("Turn off your VPN");
+    expect(html).toContain("Support reference");
+    expect(html).toContain(response.headers.get("x-alpha-connection-reference"));
     expect(html).not.toMatch(/<script|private-test-value|8\.8\.8\.8|synthetic-provider-key/);
     expect(html).toContain('href="/en"');
   });

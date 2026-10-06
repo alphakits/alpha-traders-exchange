@@ -170,8 +170,8 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   if (!["proxycheck", "ipregistry"].includes(networkProvider)) {
     errors.push("ALPHA_NETWORK_ACCESS_PROVIDER must be proxycheck or ipregistry.");
   }
-  if (!["off", "monitor", "tor-only", "enforce"].includes(networkMode)) {
-    errors.push("ALPHA_NETWORK_ACCESS_MODE must be off, monitor, tor-only, or enforce.");
+  if (!["off", "monitor", "tor-only", "vpn-tor", "enforce"].includes(networkMode)) {
+    errors.push("ALPHA_NETWORK_ACCESS_MODE must be off, monitor, tor-only, vpn-tor, or enforce.");
   } else if (networkMode !== "off") {
     if (networkProvider === "proxycheck" && !process.env.PROXYCHECK_API_KEY?.trim()) {
       errors.push("PROXYCHECK_API_KEY is required when network access checks are enabled.");

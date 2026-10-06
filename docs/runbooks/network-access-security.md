@@ -9,6 +9,7 @@
 | `off` (default) | None | Existing access rules remain in effect. |
 | `monitor` | Yes | Coarse verdicts are logged; requests continue through normal authentication. |
 | `tor-only` | Yes | Explicit Tor: 403. Unverified Tor status: 503. Verified non-Tor connections, including other positive classifications, continue through normal authentication while those classifications are monitored. |
+| `vpn-tor` | Yes | Explicit VPN or Tor: 403. Both flags must be explicitly false to continue; unchecked status: 503. Proxy-only and relay-only classifications remain monitored during incident recovery. |
 | `enforce` | Yes | Known VPN/proxy/Tor: 403. Unchecked connection: 503. Clear connection: continue through normal authentication. |
 
 Select exactly one service with `ALPHA_NETWORK_ACCESS_PROVIDER`:
@@ -138,6 +139,22 @@ Keep enforcement in preview until representative physical-device acceptance
 and the affected connection's recovery are recorded. Any proposal to permit
 privacy relays is a separate policy decision; do not silently add a Safari,
 owner-account, device-header or IP allowlist bypass to make a test pass.
+
+`vpn-tor` is a second recovery step when VPN detection can be enforced while
+proxy-only and privacy-relay classifications are still under review. It is not
+full proxy/relay enforcement. Neither a Safari user-agent nor an owner account
+can bypass a positive VPN or Tor result. Unknown VPN or Tor status fails closed.
+Returning to `enforce` still applies all original restrictions.
+
+Blocked pages and APIs include a random support reference matching the redacted
+classification or lookup-failure log's `resourceId`. The reference is generated
+on the server for each lookup and retained with the 60-second verdict cache
+(5 seconds for failed lookups). Cached retries do not cause extra lookup logs.
+It contains no IP, account identity or credential and never grants access.
+Configuration/input failures receive a separately logged random reference.
+Use the reference and timestamp to investigate an affected connection instead
+of assuming that normal Safari implies Private Relay. Messages identify the
+validated VPN, proxy, Tor or relay classification separately.
 
 ## Identity and data safeguards
 

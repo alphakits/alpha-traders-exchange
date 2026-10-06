@@ -6,9 +6,16 @@ import { logEvent } from "@/lib/structured-logging";
 
 type NetworkVerdict = "clear" | "restricted" | "unavailable";
 type NetworkProvider = "proxycheck" | "ipregistry";
-type NetworkAssessment = { verdict: NetworkVerdict; tor: boolean | null };
+type NetworkRestriction = "vpn" | "proxy" | "tor" | "private_relay";
+type NetworkAssessment = {
+  verdict: NetworkVerdict;
+  tor: boolean | null;
+  vpn: boolean | null;
+  detectedTypes: NetworkRestriction[];
+  reference?: string;
+};
 type CachedVerdict = { assessment: NetworkAssessment; expiresAt: number };
-const unavailableAssessment: NetworkAssessment = { verdict: "unavailable", tor: null };
+const unavailableAssessment: NetworkAssessment = { verdict: "unavailable", tor: null, vpn: null, detectedTypes: [] };
 const verdicts = new Map<string, CachedVerdict>();
 const pending = new Map<string, Promise<NetworkAssessment>>();
 const MAX_CACHE_ENTRIES = 2_048;
@@ -102,6 +109,8 @@ function appliedNetworkVerdict(mode: string, assessment: NetworkAssessment): Net
   if (mode === "monitor") return "clear";
   if (mode === "tor-only") return assessment.tor === true ? "restricted"
     : assessment.tor === false ? "clear" : "unavailable";
+  if (mode === "vpn-tor") return assessment.tor === true || assessment.vpn === true ? "restricted"
+    : assessment.tor === false && assessment.vpn === false ? "clear" : "unavailable";
   return assessment.verdict;
 }
 
@@ -113,24 +122,17 @@ function observeNetworkClassification(payload: unknown, ip: string, provider: Ne
   const flags = provider === "ipregistry"
     ? record(response?.security) : record(record(response?.[ip])?.detections);
   const torFlag = flags?.[provider === "ipregistry" ? "is_tor" : "tor"];
-  const assessment: NetworkAssessment = { verdict, tor: typeof torFlag === "boolean" ? torFlag : null };
-  if (verdict !== "restricted") return assessment;
-  const fields: Record<string, string> = provider === "ipregistry"
+  const vpnFlag = flags?.[provider === "ipregistry" ? "is_vpn" : "vpn"];
+  const fields: Partial<Record<NetworkRestriction, string>> = provider === "ipregistry"
     ? { vpn: "is_vpn", proxy: "is_proxy", tor: "is_tor", private_relay: "is_relay" }
     : { vpn: "vpn", proxy: "proxy", tor: "tor" };
   // Keep only fixed classification labels after validating the provider's IP.
   // Never log its body, visitor IP, account details, credentials or headers.
   const detectedTypes = Object.entries(fields)
     .filter(([, field]) => flags?.[field] === true)
-    .map(([label]) => label);
-  const appliedVerdict = appliedNetworkVerdict(process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() || "off", assessment);
-  logEvent("warn", {
-    event: "network_provider_classification",
-    outcome: appliedVerdict === "restricted" ? "denied" : appliedVerdict === "unavailable" ? "failed" : "success",
-    reason: "restricted",
-    metadata: { provider, mode: process.env.ALPHA_NETWORK_ACCESS_MODE, detectedTypes },
-  });
-  return assessment;
+    .map(([label]) => label as NetworkRestriction);
+  return { verdict, tor: typeof torFlag === "boolean" ? torFlag : null,
+    vpn: typeof vpnFlag === "boolean" ? vpnFlag : null, detectedTypes };
 }
 
 async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkAssessment> {
@@ -187,7 +189,10 @@ async function cachedNetworkVerdict(ip: string, apiKey: string, provider: Networ
   if (inFlight) return inFlight;
   if (pending.size >= MAX_PENDING_LOOKUPS) return unavailableAssessment;
 
-  const lookup = lookupNetwork(ip, apiKey, provider).then((assessment) => {
+  const lookup = lookupNetwork(ip, apiKey, provider).then((providerAssessment) => {
+    // One random reference per lookup, retained with its cached assessment.
+    // It reveals no visitor identity and never authorizes a request.
+    const assessment = { ...providerAssessment, reference: crypto.randomUUID() };
     const { verdict } = assessment;
     // Ignore old requests after a configuration change.
     if (activeConfiguration === configuration) {
@@ -195,8 +200,18 @@ async function cachedNetworkVerdict(ip: string, apiKey: string, provider: Networ
       verdicts.set(ip, { assessment, expiresAt: Date.now() + (verdict === "unavailable" ? 5_000 : 60_000) });
       if (verdict !== "clear") {
         const appliedVerdict = appliedNetworkVerdict(process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() || "off", assessment);
+        if (verdict === "restricted") {
+          logEvent("warn", {
+            event: "network_provider_classification",
+            resourceId: assessment.reference,
+            outcome: appliedVerdict === "restricted" ? "denied" : appliedVerdict === "unavailable" ? "failed" : "success",
+            reason: "restricted",
+            metadata: { provider, mode: process.env.ALPHA_NETWORK_ACCESS_MODE, detectedTypes: assessment.detectedTypes },
+          });
+        }
         logEvent("warn", {
           event: "network_access_check",
+          resourceId: assessment.reference,
           outcome: appliedVerdict === "restricted" ? "denied" : appliedVerdict === "unavailable" ? "failed" : "success",
           reason: verdict,
           metadata: { mode: process.env.ALPHA_NETWORK_ACCESS_MODE },
@@ -211,17 +226,33 @@ async function cachedNetworkVerdict(ip: string, apiKey: string, provider: Networ
   return lookup;
 }
 
-function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict, "clear">) {
+function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict, "clear">, assessment = unavailableAssessment) {
   const restricted = verdict === "restricted";
   const status = restricted ? 403 : 503;
   const code = restricted ? "NETWORK_RESTRICTED" : "NETWORK_CHECK_UNAVAILABLE";
   const pathLocale = /^\/(ar|en)(?:\/|$)/.exec(request.nextUrl.pathname)?.[1];
   const locale = pathLocale === "ar" || pathLocale === "en"
     ? pathLocale : resolveSupportedRequestLocale(request.headers);
-  const torOnly = restricted && process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() === "tor-only";
+  const reference = assessment.reference ?? crypto.randomUUID();
+  if (!assessment.reference) {
+    logEvent("warn", { event: "network_access_check", resourceId: reference,
+      outcome: "failed", reason: "unavailable", metadata: { mode: process.env.ALPHA_NETWORK_ACCESS_MODE } });
+  }
+  const restriction = !restricted ? null : assessment.tor === true ? "tor"
+    : assessment.vpn === true ? "vpn" : assessment.detectedTypes[0] ?? null;
+  const torOnly = restriction === "tor";
   const message = torOnly
     ? (locale === "ar" ? "تم التعرف على اتصالك على أنه تابع لشبكة Tor. استخدم اتصالًا خارج شبكة Tor ثم حاول مجددًا."
       : "Your connection was identified as part of the Tor network. Use a connection outside Tor and try again.")
+    : restriction === "vpn"
+    ? (locale === "ar" ? "تم تصنيف اتصالك على أنه VPN. قد يكون هذا التصنيف غير صحيح. أوقف VPN إذا كنت تستخدمه، أو تواصل مع الدعم وأرسل الرقم المرجعي أدناه."
+      : "Your connection was flagged as a VPN. This detection can be incorrect. Turn it off if you use one, or contact support with the reference below.")
+    : restriction === "proxy"
+    ? (locale === "ar" ? "تم تصنيف اتصالك على أنه بروكسي. قد يكون هذا التصنيف غير صحيح، ولا يعني أنك تستخدم تطبيق VPN. تواصل مع الدعم وأرسل الرقم المرجعي أدناه إذا كنت تستخدم اتصالًا عاديًا."
+      : "Your connection was flagged as a proxy. This detection can be incorrect and does not mean you installed a VPN. If you use a normal connection, contact support with the reference below.")
+    : restriction === "private_relay"
+    ? (locale === "ar" ? "تم التعرف على خدمة ترحيل للخصوصية مثل iCloud Private Relay. قد يكون هذا التصنيف غير صحيح. قد تعمل هذه الخدمة أثناء التصفح العادي في Safari دون تطبيق VPN. يتطلب هذا الموقع اتصالًا مباشرًا."
+      : "A privacy relay such as iCloud Private Relay was detected. This detection can be incorrect. It can operate during normal Safari browsing without a VPN app. This website requires a direct connection.")
     : networkAccessMessages[code][locale];
   const headers = {
     "Cache-Control": "private, no-store, max-age=0",
@@ -230,13 +261,14 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
     "X-Content-Type-Options": "nosniff",
     "X-Robots-Tag": "noindex, nofollow",
     "Referrer-Policy": "no-referrer",
+    "X-Alpha-Connection-Reference": reference,
     ...(restricted ? {} : { "Retry-After": "5" }),
   };
   if (request.nextUrl.pathname === "/api" || request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json(
       request.nextUrl.pathname.startsWith("/api/mobile/v1/")
-        ? { error: { code, message }, requestId: crypto.randomUUID() }
-        : { error: message, code },
+        ? { error: { code, message }, requestId: reference }
+        : { error: message, code, requestId: reference },
       { status, headers },
     );
   }
@@ -249,9 +281,10 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
   const support = torOnly
     ? (locale === "ar" ? "إذا كنت لا تستخدم Tor، تواصل مع الدعم للتحقق من التصنيف." : "If you are not using Tor, contact support to review the detection.")
     : locale === "ar"
-    ? "قد تعمل خدمة iCloud Private Relay أثناء التصفح العادي في Safari دون تطبيق VPN. إذا كنت لا تستخدم أيًا من هذه الخدمات، تواصل مع الدعم للتحقق من التصنيف."
-    : "iCloud Private Relay can operate during normal Safari browsing without a VPN app. If you are not using any of these services, contact support to review the detection.";
-  return new NextResponse(`<!doctype html><html lang="${locale}" dir="${locale === "ar" ? "rtl" : "ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | Alpha Traders</title><style>html{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#080d17;color:#f4f5f8;font:16px/1.65 system-ui,sans-serif}main{width:min(100%,480px);padding:32px;border:1px solid #344156;border-radius:24px;background:#111b2a}small{color:#ebc66a;font-weight:700;letter-spacing:.08em}h1{font-size:clamp(24px,5vw,32px);line-height:1.25}p{color:#c2ccda}a{display:inline-block;padding:12px 24px;border-radius:12px;background:#ebc66a;color:#080d17;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid white;outline-offset:4px}.help{font-size:14px}</style></head><body><main><small>ALPHA TRADERS</small><h1>${title}</h1><p>${message}</p><a href="/${locale}">${retry}</a>${restricted ? `<p class="help">${support}</p>` : ""}</main></body></html>`, {
+    ? "إذا كنت لا تستخدم الخدمة المذكورة أعلاه، تواصل مع الدعم وأرسل الرقم المرجعي للتحقق من التصنيف."
+    : "If you are not using the service described above, contact support with the reference to review the detection.";
+  const referenceLabel = locale === "ar" ? "الرقم المرجعي للدعم" : "Support reference";
+  return new NextResponse(`<!doctype html><html lang="${locale}" dir="${locale === "ar" ? "rtl" : "ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | Alpha Traders</title><style>html{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#080d17;color:#f4f5f8;font:16px/1.65 system-ui,sans-serif}main{width:min(100%,480px);padding:32px;border:1px solid #344156;border-radius:24px;background:#111b2a}small{color:#ebc66a;font-weight:700;letter-spacing:.08em}h1{font-size:clamp(24px,5vw,32px);line-height:1.25}p{color:#c2ccda}a{display:inline-block;padding:12px 24px;border-radius:12px;background:#ebc66a;color:#080d17;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid white;outline-offset:4px}.help{font-size:14px}.reference{overflow-wrap:anywhere}</style></head><body><main><small>ALPHA TRADERS</small><h1>${title}</h1><p>${message}</p><a href="/${locale}">${retry}</a>${restricted ? `<p class="help">${support}</p>` : ""}<p class="help reference">${referenceLabel}: <bdi>${reference}</bdi></p></main></body></html>`, {
     status,
     headers: {
       ...headers,
@@ -267,7 +300,7 @@ export async function enforceNetworkAccess(request: NextRequest): Promise<NextRe
   const pathname = request.nextUrl.pathname.replace(/\/$/, "");
   if (Object.hasOwn(MACHINE_METHODS, pathname)
       && MACHINE_METHODS[pathname].includes(request.method.toUpperCase())) return null;
-  if (mode !== "monitor" && mode !== "enforce" && mode !== "tor-only") return networkRejection(request, "unavailable");
+  if (mode !== "monitor" && mode !== "enforce" && mode !== "tor-only" && mode !== "vpn-tor") return networkRejection(request, "unavailable");
   const provider = process.env.ALPHA_NETWORK_ACCESS_PROVIDER?.trim() || "proxycheck";
   if (provider !== "proxycheck" && provider !== "ipregistry") return networkRejection(request, "unavailable");
   const apiKey = (provider === "ipregistry" ? process.env.IPREGISTRY_API_KEY : process.env.PROXYCHECK_API_KEY)?.trim();
@@ -278,5 +311,5 @@ export async function enforceNetworkAccess(request: NextRequest): Promise<NextRe
   if (verdict === "clear") return null;
   // Enforced mode never silently admits an unchecked connection, including
   // provider outage, quota exhaustion, missing configuration, or invalid IP.
-  return networkRejection(request, verdict);
+  return networkRejection(request, verdict, assessment);
 }

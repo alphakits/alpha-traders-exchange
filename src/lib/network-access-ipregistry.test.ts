@@ -157,6 +157,117 @@ describe("Tor-only incident recovery", () => {
   });
 });
 
+describe("VPN and Tor recovery policy", () => {
+  it.each([
+    [false, false, 200], [true, false, 403], [false, true, 403], [true, true, 403],
+    [null, false, 503], [false, null, 503], ["false", false, 503], [false, "false", 503],
+    [undefined, false, 503], [false, undefined, 503], [true, null, 403], [null, true, 403],
+  ])("evaluates VPN=%s and Tor=%s independently", async (is_vpn, is_tor, status) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_vpn, is_tor, is_proxy: true })));
+    const response = await enforceNetworkAccess(request("/en/login"));
+    expect(response?.status ?? 200).toBe(status);
+  });
+
+  it.each(["is_proxy", "is_relay"])("keeps unresolved %s classifications monitored", async (flag) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(payload({ [flag]: true })));
+    expect(await enforceNetworkAccess(request("/en/login"))).toBeNull();
+    expect(console.warn).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_provider_classification", outcome: "success", resourceId: expect.any(String),
+    }));
+  });
+
+  it.each(["/en/login", "/ar/login", "/api/auth/me", "/api/mobile/v1/app-config"])("blocks a VPN without Tor on %s", async (path) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_vpn: true })));
+    const response = (await enforceNetworkAccess(request(path)))!;
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("VPN");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("does not grant a Safari or device-header exemption", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_vpn: true })));
+    const req = request("/en/login");
+    req.headers.set("user-agent", "Mozilla/5.0 (iPhone) Version/26.0 Mobile Safari/605.1.15");
+    req.headers.set("x-platform", "ios");
+    req.headers.set("x-network-verified", "true");
+    expect((await enforceNetworkAccess(req))?.status).toBe(403);
+  });
+
+  it("preserves VPN detection in the cache when switching recovery modes", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_vpn: true })));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    expect((await enforceNetworkAccess(request()))?.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks cached proxy classifications when full enforcement is selected", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_proxy: true })));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "enforce");
+    expect((await enforceNetworkAccess(request()))?.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat a missing, mismatched or unavailable lookup as a direct connection", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "vpn-tor");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_vpn: false, is_tor: false }, "1.1.1.1")));
+    expect((await enforceNetworkAccess(request()))?.status).toBe(503);
+  });
+});
+
+describe("Connection support references", () => {
+  it("connects a blocked page and native response to a redacted cached assessment without trusting input", async () => {
+    fetchMock.mockResolvedValue(Response.json(payload({ is_vpn: true })));
+    const req = request("/en/login?requestId=forged-reference");
+    req.headers.set("x-alpha-connection-reference", "forged-reference");
+    const page = (await enforceNetworkAccess(req))!;
+    const reference = page.headers.get("x-alpha-connection-reference");
+    expect(reference).toMatch(/^[0-9a-f-]{36}$/);
+    const html = await page.text();
+    expect(html).toContain(reference);
+    expect(html).not.toContain("forged-reference");
+    const api = (await enforceNetworkAccess(request("/api/mobile/v1/app-config")))!;
+    expect((await api.json()).requestId).toBe(reference);
+    expect(console.warn).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_provider_classification", resourceId: reference,
+      metadata: { provider: "ipregistry", mode: "enforce", detectedTypes: ["vpn"] },
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const logs = JSON.stringify(vi.mocked(console.warn).mock.calls);
+    expect(logs).not.toMatch(/8\.8\.8\.8|private-session|private-user-token|synthetic-ipregistry|forged-reference/);
+  });
+
+  it.each([
+    ["is_proxy", "flagged as a proxy"],
+    ["is_relay", "A privacy relay"],
+    ["is_vpn", "flagged as a VPN"],
+    ["is_tor", "part of the Tor network"],
+  ])("describes the actual %s classification", async (flag, message) => {
+    fetchMock.mockResolvedValue(Response.json(payload({ [flag]: true })));
+    const response = (await enforceNetworkAccess(request("/en/login")))!;
+    expect(await response.text()).toContain(message);
+  });
+
+  it("includes a matching support reference on an unavailable lookup, without calling it a VPN", async () => {
+    fetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+    const response = (await enforceNetworkAccess(request("/api/mobile/v1/app-config")))!;
+    const result = await response.json();
+    expect(response.status).toBe(503);
+    expect(result.error.code).toBe("NETWORK_CHECK_UNAVAILABLE");
+    expect(result.requestId).toBe(response.headers.get("x-alpha-connection-reference"));
+    expect(console.warn).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_access_check", resourceId: result.requestId, reason: "unavailable",
+    }));
+  });
+});
+
 describe("network classification incident diagnostics", () => {
   it.each([
     ["is_vpn", "vpn"], ["is_proxy", "proxy"],
