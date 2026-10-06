@@ -1,4 +1,4 @@
-name: Tor-only network access live proof
+name: Deployment protection and Tor live proof
 
 on:
   push:
@@ -33,7 +33,6 @@ jobs:
           origin = os.environ['ALPHA_PROOF_ORIGIN']
           records = []
           tor_confirmed = False
-          legacy_observation = {}
           base_headers = ['User-Agent: AlphaTraders-Network-Verification/1.0', 'X-Device-Id: 550e8400-e29b-41d4-a716-446655440006', 'X-App-Version: 1.2.0']
           def check(name, path, expected, tor_transport=False, platform='ios', method='GET', error_code=None, page_language=None, extra_headers=None, health=False, login=False, request_origin=None, follow=False, auth_gate=False):
               body, response_headers = root / 'response.txt', root / 'headers.txt'
@@ -66,6 +65,7 @@ jobs:
                   entry['application_block_page'] = page_language
               if auth_gate:
                   assert 'Authentication Required' in content and 'Vercel' in content, 'Expected deployment authentication wall'
+                  assert 'id="login-email"' not in content and 'id="login-password"' not in content, 'Application login must not render behind the deployment wall'
                   entry['deployment_authentication'] = True
               if login:
                   assert 'id="login-email"' in content and 'id="login-password"' in content, 'Expected the rendered login form'
@@ -114,10 +114,10 @@ jobs:
               record_check('Cron exception still requires authentication through Tor', '/api/cron/economic-news', 401, True)
               record_check('Session revocation exception still requires authentication', '/api/mobile/v1/auth/session', 401, True, method='DELETE', error_code='UNAUTHORIZED')
               record_check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
-              legacy_body = root / 'legacy-response.txt'
-              legacy = subprocess.run(['curl', '--silent', '--show-error', '--socks5-hostname', '127.0.0.1:19050', '--connect-timeout', '15', '--max-time', '35', '--output', str(legacy_body), '--write-out', '%{http_code}', 'https://alpha-traders-exchange-k7x731tbl-alpha-kits.vercel.app/en/login'], capture_output=True, text=True)
-              legacy_text = legacy_body.read_text() if legacy_body.exists() else ''
-              legacy_observation = {'transport': 'tor', 'curl_exit': legacy.returncode, 'status': legacy.stdout.strip(), 'login_form': 'id="login-email"' in legacy_text and 'id="login-password"' in legacy_text, 'protection_change': 'blocked_by_automatic_approval_review_pending_explicit_user_approval'}
+              for use_tor in (False, True):
+                  transport_name = 'Tor' if use_tor else 'Direct'
+                  record_check(transport_name + ' old production deployment requires Vercel authentication', '/en/login', 401, use_tor, request_origin='https://alpha-traders-exchange-k7x731tbl-alpha-kits.vercel.app', auth_gate=True)
+                  record_check(transport_name + ' preview deployment requires Vercel authentication', '/en/login', 401, use_tor, request_origin='https://alpha-traders-exchange-qad5kmen6-alpha-kits.vercel.app', auth_gate=True)
           finally:
               if tor is not None:
                   tor.terminate()
@@ -126,11 +126,11 @@ jobs:
                   except subprocess.TimeoutExpired:
                       tor.kill()
                       tor.wait()
-              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'tor_project_confirmed': tor_confirmed, 'mode': 'tor-only', 'legacy_deployment_observation': legacy_observation, 'checks': records, 'passed': tor_confirmed and len(records) == 16 and all(x.get('passed') for x in records)}
+              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'tor_project_confirmed': tor_confirmed, 'mode': 'tor-only', 'deployment_protection': {'approved_by_owner': True, 'scope': 'prod_deployment_urls_and_all_previews'}, 'checks': records, 'passed': tor_confirmed and len(records) == 20 and all(x.get('passed') for x in records)}
               pathlib.Path('network-access-production-proof.json').write_text(json.dumps(record, indent=2))
               print(json.dumps(record, indent=2))
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-                  summary.write('## Tor-only network access proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
+                  summary.write('## Approved deployment protection and Tor proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
                   for item in records:
                       summary.write('| ' + item['name'] + ' | ' + item['status'] + ' | ' + str(item['expected']) + ' | ' + ('PASS' if item.get('passed') else 'FAIL') + ' |\n')
                   summary.write('\n<details><summary>Sanitized machine evidence</summary>\n\n```json\n' + json.dumps(record, indent=2) + '\n```\n</details>\n')
