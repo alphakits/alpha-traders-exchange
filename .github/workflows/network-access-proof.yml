@@ -1,4 +1,4 @@
-name: Production network access live proof
+name: Tor-only network access live proof
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   live-proof:
-    name: Direct, Tor and ingress verification in production
+    name: Direct, Tor and ingress verification
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -18,10 +18,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends tor
-      - name: Verify production network restrictions and protected exceptions
+      - name: Verify Tor restrictions and protected exceptions
         env:
-          ALPHA_PROOF_ORIGIN: https://www.alphatraders.co.il
-          ALPHA_EXPECTED_DEPLOYMENT: dpl_8WDEPnSWEuipEYXTzVFfHy6MWEgN
+          ALPHA_PROOF_ORIGIN: https://alpha-traders-exchange-ftt2559w2-alpha-kits.vercel.app
+          ALPHA_EXPECTED_DEPLOYMENT: dpl_3AA1zHpW1Qb7gKt84NVuEHufiZiU
         run: |
           python3 - <<'PY'
           import datetime, json, os, pathlib, subprocess, time
@@ -32,6 +32,7 @@ jobs:
           log = root / 'tor.log'
           origin = os.environ['ALPHA_PROOF_ORIGIN']
           records = []
+          tor_confirmed = False
           base_headers = ['User-Agent: AlphaTraders-Network-Verification/1.0', 'X-Device-Id: 550e8400-e29b-41d4-a716-446655440006', 'X-App-Version: 1.2.0']
           def check(name, path, expected, tor_transport=False, platform='ios', method='GET', error_code=None, page_language=None, extra_headers=None, health=False):
               body, response_headers = root / 'response.txt', root / 'headers.txt'
@@ -57,7 +58,7 @@ jobs:
                   assert 'no-store' in response_headers.read_text().lower(), 'Blocked response must not be cached'
                   entry['non_cacheable'] = True
               if page_language:
-                  title = 'Turn off your VPN to continue' if page_language == 'en' else 'أوقف خدمة VPN للمتابعة'
+                  title = 'Tor connections are not allowed' if page_language == 'en' else 'اتصال Tor غير مسموح'
                   assert title in content and 'lang="' + page_language + '"' in content, 'Expected localized application block page'
                   entry['application_block_page'] = page_language
               if health:
@@ -76,6 +77,7 @@ jobs:
                       raise
           tor = None
           try:
+              record_check('Direct login page remains available', '/en/login', 200)
               record_check('Direct iOS API access', '/api/mobile/v1/app-config', 200)
               record_check('Direct Android API access', '/api/mobile/v1/app-config', 200, platform='android')
               record_check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', 401, error_code='UNAUTHORIZED')
@@ -85,6 +87,10 @@ jobs:
                   if tor.poll() is not None or time.monotonic() >= deadline:
                       raise RuntimeError('Tor did not become ready within the bounded setup window')
                   time.sleep(2)
+              identity = subprocess.run(['curl', '--silent', '--show-error', '--socks5-hostname', '127.0.0.1:19050', '--connect-timeout', '15', '--max-time', '35', 'https://check.torproject.org/api/ip'], capture_output=True, text=True)
+              tor_confirmed = identity.returncode == 0 and json.loads(identity.stdout).get('IsTor') is True
+              assert tor_confirmed, 'Tor Project did not confirm this transport as Tor'
+              record_check('Tor login page denied', '/en/login', 403, True, page_language='en')
               record_check('Tor iOS API denied', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED')
               record_check('Tor Android API denied', '/api/mobile/v1/app-config', 403, True, platform='android', error_code='NETWORK_RESTRICTED')
               record_check('Tor English page denied', '/en', 403, True, page_language='en')
@@ -102,11 +108,11 @@ jobs:
                   except subprocess.TimeoutExpired:
                       tor.kill()
                       tor.wait()
-              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'checks': records, 'passed': len(records) == 12 and all(x.get('passed') for x in records)}
+              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'tor_project_confirmed': tor_confirmed, 'mode': 'tor-only', 'checks': records, 'passed': tor_confirmed and len(records) == 14 and all(x.get('passed') for x in records)}
               pathlib.Path('network-access-production-proof.json').write_text(json.dumps(record, indent=2))
               print(json.dumps(record, indent=2))
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-                  summary.write('## Production network access proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
+                  summary.write('## Tor-only network access proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
                   for item in records:
                       summary.write('| ' + item['name'] + ' | ' + item['status'] + ' | ' + str(item['expected']) + ' | ' + ('PASS' if item.get('passed') else 'FAIL') + ' |\n')
                   summary.write('\n<details><summary>Sanitized machine evidence</summary>\n\n```json\n' + json.dumps(record, indent=2) + '\n```\n</details>\n')
