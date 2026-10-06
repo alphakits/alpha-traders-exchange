@@ -15,6 +15,7 @@ import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/tr
 import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { buildOwnerActiveTradeSummaries } from "@/lib/owner-active-trades";
+import { buildSellerActiveTradeSummaries } from "@/lib/seller-active-trades";
 import { publicSellerReputation, publicSellerAchievements } from "@/lib/public-seller-reputation";
 import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile-name-policy";
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
@@ -11396,6 +11397,12 @@ export const getOwnerActiveTradeHeaderState = cache(async (userId: string, role:
   if (role !== "owner") return [];
   const db = await readDbForTradeCandidate(userId, role, ACTIVE_TRADE_STATUSES, false, true);
   return buildOwnerActiveTradeSummaries(db.purchaseRequests, db.users, userId);
+});
+
+/** Read-only list of the actor's trades, even when that actor also has admin roles. */
+export const getSellerActiveTradeHeaderState = cache(async (userId: string) => {
+  const db = await readDbForTradeCandidate(userId, "buyer", ACTIVE_TRADE_STATUSES, true, true);
+  return buildSellerActiveTradeSummaries(db.purchaseRequests, db.users, userId);
 });
 
 export async function getTradeReminderForUser(userId: string, role: UserRole): Promise<AlphaExchangeTradeReminder | null> {
