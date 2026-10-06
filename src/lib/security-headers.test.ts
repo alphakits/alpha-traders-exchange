@@ -59,6 +59,7 @@ describe("browser security headers", () => {
     const directives = cspDirectives(true);
     expect(directives.get("frame-src")).not.toContain("https://www.tradingview-widget.com");
     expect(directives.get("frame-src")).not.toContain("https:");
+    expect(directives.get("frame-src")).toEqual(["'self'"]);
     expect(directives.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
   });
 });

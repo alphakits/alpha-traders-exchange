@@ -11,8 +11,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 
-const TradingViewMarketCharts = dynamic(
-  () => import("@/components/market/tradingview-market-charts").then((module) => module.TradingViewMarketCharts),
+const MarketPriceCharts = dynamic(
+  () => import("@/components/market/market-price-charts").then((module) => module.MarketPriceCharts),
   {
     ssr: false,
     loading: () => <div className="h-[320px] animate-pulse rounded-2xl border border-white/10 bg-white/5" />,
@@ -168,7 +168,7 @@ export function AlphaMarketCenterView({
           </div>
         </div>
 
-        <TradingViewMarketCharts locale={locale} />
+        <MarketPriceCharts locale={locale} />
 
         <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
           <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "كيف يعمل التسعير" : "How pricing works"}</p>

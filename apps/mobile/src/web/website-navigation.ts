@@ -65,6 +65,9 @@ export function websiteNavigationDecision(rawUrl: string): WebsiteNavigationDeci
   if (EXTERNAL_SCHEMES.has(parsed.protocol)) return "external";
   if (parsed.protocol !== "https:") return "block";
   if (parsed.username || parsed.password || parsed.port) return "block";
+  // Charts are rendered by Alpha Traders. Never hand old chart links to a
+  // browser, including target=_blank requests and Android's metadata-free path.
+  if (parsed.hostname === "tradingview.com" || parsed.hostname.endsWith(".tradingview.com")) return "block";
   if (isTrustedWebsiteDocumentUrl(value)) return "allow";
   if (EMBEDDED_AUTH_HOSTS.has(parsed.hostname)) return "allow";
   return "external";
@@ -76,15 +79,6 @@ export function websiteRequestNavigationDecision(request: WebsiteNavigationReque
   if (request.isTopFrame === false) {
     if (decision === "allow") return "allow";
     if (decision === "block") return "block";
-    try {
-      const parsed = new URL(request.url);
-      if (parsed.protocol === "https:" && !parsed.username && !parsed.password && !parsed.port
-        && parsed.hostname === "s.tradingview.com" && /^\/widgetembed\/?$/.test(parsed.pathname)) {
-        return "allow";
-      }
-    } catch {
-      // Malformed or unknown frame URLs stay blocked.
-    }
     return "block";
   }
   // iOS reports navigation type; Android reports neither it nor isTopFrame.
