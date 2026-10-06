@@ -34,7 +34,7 @@ jobs:
           records = []
           tor_confirmed = False
           base_headers = ['User-Agent: AlphaTraders-Network-Verification/1.0', 'X-Device-Id: 550e8400-e29b-41d4-a716-446655440006', 'X-App-Version: 1.2.0']
-          def check(name, path, expected, tor_transport=False, platform='ios', method='GET', error_code=None, page_language=None, extra_headers=None, health=False):
+          def check(name, path, expected, tor_transport=False, platform='ios', method='GET', error_code=None, page_language=None, extra_headers=None, health=False, expected_error=None):
               body, response_headers = root / 'response.txt', root / 'headers.txt'
               command = ['curl', '--silent', '--show-error', '--connect-timeout', '15', '--max-time', '35', '--request', method, '--output', str(body), '--dump-header', str(response_headers), '--write-out', '%{http_code}']
               for header in base_headers + ['X-Platform: ' + platform] + (extra_headers or []):
@@ -61,6 +61,9 @@ jobs:
                   title = 'Tor connections are not allowed' if page_language == 'en' else 'اتصال Tor غير مسموح'
                   assert title in content and 'lang="' + page_language + '"' in content, 'Expected localized application block page'
                   entry['application_block_page'] = page_language
+              if expected_error:
+                  assert json.loads(content).get('error') == expected_error, 'Expected exact fail-closed service response'
+                  entry['service_error'] = expected_error
               if health:
                   data = json.loads(content)
                   assert data.get('status') == 'ok' and data.get('checks', {}).get('database') == 'ok', 'Service health must be healthy'
@@ -100,7 +103,7 @@ jobs:
               record_check('Tor Arabic page denied', '/ar', 403, True, page_language='ar')
               record_check('Forged forwarding headers do not bypass Tor restriction', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED', extra_headers=['CF-Connecting-IP: 8.8.8.8', 'X-Forwarded-For: 8.8.8.8', 'X-Real-IP: 8.8.8.8', 'X-Vercel-Forwarded-For: 8.8.8.8'])
               record_check('Health exception still responds through Tor', '/api/health', 200, True, health=True)
-              record_check('Cron exception still requires authentication through Tor', '/api/cron/economic-news', 401, True)
+              record_check('Preview scheduler fails closed without production secret', '/api/cron/economic-news', 503, True, expected_error='Scheduler unavailable.')
               record_check('Session revocation exception still requires authentication', '/api/mobile/v1/auth/session', 401, True, method='DELETE', error_code='UNAUTHORIZED')
               record_check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
           finally:
