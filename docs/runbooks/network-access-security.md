@@ -47,6 +47,19 @@ at most 128 concurrent lookups. Same-IP requests share an in-flight lookup.
 Requests abort after 1.5 seconds. Deployment scaling may still multiply provider
 usage; size the provider plan using observed traffic before enforcement.
 
+Ipregistry responses also provide the remaining account credits. The middleware
+records the numeric balance in `network_provider_capacity`, at most once every
+five minutes per instance while its capacity band is unchanged. Crossing a band
+is reported immediately: `low` at 2,000 credits or fewer, `critical` at 500 or
+fewer, and `empty` at zero or HTTP 402. Low capacity is a warning; critical and
+empty capacity are errors. Missing or malformed balance headers are ignored,
+never interpreted as unlimited capacity. These events contain no IP, key,
+lookup URL or provider body, and make no additional provider calls. They do not
+change the network verdict, buy credits or automatically disable enforcement.
+Inspect the latest balance alongside the provider dashboard; old samples are
+not current capacity, and scaling can create more than one sampled event.
+No external alert delivery is implied by writing a runtime log.
+
 Vercel ingress headers are authoritative. Arbitrary `cf-connecting-ip` input is
 ignored. Malformed IPs and comma-separated trusted headers produce an unchecked
 result. Other production hosting requires a reviewed ingress implementation;

@@ -23,6 +23,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
   vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
@@ -68,7 +70,7 @@ describe("Ipregistry enforcement", () => {
     expect((await enforceNetworkAccess(request()))?.status).toBe(503);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it.each([401, 403, 429, 500, 503])("refuses unchecked access after provider HTTP %i without a fallback", async (status) => {
+  it.each([401, 402, 403, 429, 500, 503])("refuses unchecked access after provider HTTP %i without a fallback", async (status) => {
     fetchMock.mockResolvedValue(new Response("error", { status }));
     expect((await enforceNetworkAccess(request()))?.status).toBe(503);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -104,5 +106,67 @@ describe("Ipregistry enforcement", () => {
     vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "off");
     expect(await enforceNetworkAccess(request())).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Ipregistry capacity monitoring", () => {
+  it.each([
+    [19_000, "available", "info"],
+    [2_000, "low", "warn"],
+    [500, "critical", "error"],
+    [0, "empty", "error"],
+  ] as const)("reports %i remaining credits without exposing visitor or credential data", async (remaining, reason, method) => {
+    fetchMock.mockResolvedValue(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": String(remaining) } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    expect(console[method]).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_provider_capacity", reason,
+      metadata: { provider: "ipregistry", creditsRemaining: remaining, mode: "enforce" },
+    }));
+    expect(JSON.stringify(vi.mocked(console[method]).mock.calls)).not.toMatch(/synthetic-ipregistry|8\.8\.8\.8|private-session|private-user-token/);
+  });
+
+  it("reports credit exhaustion and preserves fail-closed access", async () => {
+    fetchMock.mockResolvedValue(new Response("provider error body with private values", { status: 402 }));
+    expect((await enforceNetworkAccess(request()))?.status).toBe(503);
+    expect(console.error).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_provider_capacity", reason: "empty", outcome: "failed",
+      metadata: expect.objectContaining({ creditsRemaining: 0 }),
+    }));
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("private values");
+  });
+
+  it.each([undefined, "", "unknown", "-1", "12.5", "1e5", "9007199254740993"])("ignores invalid capacity header %s without changing access decisions", async (value) => {
+    fetchMock.mockResolvedValue(Response.json(payload(), { headers: value === undefined ? {} : { "Ipregistry-Credits-Remaining": value } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    expect(console.info).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("samples steady capacity but immediately reports a worsening threshold", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": "2100" } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    await vi.advanceTimersByTimeAsync(60_001);
+    fetchMock.mockResolvedValueOnce(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": "2099" } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    expect(console.info).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_001);
+    fetchMock.mockResolvedValueOnce(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": "2000" } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(300_001);
+    fetchMock.mockResolvedValueOnce(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": "1999" } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    expect(console.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a fresh capacity sample after a provider-key change", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": "19000" } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    vi.stubEnv("IPREGISTRY_API_KEY", `synthetic-ipregistry-${++generation}`);
+    fetchMock.mockResolvedValueOnce(Response.json(payload(), { headers: { "Ipregistry-Credits-Remaining": "18000" } }));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    expect(console.info).toHaveBeenCalledTimes(2);
   });
 });

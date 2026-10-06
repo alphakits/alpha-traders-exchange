@@ -12,7 +12,30 @@ const pending = new Map<string, Promise<NetworkVerdict>>();
 const MAX_CACHE_ENTRIES = 2_048;
 const MAX_PENDING_LOOKUPS = 128;
 const LOOKUP_TIMEOUT_MS = 1_500;
+const CAPACITY_LOG_INTERVAL_MS = 5 * 60_000;
 let activeConfiguration = "";
+let capacityLog: { level: "available" | "low" | "critical" | "empty"; at: number } | null = null;
+
+function observeIpregistryCapacity(response: Response, configuration: string) {
+  // Capacity is operational metadata. Never include the lookup URL, IP, key,
+  // response body, or request headers in this event.
+  if (activeConfiguration !== configuration) return;
+  const raw = response.headers.get("Ipregistry-Credits-Remaining");
+  const remaining = response.status === 402 ? 0
+    : raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
+  if (remaining === null || !Number.isSafeInteger(remaining) || remaining < 0) return;
+  const level = remaining === 0 ? "empty"
+    : remaining <= 500 ? "critical" : remaining <= 2_000 ? "low" : "available";
+  const now = Date.now();
+  if (capacityLog?.level === level && now - capacityLog.at < CAPACITY_LOG_INTERVAL_MS) return;
+  capacityLog = { level, at: now };
+  logEvent(level === "empty" || level === "critical" ? "error" : level === "low" ? "warn" : "info", {
+    event: "network_provider_capacity",
+    outcome: level === "empty" ? "failed" : "success",
+    reason: level,
+    metadata: { provider: "ipregistry", creditsRemaining: remaining, mode: process.env.ALPHA_NETWORK_ACCESS_MODE },
+  });
+}
 
 // These are machine endpoints, never interactive account/trade routes. Their
 // own secret/signature checks remain authoritative; no header creates a bypass.
@@ -86,6 +109,7 @@ async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvid
         cache: "no-store",
         redirect: "error",
       });
+      observeIpregistryCapacity(response, `${provider}\0${apiKey}`);
       if (!response.ok) return "unavailable";
       return parseIpregistryVerdict(await response.json(), ip);
     }
@@ -117,6 +141,7 @@ async function cachedNetworkVerdict(ip: string, apiKey: string, provider: Networ
   if (activeConfiguration !== configuration) {
     verdicts.clear();
     pending.clear();
+    capacityLog = null;
     activeConfiguration = configuration;
   }
   const cached = verdicts.get(ip);
