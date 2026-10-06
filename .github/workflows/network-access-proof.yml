@@ -1,0 +1,92 @@
+name: Network access live proof
+
+on:
+  push:
+    branches: [codex/network-proof-20261006]
+    paths: [.github/workflows/network-access-proof.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  live-proof:
+    name: Bounded direct and Tor preview requests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Install the distribution Tor client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tor
+      - name: Check direct access, actual Tor rejection, and direct recovery
+        env:
+          ALPHA_PROOF_ORIGIN: https://alpha-traders-exchange-qtzftdv3x-alpha-kits.vercel.app
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, pathlib, subprocess, time
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'alpha-network-proof'
+          root.mkdir(mode=0o700)
+          tor_data = root / 'tor'
+          tor_data.mkdir(mode=0o700)
+          log = root / 'tor.log'
+          origin = os.environ['ALPHA_PROOF_ORIGIN']
+          records = []
+          headers = ['User-Agent: AlphaTraders-Network-Verification/1.0', 'X-Device-Id: 550e8400-e29b-41d4-a716-446655440006', 'X-App-Version: 1.2.0', 'X-Platform: ios']
+          def check(name, path, expected, anonymous=False, page_language=None):
+              body, response_headers = root / 'response.txt', root / 'headers.txt'
+              command = ['curl', '--silent', '--show-error', '--connect-timeout', '15', '--max-time', '35', '--output', str(body), '--dump-header', str(response_headers), '--write-out', '%{http_code}']
+              for header in headers:
+                  command += ['--header', header]
+              if anonymous:
+                  command += ['--socks5-hostname', '127.0.0.1:19050']
+              result = subprocess.run(command + [origin + path], capture_output=True, text=True)
+              entry = {'name': name, 'path': path, 'transport': 'tor' if anonymous else 'direct', 'curl_exit': result.returncode, 'status': result.stdout.strip(), 'expected': expected}
+              records.append(entry)
+              assert result.returncode == 0, 'Connection failed: ' + name
+              assert entry['status'] == str(expected), 'Unexpected status: ' + name
+              content = body.read_text()
+              if anonymous:
+                  assert 'no-store' in response_headers.read_text().lower(), 'Blocked response must not be cached'
+                  if page_language:
+                      title = 'Turn off your VPN to continue' if page_language == 'en' else 'أوقف خدمة VPN للمتابعة'
+                      assert title in content and 'lang="' + page_language + '"' in content, 'Expected localized application block page'
+                      entry['application_block_page'] = page_language
+                  else:
+                      entry['error_code'] = json.loads(content).get('error', {}).get('code')
+                      assert entry['error_code'] == 'NETWORK_RESTRICTED', 'Expected application network rejection'
+              entry['passed'] = True
+          tor = None
+          try:
+              check('Direct native configuration before Tor', '/api/mobile/v1/app-config', 200)
+              tor = subprocess.Popen(['tor', '--ClientOnly', '1', '--SocksPort', '127.0.0.1:19050', '--ControlPort', '0', '--DataDirectory', str(tor_data), '--Log', 'notice file ' + str(log)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              deadline = time.monotonic() + 120
+              while not (log.exists() and 'Bootstrapped 100%' in log.read_text()):
+                  if tor.poll() is not None or time.monotonic() >= deadline:
+                      raise RuntimeError('Tor did not become ready within the bounded setup window')
+                  time.sleep(2)
+              check('Tor native request refused', '/api/mobile/v1/app-config', 403, anonymous=True)
+              check('Tor English page refused', '/en', 403, anonymous=True, page_language='en')
+              check('Tor Arabic page refused', '/ar', 403, anonymous=True, page_language='ar')
+              check('Direct native configuration after Tor', '/api/mobile/v1/app-config', 200)
+          finally:
+              if tor is not None:
+                  tor.terminate()
+                  try:
+                      tor.wait(timeout=10)
+                  except subprocess.TimeoutExpired:
+                      tor.kill()
+                      tor.wait()
+              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'checks': records, 'passed': len(records) == 5 and all(x.get('passed') for x in records)}
+              pathlib.Path('network-access-live-proof.json').write_text(json.dumps(record, indent=2))
+              print(json.dumps(record, indent=2))
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('## Bounded network access proof\n```json\n' + json.dumps(record, indent=2) + '\n```\n')
+          PY
+      - name: Preserve sanitized verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-access-live-proof
+          path: network-access-live-proof.json
+          if-no-files-found: warn
+          retention-days: 14
