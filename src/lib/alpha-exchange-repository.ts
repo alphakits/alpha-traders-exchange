@@ -8,6 +8,7 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 import { isPublicOwnerIdentity } from "@/lib/public-account-identity";
+import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import type {
   AlphaExchangeDb,
   MarketplaceEnforcementAuditEntry,
@@ -4093,7 +4094,7 @@ export class AlphaExchangeRepository {
         record.sellerId === delta.newListing.sellerId
         && record.paymentStatus !== "paid"
       ))) {
-        throw new Error("Your listings stay visible, but new marketplace trading is locked until every pending commission is paid. Existing trades can finish.");
+        throw new Error(listingCommissionRequiredMessage());
       }
       current.marketplaceListings.push(delta.newListing);
       if (delta.newAuditLogs.length) current.auditLogs.unshift(...delta.newAuditLogs);
@@ -4146,7 +4147,7 @@ export class AlphaExchangeRepository {
         [delta.newListing.sellerId],
       );
       if (blockingCommission.rows.length > 0) {
-        throw new Error("Your listings stay visible, but new marketplace trading is locked until every pending commission is paid. Existing trades can finish.");
+        throw new Error(listingCommissionRequiredMessage());
       }
       perf?.step("commission_lock_check");
 

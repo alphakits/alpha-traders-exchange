@@ -1,6 +1,7 @@
 import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { UsdtExchangePage, readApiErrorMessage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 
 // This large workspace renders asynchronously; allow shared CI workers to settle
 // mocked fetches without weakening any payment or navigation assertions.
@@ -224,6 +225,22 @@ describe("seller commission Pay Now", () => {
     cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["en", "ar"] as const)("shows a clear commission-first listing notice and payment action in %s", async (locale) => {
+    workspaceCanCreateListingOverride = true; // A stale permissive summary cannot overrule unpaid debt.
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const createSection = await waitFor(() => {
+      const section = document.getElementById("create-listing")!;
+      expect(section?.textContent).toContain(listingCommissionRequiredMessage(isAr));
+      return within(section);
+    });
+    expect((createSection.getByRole("button", { name: isAr ? "إرسال العرض" : "Submit Listing" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(createSection.getByRole("button", { name: /Pay Now|ادفع الآن/ }));
+    await waitFor(() => expect(document.getElementById("commission-payment")).not.toBeNull());
+    const localized = await readApiErrorMessage(jsonResponse({ error: listingCommissionRequiredMessage() }, 400), isAr ? "تعذر تحديث العرض" : "Unable to update listing");
+    expect(localized).toBe(listingCommissionRequiredMessage(isAr));
   });
 
   it("opens the exact payment panel in place from both mobile buttons", async () => {

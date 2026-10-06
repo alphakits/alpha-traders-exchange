@@ -8,6 +8,7 @@ import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib
 import { deriveUserPresence } from "@alpha-traders/contracts";
 import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
 import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit-discovery";
+import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
@@ -1501,7 +1502,7 @@ function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
   }
   const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
   if (pendingCommissionCount > 0) {
-    return "Your listings stay visible and buyers can send requests. Pay all outstanding commission before accepting new trades or creating listings. Existing trades can finish. Maximum: 3 active trades.";
+    return listingCommissionRequiredMessage();
   }
   const openListingCount = getSellerOpenListingCount(db, sellerId);
   if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
@@ -9426,13 +9427,23 @@ export async function updateMarketplaceListingForSeller(input: {
   if (input.status === "paused" && current.status !== "active") {
     throw new Error("Only active listings can be paused.");
   }
-  if (input.status === "active" && getSellerPendingCommissionCount(db, input.sellerId) > 0) {
-    throw new Error("Listing activation and renewal are restricted until every pending commission is paid. Existing listings stay visible and existing trades can finish.");
-  }
   const shouldResubmitForApproval = current.status === "draft" && (
     current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
   );
   const updatedAt = nowIso();
+  // Relisting can also happen through an ordinary edit: extending the expiry,
+  // adding stock after a sale, or resubmitting a rejected draft. Check the debt
+  // itself, regardless of the sale age or the commission's future due date.
+  const requestedExpiry = input.expiresAt?.trim()
+    || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt);
+  const extendsExpiry = Boolean(requestedExpiry && current.expiresAt
+    && new Date(requestedExpiry).getTime() > new Date(current.expiresAt).getTime());
+  const addsInventory = input.availableAmount !== undefined
+    && toNumber(input.availableAmount) > toNumber(current.availableAmount);
+  if ((input.status === "active" || shouldResubmitForApproval || extendsExpiry || addsInventory)
+    && getSellerPendingCommissionCount(db, input.sellerId) > 0) {
+    throw new Error(listingCommissionRequiredMessage());
+  }
   let next: MarketplaceListing;
   if (isStatusOnlyRetry && input.status === "paused") {
     next = { ...current, status: "paused", updatedAt };
@@ -9657,7 +9668,7 @@ export async function renewMarketplaceListing(input: {
   if (input.sellerId) {
     const pendingCommissionCount = getSellerPendingCommissionCount(db, input.sellerId);
     if (pendingCommissionCount > 0) {
-      throw new Error("Listing activation and renewal are restricted until every pending commission is paid. Existing listings stay visible and existing trades can finish.");
+      throw new Error(listingCommissionRequiredMessage());
     }
   }
   if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");

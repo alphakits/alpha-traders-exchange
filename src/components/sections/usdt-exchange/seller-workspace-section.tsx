@@ -1083,7 +1083,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {listingCreationBlocked ? (
                 <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
-                  <p className="font-semibold">{isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked"}</p>
+                  <p className={listingBlockedByCommission ? "commission-notice font-semibold" : "font-semibold"}>{listingBlockedByCommission ? (isAr ? "ادفع العمولة أولاً" : "Pay commission first") : (isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked")}</p>
                   <p className="commission-notice mt-1 text-xs text-[#FDE68A]">{currencyText(isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason)}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {listingBlockedByActiveLimit ? (
