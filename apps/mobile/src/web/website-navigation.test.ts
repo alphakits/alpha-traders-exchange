@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { websiteRequestNavigationDecision } from "./website-navigation";
+import { websiteNavigationDecision, websiteRequestNavigationDecision } from "./website-navigation";
 
 describe("native document and iframe navigation", () => {
-  it("loads the approved chart as a subframe without treating it as an in-app top-level document", () => {
-    const url = "https://s.tradingview.com/widgetembed/?symbol=BINANCE%3AETHUSDT";
-    expect(websiteRequestNavigationDecision({ url, isTopFrame: false, navigationType: "other" })).toBe("allow");
+  it.each(["https://s.tradingview.com/widgetembed/?symbol=BINANCE%3AETHUSDT", "https://www.tradingview.com/chart/", "https://tradingview.com/"])("blocks legacy chart links in every native navigation path: %s", (url) => {
+    expect(websiteNavigationDecision(url)).toBe("block");
+    expect(websiteRequestNavigationDecision({ url })).toBe("block");
+    expect(websiteRequestNavigationDecision({ url, isTopFrame: false, navigationType: "other" })).toBe("block");
     expect(websiteRequestNavigationDecision({ url, isTopFrame: true, navigationType: "other" })).toBe("block");
-    expect(websiteRequestNavigationDecision({ url, isTopFrame: true, navigationType: "click" })).toBe("external");
+    expect(websiteRequestNavigationDecision({ url, isTopFrame: true, navigationType: "click" })).toBe("block");
   });
 
   it.each([

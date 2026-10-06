@@ -91,7 +91,10 @@ describe("active mobile website shell language", () => {
     expect(mocks.props?.originWhitelist).toEqual(["*"]);
     const decide = (url: string, isTopFrame?: boolean, navigationType?: string) =>
       mocks.props?.onShouldStartLoadWithRequest?.({ url, isTopFrame, navigationType } as never);
-    expect(decide("https://s.tradingview.com/widgetembed/?symbol=ETHUSDT", false, "other")).toBe(true);
+    expect(decide("https://s.tradingview.com/widgetembed/?symbol=ETHUSDT", false, "other")).toBe(false);
+    expect(decide("https://s.tradingview.com/widgetembed/?symbol=ETHUSDT", true, "click")).toBe(false);
+    expect(decide("https://www.tradingview.com/chart/")).toBe(false);
+    act(() => mocks.props?.onOpenWindow?.({ nativeEvent: { targetUrl: "https://www.tradingview.com/chart/" } } as never));
     expect(decide("https://unknown.example.test/frame", false, "other")).toBe(false);
     expect(decide("https://unknown.example.test/frame", true, "other")).toBe(false);
     expect(decide("javascript:alert(1)", true, "click")).toBe(false);

@@ -104,10 +104,10 @@ describe("mobile accessibility completion", () => {
     expect(footer).toContain('inline-flex min-h-11 items-center gap-2');
   });
 
-  it("shows a visible keyboard focus boundary around the embedded market chart", () => {
-    const chart = source("src/components/market/tradingview-market-charts.tsx");
+  it("labels the first-party market chart and shows keyboard focus on its controls", () => {
+    const chart = source("src/components/market/market-price-charts.tsx");
 
-    expect(chart).toContain('title={title}');
+    expect(chart).toContain('role="img" aria-label=');
     expect(chart).toContain('focus-visible:ring-2');
     expect(chart).toContain('focus-visible:ring-[#C9A227]');
   });
