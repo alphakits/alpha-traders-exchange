@@ -30,7 +30,8 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { CANONICAL_TRC20_COMMISSION_WALLET, COMMISSION_PAYMENT_CLOCK_SKEW_MS } from "@/lib/commission-config";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
-import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
+import { computeListingReliability, type ListingReliability } from "@/lib/listing-reliability";
+import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, resolveSellerPrestigeRankWithFloor, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
 import {
@@ -2123,38 +2124,10 @@ function qualitySortListings(
   listings: MarketplaceListing[],
   snapshots = computeTrustSnapshotMap(db),
 ) {
-  const reliabilityMap = buildSellerReliabilityMap(db);
-  const reliabilityScoreFor = (sellerId: string) =>
-    reliabilityMap.get(sellerId)?.reliability.reliabilityScore ?? RELIABILITY_NEUTRAL_BASELINE;
-  const score = (reputation: SellerReputationSnapshot, listingReliabilityScore: number) => {
-    const responseSpeedScore = Math.max(0, 100 - Math.min(60, reputation.responseTimeMinutes) * 1.5);
-    const normalizedTrades = Math.min(100, reputation.completedTrades / 8);
-    return (
-      reputation.completionRate * 0.25
-      + reputation.rating * 20 * 0.18
-      + responseSpeedScore * 0.13
-      + reputation.recentActivityScore * 0.12
-      + normalizedTrades * 0.1
-      + levelRank(reputation.level) * (100 / 6) * 0.1
-      + listingReliabilityScore * 0.12
-    );
-  };
   return [...listings].sort((left, right) => {
     const leftRep = snapshots.get(left.sellerId) ?? computeSellerReputationSnapshot(db, left.sellerId);
     const rightRep = snapshots.get(right.sellerId) ?? computeSellerReputationSnapshot(db, right.sellerId);
-    const leftReliability = reliabilityScoreFor(left.sellerId);
-    const rightReliability = reliabilityScoreFor(right.sellerId);
-
-    const scoreDiff = score(rightRep, rightReliability) - score(leftRep, leftReliability);
-    if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
-    if (rightReliability !== leftReliability) return rightReliability - leftReliability;
-    if (rightRep.trustScore !== leftRep.trustScore) return rightRep.trustScore - leftRep.trustScore;
-    if (levelRank(rightRep.level) !== levelRank(leftRep.level)) return levelRank(rightRep.level) - levelRank(leftRep.level);
-    if (rightRep.rating !== leftRep.rating) return rightRep.rating - leftRep.rating;
-    if (rightRep.completionRate !== leftRep.completionRate) return rightRep.completionRate - leftRep.completionRate;
-    if (leftRep.responseTimeMinutes !== rightRep.responseTimeMinutes) return leftRep.responseTimeMinutes - rightRep.responseTimeMinutes;
-    if (rightRep.completedTrades !== leftRep.completedTrades) return rightRep.completedTrades - leftRep.completedTrades;
-    return rightRep.recentActivityScore - leftRep.recentActivityScore;
+    return compareMarketplaceSellers(leftRep, rightRep) || left.id.localeCompare(right.id);
   });
 }
 
