@@ -24,7 +24,7 @@ jobs:
           ALPHA_EXPECTED_DEPLOYMENT: dpl_3AA1zHpW1Qb7gKt84NVuEHufiZiU
         run: |
           python3 - <<'PY'
-          import datetime, json, os, pathlib, subprocess, time
+          import datetime, json, os, pathlib, re, subprocess, time
           root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'alpha-production-network-proof'
           root.mkdir(mode=0o700)
           tor_data = root / 'tor'
@@ -75,6 +75,7 @@ jobs:
                       records[-1]['failure'] = str(error)
                   else:
                       raise
+          print(subprocess.run(['tor', '--version'], capture_output=True, text=True).stdout.splitlines()[0])
           tor = None
           try:
               record_check('Direct login page remains available', '/en/login', 200)
@@ -82,9 +83,11 @@ jobs:
               record_check('Direct Android API access', '/api/mobile/v1/app-config', 200, platform='android')
               record_check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', 401, error_code='UNAUTHORIZED')
               tor = subprocess.Popen(['tor', '--ClientOnly', '1', '--SocksPort', '127.0.0.1:19050', '--ControlPort', '0', '--DataDirectory', str(tor_data), '--Log', 'notice file ' + str(log)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              deadline = time.monotonic() + 120
+              deadline = time.monotonic() + 180
               while not (log.exists() and 'Bootstrapped 100%' in log.read_text()):
                   if tor.poll() is not None or time.monotonic() >= deadline:
+                      progress = re.findall(r'Bootstrapped \d+%[^\n]*', log.read_text() if log.exists() else '')
+                      print(json.dumps({'tor_setup_progress': progress[-6:], 'tor_process_exit': tor.poll()}))
                       raise RuntimeError('Tor did not become ready within the bounded setup window')
                   time.sleep(2)
               identity = subprocess.run(['curl', '--silent', '--show-error', '--socks5-hostname', '127.0.0.1:19050', '--connect-timeout', '15', '--max-time', '35', 'https://check.torproject.org/api/ip'], capture_output=True, text=True)
