@@ -248,6 +248,53 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     });
   });
 
+  it.each(["", "?sort=trust-desc"])("prioritizes rank, completed trades, then trust before pagination (%s)", async (query) => {
+    const [base] = await mocks.getMarketplaceListings();
+    const sellers = [
+      { id: "bronze-featured", level: "bronze", completedTrades: 1, trustScore: 100, featured: true },
+      { id: "bronze-more-trades", level: "bronze", completedTrades: 100, trustScore: 20 },
+      { id: "bronze-more-trust", level: "bronze", completedTrades: 100, trustScore: 90 },
+      { id: "silver", level: "silver", completedTrades: 2, trustScore: 10 },
+      { id: "gold", level: "gold", completedTrades: 1, trustScore: 5 },
+      { id: "diamond", level: "diamond", completedTrades: 0, trustScore: 0 },
+      { id: "elite", level: "elite", completedTrades: 0, trustScore: 0 },
+    ];
+    mocks.getMarketplaceListings.mockResolvedValue(sellers.map((seller) => ({
+      ...base,
+      id: seller.id,
+      sellerProfile: {
+        ...base.sellerProfile,
+        isFeaturedSeller: Boolean(seller.featured),
+        isOwner: Boolean(seller.featured),
+      },
+      sellerReputation: { ...base.sellerReputation, ...seller },
+    })));
+
+    const response = await GET(request(query));
+    const payload = await response.json();
+    expect(payload.listings.map((listing: { id: string }) => listing.id)).toEqual([
+      "elite", "diamond", "gold", "silver", "bronze-more-trust", "bronze-more-trades", "bronze-featured",
+    ]);
+
+    const page = await GET(request(`${query || "?sort=trust-desc"}&limit=2&offset=3`));
+    const pagePayload = await page.json();
+    expect(pagePayload.listings.map((listing: { id: string }) => listing.id)).toEqual([
+      "silver", "bronze-more-trust",
+    ]);
+  });
+
+  it("keeps fully tied sellers in a stable order across feed refreshes", async () => {
+    const [base] = await mocks.getMarketplaceListings();
+    const listings = ["listing-c", "listing-a", "listing-b"].map((id) => ({ ...base, id }));
+    mocks.getMarketplaceListings.mockResolvedValue(listings);
+    const first = await (await GET(request())).json();
+    mocks.getMarketplaceListings.mockResolvedValue([...listings].reverse());
+    const refreshed = await (await GET(request())).json();
+
+    expect(first.listings.map((listing: { id: string }) => listing.id)).toEqual(["listing-a", "listing-b", "listing-c"]);
+    expect(refreshed.listings.map((listing: { id: string }) => listing.id)).toEqual(first.listings.map((listing: { id: string }) => listing.id));
+  });
+
   it.each([
     "?network=unknown",
     "?currency=1",

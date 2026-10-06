@@ -66,6 +66,7 @@ import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { containsArabicText, localizeActivityCopy, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
+import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 import { cn } from "@/lib/utils";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
@@ -348,13 +349,6 @@ function availableAmountScaleClass(value: string | number | null | undefined) {
   if (digits >= 6) return "seller-asset-usdt-value--tight";
   if (digits >= 4) return "seller-asset-usdt-value--balanced";
   return "seller-asset-usdt-value--hero";
-}
-
-function parseMinutes(value: string | number | null | undefined) {
-  const normalized = String(value ?? "");
-  const number = Number(normalized.replace(/[^\d.]/g, ""));
-  if (Number.isNaN(number) || number <= 0) return 0;
-  return number;
 }
 
 export function safeText(value: unknown, fallback = "—") {
@@ -991,17 +985,6 @@ export function sellerLevelLabel(level?: SellerLevel, isAr = false) {
 
 function sellerLevelToneKey(level?: SellerLevel) {
   return rankSurfaceTone(level);
-}
-
-function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
-  if (listing.sellerProfile?.isOwner) return 0;
-  const rank = String(listing.sellerReputation?.level ?? "bronze");
-  if (rank === "legendary") return 1;
-  if (rank === "diamond") return 2;
-  if (rank === "platinum") return 3;
-  if (rank === "gold") return 4;
-  if (rank === "silver") return 5;
-  return 6;
 }
 
 export function sellerBadgeLabel(badge: SellerBadge, isAr = false) {
@@ -2939,17 +2922,8 @@ export function UsdtExchangePage({
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       if (sortBy === "trust-desc") {
-        const rankPriority = sellerMarketplaceRankPriority(a) - sellerMarketplaceRankPriority(b);
-        if (rankPriority !== 0) return rankPriority;
-        const featuredPriority = Number(Boolean(b.sellerProfile?.isFeaturedSeller)) - Number(Boolean(a.sellerProfile?.isFeaturedSeller));
-        if (featuredPriority !== 0) return featuredPriority;
-        const trustPriority = (b.sellerReputation?.trustScore ?? 0) - (a.sellerReputation?.trustScore ?? 0);
-        if (trustPriority !== 0) return trustPriority;
-        const ratingPriority = (b.sellerReputation?.rating ?? 0) - (a.sellerReputation?.rating ?? 0);
-        if (ratingPriority !== 0) return ratingPriority;
-        const responsePriority = (a.sellerReputation?.responseTimeMinutes ?? parseMinutes(a.responseTime)) - (b.sellerReputation?.responseTimeMinutes ?? parseMinutes(b.responseTime));
-        if (responsePriority !== 0) return responsePriority;
-        return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
+        return compareMarketplaceSellers(a.sellerReputation, b.sellerReputation)
+          || a.id.localeCompare(b.id);
       }
       if (sortBy === "price-asc") return toNumber(a.price) - toNumber(b.price);
       if (sortBy === "amount-desc") return toNumber(b.availableAmount) - toNumber(a.availableAmount);

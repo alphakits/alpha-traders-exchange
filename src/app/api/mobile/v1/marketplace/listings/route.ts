@@ -19,6 +19,7 @@ import {
 } from "@/lib/mobile-api";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
 import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
+import { compareMarketplaceSellers } from "@/lib/marketplace-seller-order";
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SUPPORTED_NETWORKS = new Set<MobileSupportedNetwork>(["TRC20", "ERC20", "BEP20", "SOL"]);
@@ -36,15 +37,6 @@ function numericValue(value: string | number | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function marketplaceRank(listing: MobileMarketplaceListing) {
-  const level = listing.seller.level;
-  if (level === "elite") return 5;
-  if (level === "diamond") return 4;
-  if (level === "gold") return 3;
-  if (level === "silver") return 2;
-  return 1;
-}
-
 function sortListings(listings: MobileMarketplaceListing[], sort: MobileMarketplaceSort) {
   return [...listings].sort((left, right) => {
     if (sort === "price-asc") return numericValue(left.price) - numericValue(right.price);
@@ -55,14 +47,8 @@ function sortListings(listings: MobileMarketplaceListing[], sort: MobileMarketpl
         - numericValue(right.seller.responseTimeMinutes ?? right.responseTime);
     }
     if (sort === "newest") return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-    return marketplaceRank(right) - marketplaceRank(left)
-      || Number(right.seller.isFeaturedSeller) - Number(left.seller.isFeaturedSeller)
-      || (right.seller.trustScore ?? 0) - (left.seller.trustScore ?? 0)
-      || (right.seller.rating ?? 0) - (left.seller.rating ?? 0)
-      || numericValue(left.seller.responseTimeMinutes ?? left.responseTime)
-        - numericValue(right.seller.responseTimeMinutes ?? right.responseTime)
-      || (right.seller.completedTrades ?? 0) - (left.seller.completedTrades ?? 0)
-      || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    return compareMarketplaceSellers(left.seller, right.seller)
+      || left.id.localeCompare(right.id);
   });
 }
 
