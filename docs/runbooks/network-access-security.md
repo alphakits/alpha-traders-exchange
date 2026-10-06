@@ -10,14 +10,14 @@
 | `monitor` | Yes | Coarse verdicts are logged; requests continue through normal authentication. |
 | `tor-only` | Yes | Explicit Tor: 403. Unverified Tor status: 503. Verified non-Tor connections, including other positive classifications, continue through normal authentication while those classifications are monitored. |
 | `vpn-tor` | Yes | Explicit VPN or Tor: 403. Both flags must be explicitly false to continue; unchecked status: 503. Proxy-only and relay-only classifications remain monitored during incident recovery. |
-| `enforce` | Yes | Known VPN/proxy/Tor: 403. Unchecked connection: 503. Clear connection: continue through normal authentication. |
+| `enforce` | Yes | Explicit VPN/proxy/Tor: 403. Validated Apple Private Relay alone: continue through normal authentication. Unchecked connection: 503. Clear connection: continue through normal authentication. |
 
 Select exactly one service with `ALPHA_NETWORK_ACCESS_PROVIDER`:
 
 | Provider | Server-only secret | Classifications |
 | --- | --- | --- |
 | `proxycheck` (default) | `PROXYCHECK_API_KEY` | Explicit VPN, proxy and Tor flags from v3, pinned to `24-June-2026` |
-| `ipregistry` | `IPREGISTRY_API_KEY` | Explicit VPN, proxy, Tor and private relay flags |
+| `ipregistry` | `IPREGISTRY_API_KEY` | Explicit VPN, proxy, Tor and private relay flags; relay alone is permitted only when all three blocked-category flags are explicitly false |
 
 Only the selected service receives IP lookups. There is no automatic provider
 fallback or trial-key sharing. Changing the provider or key invalidates cached
@@ -35,6 +35,26 @@ IP. An IP change never inherits the previous address's verdict.
 Detection uses explicit boolean classifications. A hosting classification, country, risk score or
 unusual browser alone does not label a person a scammer. Missing fields, failed
 lookups, quota exhaustion, and timeouts are unchecked, never clear.
+
+### Safari compatibility policy (6 October 2026)
+
+Normal Safari users must not have to disable Apple's built-in privacy service
+to reach the site. Ipregistry documents `security.is_relay` as identifying
+Apple Private Relay. Under `enforce`, an IP-matched response with `is_relay=true`
+is permitted only if `is_vpn`, `is_proxy`, and `is_tor` are all boolean `false`.
+An overlapping positive VPN, proxy or Tor flag still returns 403; missing or
+malformed blocked-category flags return 503. The raw relay classification stays
+in the existing redacted log with `outcome=success` for admitted requests.
+
+This is a server-validated classification policy, not a Safari user-agent,
+owner, device-header, cookie, or arbitrary IP bypass. Proxycheck decisions are
+unchanged. No firewall, DDoS, rate-limit, session, phone-verification, role, or
+trade authorization check is disabled. No additional provider calls are needed.
+Network classification cannot reliably identify Safari's Private Browsing tab
+mode, and admitting a connection never establishes a person's identity or intent.
+For admitted Private Relay traffic, the website sees Apple's egress IP, not the
+visitor's original network IP. The owner approved this compatibility tradeoff
+on 6 October 2026 after reviewing the affected Safari recording.
 
 Only the visitor IP is transmitted to the fixed HTTPS endpoint. No account name,
 email, cookie, identity document, trade details or wallet information is sent.
@@ -109,7 +129,8 @@ for a missing browser Origin header.
 Enforced provider failures can temporarily make the interactive service
 unavailable, including an active trade. This is the availability cost of refusing
 unchecked connections. Do not enable until the provider and recovery procedure
-are ready. Users of legitimate privacy tools may need to disable them too.
+are ready. VPN and proxy users may need to disable those services; a validated
+Apple Private Relay-only classification does not require a phone-setting change.
 
 ## False-positive recovery
 
@@ -135,16 +156,17 @@ publishing this mode. The same cache, trusted-ingress rules, authentication and
 narrow machine-endpoint exceptions apply. Detection is based on the observed
 network; the browser's name or user-agent never creates a block or exemption.
 
-Keep enforcement in preview until representative physical-device acceptance
-and the affected connection's recovery are recorded. Any proposal to permit
-privacy relays is a separate policy decision; do not silently add a Safari,
-owner-account, device-header or IP allowlist bypass to make a test pass.
+Record representative physical-device acceptance and the affected connection's
+recovery separately from mocked tests. Do not silently add a Safari,
+owner-account, device-header or IP allowlist bypass to make a test pass. The
+explicit Apple Private Relay policy above preserves every other network category.
 
 `vpn-tor` is a second recovery step when VPN detection can be enforced while
 proxy-only and privacy-relay classifications are still under review. It is not
 full proxy/relay enforcement. Neither a Safari user-agent nor an owner account
 can bypass a positive VPN or Tor result. Unknown VPN or Tor status fails closed.
-Returning to `enforce` still applies all original restrictions.
+Returning to `enforce` restores proxy enforcement while retaining the explicit
+Apple Private Relay-only compatibility policy above.
 
 Blocked pages and APIs include a random support reference matching the redacted
 classification or lookup-failure log's `resourceId`. The reference is generated
@@ -154,14 +176,11 @@ It contains no IP, account identity or credential and never grants access.
 Configuration/input failures receive a separately logged random reference.
 Use the reference and timestamp to investigate an affected connection instead
 of assuming that normal Safari implies Private Relay. Messages identify the
-validated VPN, proxy, Tor or relay classification separately.
-
-Full enforcement also rejects Apple Private Relay, which can be active during
-normal Safari browsing without a separate VPN app. Explain that category before
-generic proxy/VPN labels and provide Apple's per-site **Page Menu → Show IP
-Address** instruction in English and Arabic. This setting requires a choice on
-the visitor's device; the website cannot disable Private Relay remotely. See
-[Apple's per-site Private Relay guidance](https://support.apple.com/en-us/102022).
+blocking VPN, proxy or Tor classification separately, even if a relay flag is
+also present. Do not tell all Safari visitors to choose **Show IP Address**:
+that workaround is unnecessary under the compatibility policy and may not be
+available on their device. See
+[Apple's server integration guidance](https://developer.apple.com/icloud/prepare-your-network-for-icloud-private-relay/).
 Check a reported relay address against Apple's published
 [egress ranges](https://mask-api.icloud.com/egress-ip-ranges.csv) when diagnosing
 an incident, without adding the address to an allowlist.

@@ -11,11 +11,12 @@ type NetworkAssessment = {
   verdict: NetworkVerdict;
   tor: boolean | null;
   vpn: boolean | null;
+  proxy: boolean | null;
   detectedTypes: NetworkRestriction[];
   reference?: string;
 };
 type CachedVerdict = { assessment: NetworkAssessment; expiresAt: number };
-const unavailableAssessment: NetworkAssessment = { verdict: "unavailable", tor: null, vpn: null, detectedTypes: [] };
+const unavailableAssessment: NetworkAssessment = { verdict: "unavailable", tor: null, vpn: null, proxy: null, detectedTypes: [] };
 const verdicts = new Map<string, CachedVerdict>();
 const pending = new Map<string, Promise<NetworkAssessment>>();
 const MAX_CACHE_ENTRIES = 2_048;
@@ -68,8 +69,8 @@ const MACHINE_METHODS: Record<string, readonly string[]> = {
 
 export const networkAccessMessages = {
   NETWORK_RESTRICTED: {
-    en: "Your connection was flagged as a VPN, proxy, Tor, or privacy relay. This detection can be incorrect. Alpha Traders currently requires a direct internet connection.",
-    ar: "تم تصنيف اتصالك على أنه VPN أو بروكسي أو Tor أو خدمة ترحيل للخصوصية. قد يكون هذا التصنيف غير صحيح. تتطلب ألفا تريدرز حاليًا اتصالًا مباشرًا بالإنترنت.",
+    en: "Your connection was flagged as a VPN, proxy, or Tor. This detection can be incorrect. If you use a normal connection, contact support with the reference below.",
+    ar: "تم تصنيف اتصالك على أنه VPN أو بروكسي أو Tor. قد يكون هذا التصنيف غير صحيح. إذا كنت تستخدم اتصالًا عاديًا، تواصل مع الدعم وأرسل الرقم المرجعي أدناه.",
   },
   NETWORK_CHECK_UNAVAILABLE: {
     en: "We could not verify your connection right now. Please try again shortly.",
@@ -111,6 +112,16 @@ function appliedNetworkVerdict(mode: string, assessment: NetworkAssessment): Net
     : assessment.tor === false ? "clear" : "unavailable";
   if (mode === "vpn-tor") return assessment.tor === true || assessment.vpn === true ? "restricted"
     : assessment.tor === false && assessment.vpn === false ? "clear" : "unavailable";
+  if (mode === "enforce" && assessment.detectedTypes.includes("private_relay")) {
+    // Ipregistry documents is_relay as Apple Private Relay, which normal
+    // Safari can use. Admit it only after an IP-matched provider response
+    // explicitly clears every blocked category. Browser/device claims never
+    // create this exception; missing flags and overlapping threats still fail.
+    // https://ipregistry.co/docs/proxy-tor-threat-detection
+    const blockedFlags = [assessment.vpn, assessment.proxy, assessment.tor];
+    if (blockedFlags.some((flag) => flag === true)) return "restricted";
+    return blockedFlags.every((flag) => flag === false) ? "clear" : "unavailable";
+  }
   return assessment.verdict;
 }
 
@@ -123,6 +134,7 @@ function observeNetworkClassification(payload: unknown, ip: string, provider: Ne
     ? record(response?.security) : record(record(response?.[ip])?.detections);
   const torFlag = flags?.[provider === "ipregistry" ? "is_tor" : "tor"];
   const vpnFlag = flags?.[provider === "ipregistry" ? "is_vpn" : "vpn"];
+  const proxyFlag = flags?.[provider === "ipregistry" ? "is_proxy" : "proxy"];
   const fields: Partial<Record<NetworkRestriction, string>> = provider === "ipregistry"
     ? { vpn: "is_vpn", proxy: "is_proxy", tor: "is_tor", private_relay: "is_relay" }
     : { vpn: "vpn", proxy: "proxy", tor: "tor" };
@@ -132,7 +144,8 @@ function observeNetworkClassification(payload: unknown, ip: string, provider: Ne
     .filter(([, field]) => flags?.[field] === true)
     .map(([label]) => label as NetworkRestriction);
   return { verdict, tor: typeof torFlag === "boolean" ? torFlag : null,
-    vpn: typeof vpnFlag === "boolean" ? vpnFlag : null, detectedTypes };
+    vpn: typeof vpnFlag === "boolean" ? vpnFlag : null,
+    proxy: typeof proxyFlag === "boolean" ? proxyFlag : null, detectedTypes };
 }
 
 async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkAssessment> {
@@ -239,7 +252,6 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
       outcome: "failed", reason: "unavailable", metadata: { mode: process.env.ALPHA_NETWORK_ACCESS_MODE } });
   }
   const restriction = !restricted ? null : assessment.tor === true ? "tor"
-    : assessment.detectedTypes.includes("private_relay") ? "private_relay"
     : assessment.vpn === true ? "vpn" : assessment.detectedTypes[0] ?? null;
   const torOnly = restriction === "tor";
   const message = torOnly
@@ -251,9 +263,6 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
     : restriction === "proxy"
     ? (locale === "ar" ? "تم تصنيف اتصالك على أنه بروكسي. قد يكون هذا التصنيف غير صحيح، ولا يعني أنك تستخدم تطبيق VPN. تواصل مع الدعم وأرسل الرقم المرجعي أدناه إذا كنت تستخدم اتصالًا عاديًا."
       : "Your connection was flagged as a proxy. This detection can be incorrect and does not mean you installed a VPN. If you use a normal connection, contact support with the reference below.")
-    : restriction === "private_relay"
-    ? (locale === "ar" ? "تم التعرف على خدمة ترحيل للخصوصية مثل iCloud Private Relay. قد يكون هذا التصنيف غير صحيح. قد تعمل هذه الخدمة أثناء التصفح العادي في Safari دون تطبيق VPN. يتطلب هذا الموقع اتصالًا مباشرًا. في Safari، افتح قائمة الصفحة واختر «إظهار عنوان IP» لهذا الموقع ثم حاول مجددًا."
-      : "A privacy relay such as iCloud Private Relay was detected. This detection can be incorrect. It can operate during normal Safari browsing without a VPN app. This website requires a direct connection. In Safari, open the Page Menu and choose Show IP Address for this website, then try again.")
     : networkAccessMessages[code][locale];
   const headers = {
     "Cache-Control": "private, no-store, max-age=0",

@@ -29,7 +29,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("Ipregistry response validation", () => {
-  it.each(["is_vpn", "is_proxy", "is_tor", "is_relay"])("rejects explicit %s detection", (flag) => {
+  it.each(["is_vpn", "is_proxy", "is_tor", "is_relay"])("retains explicit %s detection before applying policy", (flag) => {
     expect(parseIpregistryVerdict(payload({ [flag]: true }), ip)).toBe("restricted");
   });
   it("allows a complete clear response without using cloud or risk classifications", () => {
@@ -106,6 +106,51 @@ describe("Ipregistry enforcement", () => {
     vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "off");
     expect(await enforceNetworkAccess(request())).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Apple Private Relay compatibility under enforcement", () => {
+  it.each([
+    [false, false, false, 200],
+    [true, false, false, 403], [false, true, false, 403], [false, false, true, 403],
+    [true, true, false, 403], [true, false, true, 403], [false, true, true, 403],
+    [true, true, true, 403],
+  ])("allows relay-only traffic but preserves VPN=%s proxy=%s Tor=%s denial", async (is_vpn, is_proxy, is_tor, status) => {
+    fetchMock.mockResolvedValue(Response.json(payload({ is_relay: true, is_vpn, is_proxy, is_tor })));
+    for (const path of ["/en/login", "/ar/login", "/api/auth/me", "/api/mobile/v1/app-config"]) {
+      const response = await enforceNetworkAccess(request(path));
+      expect(response?.status ?? 200).toBe(status);
+      expect(response?.headers.get("set-cookie") ?? null).toBeNull();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["is_vpn", "is_proxy", "is_tor"])("requires a validated false %s before admitting a relay", async (flag) => {
+    for (const value of [undefined, null, "false"]) {
+      vi.stubEnv("IPREGISTRY_API_KEY", `synthetic-ipregistry-${++generation}`);
+      fetchMock.mockResolvedValue(Response.json(payload({ is_relay: true, [flag]: value })));
+      const response = (await enforceNetworkAccess(request("/en/login")))!;
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("5");
+      expect(await response.text()).not.toContain("Show IP Address");
+    }
+  });
+
+  it.each(["is_vpn", "is_proxy", "is_tor"])("does not trust Safari or forged relay headers over %s", async (flag) => {
+    fetchMock.mockResolvedValue(Response.json(payload({ [flag]: true })));
+    const req = request("/en/login");
+    req.headers.set("user-agent", "Mozilla/5.0 (iPhone) Version/26.0 Mobile Safari/605.1.15");
+    req.headers.set("x-platform", "ios");
+    req.headers.set("x-apple-private-relay", "true");
+    req.headers.set("x-network-verified", "true");
+    expect((await enforceNetworkAccess(req))?.status).toBe(403);
+  });
+
+  it("allows a validated IPv6 relay without requiring a Safari user-agent", async () => {
+    const req = request("/en/login");
+    req.headers.set("x-vercel-forwarded-for", "2606:4700:4700::1111");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_relay: true }, "2606:4700:4700:0:0:0:0:1111")));
+    expect(await enforceNetworkAccess(req)).toBeNull();
   });
 });
 
@@ -246,7 +291,6 @@ describe("Connection support references", () => {
 
   it.each([
     ["is_proxy", "flagged as a proxy"],
-    ["is_relay", "A privacy relay"],
     ["is_vpn", "flagged as a VPN"],
     ["is_tor", "part of the Tor network"],
   ])("describes the actual %s classification", async (flag, message) => {
@@ -256,17 +300,24 @@ describe("Connection support references", () => {
   });
 
   it.each([
-    ["en", "Show IP Address"],
-    ["ar", "إظهار عنوان IP"],
-  ])("explains a relay classification in %s even when a generic proxy or VPN label is also present", async (locale, instruction) => {
+    ["en", "flagged as a VPN"],
+    ["ar", "تم تصنيف اتصالك على أنه VPN"],
+  ])("explains the blocking VPN classification in %s when a relay flag is also present", async (locale, message) => {
     fetchMock.mockResolvedValue(Response.json(payload({ is_proxy: true, is_vpn: true, is_relay: true })));
     const response = (await enforceNetworkAccess(request(`/${locale}/login`)))!;
     const html = await response.text();
     expect(response.status).toBe(403);
-    expect(html).toContain("iCloud Private Relay");
-    expect(html).toContain(instruction);
-    expect(html).not.toContain("flagged as a VPN");
-    expect(html).not.toContain("flagged as a proxy");
+    expect(html).toContain(message);
+    expect(html).not.toMatch(/iCloud Private Relay|Show IP Address|إظهار عنوان IP/);
+  });
+
+  it.each([
+    ["is_proxy", "flagged as a proxy"], ["is_tor", "part of the Tor network"],
+  ])("identifies overlapping %s instead of blaming a permitted relay", async (flag, message) => {
+    fetchMock.mockResolvedValue(Response.json(payload({ is_relay: true, [flag]: true })));
+    const response = (await enforceNetworkAccess(request("/en/login")))!;
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain(message);
   });
 
   it("includes a matching support reference on an unavailable lookup, without calling it a VPN", async () => {
@@ -313,15 +364,17 @@ describe("network classification incident diagnostics", () => {
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain("network_provider_classification");
   });
 
-  it("explains a relay block without asserting that Safari has a VPN app", async () => {
+  it("records permitted relay classifications once without a block or private data", async () => {
     fetchMock.mockResolvedValue(Response.json(payload({ is_relay: true })));
-    const response = (await enforceNetworkAccess(request("/en/login")))!;
-    expect(response.status).toBe(403);
-    const html = await response.text();
-    expect(html).toContain("Connection access restricted");
-    expect(html).toContain("normal Safari browsing without a VPN app");
-    expect(html).toContain("This detection can be incorrect");
-    expect(html).not.toContain("Turn off your VPN");
+    expect(await enforceNetworkAccess(request("/en/login"))).toBeNull();
+    expect(await enforceNetworkAccess(request("/en/login"))).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(console.warn).mock.calls.filter(([, event]) => event.event === "network_provider_classification");
+    expect(events).toHaveLength(1);
+    expect(events[0][1]).toMatchObject({
+      outcome: "success", metadata: { provider: "ipregistry", mode: "enforce", detectedTypes: ["private_relay"] },
+    });
+    expect(JSON.stringify(events)).not.toMatch(/8\.8\.8\.8|private-session|private-user-token|synthetic-ipregistry/);
   });
 });
 
