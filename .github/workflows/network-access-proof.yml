@@ -25,6 +25,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import datetime, json, os, pathlib, re, subprocess, time
+          from urllib.parse import urlsplit
           root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'alpha-production-network-proof'
           root.mkdir(mode=0o700)
           tor_data = root / 'tor'
@@ -64,7 +65,7 @@ jobs:
                   assert title in content and 'lang="' + page_language + '"' in content, 'Expected localized application block page'
                   entry['application_block_page'] = page_language
               if auth_gate:
-                  assert 'Authentication Required' in content and 'Vercel' in content, 'Expected deployment authentication wall'
+                  locations = re.findall(r'^location:\\s*(.+)
                   assert 'id="login-email"' not in content and 'id="login-password"' not in content, 'Application login must not render behind the deployment wall'
                   entry['deployment_authentication'] = True
               if login:
@@ -116,8 +117,94 @@ jobs:
               record_check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
               for use_tor in (False, True):
                   transport_name = 'Tor' if use_tor else 'Direct'
-                  record_check(transport_name + ' old production deployment requires Vercel authentication', '/en/login', 401, use_tor, request_origin='https://alpha-traders-exchange-k7x731tbl-alpha-kits.vercel.app', auth_gate=True)
-                  record_check(transport_name + ' preview deployment requires Vercel authentication', '/en/login', 401, use_tor, request_origin='https://alpha-traders-exchange-qad5kmen6-alpha-kits.vercel.app', auth_gate=True)
+                  record_check(transport_name + ' old production deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-k7x731tbl-alpha-kits.vercel.app', auth_gate=True)
+                  record_check(transport_name + ' preview deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-qad5kmen6-alpha-kits.vercel.app', auth_gate=True)
+          finally:
+              if tor is not None:
+                  tor.terminate()
+                  try:
+                      tor.wait(timeout=10)
+                  except subprocess.TimeoutExpired:
+                      tor.kill()
+                      tor.wait()
+              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'tor_project_confirmed': tor_confirmed, 'mode': 'tor-only', 'deployment_protection': {'approved_by_owner': True, 'scope': 'prod_deployment_urls_and_all_previews'}, 'checks': records, 'passed': tor_confirmed and len(records) == 20 and all(x.get('passed') for x in records)}
+              pathlib.Path('network-access-production-proof.json').write_text(json.dumps(record, indent=2))
+              print(json.dumps(record, indent=2))
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('## Approved deployment protection and Tor proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
+                  for item in records:
+                      summary.write('| ' + item['name'] + ' | ' + item['status'] + ' | ' + str(item['expected']) + ' | ' + ('PASS' if item.get('passed') else 'FAIL') + ' |\n')
+                  summary.write('\n<details><summary>Sanitized machine evidence</summary>\n\n```json\n' + json.dumps(record, indent=2) + '\n```\n</details>\n')
+          if not record['passed']:
+              raise SystemExit('One or more live checks did not pass; see the preserved result.')
+          PY
+      - name: Preserve sanitized verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-access-production-proof
+          path: network-access-production-proof.json
+          if-no-files-found: warn
+          retention-days: 14
+, response_headers.read_text(), re.I | re.M)
+                  assert len(locations) == 1, 'Expected one explicit authentication redirect'
+                  destination = urlsplit(locations[0].strip())
+                  entry['authentication_redirect'] = {'scheme': destination.scheme, 'host': destination.hostname, 'path': destination.path}
+                  assert destination.scheme == 'https' and destination.hostname == 'vercel.com', 'Authentication redirect must go to Vercel'
+                  assert destination.path in ('/sso-api', '/login'), 'Expected Vercel sign-in endpoint'
+                  assert 'id="login-email"' not in content and 'id="login-password"' not in content, 'Application login must not render behind the deployment wall'
+                  entry['deployment_authentication'] = True
+              if login:
+                  assert 'id="login-email"' in content and 'id="login-password"' in content, 'Expected the rendered login form'
+                  entry['login_form'] = True
+              if health:
+                  data = json.loads(content)
+                  assert data.get('status') == 'ok' and data.get('checks', {}).get('database') == 'ok', 'Service health must be healthy'
+                  entry['database'] = 'ok'
+              entry['passed'] = True
+          def record_check(*args, **kwargs):
+              try:
+                  check(*args, **kwargs)
+              except Exception as error:
+                  if records and records[-1]['name'] == args[0]:
+                      records[-1]['passed'] = False
+                      records[-1]['failure'] = str(error)
+                  else:
+                      raise
+          print(subprocess.run(['tor', '--version'], capture_output=True, text=True).stdout.splitlines()[0])
+          tor = None
+          try:
+              record_check('Direct login page remains available', '/en/login', 200, login=True)
+              record_check('Direct iOS API access', '/api/mobile/v1/app-config', 200)
+              record_check('Direct Android API access', '/api/mobile/v1/app-config', 200, platform='android')
+              record_check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', 401, error_code='UNAUTHORIZED')
+              tor = subprocess.Popen(['tor', '--ClientOnly', '1', '--SocksPort', '127.0.0.1:19050', '--ControlPort', '0', '--DataDirectory', str(tor_data), '--Log', 'notice file ' + str(log)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              deadline = time.monotonic() + 180
+              while not (log.exists() and 'Bootstrapped 100%' in log.read_text()):
+                  if tor.poll() is not None or time.monotonic() >= deadline:
+                      progress = re.findall(r'Bootstrapped \d+%[^\n]*', log.read_text() if log.exists() else '')
+                      print(json.dumps({'tor_setup_progress': progress[-6:], 'tor_process_exit': tor.poll()}))
+                      raise RuntimeError('Tor did not become ready within the bounded setup window')
+                  time.sleep(2)
+              identity = subprocess.run(['curl', '--silent', '--show-error', '--socks5-hostname', '127.0.0.1:19050', '--connect-timeout', '15', '--max-time', '35', 'https://check.torproject.org/api/ip'], capture_output=True, text=True)
+              tor_confirmed = identity.returncode == 0 and json.loads(identity.stdout).get('IsTor') is True
+              assert tor_confirmed, 'Tor Project did not confirm this transport as Tor'
+              record_check('Tor blocked on default production domain', '/en/login', 403, True, page_language='en', request_origin='https://alpha-traders-exchange.vercel.app')
+              record_check('Tor apex redirects to blocked canonical login', '/en/login', 403, True, page_language='en', request_origin='https://alphatraders.co.il', follow=True)
+              record_check('Tor login page denied', '/en/login', 403, True, page_language='en')
+              record_check('Tor iOS API denied', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED')
+              record_check('Tor Android API denied', '/api/mobile/v1/app-config', 403, True, platform='android', error_code='NETWORK_RESTRICTED')
+              record_check('Tor English page denied', '/en', 403, True, page_language='en')
+              record_check('Tor Arabic page denied', '/ar', 403, True, page_language='ar')
+              record_check('Forged forwarding headers do not bypass Tor restriction', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED', extra_headers=['CF-Connecting-IP: 8.8.8.8', 'X-Forwarded-For: 8.8.8.8', 'X-Real-IP: 8.8.8.8', 'X-Vercel-Forwarded-For: 8.8.8.8'])
+              record_check('Health exception still responds through Tor', '/api/health', 200, True, health=True)
+              record_check('Cron exception still requires authentication through Tor', '/api/cron/economic-news', 401, True)
+              record_check('Session revocation exception still requires authentication', '/api/mobile/v1/auth/session', 401, True, method='DELETE', error_code='UNAUTHORIZED')
+              record_check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
+              for use_tor in (False, True):
+                  transport_name = 'Tor' if use_tor else 'Direct'
+                  record_check(transport_name + ' old production deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-k7x731tbl-alpha-kits.vercel.app', auth_gate=True)
+                  record_check(transport_name + ' preview deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-qad5kmen6-alpha-kits.vercel.app', auth_gate=True)
           finally:
               if tor is not None:
                   tor.terminate()
