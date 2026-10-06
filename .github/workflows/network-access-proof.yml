@@ -1,4 +1,4 @@
-name: Deployment protection and Tor live proof
+name: Full network policy live verification
 
 on:
   push:
@@ -21,10 +21,10 @@ jobs:
       - name: Verify Tor restrictions and protected exceptions
         env:
           ALPHA_PROOF_ORIGIN: https://www.alphatraders.co.il
-          ALPHA_EXPECTED_DEPLOYMENT: dpl_BDSvFfekrW5gqPiWo6jqu8PyigKv
+          ALPHA_EXPECTED_DEPLOYMENT: dpl_6qGSSyFmsdReVE9CLiF1tdhsoMxv
         run: |
           python3 - <<'PY'
-          import datetime, json, os, pathlib, re, subprocess, time
+          import datetime, json, os, pathlib, re, subprocess, time, uuid
           from urllib.parse import urlsplit
           root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'alpha-production-network-proof'
           root.mkdir(mode=0o700)
@@ -53,16 +53,29 @@ jobs:
               except (ValueError, AttributeError):
                   pass
               assert result.returncode == 0, 'Connection failed: ' + name
-              assert entry['status'] == str(expected), 'Unexpected status: ' + name
+              allowed_statuses = expected if isinstance(expected, list) else [expected]
+              assert entry['status'] in [str(value) for value in allowed_statuses], 'Unexpected status: ' + name
               if error_code:
                   entry['error_code'] = json.loads(content).get('error', {}).get('code')
-                  assert entry['error_code'] == error_code, 'Unexpected application error: ' + name
-              if expected == 403:
+                  required_code = 'NETWORK_RESTRICTED' if entry['status'] == '403' else error_code
+                  assert entry['error_code'] == required_code, 'Unexpected application error: ' + name
+              if entry['status'] == '403':
                   assert 'no-store' in response_headers.read_text().lower(), 'Blocked response must not be cached'
                   entry['non_cacheable'] = True
+                  references = [header.split(':', 1)[1].strip() for header in response_headers.read_text().splitlines() if header.lower().startswith('x-alpha-connection-reference:')]
+                  assert len(references) == 1, 'Expected one connection support reference'
+                  reference = references[0]
+                  assert str(uuid.UUID(reference)) == reference, 'Expected an opaque UUID reference'
+                  entry['support_reference'] = reference
+                  entry['network_restricted'] = True
+                  if path.startswith('/api/'):
+                      assert json.loads(content).get('requestId') == reference, 'API reference must match response header'
+                      assert json.loads(content).get('error', {}).get('code') == 'NETWORK_RESTRICTED', 'Expected the application network policy'
+                  else:
+                      assert reference in content, 'Block page must display its support reference'
               if page_language:
-                  title = 'Tor connections are not allowed' if page_language == 'en' else 'اتصال Tor غير مسموح'
-                  assert title in content and 'lang="' + page_language + '"' in content, 'Expected localized application block page'
+                  titles = ['Tor connections are not allowed', 'Connection access restricted'] if page_language == 'en' else ['اتصال Tor غير مسموح', 'تم تقييد الوصول من هذا الاتصال']
+                  assert any(title in content for title in titles) and 'lang="' + page_language + '"' in content, 'Expected localized application block page'
                   entry['application_block_page'] = page_language
               if auth_gate:
                   locations = [header.split(':', 1)[1].strip() for header in response_headers.read_text().splitlines() if header.lower().startswith('location:')]
@@ -73,7 +86,7 @@ jobs:
                   assert destination.path in ('/sso-api', '/login'), 'Expected Vercel sign-in endpoint'
                   assert 'id="login-email"' not in content and 'id="login-password"' not in content, 'Application login must not render behind deployment protection'
                   entry['deployment_authentication'] = True
-              if login:
+              if login and entry['status'] == '200':
                   assert 'id="login-email"' in content and 'id="login-password"' in content, 'Expected the rendered login form'
                   entry['login_form'] = True
               if health:
@@ -93,10 +106,10 @@ jobs:
           print(subprocess.run(['tor', '--version'], capture_output=True, text=True).stdout.splitlines()[0])
           tor = None
           try:
-              record_check('Direct login page remains available', '/en/login', 200, login=True)
-              record_check('Direct iOS API access', '/api/mobile/v1/app-config', 200)
-              record_check('Direct Android API access', '/api/mobile/v1/app-config', 200, platform='android')
-              record_check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', 401, error_code='UNAUTHORIZED')
+              record_check('Direct runner follows network policy on login', '/en/login', [200, 403], login=True)
+              record_check('Direct iOS API follows network policy', '/api/mobile/v1/app-config', [200, 403])
+              record_check('Direct Android API follows network policy', '/api/mobile/v1/app-config', [200, 403], platform='android')
+              record_check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', [401, 403], error_code='UNAUTHORIZED')
               tor = subprocess.Popen(['tor', '--ClientOnly', '1', '--SocksPort', '127.0.0.1:19050', '--ControlPort', '0', '--DataDirectory', str(tor_data), '--Log', 'notice file ' + str(log)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               deadline = time.monotonic() + 180
               while not (log.exists() and 'Bootstrapped 100%' in log.read_text()):
@@ -119,10 +132,10 @@ jobs:
               record_check('Health exception still responds through Tor', '/api/health', 200, True, health=True)
               record_check('Cron exception still requires authentication through Tor', '/api/cron/economic-news', 401, True)
               record_check('Session revocation exception still requires authentication', '/api/mobile/v1/auth/session', 401, True, method='DELETE', error_code='UNAUTHORIZED')
-              record_check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
+              record_check('Direct runner follows network policy after Tor checks', '/api/mobile/v1/app-config', [200, 403])
               for use_tor in (False, True):
                   transport_name = 'Tor' if use_tor else 'Direct'
-                  record_check(transport_name + ' old production deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-k7x731tbl-alpha-kits.vercel.app', auth_gate=True)
+                  record_check(transport_name + ' old production deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-g0ae3lf01-alpha-kits.vercel.app', auth_gate=True)
                   record_check(transport_name + ' preview deployment requires Vercel authentication', '/en/login', 302, use_tor, request_origin='https://alpha-traders-exchange-qad5kmen6-alpha-kits.vercel.app', auth_gate=True)
           finally:
               if tor is not None:
@@ -132,11 +145,11 @@ jobs:
                   except subprocess.TimeoutExpired:
                       tor.kill()
                       tor.wait()
-              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'tor_project_confirmed': tor_confirmed, 'mode': 'tor-only', 'deployment_protection': {'approved_by_owner': True, 'scope': 'prod_deployment_urls_and_all_previews'}, 'checks': records, 'passed': tor_confirmed and len(records) == 20 and all(x.get('passed') for x in records)}
+              record = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'origin': origin, 'expected_deployment': os.environ['ALPHA_EXPECTED_DEPLOYMENT'], 'tor_project_confirmed': tor_confirmed, 'mode': 'enforce', 'deployment_protection': {'approved_by_owner': True, 'scope': 'prod_deployment_urls_and_all_previews'}, 'direct_runner_note': 'A direct cloud runner may itself be classified as a proxy/VPN. HTTP 403 counts only when the application restriction, no-store header and matching support reference are verified. Normal browser login availability is checked separately.', 'checks': records, 'passed': tor_confirmed and len(records) == 20 and all(x.get('passed') for x in records)}
               pathlib.Path('network-access-production-proof.json').write_text(json.dumps(record, indent=2))
               print(json.dumps(record, indent=2))
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-                  summary.write('## Approved deployment protection and Tor proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
+                  summary.write('## Full network policy deployment proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
                   for item in records:
                       summary.write('| ' + item['name'] + ' | ' + item['status'] + ' | ' + str(item['expected']) + ' | ' + ('PASS' if item.get('passed') else 'FAIL') + ' |\n')
                   summary.write('\n<details><summary>Sanitized machine evidence</summary>\n\n```json\n' + json.dumps(record, indent=2) + '\n```\n</details>\n')
