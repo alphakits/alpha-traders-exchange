@@ -2520,7 +2520,7 @@ export class AlphaExchangeRepository {
     );
   }
 
-  /** One navigation candidate by default; owners may request all active matches. */
+  /** One navigation candidate by default; allMatching retains the actor scope. */
   async loadPurchaseRequestCandidateSnapshotForActor(input: {
     userId: string;
     includeAll: boolean;
@@ -2542,7 +2542,7 @@ export class AlphaExchangeRepository {
           || (input.includeBuyerPending && request.status === "pending" && request.buyerId === input.userId)
         ))
         .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() || left.id.localeCompare(right.id));
-      const purchaseRequests = input.includeAll && input.allMatching ? matches : matches.slice(0, 1);
+      const purchaseRequests = input.allMatching ? matches : matches.slice(0, 1);
       const participantIds = new Set([input.userId, ...purchaseRequests.flatMap(request => [request.buyerId, request.sellerId])]);
       const listingIds = new Set(purchaseRequests.map(request => request.listingId));
       return attachVersion({
@@ -2578,7 +2578,7 @@ export class AlphaExchangeRepository {
            where listing.id in (select listing_id from candidate_request)
          ), '[]'::jsonb) as listings,
          coalesce((select jsonb_agg(payload order by sort_index asc) from candidate_request), '[]'::jsonb) as purchase_requests`,
-      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending, input.includeAll && input.allMatching ? null : 1],
+      [input.userId, input.includeAll, input.activeStatuses, input.includeBuyerPending, input.allMatching ? null : 1],
     );
     const row = result.rows[0];
     return attachVersion(
