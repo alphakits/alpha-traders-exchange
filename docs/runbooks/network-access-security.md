@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `off` (default) | None | Existing access rules remain in effect. |
 | `monitor` | Yes | Coarse verdicts are logged; requests continue through normal authentication. |
+| `tor-only` | Yes | Explicit Tor: 403. Unverified Tor status: 503. Verified non-Tor connections, including other positive classifications, continue through normal authentication while those classifications are monitored. |
 | `enforce` | Yes | Known VPN/proxy/Tor: 403. Unchecked connection: 503. Clear connection: continue through normal authentication. |
 
 Select exactly one service with `ALPHA_NETWORK_ACCESS_PROVIDER`:
@@ -123,6 +124,15 @@ infer Private Relay from the browser alone or label every restricted connection
 as a VPN. Correlate the reported attempt with the request timestamp and platform
 request details; do not add raw IPs, credentials or provider bodies to logs.
 The block page and API message must acknowledge possible misclassification.
+
+The `tor-only` recovery mode can enforce an explicitly requested Tor block while
+VPN, proxy and privacy-relay false positives are investigated. It is not full
+VPN enforcement. A validated explicit false Tor flag is required to continue;
+missing/malformed Tor status, mismatched IP, provider failure and quota
+exhaustion return 503. Validate direct access and actual Tor denial before
+publishing this mode. The same cache, trusted-ingress rules, authentication and
+narrow machine-endpoint exceptions apply. Detection is based on the observed
+network; the browser's name or user-agent never creates a block or exemption.
 
 Keep enforcement in preview until representative physical-device acceptance
 and the affected connection's recovery are recorded. Any proposal to permit

@@ -51,6 +51,13 @@ describe("server-side network access", () => {
     fetchMock.mockResolvedValue(Response.json(result()));
     expect(await enforceNetworkAccess(request())).toBeNull();
   });
+  it.each([true, false])("uses the selected proxycheck Tor flag in Tor-only mode (%s)", async (tor) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(Response.json(result({ vpn: true, tor })));
+    const response = await enforceNetworkAccess(request());
+    if (tor) expect(response?.status).toBe(403);
+    else expect(response).toBeNull();
+  });
   it("returns a private, self-contained 403 page without leaking request contents", async () => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     const response = (await enforceNetworkAccess(request('/en?returnTo=%3Cscript%3E&token=private-test-value')))!;

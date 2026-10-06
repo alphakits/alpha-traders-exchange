@@ -6,9 +6,11 @@ import { logEvent } from "@/lib/structured-logging";
 
 type NetworkVerdict = "clear" | "restricted" | "unavailable";
 type NetworkProvider = "proxycheck" | "ipregistry";
-type CachedVerdict = { verdict: NetworkVerdict; expiresAt: number };
+type NetworkAssessment = { verdict: NetworkVerdict; tor: boolean | null };
+type CachedVerdict = { assessment: NetworkAssessment; expiresAt: number };
+const unavailableAssessment: NetworkAssessment = { verdict: "unavailable", tor: null };
 const verdicts = new Map<string, CachedVerdict>();
-const pending = new Map<string, Promise<NetworkVerdict>>();
+const pending = new Map<string, Promise<NetworkAssessment>>();
 const MAX_CACHE_ENTRIES = 2_048;
 const MAX_PENDING_LOOKUPS = 128;
 const LOOKUP_TIMEOUT_MS = 1_500;
@@ -96,13 +98,23 @@ export function parseIpregistryVerdict(payload: unknown, ip: string): NetworkVer
   return flags.every((flag) => flag === false) ? "clear" : "unavailable";
 }
 
-function observeNetworkClassification(payload: unknown, ip: string, provider: NetworkProvider): NetworkVerdict {
+function appliedNetworkVerdict(mode: string, assessment: NetworkAssessment): NetworkVerdict {
+  if (mode === "monitor") return "clear";
+  if (mode === "tor-only") return assessment.tor === true ? "restricted"
+    : assessment.tor === false ? "clear" : "unavailable";
+  return assessment.verdict;
+}
+
+function observeNetworkClassification(payload: unknown, ip: string, provider: NetworkProvider): NetworkAssessment {
   const verdict = provider === "ipregistry"
     ? parseIpregistryVerdict(payload, ip) : parseNetworkVerdict(payload, ip);
-  if (verdict !== "restricted") return verdict;
+  if (verdict === "unavailable") return unavailableAssessment;
   const response = record(payload);
   const flags = provider === "ipregistry"
     ? record(response?.security) : record(record(response?.[ip])?.detections);
+  const torFlag = flags?.[provider === "ipregistry" ? "is_tor" : "tor"];
+  const assessment: NetworkAssessment = { verdict, tor: typeof torFlag === "boolean" ? torFlag : null };
+  if (verdict !== "restricted") return assessment;
   const fields: Record<string, string> = provider === "ipregistry"
     ? { vpn: "is_vpn", proxy: "is_proxy", tor: "is_tor", private_relay: "is_relay" }
     : { vpn: "vpn", proxy: "proxy", tor: "tor" };
@@ -111,16 +123,17 @@ function observeNetworkClassification(payload: unknown, ip: string, provider: Ne
   const detectedTypes = Object.entries(fields)
     .filter(([, field]) => flags?.[field] === true)
     .map(([label]) => label);
+  const appliedVerdict = appliedNetworkVerdict(process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() || "off", assessment);
   logEvent("warn", {
     event: "network_provider_classification",
-    outcome: process.env.ALPHA_NETWORK_ACCESS_MODE === "enforce" ? "denied" : "success",
+    outcome: appliedVerdict === "restricted" ? "denied" : appliedVerdict === "unavailable" ? "failed" : "success",
     reason: "restricted",
     metadata: { provider, mode: process.env.ALPHA_NETWORK_ACCESS_MODE, detectedTypes },
   });
-  return verdict;
+  return assessment;
 }
 
-async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkVerdict> {
+async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkAssessment> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
   try {
@@ -134,7 +147,7 @@ async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvid
         redirect: "error",
       });
       observeIpregistryCapacity(response, `${provider}\0${apiKey}`);
-      if (!response.ok) return "unavailable";
+      if (!response.ok) return unavailableAssessment;
       return observeNetworkClassification(await response.json(), ip, provider);
     }
     const url = new URL("https://proxycheck.io/v3/");
@@ -150,17 +163,17 @@ async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvid
       cache: "no-store",
       redirect: "error",
     });
-    if (!response.ok) return "unavailable";
+    if (!response.ok) return unavailableAssessment;
     return observeNetworkClassification(await response.json(), ip, provider);
   } catch {
     // Never log provider URLs, keys, raw responses, or a visitor's IP address.
-    return "unavailable";
+    return unavailableAssessment;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function cachedNetworkVerdict(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkVerdict> {
+async function cachedNetworkVerdict(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkAssessment> {
   const configuration = `${provider}\0${apiKey}`;
   if (activeConfiguration !== configuration) {
     verdicts.clear();
@@ -169,28 +182,28 @@ async function cachedNetworkVerdict(ip: string, apiKey: string, provider: Networ
     activeConfiguration = configuration;
   }
   const cached = verdicts.get(ip);
-  if (cached && cached.expiresAt > Date.now()) return cached.verdict;
+  if (cached && cached.expiresAt > Date.now()) return cached.assessment;
   const inFlight = pending.get(ip);
   if (inFlight) return inFlight;
-  if (pending.size >= MAX_PENDING_LOOKUPS) return "unavailable";
+  if (pending.size >= MAX_PENDING_LOOKUPS) return unavailableAssessment;
 
-  const lookup = lookupNetwork(ip, apiKey, provider).then((verdict) => {
+  const lookup = lookupNetwork(ip, apiKey, provider).then((assessment) => {
+    const { verdict } = assessment;
     // Ignore old requests after a configuration change.
     if (activeConfiguration === configuration) {
       if (verdicts.size >= MAX_CACHE_ENTRIES) verdicts.delete(verdicts.keys().next().value!);
-      verdicts.set(ip, { verdict, expiresAt: Date.now() + (verdict === "unavailable" ? 5_000 : 60_000) });
+      verdicts.set(ip, { assessment, expiresAt: Date.now() + (verdict === "unavailable" ? 5_000 : 60_000) });
       if (verdict !== "clear") {
+        const appliedVerdict = appliedNetworkVerdict(process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() || "off", assessment);
         logEvent("warn", {
           event: "network_access_check",
-          outcome: verdict === "restricted"
-            ? (process.env.ALPHA_NETWORK_ACCESS_MODE === "enforce" ? "denied" : "success")
-            : "failed",
+          outcome: appliedVerdict === "restricted" ? "denied" : appliedVerdict === "unavailable" ? "failed" : "success",
           reason: verdict,
           metadata: { mode: process.env.ALPHA_NETWORK_ACCESS_MODE },
         });
       }
     }
-    return verdict;
+    return assessment;
   }).finally(() => {
     if (pending.get(ip) === lookup) pending.delete(ip);
   });
@@ -205,7 +218,11 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
   const pathLocale = /^\/(ar|en)(?:\/|$)/.exec(request.nextUrl.pathname)?.[1];
   const locale = pathLocale === "ar" || pathLocale === "en"
     ? pathLocale : resolveSupportedRequestLocale(request.headers);
-  const message = networkAccessMessages[code][locale];
+  const torOnly = restricted && process.env.ALPHA_NETWORK_ACCESS_MODE?.trim() === "tor-only";
+  const message = torOnly
+    ? (locale === "ar" ? "تم التعرف على اتصالك على أنه تابع لشبكة Tor. استخدم اتصالًا خارج شبكة Tor ثم حاول مجددًا."
+      : "Your connection was identified as part of the Tor network. Use a connection outside Tor and try again.")
+    : networkAccessMessages[code][locale];
   const headers = {
     "Cache-Control": "private, no-store, max-age=0",
     "CDN-Cache-Control": "no-store",
@@ -225,11 +242,13 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
   }
   // Self-contained HTML works before sign-in, without JavaScript or redirects.
   // No request content, return URL, user identity or IP is rendered into it.
-  const title = restricted
+  const title = torOnly ? (locale === "ar" ? "اتصال Tor غير مسموح" : "Tor connections are not allowed") : restricted
     ? (locale === "ar" ? "تم تقييد الوصول من هذا الاتصال" : "Connection access restricted")
     : (locale === "ar" ? "التحقق من الاتصال غير متاح مؤقتًا" : "Connection check temporarily unavailable");
   const retry = locale === "ar" ? "حاول مجددًا" : "Try again";
-  const support = locale === "ar"
+  const support = torOnly
+    ? (locale === "ar" ? "إذا كنت لا تستخدم Tor، تواصل مع الدعم للتحقق من التصنيف." : "If you are not using Tor, contact support to review the detection.")
+    : locale === "ar"
     ? "قد تعمل خدمة iCloud Private Relay أثناء التصفح العادي في Safari دون تطبيق VPN. إذا كنت لا تستخدم أيًا من هذه الخدمات، تواصل مع الدعم للتحقق من التصنيف."
     : "iCloud Private Relay can operate during normal Safari browsing without a VPN app. If you are not using any of these services, contact support to review the detection.";
   return new NextResponse(`<!doctype html><html lang="${locale}" dir="${locale === "ar" ? "rtl" : "ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | Alpha Traders</title><style>html{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#080d17;color:#f4f5f8;font:16px/1.65 system-ui,sans-serif}main{width:min(100%,480px);padding:32px;border:1px solid #344156;border-radius:24px;background:#111b2a}small{color:#ebc66a;font-weight:700;letter-spacing:.08em}h1{font-size:clamp(24px,5vw,32px);line-height:1.25}p{color:#c2ccda}a{display:inline-block;padding:12px 24px;border-radius:12px;background:#ebc66a;color:#080d17;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid white;outline-offset:4px}.help{font-size:14px}</style></head><body><main><small>ALPHA TRADERS</small><h1>${title}</h1><p>${message}</p><a href="/${locale}">${retry}</a>${restricted ? `<p class="help">${support}</p>` : ""}</main></body></html>`, {
@@ -248,14 +267,15 @@ export async function enforceNetworkAccess(request: NextRequest): Promise<NextRe
   const pathname = request.nextUrl.pathname.replace(/\/$/, "");
   if (Object.hasOwn(MACHINE_METHODS, pathname)
       && MACHINE_METHODS[pathname].includes(request.method.toUpperCase())) return null;
-  if (mode !== "monitor" && mode !== "enforce") return networkRejection(request, "unavailable");
+  if (mode !== "monitor" && mode !== "enforce" && mode !== "tor-only") return networkRejection(request, "unavailable");
   const provider = process.env.ALPHA_NETWORK_ACCESS_PROVIDER?.trim() || "proxycheck";
   if (provider !== "proxycheck" && provider !== "ipregistry") return networkRejection(request, "unavailable");
   const apiKey = (provider === "ipregistry" ? process.env.IPREGISTRY_API_KEY : process.env.PROXYCHECK_API_KEY)?.trim();
   const ip = resolveClientIp(request.headers);
-  const verdict = apiKey && isPublicClientIp(ip)
-    ? await cachedNetworkVerdict(ip, apiKey, provider) : "unavailable";
-  if (mode === "monitor" || verdict === "clear") return null;
+  const assessment = apiKey && isPublicClientIp(ip)
+    ? await cachedNetworkVerdict(ip, apiKey, provider) : unavailableAssessment;
+  const verdict = appliedNetworkVerdict(mode, assessment);
+  if (verdict === "clear") return null;
   // Enforced mode never silently admits an unchecked connection, including
   // provider outage, quota exhaustion, missing configuration, or invalid IP.
   return networkRejection(request, verdict);

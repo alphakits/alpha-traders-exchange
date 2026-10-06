@@ -109,6 +109,54 @@ describe("Ipregistry enforcement", () => {
   });
 });
 
+describe("Tor-only incident recovery", () => {
+  it.each(["/en/login", "/ar/login", "/api/mobile/v1/app-config", "/api/auth/me"])("denies actual Tor classification on %s", async (path) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_tor: true })));
+    const response = (await enforceNetworkAccess(request(path)))!;
+    expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.text()).toContain("Tor");
+    expect(console.warn).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_provider_classification", outcome: "denied",
+      metadata: { provider: "ipregistry", mode: "tor-only", detectedTypes: ["tor"] },
+    }));
+  });
+
+  it.each(["is_vpn", "is_proxy", "is_relay"])("monitors %s while allowing a validated non-Tor connection", async (flag) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(Response.json(payload({ [flag]: true })));
+    expect(await enforceNetworkAccess(request("/en/login"))).toBeNull();
+    expect(console.warn).toHaveBeenCalledWith("[structured-log]", expect.objectContaining({
+      event: "network_provider_classification", outcome: "success",
+    }));
+  });
+
+  it.each([undefined, null, "false"])("does not admit an unchecked Tor status (%s)", async (is_tor) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_relay: true, is_tor })));
+    const response = (await enforceNetworkAccess(request()))!;
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("5");
+  });
+
+  it("preserves the Tor flag across cached mode transitions", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "monitor");
+    fetchMock.mockResolvedValue(Response.json(payload({ is_tor: true })));
+    expect(await enforceNetworkAccess(request())).toBeNull();
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    expect((await enforceNetworkAccess(request()))?.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed on a provider outage in Tor-only mode", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+    expect((await enforceNetworkAccess(request()))?.status).toBe(503);
+  });
+});
+
 describe("network classification incident diagnostics", () => {
   it.each([
     ["is_vpn", "vpn"], ["is_proxy", "proxy"],
