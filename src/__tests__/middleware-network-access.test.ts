@@ -52,6 +52,21 @@ describe("VPN checks cannot be skipped through application entry points", () => 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://www.alphatraders.co.il/en/login?redirectTo=%2Fen%2Fdashboard");
   });
+  it("admits normal Safari through a verified Apple relay while preserving the sign-in gate", async () => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_PROVIDER", "ipregistry");
+    vi.stubEnv("IPREGISTRY_API_KEY", `middleware-relay-key-${++key}`);
+    fetchMock.mockResolvedValue(Response.json({
+      ip: "8.8.8.8", security: { is_vpn: false, is_proxy: false, is_tor: false, is_relay: true },
+    }));
+    const headers = { "user-agent": "Mozilla/5.0 (iPhone) Version/26.0 Mobile Safari/605.1.15" };
+    const login = await middleware(request("/en/login", "GET", headers));
+    expect(login.headers.get("x-middleware-next")).toBe("1");
+    expect(login.headers.get("set-cookie")).toBeNull();
+    const dashboard = await middleware(request("/en/dashboard", "GET", headers));
+    expect(dashboard.status).toBe(307);
+    expect(dashboard.headers.get("location")).toBe("https://www.alphatraders.co.il/en/login?redirectTo=%2Fen%2Fdashboard");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it.each(["/api/twilio/status", "/api/twilio/whatsapp/webhook", "/api/discord/marketplace-events", "/api/meta/whatsapp/webhook"])("lets the signed callback handler authenticate %s", async (path) => {
     const response = await middleware(request(path, "POST"));
     expect(response.headers.get("x-middleware-next")).toBe("1");
