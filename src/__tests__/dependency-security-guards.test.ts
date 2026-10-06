@@ -7,6 +7,30 @@ import { describe, expect, it } from "vitest";
 const require = createRequire(import.meta.url);
 const braces = require("braces");
 const forge = require("node-forge");
+const { SourceMapConsumer, SourceNode } = require("source-map-js");
+
+describe("indexed source-map resource bounds", () => {
+  const flatMap = { version: 3, sources: ["input.js"], sourcesContent: ["a"], names: [], mappings: "AAAA" };
+
+  it.each([1e12, Infinity, NaN, -1, 0.5, "100"])("rejects unsafe section offset %s before reconstructing code", (line) => {
+    const map = { version: 3, sections: [{ offset: { line, column: 0 }, map: flatMap }] };
+    expect(() => vm.runInNewContext("SourceNode.fromStringWithSourceMap('a', new SourceMapConsumer(map))", {
+      SourceNode, SourceMapConsumer, map,
+    }, { timeout: 250 })).toThrow(/Section offset/);
+  });
+
+  it("bounds cumulative offsets across nested sections", () => {
+    const nested = { version: 3, sections: [{ offset: { line: 6_000_000, column: 0 }, map: flatMap }] };
+    expect(() => new SourceMapConsumer({ version: 3, sections: [{ offset: { line: 6_000_000, column: 0 }, map: nested }] })).toThrow(/including offsets of nested sections/);
+  });
+
+  it("preserves valid indexed mappings and generated code", () => {
+    const consumer = new SourceMapConsumer({ version: 3, sections: [{ offset: { line: 0, column: 0 }, map: flatMap }] });
+    const rebuilt = SourceNode.fromStringWithSourceMap("a", consumer).toStringWithSourceMap({ file: "output.js" });
+    expect(rebuilt.code).toBe("a");
+    expect(new SourceMapConsumer(rebuilt.map.toJSON()).originalPositionFor({ line: 1, column: 0 })).toMatchObject({ source: "input.js", line: 1, column: 0 });
+  });
+});
 
 function nestedAst(depth: number) {
   let ast = { type: "text", value: "a" } as { type: string; value?: string; nodes?: unknown[] };
