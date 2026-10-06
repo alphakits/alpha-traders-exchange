@@ -51,6 +51,13 @@ describe("server-side network access", () => {
     fetchMock.mockResolvedValue(Response.json(result()));
     expect(await enforceNetworkAccess(request())).toBeNull();
   });
+  it.each([true, false])("uses the selected proxycheck Tor flag in Tor-only mode (%s)", async (tor) => {
+    vi.stubEnv("ALPHA_NETWORK_ACCESS_MODE", "tor-only");
+    fetchMock.mockResolvedValue(Response.json(result({ vpn: true, tor })));
+    const response = await enforceNetworkAccess(request());
+    if (tor) expect(response?.status).toBe(403);
+    else expect(response).toBeNull();
+  });
   it("returns a private, self-contained 403 page without leaking request contents", async () => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     const response = (await enforceNetworkAccess(request('/en?returnTo=%3Cscript%3E&token=private-test-value')))!;
@@ -58,7 +65,9 @@ describe("server-side network access", () => {
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(response.headers.get("vercel-cdn-cache-control")).toBe("no-store");
     const html = await response.text();
-    expect(html).toContain("Turn off your VPN");
+    expect(html).toContain("Connection access restricted");
+    expect(html).toContain("This detection can be incorrect");
+    expect(html).not.toContain("Turn off your VPN");
     expect(html).not.toMatch(/<script|private-test-value|8\.8\.8\.8|synthetic-provider-key/);
     expect(html).toContain('href="/en"');
   });
@@ -77,7 +86,7 @@ describe("server-side network access", () => {
     fetchMock.mockResolvedValue(Response.json(result({ vpn: true })));
     const response = (await enforceNetworkAccess(request("/api/mobile/v1/auth/refresh", { "x-locale": "ar" }, "POST")))!;
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "NETWORK_RESTRICTED", message: expect.stringContaining("أوقف") }, requestId: expect.any(String) });
+    expect(await response.json()).toMatchObject({ error: { code: "NETWORK_RESTRICTED", message: expect.stringContaining("قد يكون هذا التصنيف غير صحيح") }, requestId: expect.any(String) });
     expect(response.headers.get("set-cookie")).toBeNull();
   });
   it.each(["", "invalid"])("fails closed for absent key or unknown mode (%s)", async (value) => {

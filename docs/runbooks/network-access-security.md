@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `off` (default) | None | Existing access rules remain in effect. |
 | `monitor` | Yes | Coarse verdicts are logged; requests continue through normal authentication. |
+| `tor-only` | Yes | Explicit Tor: 403. Unverified Tor status: 503. Verified non-Tor connections, including other positive classifications, continue through normal authentication while those classifications are monitored. |
 | `enforce` | Yes | Known VPN/proxy/Tor: 403. Unchecked connection: 503. Clear connection: continue through normal authentication. |
 
 Select exactly one service with `ALPHA_NETWORK_ACCESS_PROVIDER`:
@@ -41,7 +42,12 @@ receives its key in the Authorization header, never the URL; the response is
 limited to the IP and four classification booleans. Its returned IP must match
 the requested address after IPv6 normalization. Review each service's own
 retention policy separately; `tag=0` does not apply to Ipregistry. Application logs
-contain only coarse verdicts and mode, without the IP or key. Per-instance memory
+contain verdicts, mode and fixed positive classification labels (`vpn`, `proxy`,
+`tor`, `private_relay`), without the IP, key or raw provider response. A
+`network_provider_classification` event is recorded only after a validated
+restricted lookup, so cached requests do not create extra provider calls or
+repeat classification events. These labels explain the provider's decision;
+they do not establish that a person intentionally installed a VPN. Per-instance memory
 holds at most 2,048 verdicts, with 60-second expiry (5 seconds for failures), and
 at most 128 concurrent lookups. Same-IP requests share an in-flight lookup.
 Requests abort after 1.5 seconds. Deployment scaling may still multiply provider
@@ -103,6 +109,35 @@ Enforced provider failures can temporarily make the interactive service
 unavailable, including an active trade. This is the availability cost of refusing
 unchecked connections. Do not enable until the provider and recovery procedure
 are ready. Users of legitimate privacy tools may need to disable them too.
+
+## False-positive recovery
+
+If an ordinary user is blocked after activation, restore `monitor` through the
+production environment and deploy or roll back to the known monitor-mode
+deployment. Keep platform DDoS mitigation, WAF limits and authentication active.
+Verify the public aliases and a live `mode=monitor` event; editing the project
+environment alone does not change the running deployment.
+
+Use `network_provider_classification` to distinguish the positive provider
+flags. Normal Safari can use iCloud Private Relay without a VPN app. Do not
+infer Private Relay from the browser alone or label every restricted connection
+as a VPN. Correlate the reported attempt with the request timestamp and platform
+request details; do not add raw IPs, credentials or provider bodies to logs.
+The block page and API message must acknowledge possible misclassification.
+
+The `tor-only` recovery mode can enforce an explicitly requested Tor block while
+VPN, proxy and privacy-relay false positives are investigated. It is not full
+VPN enforcement. A validated explicit false Tor flag is required to continue;
+missing/malformed Tor status, mismatched IP, provider failure and quota
+exhaustion return 503. Validate direct access and actual Tor denial before
+publishing this mode. The same cache, trusted-ingress rules, authentication and
+narrow machine-endpoint exceptions apply. Detection is based on the observed
+network; the browser's name or user-agent never creates a block or exemption.
+
+Keep enforcement in preview until representative physical-device acceptance
+and the affected connection's recovery are recorded. Any proposal to permit
+privacy relays is a separate policy decision; do not silently add a Safari,
+owner-account, device-header or IP allowlist bypass to make a test pass.
 
 ## Identity and data safeguards
 
