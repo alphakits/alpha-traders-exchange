@@ -239,6 +239,7 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
       outcome: "failed", reason: "unavailable", metadata: { mode: process.env.ALPHA_NETWORK_ACCESS_MODE } });
   }
   const restriction = !restricted ? null : assessment.tor === true ? "tor"
+    : assessment.detectedTypes.includes("private_relay") ? "private_relay"
     : assessment.vpn === true ? "vpn" : assessment.detectedTypes[0] ?? null;
   const torOnly = restriction === "tor";
   const message = torOnly
@@ -251,8 +252,8 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
     ? (locale === "ar" ? "تم تصنيف اتصالك على أنه بروكسي. قد يكون هذا التصنيف غير صحيح، ولا يعني أنك تستخدم تطبيق VPN. تواصل مع الدعم وأرسل الرقم المرجعي أدناه إذا كنت تستخدم اتصالًا عاديًا."
       : "Your connection was flagged as a proxy. This detection can be incorrect and does not mean you installed a VPN. If you use a normal connection, contact support with the reference below.")
     : restriction === "private_relay"
-    ? (locale === "ar" ? "تم التعرف على خدمة ترحيل للخصوصية مثل iCloud Private Relay. قد يكون هذا التصنيف غير صحيح. قد تعمل هذه الخدمة أثناء التصفح العادي في Safari دون تطبيق VPN. يتطلب هذا الموقع اتصالًا مباشرًا."
-      : "A privacy relay such as iCloud Private Relay was detected. This detection can be incorrect. It can operate during normal Safari browsing without a VPN app. This website requires a direct connection.")
+    ? (locale === "ar" ? "تم التعرف على خدمة ترحيل للخصوصية مثل iCloud Private Relay. قد يكون هذا التصنيف غير صحيح. قد تعمل هذه الخدمة أثناء التصفح العادي في Safari دون تطبيق VPN. يتطلب هذا الموقع اتصالًا مباشرًا. في Safari، افتح قائمة الصفحة واختر «إظهار عنوان IP» لهذا الموقع ثم حاول مجددًا."
+      : "A privacy relay such as iCloud Private Relay was detected. This detection can be incorrect. It can operate during normal Safari browsing without a VPN app. This website requires a direct connection. In Safari, open the Page Menu and choose Show IP Address for this website, then try again.")
     : networkAccessMessages[code][locale];
   const headers = {
     "Cache-Control": "private, no-store, max-age=0",

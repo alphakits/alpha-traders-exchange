@@ -156,6 +156,16 @@ Use the reference and timestamp to investigate an affected connection instead
 of assuming that normal Safari implies Private Relay. Messages identify the
 validated VPN, proxy, Tor or relay classification separately.
 
+Full enforcement also rejects Apple Private Relay, which can be active during
+normal Safari browsing without a separate VPN app. Explain that category before
+generic proxy/VPN labels and provide Apple's per-site **Page Menu → Show IP
+Address** instruction in English and Arabic. This setting requires a choice on
+the visitor's device; the website cannot disable Private Relay remotely. See
+[Apple's per-site Private Relay guidance](https://support.apple.com/en-us/102022).
+Check a reported relay address against Apple's published
+[egress ranges](https://mask-api.icloud.com/egress-ip-ranges.csv) when diagnosing
+an incident, without adding the address to an allowlist.
+
 ## Identity and data safeguards
 
 VPN detection is not identity verification and cannot detect every VPN or

@@ -255,6 +255,20 @@ describe("Connection support references", () => {
     expect(await response.text()).toContain(message);
   });
 
+  it.each([
+    ["en", "Show IP Address"],
+    ["ar", "إظهار عنوان IP"],
+  ])("explains a relay classification in %s even when a generic proxy or VPN label is also present", async (locale, instruction) => {
+    fetchMock.mockResolvedValue(Response.json(payload({ is_proxy: true, is_vpn: true, is_relay: true })));
+    const response = (await enforceNetworkAccess(request(`/${locale}/login`)))!;
+    const html = await response.text();
+    expect(response.status).toBe(403);
+    expect(html).toContain("iCloud Private Relay");
+    expect(html).toContain(instruction);
+    expect(html).not.toContain("flagged as a VPN");
+    expect(html).not.toContain("flagged as a proxy");
+  });
+
   it("includes a matching support reference on an unavailable lookup, without calling it a VPN", async () => {
     fetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
     const response = (await enforceNetworkAccess(request("/api/mobile/v1/app-config")))!;
