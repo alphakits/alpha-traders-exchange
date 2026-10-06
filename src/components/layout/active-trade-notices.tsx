@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { AppLocale } from "@/i18n/routing";
@@ -40,6 +40,7 @@ export function ActiveTradeNotices({ locale, actorId, initialTrades, audience }:
   const [disclosure, setDisclosure] = useState({ pathname, expanded: false });
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
   const triggerId = useId();
   const authorized = user?.id === actorId && !isRestoring
@@ -51,6 +52,39 @@ export function ActiveTradeNotices({ locale, actorId, initialTrades, audience }:
   }
   const expanded = disclosure.pathname === pathname && disclosure.expanded && authorized && !forbidden && trades.length > 0;
   const close = () => setDisclosure({ pathname, expanded: false });
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!expanded || !panel) return;
+    const viewport = window.visualViewport;
+    const bottomNavigation = document.querySelector<HTMLElement>("[data-mobile-bottom-navigation]");
+    // Header wrapping, retry messages, rotation and the on-screen keyboard all
+    // change the available space. Keep the last card above the visible footer.
+    const fitPanel = () => {
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const viewportBottom = (viewport?.offsetTop ?? 0) + viewportHeight;
+      const navigationBounds = bottomNavigation?.getBoundingClientRect();
+      const bottom = navigationBounds?.height
+        ? Math.min(viewportBottom, navigationBounds.top)
+        : viewportBottom;
+      const available = bottom - panel.getBoundingClientRect().top - 8;
+      panel.style.maxHeight = `${Math.max(0, Math.min(viewportHeight * 0.6, available))}px`;
+    };
+    fitPanel();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(fitPanel);
+    const header = containerRef.current?.closest("header");
+    if (header) observer?.observe(header);
+    if (bottomNavigation) observer?.observe(bottomNavigation);
+    window.addEventListener("resize", fitPanel, { passive: true });
+    viewport?.addEventListener("resize", fitPanel, { passive: true });
+    viewport?.addEventListener("scroll", fitPanel, { passive: true });
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fitPanel);
+      viewport?.removeEventListener("resize", fitPanel);
+      viewport?.removeEventListener("scroll", fitPanel);
+    };
+  }, [expanded, failed]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -161,7 +195,7 @@ export function ActiveTradeNotices({ locale, actorId, initialTrades, audience }:
         </span>
       </button>
       {failed ? <p role="status" className="mt-1 text-xs text-amber-200">{isAr ? "تعذّر تحديث الصفقات، جارٍ إعادة المحاولة…" : "Trade updates unavailable. Retrying…"}</p> : null}
-      <div id={panelId} role="region" aria-labelledby={triggerId} hidden={!expanded}
+      <div ref={panelRef} id={panelId} role="region" aria-labelledby={triggerId} hidden={!expanded}
         className="absolute inset-x-0 top-full z-50 mt-2 max-h-[min(60dvh,calc(100dvh-12rem))] overflow-y-auto overscroll-contain rounded-2xl border border-emerald-400/25 bg-[#081411] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.65)] sm:inset-x-auto sm:end-0 sm:w-[min(40rem,100%)]">
         <ul className="space-y-2" aria-label={isAr ? "قائمة الصفقات النشطة" : "Active trade list"}>
           {trades.map(trade => {

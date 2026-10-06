@@ -95,6 +95,7 @@ export function MobileBottomNavigation({ locale }: { locale: AppLocale }) {
     <>
       <div aria-hidden="true" className="h-[calc(4rem+env(safe-area-inset-bottom))] lg:hidden" />
       <nav
+        data-mobile-bottom-navigation
         aria-label={isAr ? "التنقل الرئيسي للهاتف" : "Mobile primary navigation"}
         dir={isAr ? "rtl" : "ltr"}
         className="fixed inset-x-0 bottom-0 z-[45] border-t border-white/10 bg-[#070707]/95 shadow-[0_-12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:env(safe-area-inset-bottom)] lg:hidden"
