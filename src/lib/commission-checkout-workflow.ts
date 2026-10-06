@@ -195,17 +195,20 @@ function receiptAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheck
 }
 function assertToleranceAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
   if (receiptAttribution(snapshot, checkout, deposit) !== CHECKOUT_TOLERANCE_ATTRIBUTION) return;
-  // Retain historical checkout contenders: settling one first must never turn an
-  // ambiguous deposit into an apparent match for another seller on the next scan.
+  // Compare payment instructions that could accept this receipt when it arrived.
+  // An exact-only legacy invoice does not own a +/-1 range: referenceConflict
+  // protects its actual issued references, including historical reservations.
+  // Keep checkouts paid AT/AFTER receipt time, so scan order cannot manufacture
+  // uniqueness. Only a fully paid group with an earlier paidAt is closed.
   const otherCheckout = getCommissionCheckouts(snapshot).some((other) => other.id !== checkout.id
     && other.network === checkout.network && Date.parse(other.createdAt) <= deposit.timestamp
-    && Math.abs(other.dueMicros - deposit.amountMicros) <= CHECKOUT_TOLERANCE);
-  const ids = new Set(checkout.commissions.map((row) => row.id));
-  const otherCommission = snapshot.commissionRecords.some((record) => !ids.has(record.id)
-    && (record.paymentStatus !== "paid" || !Number.isFinite(Date.parse(record.paidAt ?? ""))
-      || Date.parse(record.paidAt!) >= deposit.timestamp) && Date.parse(record.createdAt) <= deposit.timestamp
-    && Math.abs(checkoutMicros(record.commissionAmount) - deposit.amountMicros) <= CHECKOUT_TOLERANCE);
-  if (otherCheckout || otherCommission) fail("ambiguous_payment_amount");
+    && acceptsDeposit(snapshot, other, deposit)
+    && !other.commissions.every((expected) => snapshot.commissionRecords.some((record) => (
+      record.id === expected.id && record.sellerId === other.sellerId
+      && record.createdAt === expected.createdAt && record.paymentStatus === "paid"
+      && Number.isFinite(Date.parse(record.paidAt ?? "")) && Date.parse(record.paidAt!) < deposit.timestamp
+    ))));
+  if (otherCheckout) fail("ambiguous_payment_amount");
 }
 function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, amount: number) {
   const ids = new Set(checkout.commissions.map((row) => row.id));

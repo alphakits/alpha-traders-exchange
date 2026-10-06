@@ -146,15 +146,48 @@ test('two eligible checkouts never choose an underpayment by scan order',async()
 });
 test('a competing checkout created while the receipt is verified prevents settlement',async()=>{
  const x=setup([14.44]);const c=await issue(x,'14.44');
- x.afterVerify(async()=>{x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));});
+ x.afterVerify(async()=>{x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+   x.clock(NOW);await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'14.8'});x.clock(NOW+2000);});
  assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);
  assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');
 });
-test('paying a competing legacy commission later cannot manufacture receipt attribution',async()=>{
+test('paying a competing checkout after receipt time cannot manufacture attribution',async()=>{
  const x=setup([14.44]);const c=await issue(x,'14.44');
  x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:14.8,paymentExpectedAmount:14.800001,
-   paymentStatus:'paid',paidAt:new Date(NOW+500).toISOString(),createdAt:new Date(NOW-1000).toISOString()}));
+   paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+ await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'14.8'});
+ x.patch(db=>Object.assign(db.commissionRecords.find(row=>row.id==='other'),{paymentStatus:'paid',paidAt:new Date(NOW+500).toISOString()}));
  assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('5.01 against 4.14 settles despite an exact-only 4.18 invoice and a checkout paid earlier',async()=>{
+ const x=setup([4.14]);const c=await issue(x,'4.14');
+ x.patch(db=>db.commissionRecords.push({id:'old-invoice',sellerId:'other',commissionAmount:4.18,paymentExpectedAmount:4.180002,
+   paymentStatus:'overdue',createdAt:new Date(NOW-86400000).toISOString()},
+   {id:'old-checkout',sellerId:'other',commissionAmount:5.86,paymentExpectedAmount:5.860001,
+   paymentStatus:'pending',createdAt:new Date(NOW-86400000).toISOString()}));
+ // Issue only the newer invoice; the legacy invoice predates checkout use.
+ x.patch(db=>db.commissionRecords.find(row=>row.id==='old-invoice').sellerId='legacy');
+ await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'5.86'});
+ x.patch(db=>Object.assign(db.commissionRecords.find(row=>row.id==='old-checkout'),{paymentStatus:'paid',paidAt:new Date(NOW+50).toISOString()}));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:5010000})])).verified,1);
+ const paid=x.db().commissionRecords[0];assert.equal(paid.paymentStatus,'paid');assert.equal(paid.commissionAmount,4.14);
+ assert.equal(paid.paymentBatchSettlement.receivedMicros,5010000);assert.equal(paid.paymentBatchSettlement.excessMicros,870000);
+ assert.equal((await x.api.state('seller')).pendingCount,0);assert.equal(x.db().commissionRecords[1].paymentStatus,'overdue');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:5010000})])).verified,0);
+});
+for(const paidAt of [undefined,'invalid',new Date(NOW+100).toISOString(),new Date(NOW+500).toISOString()])
+test(`competing checkout stays ambiguous without an earlier valid paidAt: ${paidAt}`,async()=>{
+ const x=setup([4.14]);const c=await issue(x,'4.14');
+ x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:5.86,paymentExpectedAmount:5.860001,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+ await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'5.86'});
+ x.patch(db=>Object.assign(db.commissionRecords.find(row=>row.id==='other'),{paymentStatus:'paid',paidAt}));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:5010000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('a legacy exact reference within tolerance still belongs to that invoice',async()=>{
+ const x=setup([4.14]);const c=await issue(x,'4.14');
+ x.patch(db=>db.commissionRecords.push({id:'other',sellerId:'other',commissionAmount:4.18,paymentExpectedAmount:5.01,paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:5010000})])).verified,0);assert.equal(x.calls(),0);
+ assert.equal((await x.api.state('seller')).verificationCode,'payment_reference_conflict');
 });
 test('two distinct within-tolerance receipts require review and never silently discard funds',async()=>{
  const x=setup([14.44]);const c=await issue(x,'14.44');

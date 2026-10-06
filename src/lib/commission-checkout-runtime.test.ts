@@ -100,6 +100,39 @@ it("concurrent repository workers cannot notify or credit the checkout twice", a
   expect(snapshot.notifications.filter((row) => row.reason === "commission_payment_verified")).toHaveLength(1);
   expect(snapshot.auditLogs.filter((row) => row.action === "commission_paid")).toHaveLength(1);
 });
+it("the TRC20 scanner verifies 5.01 for 4.14 and clears the seller despite older unrelated invoices", async () => {
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  snapshot.users.push({ ...snapshot.users[0], id: "other", email: "other@example.test" });
+  const template = snapshot.commissionRecords[0];
+  snapshot.commissionRecords = [
+    { ...template, id: "current", commissionAmount: 4.14, paymentExpectedAmount: 4.140001 },
+    { ...template, id: "earlier", sellerId: "other", commissionAmount: 5.86, paymentExpectedAmount: 5.860001 },
+  ];
+  const service = await getCommissionCheckoutRuntime();
+  const earlier = await service.issue({ sellerId: "other", network: "TRC20", desiredAmount: "5.86" });
+  const current = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  Object.assign(current.commissionRecords.find((row) => row.id === "earlier")!, {
+    paymentStatus: "paid", paidAt: new Date(Date.parse(earlier.createdAt) + 1).toISOString(),
+  });
+  current.commissionRecords.push({ ...template, id: "legacy", sellerId: "other", commissionAmount: 4.18,
+    paymentExpectedAmount: 4.180002, paymentStatus: "overdue" });
+  const checkout = await service.issue({ sellerId: "seller", network: "TRC20", desiredAmount: "4.14" });
+  const payment = { signature: "b".repeat(64), network: "TRC20", amountMicros: 5_010_000,
+    timestamp: Math.max(Date.parse(checkout.createdAt), Date.parse(earlier.createdAt)) + 100 };
+  mocks.tron.mockResolvedValue({ verified: true, pending: false });
+  mocks.scanTron.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  const result = await service.scan(Date.now() + 60_000);
+  expect(result.verified).toBe(1); expect(result.errors).toBe(0);
+  expect(mocks.tron).toHaveBeenCalledWith(expect.objectContaining(payment), Date.parse(checkout.createdAt));
+  expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
+  const saved = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  expect(saved.commissionRecords.find((row) => row.id === "current")).toMatchObject({
+    commissionAmount: 4.14, paymentStatus: "paid", paymentVerificationStatus: "verified",
+    paymentBatchSettlement: { receivedMicros: 5_010_000, waivedMicros: 0, excessMicros: 870_000 },
+  });
+  expect(saved.commissionRecords.find((row) => row.id === "legacy")?.paymentStatus).toBe("overdue");
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
+});
 it("complete Binance history covers BSC index failure and independently verifies the receipt", async () => {
   const { service, payment } = await prepared(); mocks.scanBsc.mockRejectedValue(Error("bep20_index_plan_unsupported")); mocks.scanBinance.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
   const result = await service.scan(Date.now() + 60_000); expect(result.complete).toBe(true); expect(result.verified).toBe(1); expect(mocks.binance).toHaveBeenCalledOnce();
