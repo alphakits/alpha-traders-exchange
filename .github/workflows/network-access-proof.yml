@@ -43,9 +43,13 @@ jobs:
               result = subprocess.run(command + [origin + path], capture_output=True, text=True)
               entry = {'name': name, 'path': path, 'method': method, 'transport': 'tor' if tor_transport else 'direct', 'platform_header': platform, 'curl_exit': result.returncode, 'status': result.stdout.strip(), 'expected': expected}
               records.append(entry)
+              content = body.read_text()
+              try:
+                  entry['observed_error_code'] = json.loads(content).get('error', {}).get('code')
+              except (ValueError, AttributeError):
+                  pass
               assert result.returncode == 0, 'Connection failed: ' + name
               assert entry['status'] == str(expected), 'Unexpected status: ' + name
-              content = body.read_text()
               if error_code:
                   entry['error_code'] = json.loads(content).get('error', {}).get('code')
                   assert entry['error_code'] == error_code, 'Unexpected application error: ' + name
@@ -61,26 +65,35 @@ jobs:
                   assert data.get('status') == 'ok' and data.get('checks', {}).get('database') == 'ok', 'Service health must be healthy'
                   entry['database'] = 'ok'
               entry['passed'] = True
+          def record_check(*args, **kwargs):
+              try:
+                  check(*args, **kwargs)
+              except Exception as error:
+                  if records and records[-1]['name'] == args[0]:
+                      records[-1]['passed'] = False
+                      records[-1]['failure'] = str(error)
+                  else:
+                      raise
           tor = None
           try:
-              check('Direct iOS API access', '/api/mobile/v1/app-config', 200)
-              check('Direct Android API access', '/api/mobile/v1/app-config', 200, platform='android')
-              check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', 401, error_code='UNAUTHORIZED')
+              record_check('Direct iOS API access', '/api/mobile/v1/app-config', 200)
+              record_check('Direct Android API access', '/api/mobile/v1/app-config', 200, platform='android')
+              record_check('Anonymous native account remains unauthorized', '/api/mobile/v1/auth/me', 401, error_code='UNAUTHORIZED')
               tor = subprocess.Popen(['tor', '--ClientOnly', '1', '--SocksPort', '127.0.0.1:19050', '--ControlPort', '0', '--DataDirectory', str(tor_data), '--Log', 'notice file ' + str(log)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               deadline = time.monotonic() + 120
               while not (log.exists() and 'Bootstrapped 100%' in log.read_text()):
                   if tor.poll() is not None or time.monotonic() >= deadline:
                       raise RuntimeError('Tor did not become ready within the bounded setup window')
                   time.sleep(2)
-              check('Tor iOS API denied', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED')
-              check('Tor Android API denied', '/api/mobile/v1/app-config', 403, True, platform='android', error_code='NETWORK_RESTRICTED')
-              check('Tor English page denied', '/en', 403, True, page_language='en')
-              check('Tor Arabic page denied', '/ar', 403, True, page_language='ar')
-              check('Forged forwarding headers do not bypass Tor restriction', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED', extra_headers=['CF-Connecting-IP: 8.8.8.8', 'X-Forwarded-For: 8.8.8.8', 'X-Real-IP: 8.8.8.8', 'X-Vercel-Forwarded-For: 8.8.8.8'])
-              check('Health exception still responds through Tor', '/api/health', 200, True, health=True)
-              check('Cron exception still requires authentication through Tor', '/api/cron/economic-news', 401, True)
-              check('Session revocation exception still requires authentication', '/api/mobile/v1/auth/session', 401, True, method='DELETE', error_code='UNAUTHORIZED')
-              check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
+              record_check('Tor iOS API denied', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED')
+              record_check('Tor Android API denied', '/api/mobile/v1/app-config', 403, True, platform='android', error_code='NETWORK_RESTRICTED')
+              record_check('Tor English page denied', '/en', 403, True, page_language='en')
+              record_check('Tor Arabic page denied', '/ar', 403, True, page_language='ar')
+              record_check('Forged forwarding headers do not bypass Tor restriction', '/api/mobile/v1/app-config', 403, True, error_code='NETWORK_RESTRICTED', extra_headers=['CF-Connecting-IP: 8.8.8.8', 'X-Forwarded-For: 8.8.8.8', 'X-Real-IP: 8.8.8.8', 'X-Vercel-Forwarded-For: 8.8.8.8'])
+              record_check('Health exception still responds through Tor', '/api/health', 200, True, health=True)
+              record_check('Cron exception still requires authentication through Tor', '/api/cron/economic-news', 401, True)
+              record_check('Session revocation exception still requires authentication', '/api/mobile/v1/auth/session', 401, True, method='DELETE', error_code='UNAUTHORIZED')
+              record_check('Direct access recovers after Tor checks', '/api/mobile/v1/app-config', 200)
           finally:
               if tor is not None:
                   tor.terminate()
@@ -93,7 +106,12 @@ jobs:
               pathlib.Path('network-access-production-proof.json').write_text(json.dumps(record, indent=2))
               print(json.dumps(record, indent=2))
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-                  summary.write('## Production network access proof\n```json\n' + json.dumps(record, indent=2) + '\n```\n')
+                  summary.write('## Production network access proof\n\n' + str(sum(bool(x.get("passed")) for x in records)) + '/' + str(len(records)) + ' checks passed.\n\n| Check | HTTP | Expected | Result |\n|---|---:|---:|---|\n')
+                  for item in records:
+                      summary.write('| ' + item['name'] + ' | ' + item['status'] + ' | ' + str(item['expected']) + ' | ' + ('PASS' if item.get('passed') else 'FAIL') + ' |\n')
+                  summary.write('\n<details><summary>Sanitized machine evidence</summary>\n\n```json\n' + json.dumps(record, indent=2) + '\n```\n</details>\n')
+          if not record['passed']:
+              raise SystemExit('One or more live checks did not pass; see the preserved result.')
           PY
       - name: Preserve sanitized verification results
         if: always()
