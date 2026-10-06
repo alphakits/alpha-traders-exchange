@@ -59,8 +59,8 @@ const MACHINE_METHODS: Record<string, readonly string[]> = {
 
 export const networkAccessMessages = {
   NETWORK_RESTRICTED: {
-    en: "Turn off your VPN, proxy, or IP-hiding service, then try again. Alpha Traders requires a direct internet connection.",
-    ar: "أوقف الـVPN أو البروكسي أو خدمة إخفاء عنوان IP، ثم حاول مجددًا. تتطلب ألفا تريدرز اتصالًا مباشرًا بالإنترنت.",
+    en: "Your connection was flagged as a VPN, proxy, Tor, or privacy relay. This detection can be incorrect. Alpha Traders currently requires a direct internet connection.",
+    ar: "تم تصنيف اتصالك على أنه VPN أو بروكسي أو Tor أو خدمة ترحيل للخصوصية. قد يكون هذا التصنيف غير صحيح. تتطلب ألفا تريدرز حاليًا اتصالًا مباشرًا بالإنترنت.",
   },
   NETWORK_CHECK_UNAVAILABLE: {
     en: "We could not verify your connection right now. Please try again shortly.",
@@ -96,6 +96,30 @@ export function parseIpregistryVerdict(payload: unknown, ip: string): NetworkVer
   return flags.every((flag) => flag === false) ? "clear" : "unavailable";
 }
 
+function observeNetworkClassification(payload: unknown, ip: string, provider: NetworkProvider): NetworkVerdict {
+  const verdict = provider === "ipregistry"
+    ? parseIpregistryVerdict(payload, ip) : parseNetworkVerdict(payload, ip);
+  if (verdict !== "restricted") return verdict;
+  const response = record(payload);
+  const flags = provider === "ipregistry"
+    ? record(response?.security) : record(record(response?.[ip])?.detections);
+  const fields: Record<string, string> = provider === "ipregistry"
+    ? { vpn: "is_vpn", proxy: "is_proxy", tor: "is_tor", private_relay: "is_relay" }
+    : { vpn: "vpn", proxy: "proxy", tor: "tor" };
+  // Keep only fixed classification labels after validating the provider's IP.
+  // Never log its body, visitor IP, account details, credentials or headers.
+  const detectedTypes = Object.entries(fields)
+    .filter(([, field]) => flags?.[field] === true)
+    .map(([label]) => label);
+  logEvent("warn", {
+    event: "network_provider_classification",
+    outcome: process.env.ALPHA_NETWORK_ACCESS_MODE === "enforce" ? "denied" : "success",
+    reason: "restricted",
+    metadata: { provider, mode: process.env.ALPHA_NETWORK_ACCESS_MODE, detectedTypes },
+  });
+  return verdict;
+}
+
 async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvider): Promise<NetworkVerdict> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
@@ -111,7 +135,7 @@ async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvid
       });
       observeIpregistryCapacity(response, `${provider}\0${apiKey}`);
       if (!response.ok) return "unavailable";
-      return parseIpregistryVerdict(await response.json(), ip);
+      return observeNetworkClassification(await response.json(), ip, provider);
     }
     const url = new URL("https://proxycheck.io/v3/");
     url.searchParams.set("key", apiKey);
@@ -127,7 +151,7 @@ async function lookupNetwork(ip: string, apiKey: string, provider: NetworkProvid
       redirect: "error",
     });
     if (!response.ok) return "unavailable";
-    return parseNetworkVerdict(await response.json(), ip);
+    return observeNetworkClassification(await response.json(), ip, provider);
   } catch {
     // Never log provider URLs, keys, raw responses, or a visitor's IP address.
     return "unavailable";
@@ -202,12 +226,12 @@ function networkRejection(request: NextRequest, verdict: Exclude<NetworkVerdict,
   // Self-contained HTML works before sign-in, without JavaScript or redirects.
   // No request content, return URL, user identity or IP is rendered into it.
   const title = restricted
-    ? (locale === "ar" ? "أوقف خدمة VPN للمتابعة" : "Turn off your VPN to continue")
+    ? (locale === "ar" ? "تم تقييد الوصول من هذا الاتصال" : "Connection access restricted")
     : (locale === "ar" ? "التحقق من الاتصال غير متاح مؤقتًا" : "Connection check temporarily unavailable");
   const retry = locale === "ar" ? "حاول مجددًا" : "Try again";
   const support = locale === "ar"
-    ? "إذا كنت لا تستخدم VPN، جرّب الاتصال ببيانات الهاتف. قد تحتاج أيضًا إلى إيقاف iCloud Private Relay لهذا الموقع."
-    : "If you are not using a VPN, try mobile data. You may also need to turn off iCloud Private Relay for this website.";
+    ? "قد تعمل خدمة iCloud Private Relay أثناء التصفح العادي في Safari دون تطبيق VPN. إذا كنت لا تستخدم أيًا من هذه الخدمات، تواصل مع الدعم للتحقق من التصنيف."
+    : "iCloud Private Relay can operate during normal Safari browsing without a VPN app. If you are not using any of these services, contact support to review the detection.";
   return new NextResponse(`<!doctype html><html lang="${locale}" dir="${locale === "ar" ? "rtl" : "ltr"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | Alpha Traders</title><style>html{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#080d17;color:#f4f5f8;font:16px/1.65 system-ui,sans-serif}main{width:min(100%,480px);padding:32px;border:1px solid #344156;border-radius:24px;background:#111b2a}small{color:#ebc66a;font-weight:700;letter-spacing:.08em}h1{font-size:clamp(24px,5vw,32px);line-height:1.25}p{color:#c2ccda}a{display:inline-block;padding:12px 24px;border-radius:12px;background:#ebc66a;color:#080d17;font-weight:700;text-decoration:none}a:focus-visible{outline:3px solid white;outline-offset:4px}.help{font-size:14px}</style></head><body><main><small>ALPHA TRADERS</small><h1>${title}</h1><p>${message}</p><a href="/${locale}">${retry}</a>${restricted ? `<p class="help">${support}</p>` : ""}</main></body></html>`, {
     status,
     headers: {
