@@ -4,6 +4,7 @@
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { isListingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import { createPortal } from "react-dom";
@@ -181,7 +182,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
           >
             <CardHeader>
               {sellerWorkspaceMessage ? (
-                <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} as="p" role="status" aria-live="polite" className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white">{currencyText(sellerWorkspaceMessage)}</ActionFeedback>
+                <ActionFeedback revealKey={sellerWorkspaceMessageFeedbackKey} as="p" role="status" aria-live="polite" className={cn("rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-white", isListingCommissionRequiredMessage(sellerWorkspaceMessage) && "commission-notice commission-surface")}>{currencyText(sellerWorkspaceMessage)}</ActionFeedback>
               ) : null}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>

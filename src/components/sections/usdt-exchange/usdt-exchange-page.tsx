@@ -1,6 +1,7 @@
 "use client";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
+import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
@@ -833,9 +834,11 @@ export function localizeWalletValidationError(error: string | null, network: Sup
   return "تتطلب شبكة SOL عنوان Solana صالحاً بترميز base58.";
 }
 
-async function readApiErrorMessage(response: Response, fallback: string) {
+export async function readApiErrorMessage(response: Response, fallback: string) {
   const fallbackText = fallback.trim();
-  const localizeCandidate = (value: string) => containsArabicText(fallbackText) && !containsArabicText(value) ? fallbackText : value;
+  const localizeCandidate = (value: string) => isListingCommissionRequiredMessage(value)
+    ? listingCommissionRequiredMessage(containsArabicText(fallbackText))
+    : containsArabicText(fallbackText) && !containsArabicText(value) ? fallbackText : value;
   let rawBody = "";
   try {
     rawBody = (await response.text()).trim();
@@ -3290,13 +3293,16 @@ export function UsdtExchangePage({
     || listingCreateBankAccountMismatch
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
-  const listingCreationBlocked = !canAccessListingCreation || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
+  const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
+  const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && Math.max(
+    sellerWorkspaceSummary?.pendingCommissionCount ?? 0, sellerCommissionStatus?.pendingCount ?? 0,
+  ) > 0;
+  const listingCreationBlocked = !canAccessListingCreation || listingBlockedByCommission || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
   const listingCreationBlockedReason = !canAccessListingCreation
     ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
+    : listingBlockedByCommission ? listingCommissionRequiredMessage(isAr)
     : (sellerWorkspaceSummary?.blockedReason
       ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
-  const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
-  const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
   const listingBlockedByActiveLimit = Boolean(
     sellerWorkspaceSummary &&
     !sellerWorkspaceSummary.canCreateListing &&
@@ -4341,6 +4347,11 @@ export function UsdtExchangePage({
   );
 
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
+    if (nextStatus === "active" && listingBlockedByCommission) {
+      setSellerWorkspaceMessage(listingCommissionRequiredMessage(isAr));
+      backgroundRefreshSellerWorkspace();
+      return;
+    }
     const actionLabel = nextStatus === "paused" ? "pause" : "resume";
     if (listingMutationInFlightRef.current) return;
     listingMutationInFlightRef.current = true;
@@ -4463,6 +4474,11 @@ export function UsdtExchangePage({
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
+    if (listingBlockedByCommission) {
+      setSellerWorkspaceMessage(listingCommissionRequiredMessage(isAr));
+      backgroundRefreshSellerWorkspace();
+      return;
+    }
     setListingActionKey(`${listing.id}:duplicate`);
     try {
       const response = await fetch("/api/alpha-exchange/listings", {
@@ -4504,6 +4520,11 @@ export function UsdtExchangePage({
   }
 
   async function handleSellerListingRenew(listing: MarketplaceListing) {
+    if (listingBlockedByCommission) {
+      setSellerWorkspaceMessage(listingCommissionRequiredMessage(isAr));
+      backgroundRefreshSellerWorkspace();
+      return;
+    }
     setListingActionKey(`${listing.id}:renew`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {

@@ -9,6 +9,8 @@ vi.mock("@/lib/postgres-runtime", () => ({
 
 import {
   createMarketplaceListing,
+  renewMarketplaceListing,
+  getSellerListingWorkspaceSummary,
   createPurchaseRequest,
   deleteMarketplaceListingForSeller,
   getUserBlockStatus,
@@ -432,8 +434,86 @@ describe("listing accountability: reason + audit + reliability", () => {
       responseTime: "5 min",
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
-    })).rejects.toThrow(/Pay all outstanding commission before accepting new trades/i);
+    })).rejects.toThrow(/Pay all outstanding commission first before adding/i);
     expect(canonical.marketplaceListings).toHaveLength(0);
+  });
+
+  it("blocks a replacement immediately after the seller's only sale and permits it after settlement", async () => {
+    const listing = await createApprovedListing("100", "3.30");
+    await updateMarketplaceListingForSeller({ listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID,
+      paymentMethods: ["Face-to-Face (Meet in Person)"] });
+    const { request } = await createPurchaseRequest({
+      listingId: listing.id, buyerId: BUYER_ID, actorUserId: BUYER_ID, usdtAmount: "100",
+      buyerName: "Buyer", buyerWhatsapp: "+972500000000", buyerNotes: "",
+      paymentMethod: "Face-to-Face (Meet in Person)", safetyAcknowledged: true, buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+    });
+    const actor = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    await updatePurchaseRequestStatus({ ...actor, nextStatus: "accepted", safetyAcknowledged: true });
+    await updatePurchaseRequestStatus({ ...actor, nextStatus: "funds_received" });
+    const completion = await updatePurchaseRequestStatus({ ...actor, nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    if (completion.deferredTrustWrite) await completion.deferredTrustWrite();
+    const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(db.purchaseRequests).toHaveLength(1);
+    expect(db.commissionRecords).toHaveLength(1);
+    expect(db.commissionRecords[0]).toMatchObject({ sellerId: SELLER_ID, paymentStatus: "pending" });
+    expect(Date.now() - new Date(completion.request.completedAt!).getTime()).toBeLessThan(86400000);
+    expect(await getSellerListingWorkspaceSummary(SELLER_ID)).toMatchObject({ openListingCount: 0, openTradeCount: 0, canCreateListing: false });
+    await expect(createApprovedListing("100", "3.30")).rejects.toThrow(/Pay all outstanding commission first/);
+    await updateCommissionPaymentStatus({ commissionId: db.commissionRecords[0].id, actorUserId: OWNER_ID, paymentStatus: "paid", paymentVerificationStatus: "verified", reason: "Verified fixture payment" });
+    await expect(createApprovedListing("100", "3.30")).resolves.toBeDefined();
+  });
+
+  it.each([
+    [1, "pending"], [23, "pending"], [25, "overdue"], [1, "verifying"],
+  ] as const)("blocks every relisting path for one unpaid sale %s hours ago (%s), then unlocks after payment", async (hours, state) => {
+    const listing = await createApprovedListing("1000", "3.30");
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const soldAt = new Date(Date.now() - hours * 3600000).toISOString();
+    canonical.commissionRecords.push({
+      id: "single-sale-fee", purchaseRequestId: "single-sale", listingId: listing.id,
+      sellerId: SELLER_ID, buyerId: BUYER_ID, rate: 0.02, grossAmount: 100,
+      commissionAmount: 2, paymentStatus: state === "overdue" ? "overdue" : "pending",
+      paymentVerificationStatus: state === "verifying" ? "pending_verification" : undefined,
+      dueAt: new Date(Date.now() + (state === "overdue" ? -1 : 1) * 86400000).toISOString(),
+      createdAt: soldAt, updatedAt: soldAt,
+    });
+    invalidateAlphaExchangeStoreCache();
+    const actor = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+    const blocked = /Pay all outstanding commission first/;
+    expect(await getSellerListingWorkspaceSummary(SELLER_ID)).toMatchObject({ canCreateListing: false, pendingCommissionCount: 1 });
+    await expect(createApprovedListing("500", "3.30")).rejects.toThrow(blocked);
+    await expect(renewMarketplaceListing(actor)).rejects.toThrow(blocked);
+    await expect(updateMarketplaceListingForSeller({ ...actor, expirationHours: 48 })).rejects.toThrow(blocked);
+    await expect(updateMarketplaceListingForSeller({ ...actor, expiresAt: new Date(Date.now() + 48 * 3600000).toISOString() })).rejects.toThrow(blocked);
+    await expect(updateMarketplaceListingForSeller({ ...actor, availableAmount: "1500" })).rejects.toThrow(blocked);
+    // Existing stock can stay visible, be reduced, or be paused/closed.
+    expect((await getMarketplaceListings("active")).some(item => item.id === listing.id)).toBe(true);
+    await expect(updateMarketplaceListingForSeller({ ...actor, availableAmount: "900" })).resolves.toMatchObject({ availableAmount: "900" });
+    await updateMarketplaceListingForSeller({ ...actor, status: "paused" });
+    await expect(updateMarketplaceListingForSeller({ ...actor, status: "active" })).rejects.toThrow(blocked);
+    await expect(renewMarketplaceListing(actor)).rejects.toThrow(blocked);
+    // Closing the old listing must not erase the debt or allow a replacement.
+    await deleteMarketplaceListingForSeller(actor);
+    await expect(createApprovedListing("500", "3.30")).rejects.toThrow(blocked);
+    await updateCommissionPaymentStatus({ commissionId: "single-sale-fee", actorUserId: OWNER_ID, paymentStatus: "paid", paymentVerificationStatus: "verified", reason: "Verified fixture payment" });
+    expect(await getSellerListingWorkspaceSummary(SELLER_ID)).toMatchObject({ canCreateListing: true, pendingCommissionCount: 0 });
+    const replacement = await createApprovedListing("500", "3.30");
+    await expect(renewMarketplaceListing({ ...actor, listingId: replacement.id })).resolves.toMatchObject({ status: "active" });
+  });
+
+  it("requires payment before resubmitting a draft, without blocking another seller", async () => {
+    const listing = await createApprovedListing("1000", "3.30");
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    Object.assign(canonical.marketplaceListings.find(item => item.id === listing.id)!, { status: "draft", approvalStatus: "changes_requested" });
+    const now = new Date().toISOString();
+    canonical.commissionRecords.push({ id: "draft-fee", source: "admin_manual", sellerId: SELLER_ID,
+      rate: 0, grossAmount: 0, commissionAmount: 2, paymentStatus: "pending", createdAt: now, updatedAt: now });
+    invalidateAlphaExchangeStoreCache();
+    const actor = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+    await expect(updateMarketplaceListingForSeller({ ...actor, sellerDescription: "Updated listing" })).rejects.toThrow(/Pay all outstanding commission first/);
+    await expect(createApprovedListing("500", "3.30", SELLER_TWO_ID)).resolves.toBeDefined();
+    await updateCommissionPaymentStatus({ commissionId: "draft-fee", actorUserId: OWNER_ID, paymentStatus: "paid", paymentVerificationStatus: "verified", reason: "Verified fixture payment" });
+    await expect(updateMarketplaceListingForSeller({ ...actor, sellerDescription: "Updated listing" })).resolves.toMatchObject({ approvalStatus: "pending" });
   });
 
   it("keeps buyer requests available without exposing a cross-instance commission assignment", async () => {

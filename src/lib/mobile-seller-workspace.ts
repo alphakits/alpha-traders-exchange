@@ -50,7 +50,7 @@ export function sellerListingMutationError(error: unknown) {
     return { code: "NOT_FOUND" as const, status: 404 };
   }
   if (
-    /locked|no longer editable|pending approval|pending commission|remain hidden|restricted|only switch|changed while/i.test(message)
+    /locked|no longer editable|pending approval|pending commission|outstanding commission|remain hidden|restricted|only switch|changed while/i.test(message)
   ) {
     return { code: "LISTING_ACTION_NOT_ALLOWED" as const, status: 409 };
   }
