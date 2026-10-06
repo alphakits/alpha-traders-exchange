@@ -1,5 +1,14 @@
 # Dependency security backports
 
+On 2026-10-06, `source-map-js` was updated from 1.2.1 to the upstream fixed
+release 1.2.2 for GHSA-68fv-2mgg-jv7q. The lockfile retains the registry integrity
+hash. Regression cases reject unsafe and excessive cumulative section offsets
+and preserve a valid indexed mapping. See the
+[upstream release](https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2).
+This update needs no local backport. The remaining version-based audit findings
+for the guarded dependencies below and the legacy Expo URI decoder are still
+reported by npm; they are not presented as a clean audit.
+
 The locked Expo toolchain currently includes `braces@3.0.3` and
 `node-forge@1.4.0`. Their advisories have no published fixed version as of
 2026-10-04. `npm audit fix --force` proposes incompatible framework downgrades.
