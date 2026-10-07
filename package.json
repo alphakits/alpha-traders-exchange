@@ -24,6 +24,7 @@
     "test:e2e:phone-verification": "node ./node_modules/playwright/cli.js test --config=playwright.phone-verification.config.ts",
     "test:coverage": "node ./node_modules/vitest/vitest.mjs run --coverage",
     "verify:release": "node scripts/release-safety-gate.mjs",
+    "verify:dependencies": "node scripts/check-dependency-advisories.mjs",
     "verify:release:full": "node scripts/release-safety-gate.mjs --with-e2e",
     "discord:inspect": "node scripts/discord/inspect-alpha-discord.mjs",
     "discord:verify": "node scripts/discord/verify-alpha-discord-auth.mjs",
@@ -71,7 +72,7 @@
     "react-hook-form": "^7.81.0",
     "react-native-screens": "4.26.2",
     "server-only": "^0.0.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.6.0",
     "tsx": "^4.23.10",
     "zod": "^4.4.3"
@@ -100,6 +101,7 @@
   "overrides": {
     "nanoid": "3.3.18",
     "postcss": "8.5.26",
+    "shell-quote": "1.12.0",
     "uuid": "11.1.1"
   },
   "allowScripts": {
