@@ -1,0 +1,117 @@
+name: Public Production Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "3-58/5 * * * *"
+  pull_request:
+    paths:
+      - scripts/production_health.py
+      - scripts/test_production_health.py
+      - .github/workflows/production-health.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-production-health-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract-tests:
+    name: Public monitor failure-injection tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          lfs: false
+          persist-credentials: false
+          sparse-checkout: scripts
+      - run: python3 -m unittest discover -s scripts -p test_production_health.py -v
+
+  public-production:
+    name: Public endpoint observation and incident changes
+    # A reviewed main-branch activation is required. No scheduled costs before opt-in.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'schedule' && vars.PUBLIC_HEALTH_MONITOR_ENABLED == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          lfs: false
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Validate monitor failure handling before public checks
+        run: python3 -m unittest discover -s scripts -p test_production_health.py -v
+
+      - name: Restore last completed observation for incident deduplication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          mkdir -p previous evidence
+          if previous_run="$(gh run list --workflow production-health.yml --branch main --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')"; then
+            if [ -n "$previous_run" ]; then
+              if ! gh run download "$previous_run" --name production-health-state --dir previous; then
+                echo "Previous state unavailable; this observation cannot suppress duplicate notifications."
+              fi
+            fi
+          else
+            echo "Previous-run lookup unavailable; this observation cannot suppress duplicate notifications."
+          fi
+
+      - name: Probe public production with no account credentials
+        id: probe
+        continue-on-error: true
+        shell: bash
+        run: |
+          arguments=(--output evidence/report.json)
+          if [ -f previous/report.json ]; then
+            arguments+=(--previous previous/report.json)
+          fi
+          python3 scripts/production_health.py "${arguments[@]}"
+
+      - name: Preserve completed responses even after a partial run
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-health-state
+          path: evidence/report.json
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Report health separately from notification state
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path('evidence/report.json')
+          if not path.exists():
+              raise SystemExit('Monitoring failed before creating evidence; production is unverified.')
+          report = json.loads(path.read_text())
+          if 'status' not in report:
+              raise SystemExit('Monitoring was interrupted; partial evidence was preserved.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('# Public production observation\n\n')
+              summary.write('**Observed health: ' + report['status'] + '**\n\n')
+              summary.write('Workflow conclusion indicates a new notification, not website health.\n\n')
+              summary.write('```json\n' + json.dumps({k: report[k] for k in
+                  ['finishedUtc', 'coverageGaps', 'activeIncidents', 'notification']}, indent=2) + '\n```\n')
+          changed = report['notification']['required']
+          if changed and report['status'] != 'healthy':
+              raise SystemExit('New or changed incident: review the observation summary and evidence.')
+          if changed:
+              print('Recovery observed. See resolved incidents in the summary.')
+          PY
