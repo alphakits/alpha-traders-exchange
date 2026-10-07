@@ -1499,6 +1499,10 @@ export function UsdtExchangePage({
   const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
   const purchaseRequestInFlightRef = useRef(false);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
+  // URL updates happen synchronously, before React necessarily commits the
+  // dialog state. A pending restoration effect must not overwrite a user's
+  // freshly selected price-offer mode with the default listing-price mode.
+  const selectedListingIntentRef = useRef<string | null>(null);
   const [purchasePriceMode, setPurchasePriceMode] = useState<"listing_price" | "buyer_offer">("listing_price");
   const [buyerOfferedPrice, setBuyerOfferedPrice] = useState("");
   const [sellerProfileData, setSellerProfileData] = useState<PremiumSellerProfileData | null>(null);
@@ -1674,6 +1678,7 @@ export function UsdtExchangePage({
   }, []);
 
   const closeListingModal = useCallback(() => {
+    selectedListingIntentRef.current = null;
     sellerProfileAbortControllerRef.current?.abort();
     setSelectedListing(null);
     setSellerProfileData(null);
@@ -2748,7 +2753,7 @@ export function UsdtExchangePage({
   }, [isWorkspaceWidgetsLoading, myListings]);
 
   useEffect(() => {
-    if (isLoadingListings || selectedListing || !sessionUser) return;
+    if (isLoadingListings || selectedListing || selectedListingIntentRef.current || !sessionUser) return;
     if (typeof window === "undefined") return;
     const listingId = new URLSearchParams(window.location.search).get("listing");
     if (!listingId) return;
@@ -2758,6 +2763,7 @@ export function UsdtExchangePage({
       setStatusMessage(isAr ? "هذا العرض لم يعد متاحًا." : "This listing is no longer available.");
       return;
     }
+    selectedListingIntentRef.current = listing.id;
     setSelectedListing(listing);
     setPurchasePriceMode("listing_price");
     setBuyerOfferedPrice("");
@@ -2990,6 +2996,7 @@ export function UsdtExchangePage({
     }
     const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
     const offerBounds = getPriceOfferBounds(listing.price);
+    selectedListingIntentRef.current = listing.id;
     setSelectedListing(listing);
     setPurchasePriceMode(priceMode);
     setBuyerOfferedPrice(priceMode === "buyer_offer" && offerBounds && toNumber(offerBounds.listingPrice) > 0.01

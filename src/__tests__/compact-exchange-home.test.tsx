@@ -104,7 +104,11 @@ describe("compact Exchange home", () => {
     fireEvent.change(document.getElementById("buyer-usdt-amount")!, { target: { value: "200" } });
     const wallet = screen.getByPlaceholderText(/wallet address/i);
     fireEvent.change(wallet, { target: { value: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8" } });
-    if (mode === "offer") fireEvent.change(document.getElementById("buyer-offered-price")!, { target: { value: "3.10" } });
+    if (mode === "offer") {
+      // A late listing-query restoration must not change this into a normal buy.
+      expect(screen.getByRole("button", { name: "Submit Price Offer" })).toBeTruthy();
+      fireEvent.change(screen.getByLabelText(/Your Price per USDT/), { target: { value: "3.10" } });
+    }
     vi.useFakeTimers();
     fireEvent.submit(document.getElementById("buy-usdt-form")!);
     const mutations = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" && String(init.body).includes("recovery-listing"));
@@ -117,6 +121,31 @@ describe("compact Exchange home", () => {
     await act(async () => { finish(phase === "fetch" ? Response.json(payload) : JSON.stringify(payload)); });
     expect(push).not.toHaveBeenCalled();
     expect((document.getElementById("buyer-usdt-amount") as HTMLInputElement).value).toBe("200");
+  });
+
+  it.each(["en", "ar"] as const)("restores a direct listing link and preserves a new offer after closing it (%s)", async (locale) => {
+    requests = [];
+    user = { ...buyer, emailVerified: true };
+    const listing = { id: "direct-link-listing", sellerId: "direct-link-seller", sellerDisplayName: "AT-Direct", photos: [],
+      originalAmount: "1000", availableAmount: "1000", price: "3.20", currency: "ILS", network: "TRC20", paymentMethod: "Bank Transfer", paymentMethods: ["Bank Transfer"],
+      minimumTrade: "100", maximumTrade: "1000", sellerDescription: "", responseTime: "5 minutes", status: "active", approvalStatus: "approved",
+      createdAt: "2026-09-22T10:00:00.000Z", updatedAt: "2026-09-22T10:00:00.000Z" };
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/alpha-exchange/listings"
+        ? Promise.resolve(Response.json({ listings: [listing] })) : fallback(input, init)));
+    window.history.replaceState({}, "", `/${locale}/usdt-exchange?listing=direct-link-listing`);
+    render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    await waitFor(() => expect(document.getElementById("buyer-usdt-amount")).toBeTruthy());
+    expect(document.getElementById("buyer-offered-price")).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.getElementById("buyer-usdt-amount")).toBeNull();
+    expect(new URLSearchParams(window.location.search).has("listing")).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: locale === "ar" ? /تقديم عرض سعر إلى/ : /Make a price offer to/ }));
+    await waitFor(() => expect(document.getElementById("buyer-offered-price")).toBeTruthy());
+    expect((document.getElementById("buyer-offered-price") as HTMLInputElement).value).toBe("3.19");
+    expect(new URLSearchParams(window.location.search).get("listing")).toBe("direct-link-listing");
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
   it.each([
