@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { currencyText } from "@/components/ui/currency-text";
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] disabled:pointer-events-none disabled:opacity-40 disabled:shadow-none active:translate-y-0 active:scale-[0.97]",
+  "alpha-button inline-flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] disabled:pointer-events-none disabled:opacity-40 disabled:shadow-none active:translate-y-0 active:scale-[0.97] motion-reduce:transform-none motion-reduce:transition-none",
   {
     variants: {
       variant: {

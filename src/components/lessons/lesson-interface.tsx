@@ -268,7 +268,7 @@ export function LessonInterface({
                   <span>{isAr ? "التقدم داخل الدرس" : "Lesson Progress"}</span>
                   <span>{completionPercent}%</span>
                 </div>
-                <Progress value={completionPercent} />
+                <Progress value={completionPercent} label={isAr ? "تقدم الدرس" : "Lesson progress"} />
               </div>
             </CardContent>
           </Card>
@@ -547,13 +547,13 @@ export function LessonInterface({
               <CardTitle className="text-lg">{courseProgress}%</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Progress value={courseProgress} />
+              <Progress value={courseProgress} label={isAr ? "تقدم الدورة" : "Course progress"} />
               <div className="rounded-xl border border-white/10 p-3">
                 <div className="mb-2 flex items-center justify-between text-xs text-[#9CA3AF]">
                   <span>{isAr ? "جاهزية الإكمال" : "Completion Readiness"}</span>
                   <span>{completionPercent}%</span>
                 </div>
-                <Progress value={completionPercent} />
+                <Progress value={completionPercent} label={isAr ? "تقدم الدرس" : "Lesson progress"} />
               </div>
               <div className="space-y-2 text-sm text-[#9CA3AF]">
                 <div className="flex items-center gap-2">
@@ -652,7 +652,7 @@ export function LessonInterface({
               <h3 id="lesson-completion-dialog-title" className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "نقاط الخبرة" : "XP Progress"} +{lesson.xpReward ?? 120}</p>
               <div className="mx-auto mt-3 max-w-sm">
-                <Progress value={courseProgress} />
+                <Progress value={courseProgress} label={isAr ? "تقدم الدورة" : "Course progress"} />
               </div>
               {courseComplete ? <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{isAr ? "أكملت دروس هذا المسار. يمكنك متابعة التعلّم المجاني أو استكشاف ICT Mentorship مع مارك، باختيارك." : "You’ve completed this track. Keep learning for free, or explore ICT Mentorship with Mark."}</p> : null}
               <div className="mt-5 flex flex-wrap justify-center gap-2">
