@@ -2,12 +2,13 @@ import React, { act, type ComponentProps } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent } from "@testing-library/react";
 
 const testLocale = vi.hoisted(() => ({ value: "en" }));
 vi.mock("next-intl", () => ({ useLocale: () => testLocale.value }));
 vi.mock("@/i18n/navigation", () => ({ Link: (props: ComponentProps<"a">) => <a {...props} /> }));
 vi.mock("next/image", () => ({ default: () => null }));
-vi.mock("next/dynamic", () => ({ default: () => () => null }));
+vi.mock("next/dynamic", () => ({ default: () => ({ onCompleted }: { onCompleted?: (score: number) => void }) => onCompleted ? <button onClick={() => onCompleted(0)}>Submit practice attempt</button> : null }));
 vi.mock("@/components/lessons/video-player", () => ({ VideoPlayer: () => null }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: vi.fn() }));
 
@@ -25,6 +26,7 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.history.replaceState(null, "", "/");
   vi.clearAllMocks();
   vi.useFakeTimers();
   container = document.createElement("div");
@@ -37,11 +39,63 @@ afterEach(async () => {
   root = undefined;
   container.remove();
   window.localStorage.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe("lesson progress hydration", () => {
+  it("opens the quiz when a student follows the dashboard's direct quiz link", async () => {
+    testLocale.value = "en";
+    window.history.replaceState(null, "", "/en/lessons/candles-foundation#lesson-quiz");
+    const scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    expect(container.querySelector('#study-tab-quiz')?.getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector('#study-panel-quiz')?.hasAttribute("hidden")).toBe(false);
+    expect(scroll).toHaveBeenCalled();
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  });
+
+  it("retains earned completion when a later practice attempt scores lower", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    const completed = { ...getLessonProgressState(lesson.id, lesson.courseId, lesson.slug), videoWatched: true, pdfOpened: true, quizCompleted: true, quizScore: 100, lessonCompleted: true };
+    window.localStorage.setItem("alpha-traders:lesson-progress", JSON.stringify({ [lesson.id]: completed }));
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { (container.querySelector('#study-tab-quiz') as HTMLButtonElement).click(); });
+    await act(async () => { fireEvent.click(Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Submit practice attempt")!); });
+    expect(getLessonProgressState(lesson.id, lesson.courseId, lesson.slug)).toMatchObject({ quizScore: 100, lessonCompleted: true });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("saves the final note edit before immediate navigation", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { (container.querySelector('#study-tab-notes') as HTMLButtonElement).click(); });
+    await act(async () => {
+      fireEvent.change(container.querySelector("textarea")!, { target: { value: "Keep this last character!" } });
+    });
+    // No debounce timer is advanced before leaving the page.
+    await act(async () => { root!.unmount(); root = undefined; });
+    expect(getLessonProgressState(lesson.id, lesson.courseId, lesson.slug).notes).toBe("Keep this last character!");
+  });
+
+  it("keeps the note draft and explains when browser storage rejects a save", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { (container.querySelector('#study-tab-notes') as HTMLButtonElement).click(); });
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Quota exceeded", "QuotaExceededError"); });
+    await act(async () => { fireEvent.change(container.querySelector("textarea")!, { target: { value: "Copy this unsaved draft" } }); });
+    expect(container.querySelector("textarea")?.value).toBe("Copy this unsaved draft");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not save");
+    expect(container.querySelector('[role="status"]')?.textContent).not.toContain("✓ Saved");
+    storage.mockRestore();
+  });
+
   it.each([
     { locale: "en", completed: false },
     { locale: "en", completed: true },
@@ -63,17 +117,19 @@ describe("lesson progress hydration", () => {
     // Server HTML has no browser storage; the returning learner does.
     container.innerHTML = renderToString(<LessonInterface {...props} />);
     window.localStorage.setItem("alpha-traders:lesson-progress", JSON.stringify({ [lesson.id]: saved }));
-    const originalHeading = container.querySelector("h3");
+    const originalHeading = container.querySelector("h1");
     const recoverableErrors = vi.fn();
     await act(async () => {
       root = hydrateRoot(container, <LessonInterface {...props} />, { onRecoverableError: recoverableErrors });
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     expect(recoverableErrors).not.toHaveBeenCalled();
-    expect(container.querySelector("h3")).toBe(originalHeading);
+    expect(container.querySelector("h1")).toBe(originalHeading);
+    await act(async () => { (container.querySelector('#study-tab-notes') as HTMLButtonElement).click(); });
     expect(container.querySelector("textarea")?.value).toBe(saved.notes);
-    expect(container.textContent).toContain(locale === "ar" ? "الفيديو 1:30 · القراءة 45%" : "Video 1:30 · Reading 45%");
-    expect(container.textContent).toContain(`${locale === "ar" ? "تقدم الدورة" : "Course Progress"} ${completed ? 100 : 0}%`);
+    expect(container.querySelector('#study-panel-notes')?.getAttribute('hidden')).toBeNull();
+    expect(container.textContent).toContain(`${completed ? 100 : 0}% ${locale === "ar" ? "مكتمل" : "complete"}`);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(JSON.parse(window.localStorage.getItem("alpha-traders:lesson-progress")!)[lesson.id]).toEqual(saved);
     expect(container.querySelector('a[href="/learn-with-mark"]') !== null).toBe(completed);
     expect(createClient).not.toHaveBeenCalled();
