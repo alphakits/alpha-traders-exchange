@@ -26,14 +26,14 @@ describe("USD News page", () => {
     vi.setSystemTime(now);
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify(feed))));
   });
-  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
   it.each(["en", "ar"] as const)("shows the weekly calendar honestly without live controls in %s", async locale => {
     session.user = { id: "weekly-user" };
     const weekly: NewsFeed = { ...feed, mode: "weekly", updatedAt: new Date(now - 86_400_000).toISOString(),
       events: [{ ...event, forecast: null }], coverageEnd: new Date(now + 10 * 86_400_000).toISOString() };
     vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify(weekly)));
     render(<NewsPage locale={locale} initialFeed={weekly} initialNow={now} />);
-    expect(screen.getByText(locale === "ar" ? "التقويم الأسبوعي · تحديث كل أحد" : "Weekly calendar · Updated every Sunday")).toBeTruthy();
+    expect(screen.getByText(locale === "ar" ? "تحديث كل أحد · النتائج ليست لحظية" : "Updated Sundays · Results are not live")).toBeTruthy();
     expect(screen.queryByText(locale === "ar" ? "المتوقع" : "Forecast")).toBeNull();
     expect(screen.queryByText(/News updates are delayed|تحديث الأخبار متأخر|may be out of date/)).toBeNull();
     expect(document.querySelector('a[href^="http"]')).toBeNull();
@@ -47,7 +47,7 @@ describe("USD News page", () => {
     const released = { ...event, scheduledAt: "2026-09-23T11:30:00Z", actual: "0%", forecast: null };
     const passed = { ...event, id: "official-bls-pending-20260923", scheduledAt: "2026-09-23T11:45:00Z", forecast: null };
     render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [released, passed] }} initialNow={now} />);
-    expect(screen.getByText("Scheduled time passed")).toBeTruthy();
+    expect(screen.getByText("Result not added")).toBeTruthy();
     expect(screen.queryByText("Awaiting result")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Results" }));
     expect(screen.getByText("Confirmed result")).toBeTruthy();
@@ -97,9 +97,46 @@ describe("USD News page", () => {
     render(<NewsPage locale="en" initialFeed={feed} initialNow={now} />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("USD news");
     expect(screen.getAllByText(/15:30/).length).toBeGreaterThan(0);
-    expect(screen.getByText("—")).toBeTruthy();
+    expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByRole("combobox").getAttribute("aria-label")).toBeNull(); // Named by its visible label.
     expect(screen.getByRole("combobox", { name: /Timezone/ })).toBeTruthy();
+  });
+  it("groups unsorted events by local day and sends the next-release shortcut to the earliest event", () => {
+    const late = { ...event, id: "te-2", title: "Later release", scheduledAt: "2026-09-24T12:30:00Z" };
+    const early = { ...event, id: "te-3", title: "Early release", scheduledAt: "2026-09-23T12:15:00Z" };
+    render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [late, event, early] }} initialNow={now} />);
+    expect([...document.querySelectorAll("article")].map((card) => card.id)).toEqual(["event-te-3", "event-te-1", "event-te-2"]);
+    const days = screen.getAllByRole("region");
+    expect(days).toHaveLength(2);
+    expect(days[0].querySelectorAll("article")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    fireEvent.click(screen.getByRole("link", { name: /Next release/ }));
+    expect(document.activeElement?.id).toBe("event-te-3");
+    expect(screen.getByRole("button", { name: "This week" }).getAttribute("aria-pressed")).toBe("true");
+  });
+  it("moves day groups together with the selected timezone across midnight", () => {
+    const options = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ ...options, timeZone: "America/New_York" });
+    const night = { ...event, scheduledAt: "2026-09-23T22:30:00Z" };
+    render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [night] }} initialNow={now} />);
+    expect(document.querySelector("section time")?.getAttribute("datetime")).toBe("2026-09-24");
+    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    // The test runtime timezone is the device option; no invented select value.
+    const device = [...select.options].find((option) => option.value !== "Asia/Jerusalem");
+    if (!device) throw new Error("This test requires a device timezone different from Israel");
+    fireEvent.change(select, { target: { value: device.value } });
+    expect(document.querySelector("section time")?.getAttribute("datetime")).toBe("2026-09-23");
+  });
+  it.each(["en", "ar"] as const)("keeps tentative speeches clear without a made-up time or numerical result in %s", locale => {
+    const speech = { ...event, kind: "speech" as const, timing: "tentative" as const, previous: null, forecast: null };
+    render(<NewsPage locale={locale} initialFeed={{ ...feed, mode: "weekly", events: [speech] }} initialNow={now} />);
+    const card = screen.getByRole("article");
+    expect(card.textContent).not.toContain("15:30");
+    expect(card.textContent).toContain(locale === "ar" ? "لم يُحدد الوقت" : "Time to be confirmed");
+    expect(card.querySelector("dl")).toBeNull();
+    expect(card.querySelector("details")?.open).toBe(false);
+    expect(card.querySelector("summary")?.getAttribute("aria-label")).toContain(locale === "ar" ? event.titleAr : event.title);
+    expect(screen.queryByRole("link", { name: /Next release|الخبر القادم/ })).toBeNull();
   });
   it("shows the deep-linked released event immediately even when the default list is upcoming", () => {
     const released = { ...event, scheduledAt: "2026-09-23T11:30:00Z", actual: "0.4%", corrected: true };
