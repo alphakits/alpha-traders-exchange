@@ -23,6 +23,7 @@ const eventSchema = z.object({
   revised: value,
   reference: z.string().min(1).max(80).nullable(),
   publishedAt: utc.nullable(),
+  outcome: z.object({ en: z.string().trim().min(1).max(600), ar: z.string().trim().min(1).max(900) }).strict().optional(),
   sourceUrl: z.url(),
 }).strict();
 
@@ -31,6 +32,7 @@ const eventSchema = z.object({
 export const weeklyCalendarSchema = z.object({
   version: z.literal(1),
   verifiedAt: utc,
+  resultsVerifiedAt: utc.optional(),
   coverageStart: utc,
   coverageEnd: utc,
   weekStart: z.iso.date(),
@@ -40,6 +42,7 @@ export const weeklyCalendarSchema = z.object({
   const start = Date.parse(calendar.coverageStart);
   const end = Date.parse(calendar.coverageEnd);
   const verified = Date.parse(calendar.verifiedAt);
+  const resultsVerified = calendar.resultsVerifiedAt ? Date.parse(calendar.resultsVerifiedAt) : verified;
   const day = 86_400_000;
   const weekStart = Date.parse(`${calendar.weekStart}T00:00:00Z`);
   const weekEnd = Date.parse(`${calendar.weekEnd}T00:00:00Z`);
@@ -49,6 +52,9 @@ export const weeklyCalendarSchema = z.object({
   }
   if (start > verified || end <= verified || end - start > 45 * day) {
     ctx.addIssue({ code: "custom", message: "Invalid snapshot coverage" });
+  }
+  if (resultsVerified < verified || resultsVerified >= end) {
+    ctx.addIssue({ code: "custom", message: "Results verification must be within calendar coverage and after schedule verification" });
   }
   const ids = new Set<string>();
   calendar.events.forEach((event, index) => {
@@ -64,11 +70,12 @@ export const weeklyCalendarSchema = z.object({
     } catch { invalid("Invalid source URL"); }
     const scheduled = Date.parse(event.scheduledAt);
     if (scheduled < start || scheduled >= end) invalid("Event outside snapshot coverage");
-    if (event.actual !== null && (!event.publishedAt || Date.parse(event.publishedAt) > verified
+    if ((event.actual !== null || event.outcome) && (!event.publishedAt || Date.parse(event.publishedAt) > resultsVerified
       || Date.parse(event.publishedAt) < scheduled || event.timing !== "exact")) {
       invalid("Actual needs a confirmed publication at or after release and before verification");
     }
-    if (event.actual === null && event.publishedAt !== null) invalid("Publication time requires a confirmed numeric result");
+    if (event.outcome && event.kind !== "speech") invalid("Text outcomes belong to speeches and statements");
+    if (event.actual === null && !event.outcome && event.publishedAt !== null) invalid("Publication time requires a confirmed result or statement summary");
   });
 });
 

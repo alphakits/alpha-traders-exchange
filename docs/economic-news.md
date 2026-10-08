@@ -1,5 +1,52 @@
 # USD News delivery
 
+## Published results correction — 9 October 2026
+
+The three-week UI alone did not fix the missing results: the underlying free
+calendar was still the Sunday 4 October snapshot. The correction adds the
+already-published 6 October trade balance and 8 October initial claims, plus
+sourced English/Arabic summaries for the four retained Fed speeches/minutes.
+All five listed events from 5–11 October now have a numeric result or a verified
+text outcome. Closed numeric cards show the actual; opening shows comparisons.
+Speech/statement cards open a factual “What happened” summary without a numeric
+grid. The next-release banner stays inside the current week, so the 14 October
+CPI is never presented as this week's release.
+
+Next week has verified previous readings for its eight listed releases and
+short explanatory context. Context and previous values are not forecasts.
+Official sources do not publish a market consensus forecast, so no forecast
+number is fabricated. All dates remain in the selected timezone. The same
+components serve desktop, mobile browser and the installed website shell.
+
+`resultsVerifiedAt` records a separate results check; `verifiedAt` remains the
+schedule verification. Midweek result maintenance must not relabel an old
+schedule as newly checked. Optional bilingual `outcome` is allowed only for
+speeches/statements, with an official publication URL and `publishedAt`.
+Results and summaries stay hidden until both schedule and publication time
+have passed. A timestamp without a result or outcome is rejected.
+
+Sunday calendar preparation is supplemented by an hourly weekday Codex result
+check using the same connected GitHub/Vercel publication flow. It changes only
+the JSON, skips publication when nothing changed, preserves all three weeks,
+and honours existing release gates. This is verified periodic publishing, not
+an instantaneous licensed feed; source availability and build/deploy time can
+delay results. Only report publication after the production domain serves the
+commit or a verified newer descendant containing it.
+
+Sources checked for this correction:
+
+- Trade balance: https://www.bea.gov/news/2026/us-international-trade-goods-and-services-august-2026
+- Original previous trade balance: https://www.bea.gov/news/2026/us-international-trade-goods-and-services-july-2026
+- Initial claims: https://www.dol.gov/ui/data.pdf (8 October release).
+- Employment results: https://www.bls.gov/news.release/empsit.nr0.htm (2 October release).
+- CPI comparisons: https://www.bls.gov/news.release/cpi.nr0.htm (11 September release).
+- PPI comparisons: https://www.bls.gov/news.release/ppi.t01.htm (August; core excludes foods and energy, not trade services).
+- Retail comparisons: https://www.census.gov/retail/marts/www/marts_current.pdf (16 September release, table 2).
+- Each Fed summary stores its exact speech/minutes publication URL in the JSON.
+
+The historical review notes below describe earlier releases; this section
+supersedes their Sunday-only result and no-summary behaviour.
+
 ## News readability review — 8 October 2026
 
 The News screen groups events by calendar day in the selected timezone. Gold
@@ -60,8 +107,8 @@ release. Sources remain visible as plain text inside Alpha Traders.
 
 The calendar covers selected major USD releases, rather than promising every
 event or reproducing a supplier's impact ratings. The weekly update checks
-recent results and upcoming dates; values remain the last confirmed snapshot
-through the week. Consensus forecasts and instantaneous result alerts are not
+recent results and upcoming dates; weekday checks add newly verified results
+between Sundays. Consensus forecasts and instantaneous result alerts are not
 included; an expanded card labels unavailable forecasts explicitly. The UI identifies this mode and the last verification time in both
 English and Arabic, polls its private API every five minutes while visible,
 and retains Israel/device timezone selection. Expired sessions still clear
@@ -85,7 +132,8 @@ do not disappear during the current week.
 The displayed date range changes at local Monday without waiting for a new
 snapshot. The Next release shortcut opens whichever tab contains its event.
 
-Each actual needs a confirmed `publishedAt` no later than verification and no
+Each actual or speech outcome needs a confirmed `publishedAt` no later than
+`resultsVerifiedAt` (or `verifiedAt` for older snapshots) and no
 earlier than its release. An unknown actual stays null. Prior/revised values
 must use the same series, units and adjustment as the current value. The
 schema rejects duplicate IDs, non-UTC instants, extra forecast fields,

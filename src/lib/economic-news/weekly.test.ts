@@ -34,6 +34,31 @@ describe("free weekly official calendar", () => {
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt) - 1).events[0].actual).toBeNull();
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt)).events[0].actual).toBe("0");
   });
+  it("accepts a verified midweek result without changing the Sunday schedule verification", () => {
+    const event = { ...calendar.events[0], scheduledAt: "2026-10-06T12:30:00Z", publishedAt: "2026-10-06T12:30:00Z", actual: "0%" };
+    const data = { ...calendar, verifiedAt: "2026-10-04T16:56:40Z", resultsVerifiedAt: "2026-10-08T17:00:00Z", events: [event] };
+    expect(weeklyCalendarSchema.safeParse(data).success).toBe(true);
+    const feed = weeklyNewsFeed(data, Date.parse("2026-10-08T18:00:00Z"));
+    expect(feed.events[0].actual).toBe("0%");
+    expect(feed.updatedAt).toBe(data.verifiedAt);
+    expect(feed.resultsVerifiedAt).toBe(data.resultsVerifiedAt);
+    expect(weeklyCalendarSchema.safeParse({ ...data, resultsVerifiedAt: data.verifiedAt }).success).toBe(false);
+  });
+  it("publishes sourced bilingual speech outcomes only after publication without inventing a number", () => {
+    const event = { ...calendar.events[0], kind: "speech" as const, actual: null, outcome: { en: "Verified statement.", ar: "بيان مؤكد." } };
+    const data = { ...calendar, events: [event] };
+    expect(weeklyCalendarSchema.safeParse(data).success).toBe(true);
+    expect(weeklyNewsFeed(data, checked).events[0]).toMatchObject({ actual: null, outcome: event.outcome });
+    const future = { ...event, scheduledAt: "2026-10-08T18:00:00Z", publishedAt: "2026-10-08T18:01:00Z" };
+    const ahead = { ...data, verifiedAt: future.scheduledAt, resultsVerifiedAt: future.publishedAt, events: [future] };
+    const before = weeklyNewsFeed(ahead, Date.parse(future.scheduledAt));
+    expect(before.events[0].outcome).toBeUndefined();
+    expect(before.resultsVerifiedAt).toBeUndefined();
+    expect(weeklyNewsFeed(ahead, Date.parse(future.publishedAt)).events[0].outcome).toEqual(event.outcome);
+    expect(weeklyCalendarSchema.safeParse({ ...data, events: [{ ...event, publishedAt: null }] }).success).toBe(false);
+    expect(weeklyCalendarSchema.safeParse({ ...data, events: [{ ...event, outcome: { en: "Only English" } }] }).success).toBe(false);
+    expect(weeklyCalendarSchema.safeParse({ ...data, events: [{ ...event, kind: "release" }] }).success).toBe(false);
+  });
   it("retains the start of the previous full week on Sunday and preserves old event links", () => {
     const previousMonday = { ...calendar.events[0], scheduledAt: "2026-09-28T12:30:00Z", publishedAt: "2026-09-28T12:30:00Z", actual: "0%" };
     const data = { ...calendar, events: [previousMonday] };

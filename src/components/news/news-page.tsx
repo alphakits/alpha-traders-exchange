@@ -140,8 +140,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
     || filter === "week" && (linkedDay < ranges.previous.start || linkedDay >= ranges.next.end)) ? linked : undefined;
   const rangeSunday = new Date(Date.parse(`${range.end}T12:00:00Z`) - 86_400_000).toISOString();
   const next = orderedEvents.find((event) => newsEventStatus(event, now) === "scheduled"
-    && newsDayKey(event.scheduledAt, timeZone) < ranges.next.end);
-  const nextFilter: Filter = next && newsDayKey(next.scheduledAt, timeZone) < ranges.week.end ? "week" : "next";
+    && newsDayKey(event.scheduledAt, timeZone) < ranges.week.end);
   const filtered = orderedEvents.filter((event) => {
     if (event.id === selected?.id) return false;
     const day = newsDayKey(event.scheduledAt, timeZone);
@@ -200,7 +199,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         <div className={styles.toolbar}>
           <label className={styles.timezone}><Clock3 size={16} aria-hidden="true" /><span>{isAr ? "التوقيت" : "Timezone"}</span><select value={timeZone} onChange={(e) => setTimeZone(e.target.value)}><option value="Asia/Jerusalem">{isAr ? "توقيت إسرائيل" : "Israel time"}</option>{deviceZone !== "Asia/Jerusalem" ? <option value={deviceZone}>{isAr ? "توقيت الجهاز" : "Device time"} · {deviceZone}</option> : null}</select></label>
         </div>
-        {weekly ? <p className={styles.weeklyNote}><CalendarDays size={16} aria-hidden="true" /><span>{isAr ? "تحديث كل أحد · النتائج ليست لحظية" : "Updated Sundays · Results are not live"}</span></p> : null}
+        {weekly ? <p className={styles.weeklyNote}><CalendarDays size={16} aria-hidden="true" /><span>{isAr ? "نتائج مؤكدة من المصادر الرسمية · ليست لحظية" : "Verified official results · Not real time"}</span></p> : null}
         {stale ? <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">{weekly ? (isAr ? "قد يكون التقويم الأسبوعي قديمًا. المعروض هو آخر تحديث تم التحقق منه." : "The weekly calendar may be out of date. This is the last verified snapshot.") : (isAr ? "تحديث الأخبار متأخر. الأرقام المعروضة هي آخر بيانات تم استلامها." : "News updates are delayed. The figures shown are the last received data.")}</p> : null}
         {!available ? (
           <div role="status" className={styles.empty}><CalendarDays size={28} aria-hidden="true" /><h2 className="font-semibold text-white">{feed.status === "not_configured" ? (isAr ? "جارٍ تجهيز أخبار الدولار" : "USD news is being prepared") : (isAr ? "الأخبار غير متاحة مؤقتًا" : "News is temporarily unavailable")}</h2><p className="mx-auto mt-2 max-w-md">{feed.status === "not_configured"
@@ -210,8 +209,12 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
           <>
             <div className={styles.filters} role="group" aria-label={isAr ? "عرض الأخبار" : "News view"}>{FILTERS.map((item) => <button key={item} type="button" aria-pressed={filter === item} onClick={() => setFilter(item)} className={styles.filter}>{filterLabels[item]}</button>)}</div>
             <p className={styles.range}>{formatDate(`${range.start}T12:00:00Z`, locale, "UTC", false)} — {formatDate(rangeSunday, locale, "UTC", false)}</p>
+            <p className={styles.weekHint}>{filter === "week"
+              ? (isAr ? "ما حدث وما تبقّى هذا الأسبوع. اضغط على الخبر للتفاصيل." : "What happened and what is still ahead. Tap an event for details.")
+              : filter === "next" ? (isAr ? "مواعيد الأسبوع القادم، وما نتابعه، والأرقام السابقة للمقارنة." : "Next week's schedule, what to watch, and previous readings.")
+                : (isAr ? "أحداث الأسبوع السابق ونتائجها المؤكدة." : "Last week's events and their confirmed results.")}</p>
             {selected ? <EventCard event={selected} locale={locale} timeZone={timeZone} now={now} selected weekly={weekly} /> : eventId && !linked ? <p role="status" className="mt-4 text-sm text-[#9CA3AF]">{isAr ? "هذا الخبر غير متاح حاليًا." : "This event is currently unavailable."}</p> : next && filter === "week" ? (
-              <a href={`#event-${next.id}`} onClick={(e) => { e.preventDefault(); setFilter(nextFilter); setScrollTarget(next.id); }} className={styles.nextEvent}>
+              <a href={`#event-${next.id}`} onClick={(e) => { e.preventDefault(); setScrollTarget(next.id); }} className={styles.nextEvent}>
                 <div><div className={styles.nextTop}><p className={styles.nextLabel}><Clock3 size={15} aria-hidden="true" />{isAr ? "الخبر القادم" : "Next release"}</p><span className={styles.countdown}>{countdown(next.scheduledAt, now, locale)}</span></div><p className={styles.nextTitle} dir="auto">{newsEventTitle(next, locale)}</p><p className={styles.nextDate}>{formatDate(next.scheduledAt, locale, timeZone)}</p></div>
               </a>
             ) : null}
@@ -238,6 +241,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
           </dl>
         </details> : null}
         {feed.updatedAt ? <p className={styles.verification}>{weekly ? (isAr ? "آخر تحقق أسبوعي: " : "Last weekly verification: ") : (isAr ? "آخر مزامنة: " : "Last synced: ")}{formatDate(feed.updatedAt, locale, timeZone)}</p> : null}
+        {weekly && feed.resultsVerifiedAt ? <p className={styles.verification}>{isAr ? "آخر تحقق من النتائج: " : "Results checked: "}{formatDate(feed.resultsVerifiedAt, locale, timeZone)}</p> : null}
         {user && !weekly ? <div className="mt-6"><NewsPreferences key={`${user.id}:${available}`} locale={locale} /></div> : null}
         <p className={styles.disclaimer}>{isAr ? "قد تتغير المواعيد. النتيجة لا تحدد اتجاه السوق." : "Times may change. A result does not determine market direction."}</p>
       </div>
