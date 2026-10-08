@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, LoaderCircle, SlidersHorizontal } from "lucide-react";
+import { Check, LoaderCircle, SlidersHorizontal, Star } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
 import { journalReviewInput, journalSettingsInput } from "@/lib/journal/validation";
 import { parseMoney, type JournalReview, type JournalSettings, type JournalLocale } from "@/lib/journal/model";
@@ -26,8 +26,8 @@ export function ReviewForm({ initial,locale,adapter,onSaved,onDirty }: {
   }}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("REFLECT & RESET","راجع واستعد")}</span><h2>{review.period==="week"?t("Weekly notes","ملاحظات الأسبوع"):t("Session notes","ملاحظات الجلسة")}</h2></div><span className="j-pill">{t("Private","خاصة")}</span></div>
     {error && <p className="j-error" role="alert">{error}</p>}
-    <div className="j-form-grid">{fields.map(([key,en,ar,placeholder])=><div className="j-field" key={key}><label htmlFor={`journal-review-${key}`}>{t(en,ar)}</label><textarea id={`journal-review-${key}`} rows={4} dir="auto" maxLength={4000} value={review[key]} placeholder={placeholder} onChange={e=>change({...review,[key]:e.target.value})}/></div>)}</div>
-    <div className="j-review-footer"><fieldset className="j-fieldset"><legend>{t("How was your execution?","كيف كان تنفيذك؟")}</legend><div className="j-rating">{[1,2,3,4,5].map(n=><button key={n} type="button" aria-label={`${t("Execution score","تقييم التنفيذ")} ${n}/5`} aria-pressed={review.rating===n} className={review.rating===n?"selected":""} onClick={()=>change({...review,rating:review.rating===n?null:n})}>{n}</button>)}</div></fieldset>
+    <div className="j-form-grid">{fields.map(([key,en,ar,placeholder],index)=><div className="j-field j-reflection-field" key={key}><div className="j-reflection-label"><span className="j-reflection-emoji" aria-hidden="true">{["📝","✨","💡","🎯"][index]}</span><label htmlFor={`journal-review-${key}`}>{t(en,ar)}</label></div><textarea id={`journal-review-${key}`} rows={4} dir="auto" maxLength={4000} value={review[key]} placeholder={placeholder} onChange={e=>change({...review,[key]:e.target.value})}/></div>)}</div>
+    <div className="j-review-footer"><fieldset className="j-fieldset"><legend>{t("How was your execution?","كيف كان تنفيذك؟")}</legend><div className="j-rating">{[1,2,3,4,5].map(n=><button key={n} type="button" aria-label={`${t("Execution score","تقييم التنفيذ")} ${n}/5`} aria-pressed={review.rating===n} className={`${review.rating===n?"selected ":""}${review.rating!==null&&n<=review.rating?"filled":""}`} onClick={()=>change({...review,rating:review.rating===n?null:n})}><Star size={17} aria-hidden="true"/><span>{n}</span></button>)}</div></fieldset>
       <div><span className="j-save-status" role="status">{message}</span><button className="j-btn primary" disabled={busy}>{busy?<LoaderCircle size={16} className="j-spin"/>:<Check size={16}/>} {t("Save review","حفظ المراجعة")}</button></div>
     </div>
   </form>;

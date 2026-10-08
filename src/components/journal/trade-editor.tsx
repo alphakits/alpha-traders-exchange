@@ -8,6 +8,10 @@ import { EMOTIONS, MISTAKES, parseMoney, type JournalTrade, type JournalAttachme
 import { journalTradeInput } from "@/lib/journal/validation";
 import { Amount, Dialog, codeLabel, phrase } from "./journal-ui";
 
+const EMOTION_EMOJI: Record<(typeof EMOTIONS)[number],string> = {
+  calm:"😌", confident:"😎", fearful:"😟", greedy:"🤑", frustrated:"😤", fomo:"😰", revenge:"😠",
+};
+
 export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDeleted, onClose }: {
   initial:JournalTrade;adapter:JournalAdapter;locale:JournalLocale;timezone:string;
   onSaved:(trade:JournalTrade)=>void;onDeleted:(id:string)=>void;onClose:()=>void;
@@ -87,7 +91,7 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
         </details>
       </div>
       <div hidden={tab!=="notes"}>
-        <label className="j-field"><span>{t("How did you feel?","كيف كان شعورك؟")}</span><select value={trade.emotion} onChange={e=>field("emotion",e.target.value)}><option value="">{t("Not recorded","غير مسجل")}</option>{EMOTIONS.map(s=><option key={s} value={s}>{codeLabel(s,locale)}</option>)}</select></label>
+        <fieldset className="j-fieldset j-emotion-field"><legend>{t("How did you feel?","كيف كان شعورك؟")}</legend><div className="j-emotions">{EMOTIONS.map(emotion=><button type="button" key={emotion} aria-pressed={trade.emotion===emotion} className={trade.emotion===emotion?"selected":""} onClick={()=>field("emotion",trade.emotion===emotion?"":emotion)}><span aria-hidden="true">{EMOTION_EMOJI[emotion]}</span>{codeLabel(emotion,locale)}</button>)}</div><p className="j-hint">{t("Choose the feeling you remember. Tap it again to clear.","اختر الشعور الذي تتذكره. اضغط عليه مرة أخرى لإلغاء الاختيار.")}</p></fieldset>
         <fieldset className="j-fieldset"><legend>{t("Did you follow your plan?","هل التزمت بخطتك؟")}</legend><div className="j-choices">{([true,false,null] as const).map(v=><button type="button" aria-pressed={trade.followedPlan===v} className={trade.followedPlan===v?"selected":""} key={String(v)} onClick={()=>field("followedPlan",v)}>{v===true?t("Yes","نعم"):v===false?t("No","لا"):t("Not reviewed","لم أراجع بعد")}</button>)}</div></fieldset>
         <fieldset className="j-fieldset"><legend>{t("Anything to learn from?","ما الذي يمكن التعلم منه؟")}</legend><div className="j-tags">{MISTAKES.map(m=><button key={m} type="button" aria-pressed={trade.mistakes.includes(m)} className={trade.mistakes.includes(m)?"selected":""} onClick={()=>field("mistakes",trade.mistakes.includes(m)?trade.mistakes.filter(x=>x!==m):[...trade.mistakes,m])}>{codeLabel(m,locale)}</button>)}</div></fieldset>
         <label className="j-field"><span>{t("Trade notes","ملاحظات الصفقة")}</span><textarea rows={7} maxLength={8000} dir="auto" value={trade.notes} placeholder={t("Why did you enter? What happened? What would you repeat or change?","لماذا دخلت؟ ماذا حدث؟ ما الذي ستكرره أو تغيره؟")} onChange={e=>field("notes",e.target.value)}/></label>

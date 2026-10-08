@@ -11,30 +11,50 @@ await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await chromium.launch({headless:true,executablePath:process.env.JOURNAL_BROWSER_EXECUTABLE||undefined,args:["--no-sandbox"]});
 const url=`http://127.0.0.1:${server.address().port}/journal.html`,errors=[],checks=[];let debugPage;
 async function ready(page){await page.getByText("Opening your journal…").waitFor({state:"hidden"});await page.locator('.j-stat').first().waitFor();}
-async function overflow(page,label){assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,label);checks.push(`${label}: no horizontal overflow`);}
+async function overflow(page,label){assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,label);assert.equal(await page.locator('.j-stat-pnl .j-money').evaluateAll(elements=>elements.every(el=>{const value=el.getBoundingClientRect(),card=el.closest('.j-stat').getBoundingClientRect();return value.left>=card.left&&value.right<=card.right;})),true,`${label}: P&L must fit inside its card`);checks.push(`${label}: no horizontal overflow or clipped P&L`);}
 try{
   const context=await browser.newContext({viewport:{width:1440,height:1080}}),page=await context.newPage();
   debugPage=page;page.on("pageerror",e=>errors.push(e.message));page.on("dialog",d=>d.accept());
   await page.goto(url);await ready(page);
-  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Desktop.png"),fullPage:true});
+  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Desktop.png"),fullPage:true,animations:"disabled"});
   await overflow(page,"Desktop overview");
+  const explorer=page.getByRole('slider',{name:'Explore daily results',exact:true});
+  await explorer.focus();await explorer.press('Home');
+  assert.ok((await page.locator('.j-chart-readout').innerText()).includes('Session net'));
+  await explorer.press('End');
+  assert.equal(await page.locator('.j-chart-readout strong').innerText(),await page.locator('.j-stat').first().locator('strong').innerText());
+  await explorer.press('Escape');checks.push('Chart keyboard exploration returns exact cumulative results');
   await page.getByRole('button',{name:'Insights',exact:true}).click();
   await page.getByRole('heading',{name:'Following your plan'}).waitFor();
-  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Insights.png"),fullPage:true});
+  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Insights.png"),fullPage:true,animations:"disabled"});
   await page.getByRole('button',{name:'Review',exact:true}).click();
   await page.getByRole('heading',{name:'Session notes',exact:true}).waitFor();
-  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Review.png"),fullPage:true});
-  const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,deviceScaleFactor:1}),phone=await mobile.newPage();
+  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Review.png"),fullPage:true,animations:"disabled"});
+  const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}),phone=await mobile.newPage();
   phone.on('pageerror',e=>errors.push(e.message));phone.on('dialog',d=>d.accept());
   await phone.goto(url);await ready(phone);await overflow(phone,"Mobile overview");
-  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Mobile.png"),fullPage:true});
+  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Mobile.png"),fullPage:true,animations:"disabled"});
+  await phone.locator('.j-chart-plot svg').tap({position:{x:90,y:80}});
+  assert.ok((await phone.locator('.j-chart-readout').innerText()).includes('Session net'));
+  checks.push('Chart supports touch exploration');
+  await phone.setViewportSize({width:320,height:740});await overflow(phone,'Small mobile overview');
+  await phone.setViewportSize({width:390,height:844});
   for(const label of ['My trades','Review','Insights','My rules']){await phone.getByRole('button',{name:label,exact:true}).click();await overflow(phone,`Mobile ${label}`);}
   await phone.getByRole('button',{name:'Overview',exact:true}).click();await phone.getByRole('button',{name:'العربية',exact:true}).click();
   await phone.getByRole('heading',{name:'سجل التداول',exact:true}).waitFor();await overflow(phone,"Arabic mobile overview");
-  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Arabic.png"),fullPage:true});
+  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Arabic.png"),fullPage:true,animations:"disabled"});
   await phone.getByRole('button',{name:'إضافة صفقة',exact:true}).click();await overflow(phone,"Arabic trade entry");
-  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Trade-Entry.png"),fullPage:false});
+  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Trade-Entry.png"),fullPage:false,animations:"disabled"});
+  await phone.getByRole('tab',{name:'ملاحظات وسلوك',exact:true}).click();await overflow(phone,'Arabic emotion check-in');
+  await phone.screenshot({path:path.join(outDir,'Alpha-Journal-Emotion-Check-In.png'),fullPage:false,animations:'disabled'});
   await mobile.close();
+  const quiet=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),quietPage=await quiet.newPage();
+  await quietPage.goto(url);await ready(quietPage);
+  assert.equal(await quietPage.locator('.j-chart-line').evaluate(el=>getComputedStyle(el).animationName),'none');
+  assert.equal(await quietPage.locator('.j-ring-value').evaluate(el=>getComputedStyle(el).animationName),'none');
+  await quietPage.getByRole('button',{name:'Add trade',exact:true}).click();
+  assert.equal(await quietPage.locator('dialog').evaluate(el=>getComputedStyle(el).animationName),'none');
+  checks.push('Reduced-motion preference disables chart, ring, and dialog animations');await quiet.close();
 
   await page.getByRole('button',{name:'Try an empty journal',exact:true}).click();await page.getByText('No trades in this period',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Add trade',exact:true}).first().click();
@@ -42,6 +62,8 @@ try{
   await page.getByLabel('P&L before fees · USD',{exact:true}).fill('100.50');
   await page.getByLabel('Fees · USD',{exact:true}).fill('0.50');
   await page.getByRole('tab',{name:'Notes & behavior',exact:true}).click();
+  const calm=page.getByRole('button',{name:'Calm',exact:true});await calm.click();assert.equal(await calm.getAttribute('aria-pressed'),'true');
+  await calm.click();assert.equal(await calm.getAttribute('aria-pressed'),'false');await calm.click();
   await page.getByRole('button',{name:'Yes',exact:true}).click();
   await page.getByLabel('Trade notes',{exact:true}).fill('=HYPERLINK("https://example.test")\n<script>window.bad=true</script>\nملاحظة خاصة');
   await page.getByRole('button',{name:'Save trade',exact:true}).click();
@@ -50,6 +72,9 @@ try{
   await page.reload();await ready(page);assert.equal(await page.locator('.j-stat').first().innerText().then(s=>s.includes('+$100.00')),true);checks.push('Trade create and reload persistence, exact fees, notes escaped');
   assert.equal(await page.evaluate(()=>Boolean(window.bad)),false);
   await page.getByRole('button',{name:/Open trade MNQ/}).first().click();
+  await page.getByRole('tab',{name:'Notes & behavior',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Calm',exact:true}).getAttribute('aria-pressed'),'true');checks.push('Emotion check-in can be selected, cleared, and saved across reload');
+  await page.getByRole('tab',{name:'Trade',exact:true}).click();
   await page.getByLabel('P&L before fees · USD',{exact:true}).fill('-49.50');await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.locator('dialog').waitFor({state:'hidden'});
   assert.equal(await page.locator('.j-stat').first().innerText().then(s=>s.includes('-$50.00')),true);checks.push('Editing recalculates net loss without duplicating the trade');
   await page.getByRole('button',{name:/Open trade MNQ/}).first().click();await page.getByRole('tab',{name:'Charts',exact:true}).click();
@@ -70,4 +95,4 @@ try{
   assert.deepEqual(errors,[]);checks.push('No browser runtime errors');
   await writeFile(path.join(outDir,'journal-browser-results.json'),JSON.stringify({passed:true,checks,errors},null,2));
   console.log(JSON.stringify({passed:true,checks,errors},null,2));
-}catch(error){console.error(error);console.error(JSON.stringify({errors,checks,body:await debugPage?.locator("body").innerText()},null,2));await debugPage?.screenshot({path:path.join(outDir,"journal-debug.png"),fullPage:true});throw error;}finally{await browser.close();server.close();}
+}catch(error){console.error(error);console.error(JSON.stringify({errors,checks,body:await debugPage?.locator("body").innerText()},null,2));await debugPage?.screenshot({path:path.join(outDir,"journal-debug.png"),fullPage:true,animations:"disabled"});throw error;}finally{await browser.close();server.close();}

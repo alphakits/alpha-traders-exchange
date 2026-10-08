@@ -18,6 +18,14 @@ The supplied standalone journal informed the trade fields, calendar, image suppo
 
 English and Arabic are included. Financial values use consistent LTR USD formatting in both interfaces. User notes render as text with automatic text direction. Dialogs support keyboard focus, Escape, and unsaved-change confirmation. The existing native app loads the website through `WebsiteAppShell`; the journal uses that same first-party route and account session.
 
+## Brand and motion refinement
+
+The journal uses the supplied official Alpha Traders emblem, a black-and-gold interface, red-pink brand text, and green/red signed performance results. Responsive cards, private forms, Arabic layout, and phone dialogs share the same theme.
+
+Motion is limited to short view entrances, chart drawing, plan-adherence and win-rate progress, button feedback, and save confirmations. Every animation and transition respects `prefers-reduced-motion`. Financial amounts remain exact while the surrounding UI animates.
+
+The P&L chart supports mouse hover, touch, and a labelled native keyboard slider. Its x-axis preserves calendar-day spacing; the readout shows the selected session's actual result and cumulative result. Emoji emotion buttons can be selected or cleared and save the existing emotion codes; they are decorative alongside text labels. Review prompts and execution ratings have clearer visual cues.
+
 ## Financial definitions
 
 - All entries are USD. No automatic FX conversion or broker contract multiplier is assumed. The trader enters the broker's actual P&L.
