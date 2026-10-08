@@ -2,6 +2,7 @@ import React, { act, type ComponentProps } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent } from "@testing-library/react";
 
 const testLocale = vi.hoisted(() => ({ value: "en" }));
 vi.mock("next-intl", () => ({ useLocale: () => testLocale.value }));
@@ -37,11 +38,38 @@ afterEach(async () => {
   root = undefined;
   container.remove();
   window.localStorage.clear();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe("lesson progress hydration", () => {
+  it("saves the final note edit before immediate navigation", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { (container.querySelector('#study-tab-notes') as HTMLButtonElement).click(); });
+    await act(async () => {
+      fireEvent.change(container.querySelector("textarea")!, { target: { value: "Keep this last character!" } });
+    });
+    // No debounce timer is advanced before leaving the page.
+    await act(async () => { root!.unmount(); root = undefined; });
+    expect(getLessonProgressState(lesson.id, lesson.courseId, lesson.slug).notes).toBe("Keep this last character!");
+  });
+
+  it("keeps the note draft and explains when browser storage rejects a save", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { (container.querySelector('#study-tab-notes') as HTMLButtonElement).click(); });
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Quota exceeded", "QuotaExceededError"); });
+    await act(async () => { fireEvent.change(container.querySelector("textarea")!, { target: { value: "Copy this unsaved draft" } }); });
+    expect(container.querySelector("textarea")?.value).toBe("Copy this unsaved draft");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not save");
+    expect(container.querySelector('[role="status"]')?.textContent).not.toContain("✓ Saved");
+    storage.mockRestore();
+  });
+
   it.each([
     { locale: "en", completed: false },
     { locale: "en", completed: true },

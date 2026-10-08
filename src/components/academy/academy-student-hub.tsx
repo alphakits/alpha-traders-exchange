@@ -49,18 +49,18 @@ export function AcademyStudentHub({ courses }: { courses: StudyCourse[] }) {
     </div>
     <header className={styles.hero}>
       <div className={styles.heroCopy}>
-        <p className={styles.eyebrow}>{isAr ? "تعلّم. طبّق. تقدّم." : "LEARN. PRACTISE. PROGRESS."}</p>
+        <p className={styles.eyebrow}><span aria-hidden="true" className={styles.welcomeEmoji}>👋</span> {isAr ? "تعلّم. طبّق. تقدّم." : "LEARN. PRACTISE. PROGRESS."}</p>
         <h1>{isAr ? <>خطوتك التالية.<br /><em>تبدأ من هنا.</em></> : <>Your next level.<br /><em>Starts here.</em></>}</h1>
         <p className={styles.lead}>{isAr ? "افهم الشارت، درسًا بعد درس. تعلّم مع مارك وطبّق على أمثلة حقيقية." : "Build your chart-reading skills, one lesson at a time. Learn with Mark. Practise with real examples."}</p>
         {next ? <Link href={`/lessons/${next.slug}`} className={styles.primary} aria-busy={!ready}><Play size={17} fill="currentColor" />{ready ? action : isAr ? "جاري التحميل…" : "Loading…"}<ChevronRight size={18} className={styles.directional} /></Link> : <p>{isAr ? "ستتوفر الدروس قريبًا." : "Lessons will be available soon."}</p>}
-        <p className={styles.heroMeta}>{lessons.length} {isAr ? "دروس" : "lessons"}<span>·</span>{Math.floor(totalMinutes / 60)}{isAr ? "س" : "h"} {totalMinutes % 60}{isAr ? "د" : "m"}<span>·</span>{isAr ? "تعلّم على راحتك" : "At your own pace"}</p>
+        <p className={styles.heroMeta}>{lessons.length} {isAr ? "دروس" : "lessons"}<span>·</span>{Math.floor(totalMinutes / 60)}{isAr ? "س" : "h"} {totalMinutes % 60}{isAr ? "د" : "m"} {isAr ? "تعلّم تقريبًا" : "est. study"}<span>·</span>{isAr ? "على راحتك" : "Your pace"}</p>
       </div>
       {next ? <Link href={`/lessons/${next.slug}`} className={styles.spotlight} aria-label={`${action}: ${title(next)}`}>
         <div className={styles.spotlightArt}>
           <Image src={next.thumbnail || "/images/course-market-structure.jpg"} alt="" fill sizes="(max-width: 800px) 100vw, 500px" className={styles.cover} priority />
           <span className={styles.artLabel}>{isAr ? "مع مارك" : "WITH MARK"}</span>
           <span className={styles.playCircle}><Play size={24} fill="currentColor" /></span>
-          <span className={styles.duration}><Clock3 size={12} />{next.durationMinutes} {isAr ? "دقيقة" : "min"}</span>
+          <span className={styles.duration}><Clock3 size={12} />{next.durationMinutes} {isAr ? "دقيقة تعلّم تقريبًا" : "min est. study"}</span>
         </div>
         <div className={styles.spotlightInfo}>
           <div><p className={styles.eyebrow}>{journey.allComplete ? (isAr ? "وقت المراجعة" : "KEEP IT SHARP") : hasStarted ? (isAr ? "تابع من حيث توقفت" : "PICK UP WHERE YOU LEFT OFF") : (isAr ? "ابدأ من هنا" : "YOUR STARTING POINT")}</p><h2>{title(next)}</h2></div>
@@ -70,7 +70,7 @@ export function AcademyStudentHub({ courses }: { courses: StudyCourse[] }) {
       </Link> : null}
     </header>
     <div className={styles.progressStrip}>
-      <div className={styles.progressIcon}><BookOpen size={20} /></div>
+      <div className={styles.progressIcon}><span aria-hidden="true" className={styles.progressEmoji}>{journey.allComplete ? "🎉" : "🌱"}</span></div>
       <div className={styles.progressCopy}><strong>{journey.allComplete ? (isAr ? "أكملت المسار. أحسنت!" : "Path complete. Well done!") : (isAr ? "كل درس خطوة للأمام" : "Every lesson is a step forward")}</strong><span>{journey.completed} / {lessons.length} {isAr ? "مكتمل" : "completed"} · {isAr ? "التقدم محفوظ في هذا المتصفح" : "Progress saved in this browser"}</span></div>
       <div className={styles.meter} role="progressbar" aria-label={isAr ? "تقدم التعلّم" : "Learning progress"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={journey.percent}><span style={{width:`${journey.percent}%`}} /></div><strong className={styles.percent}>{journey.percent}%</strong>
     </div>
@@ -86,7 +86,7 @@ export function AcademyStudentHub({ courses }: { courses: StudyCourse[] }) {
             const done=journey.isCompleted(lesson); const current=next?.id===lesson.id && !journey.allComplete;
             return <li key={lesson.id}><Link href={`/lessons/${lesson.slug}`} className={`${styles.lessonRow} ${current ? styles.currentLesson : ""}`}>
               <span className={`${styles.lessonNumber} ${done ? styles.completed : ""}`}>{done ? <Check size={18} /> : String(lessons.findIndex(item=>item.id===lesson.id)+1).padStart(2,"0")}</span>
-              <div className={styles.lessonText}><div className={styles.lessonTitle}><h3>{title(lesson)}</h3>{current ? <span className={styles.currentBadge}>{hasStarted ? (isAr ? "التالي" : "Up next") : (isAr ? "ابدأ هنا" : "Start here")}</span> : null}</div><p>{isAr ? lesson.descriptionAr : lesson.description}</p><span className={styles.rowMeta}>{lesson.durationMinutes} {isAr ? "دقيقة" : "min"} · {done ? (isAr ? "مكتمل" : "Completed") : (isAr ? "فيديو · تطبيق · اختبار" : "Video · Practice · Quiz")}</span></div>
+              <div className={styles.lessonText}><div className={styles.lessonTitle}><h3>{title(lesson)}</h3>{current ? <span className={styles.currentBadge}>{hasStarted ? (isAr ? "التالي" : "Up next") : (isAr ? "ابدأ هنا" : "Start here")}</span> : null}</div><p>{isAr ? lesson.descriptionAr : lesson.description}</p><span className={styles.rowMeta}>{lesson.durationMinutes} {isAr ? "دقيقة تعلّم تقريبًا" : "min est. study"} · {done ? (isAr ? "مكتمل" : "Completed") : (isAr ? "فيديو · تطبيق · اختبار" : "Video · Practice · Quiz")}</span></div>
               <span className={styles.rowPlay}>{done ? <Check size={17} /> : <Play size={16} />}</span>
             </Link></li>;
           })}

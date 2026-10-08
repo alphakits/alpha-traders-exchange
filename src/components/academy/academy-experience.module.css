@@ -6,3 +6,69 @@
 /* Opaque study surfaces keep the platform's decorative background out of the lesson content. */
 .hub,.studyShell{background:#0b0e0b;border:1px solid #ffffff0b;border-radius:24px;margin-block:24px;padding-inline:34px!important;padding-bottom:36px!important;box-shadow:0 24px 80px #0003}
 @media(max-width:800px){.hub,.studyShell{border:0;border-radius:0;margin-block:0;padding-inline:18px!important;background:#0b0e0b;box-shadow:none}.heroCopy h1{font-size:40px}.lessonRow{background:#11150f}.currentLesson{background:linear-gradient(110deg,#d6b96912,#d6b96903)}}
+
+/* Short, finite motion rewards interaction without competing with the lesson. */
+.heroMeta{flex-wrap:wrap;row-gap:5px}
+.welcomeEmoji{display:inline-block;font-size:22px;vertical-align:middle;margin-inline-end:6px;transform-origin:75% 80%;animation:welcomeWave 1.2s ease-in-out 150ms 1}
+.progressEmoji{font-size:22px;line-height:1}
+.tipEmoji{font-size:22px;flex-shrink:0;line-height:1.4}
+.heroCopy{animation:academyEnter .5s ease-out both}
+.spotlight{animation:academyEnter .55s ease-out .08s both;transition:border-color .2s,box-shadow .2s}
+.cover{transition:transform .5s ease-out}
+.playCircle{transition:transform .25s,background .25s,box-shadow .25s}
+.primary>svg:first-child,.rowPlay>svg,.goldIcon>svg{transition:transform .2s ease-out}
+.lessonRow{transition:background .2s,border-color .2s,transform .2s,box-shadow .2s}
+.lessonList>li{animation:academyEnter .4s ease-out both}
+.lessonList>li:nth-child(2){animation-delay:40ms}
+.lessonList>li:nth-child(3){animation-delay:80ms}
+.lessonList>li:nth-child(4){animation-delay:120ms}
+.lessonList>li:nth-child(5){animation-delay:160ms}
+.studyPanel{animation:panelEnter .18s ease-out}
+.studyTabs button,.savedFilter,.bookmarkButton,.lessonChecklist button{transition:background .2s,color .2s,border-color .2s,transform .2s}
+.bookmarkButton[aria-pressed=true]>svg{animation:rewardPop .35s ease-out}
+.primary:active,.savedFilter:active,.bookmarkButton:active,.lessonRow:active{transform:scale(.985)}
+.studyTabs button:focus-visible{outline-offset:-4px}
+.workbookFullscreen:fullscreen{background:#0b0e0b;padding:16px;overflow:auto}
+.celebration{position:relative;isolation:isolate;overflow:hidden}
+.celebrationEmoji{display:block;font-size:44px;margin-bottom:10px;animation:rewardPop .6s ease-out}
+.confetti{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
+.confetti i{position:absolute;top:-12px;width:5px;height:10px;border-radius:2px;background:#e6cd84;animation:confettiFall 1.5s ease-out both}
+.confetti i:nth-child(3n){background:#f58aa0;height:6px;border-radius:50%}
+.confetti i:nth-child(3n+1){background:#a7cca3}
+.confetti i:nth-child(1){left:8%;animation-delay:0ms}
+.confetti i:nth-child(2){left:16%;animation-delay:120ms}
+.confetti i:nth-child(3){left:24%;animation-delay:30ms}
+.confetti i:nth-child(4){left:32%;animation-delay:190ms}
+.confetti i:nth-child(5){left:40%;animation-delay:60ms}
+.confetti i:nth-child(6){left:48%;animation-delay:140ms}
+.confetti i:nth-child(7){left:56%;animation-delay:20ms}
+.confetti i:nth-child(8){left:64%;animation-delay:100ms}
+.confetti i:nth-child(9){left:72%;animation-delay:180ms}
+.confetti i:nth-child(10){left:80%;animation-delay:40ms}
+.confetti i:nth-child(11){left:88%;animation-delay:160ms}
+.confetti i:nth-child(12){left:94%;animation-delay:70ms}
+.quizOption{transition:background .18s,border-color .18s;cursor:pointer}
+.quizOption[data-selected=true]{background:#d9bd7410;border-color:#d9bd7460}
+.quizOption[data-correct=true]{background:#a7cca30a;border-color:#a7cca360}
+.quizOption:focus-within{outline:2px solid #e6ca7b;outline-offset:2px}
+.quizResult{animation:panelEnter .25s ease-out;border:1px solid #d8bd6d30;background:#d8bd6d08;padding:14px;border-radius:12px;width:100%;font-size:13px;line-height:1.7;color:#e4d8b1}
+@media(hover:hover){
+  .spotlight:hover .cover{transform:scale(1.025)}
+  .spotlight:hover .playCircle{transform:scale(1.07);background:#2c2b1bd9;box-shadow:0 0 0 8px #e4c86f0a}
+  .primary:hover>svg:first-child{transform:scale(1.12)}
+  .lessonRow:hover{transform:translateY(-2px);box-shadow:0 8px 24px #0002}
+  .lessonRow:hover .rowPlay>svg{transform:scale(1.15)}
+  .studyCard:hover .goldIcon>svg{transform:rotate(12deg) scale(1.08)}
+  .savedFilter:hover,.bookmarkButton:hover{background:#e6cf8b0b}
+  .quizOption:hover{border-color:#d9bd7450;background:#d9bd7408}
+}
+@keyframes academyEnter{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@keyframes panelEnter{from{opacity:.4}to{opacity:1}}
+@keyframes welcomeWave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(17deg)}40%,80%{transform:rotate(-9deg)}}
+@keyframes rewardPop{0%{transform:scale(.82)}55%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes confettiFall{0%{opacity:0;transform:translateY(0) rotate(0)}12%{opacity:.9}100%{opacity:0;transform:translateY(280px) rotate(210deg)}}
+@media(prefers-reduced-motion:reduce){
+  .hub *,.hub *:before,.hub *:after,.studyShell *,.studyShell *:before,.studyShell *:after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+  .confetti{display:none}
+  .lessonRow:hover,.spotlight:hover .cover,.spotlight:hover .playCircle,.primary:active,.lessonRow:active{transform:none}
+}

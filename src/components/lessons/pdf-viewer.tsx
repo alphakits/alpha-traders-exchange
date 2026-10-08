@@ -6,6 +6,7 @@ import { useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { resolveLessonPdfSource } from "@/lib/lesson-pdf";
 import type { LessonAsset } from "@/types/academy";
+import styles from "@/components/academy/academy-experience.module.css";
 
 export function PdfViewer({
   asset,
@@ -26,6 +27,8 @@ export function PdfViewer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [readingProgress, setReadingProgress] = useState(initialProgress);
   const [hasError, setHasError] = useState(false);
+  const [canFullscreen, setCanFullscreen] = useState(false);
+  const [fullscreenError, setFullscreenError] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hasOpenedRef = useRef(false);
   const source = useMemo(() => resolveLessonPdfSource(asset), [asset]);
@@ -36,27 +39,29 @@ export function PdfViewer({
     setReadingProgress(initialProgress);
   }, [initialProgress]);
 
+  useEffect(() => {
+    setCanFullscreen(Boolean(document.fullscreenEnabled && containerRef.current?.requestFullscreen));
+    const sync = () => setIsFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
   function bumpProgress(amount: number) {
-    setReadingProgress((current) => {
-      const normalized = Math.min(100, Math.max(0, Math.round(current + amount)));
-      if (normalized > current) {
-        onProgress?.(normalized);
-      }
-      return normalized;
-    });
+    const normalized = Math.min(100, Math.max(0, Math.round(readingProgress + amount)));
+    setReadingProgress(normalized);
+    if (normalized > readingProgress) onProgress?.(normalized);
   }
 
   async function toggleFullscreen() {
     if (!containerRef.current) return;
 
-    if (!document.fullscreenElement) {
-      await containerRef.current.requestFullscreen();
-      setIsFullscreen(true);
-      return;
+    try {
+      setFullscreenError(false);
+      if (!document.fullscreenElement) await containerRef.current.requestFullscreen();
+      else await document.exitFullscreen();
+    } catch {
+      setFullscreenError(true);
     }
-
-    await document.exitFullscreen();
-    setIsFullscreen(false);
   }
 
   function handleOpenInNewTab() {
@@ -83,7 +88,7 @@ export function PdfViewer({
   }
 
   return (
-    <div className="space-y-3">
+    <div ref={containerRef} className={`space-y-3 ${styles.workbookFullscreen}`}>
       <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-[#9CA3AF]">
           <span>{isAr ? "تقدم القراءة" : "Reading Progress"}</span>
@@ -95,10 +100,10 @@ export function PdfViewer({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={toggleFullscreen} disabled={!hasDocument}>
+        {canFullscreen ? <Button variant="secondary" size="sm" onClick={toggleFullscreen} disabled={!hasDocument}>
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
           {isAr ? (isFullscreen ? "تصغير" : "ملء الشاشة") : isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-        </Button>
+        </Button> : null}
         <Button variant="secondary" size="sm" onClick={handleOpenInNewTab} disabled={!hasDocument}>
           <ExternalLink className="h-4 w-4" />
           {isAr ? "القراءة أونلاين" : "Read Online"}
@@ -108,10 +113,10 @@ export function PdfViewer({
           {isAr ? (isWorkbook ? "تنزيل الملف" : "تنزيل PDF") : isWorkbook ? "Download File" : "Download PDF"}
         </Button>
       </div>
+      {fullscreenError ? <p role="status" className="text-sm text-amber-200">{isAr ? "تعذر ملء الشاشة. استخدم القراءة أونلاين لفتح الملف." : "Fullscreen is unavailable. Use Read Online to open the workbook."}</p> : null}
 
       <div
-        ref={containerRef}
-        className="relative h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-black/20 sm:h-[420px] md:h-[560px] lg:h-[680px]"
+        className={`relative overflow-hidden rounded-2xl border border-white/10 bg-black/20 ${isFullscreen ? "h-[calc(100dvh-150px)]" : "h-[360px] sm:h-[420px] md:h-[560px] lg:h-[680px]"}`}
         onWheel={() => bumpProgress(1.5)}
         onTouchMove={() => bumpProgress(1.2)}
       >

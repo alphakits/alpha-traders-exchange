@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Bookmark, CheckCircle2, ChevronLeft, ChevronDown, FileText, PlayCircle, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, Bookmark, CheckCircle2, ChevronLeft, ChevronDown, FileText, PlayCircle } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { Lesson } from "@/types/academy";
@@ -85,7 +85,9 @@ export function LessonInterface({
   const [courseComplete, setCourseComplete] = useState(false);
   const [notesDraft, setNotesDraft] = useState(progressState.notes);
   const [notesSyncState, setNotesSyncState] = useState<SyncState>("idle");
+  const [storageError, setStorageError] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const celebrationRef = useRef<HTMLDivElement>(null);
   const [activePanel, setActivePanel] = useState("summary");
   const [visitedPanels, setVisitedPanels] = useState(() => new Set(["summary"]));
   const [selfHostedVideoErrored, setSelfHostedVideoErrored] = useState(false);
@@ -123,28 +125,44 @@ export function LessonInterface({
   const narrative = lessonNarrative ?? undefined;
 
   useEffect(() => {
-    markLessonAsCurrent(lesson);
-    const timer = window.setInterval(() => addStudyMinutes(1), 60000);
+    try { markLessonAsCurrent(lesson); } catch { setStorageError(true); }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      try { addStudyMinutes(1); } catch { setStorageError(true); }
+    }, 60000);
     return () => window.clearInterval(timer);
   }, [lesson]);
 
   useEffect(() => {
-    setNotesDraft(progressState.notes);
-  }, [progressState.notes]);
+    if (notesSyncState !== "saved") return;
+    const timer = window.setTimeout(() => setNotesSyncState("idle"), 1400);
+    return () => window.clearTimeout(timer);
+  }, [notesSyncState]);
 
   useEffect(() => {
     if (!showCelebration) return;
 
     const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     document.body.style.overflow = "hidden";
+    const focusable = () => Array.from(celebrationRef.current?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? []);
+    focusable()[0]?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setShowCelebration(false);
+      if (event.key === "Tab") {
+        const elements = focusable();
+        const first = elements[0];
+        const last = elements.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [showCelebration]);
 
@@ -153,6 +171,7 @@ export function LessonInterface({
       eventType: Parameters<typeof updateLessonProgress>[0]["eventType"],
       updater: Parameters<typeof updateLessonProgress>[0]["updater"],
     ) => {
+      try {
       const wasCompleted = getLessonProgressState(lesson.id, lesson.courseId, lesson.slug).lessonCompleted;
       const next = await updateLessonProgress({
         lessonId: lesson.id,
@@ -164,28 +183,25 @@ export function LessonInterface({
       setProgressState(next);
       if (next.lessonCompleted && !wasCompleted) setShowCelebration(true);
       refreshCourseProgress();
+      setStorageError(false);
+      return true;
+      } catch {
+        setStorageError(true);
+        return false;
+      }
     },
     [lesson.courseId, lesson.id, lesson.slug, refreshCourseProgress],
   );
 
-  useEffect(() => {
-    if (notesDraft === progressState.notes) return;
+  async function saveNotes(value: string) {
+    setNotesDraft(value);
     setNotesSyncState("saving");
-    let idleTimer: number;
-    const timer = window.setTimeout(() => {
-      void updateProgress("notes_updated", (current) => ({
-        ...current,
-        notes: notesDraft,
-        notesSavedAt: new Date().toISOString(),
-      }));
-      setNotesSyncState("saved");
-      idleTimer = window.setTimeout(() => setNotesSyncState("idle"), 1400);
-    }, 500);
-    return () => {
-      window.clearTimeout(timer);
-      window.clearTimeout(idleTimer);
-    };
-  }, [notesDraft, progressState.notes, updateProgress]);
+    // Browser-local writes happen immediately, including just before navigation.
+    const saved = await updateProgress("notes_updated", (current) => ({
+      ...current, notes: value, notesSavedAt: new Date().toISOString(),
+    }));
+    setNotesSyncState(saved ? "saved" : "idle");
+  }
 
   const panels = [
     { id: "summary", label: isAr ? "الملخّص" : "Overview" },
@@ -213,9 +229,10 @@ export function LessonInterface({
     <div className={`section-container page-shell ${styles.studyShell}`} dir={isAr ? "rtl" : "ltr"}>
       <Link href="/academy" className={styles.backLink}><ChevronLeft size={15} className={styles.directional} />{isAr ? "مساري التعليمي" : "My learning path"}</Link>
       <header className={styles.studyHeading}>
-        <div><span className={styles.eyebrow}>{isAr ? `الدرس ${lesson.lessonNumber || lesson.order}` : `LESSON ${lesson.lessonNumber || lesson.order}`} · {isAr ? "مع مارك" : "WITH MARK"}</span><h1>{academyLessonTitle(isAr ? lesson.titleAr : lesson.title)}</h1><p>{lessonDuration} {isAr ? "دقيقة" : "min"} · {isAr ? "تعلّم على راحتك" : "Go at your own pace"}</p></div>
+        <div><span className={styles.eyebrow}>{isAr ? `الدرس ${lesson.lessonNumber || lesson.order}` : `LESSON ${lesson.lessonNumber || lesson.order}`} · {isAr ? "مع مارك" : "WITH MARK"}</span><h1>{academyLessonTitle(isAr ? lesson.titleAr : lesson.title)}</h1><p>{lessonDuration} {isAr ? "دقيقة تعلّم تقريبًا" : "min estimated study time"} · {isAr ? "تعلّم على راحتك" : "Go at your own pace"}</p></div>
         <button type="button" className={styles.bookmarkButton} aria-pressed={progressState.bookmarked} aria-label={isAr ? "حفظ الدرس" : "Bookmark lesson"} onClick={()=>void updateProgress("bookmark_toggled", current=>({...current, bookmarked: !current.bookmarked}))}><Bookmark size={16} fill={progressState.bookmarked ? "currentColor" : "none"} /><span>{progressState.bookmarked ? (isAr ? "محفوظ" : "Saved") : (isAr ? "حفظ" : "Save")}</span></button>
       </header>
+      {storageError ? <p role="alert" className="mb-4 rounded-xl border border-amber-300/30 p-3 text-sm text-amber-200">{isAr ? "تعذر الحفظ في هذا المتصفح. اسمح بالتخزين وانسخ ملاحظاتك قبل مغادرة الصفحة." : "This browser could not save your work. Allow browser storage and copy your notes before leaving."}</p> : null}
       <div className={styles.studyGrid}>
         <main className={styles.studyMain}>
           <Card id={SECTION_IDS.video} className="scroll-mt-28 overflow-hidden">
@@ -247,10 +264,7 @@ export function LessonInterface({
                 <details className="mx-4 mb-4 rounded-xl border border-white/10"><summary className="cursor-pointer p-3 text-xs text-[#dcca8e]">{isAr ? "مواضيع الفيديو" : "Video topics"}</summary><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
                   {lesson.assets.videoChapters.map((chapter) => (
                     <div key={chapter.id} className="rounded-xl border border-white/10 p-3 text-sm">
-                      <p className="text-xs text-[#9CA3AF]">
-                        {Math.floor(chapter.timeSeconds / 60)}:{`${chapter.timeSeconds % 60}`.padStart(2, "0")}
-                      </p>
-                      <p className="mt-1">{isAr ? chapter.titleAr : chapter.title}</p>
+                      <p>{isAr ? chapter.titleAr : chapter.title}</p>
                     </div>
                   ))}
                 </div></details>
@@ -463,13 +477,13 @@ export function LessonInterface({
             <CardContent className="space-y-2">
               <textarea
                 value={notesDraft}
-                onChange={(event) => setNotesDraft(event.target.value)}
+                onChange={(event) => void saveNotes(event.target.value)}
                 rows={9}
                 className={styles.noteArea}
                 placeholder={isAr ? "ما الفكرة التي تعلّمتها؟ كيف ستطبقها على الشارت؟" : "What did you learn? How will you apply it on a chart?"}
                 aria-label={isAr ? "ملاحظات الدرس" : "Lesson notes"}
               />
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#9CA3AF]" role="status">
                 {notesSyncState === "saving" ? (isAr ? "جاري الحفظ..." : "Saving...") : notesSyncState === "saved" ? (isAr ? "✓ تم الحفظ" : "✓ Saved") : " "}
               </p>
             </CardContent>
@@ -512,18 +526,20 @@ export function LessonInterface({
             <div className="px-4 pb-4"><Progress value={courseProgress}/><p className="mt-2 text-xs text-[#969c8d]">{courseProgress}% {isAr ? "مكتمل" : "complete"}</p></div>
             {courseLessons.map((entry,index)=><Link key={entry.id} href={`/lessons/${entry.slug}`} aria-current={lesson.id===entry.id ? "page" : undefined} className={styles.sidebarLesson}><span>{String(index+1).padStart(2,"0")}</span><span>{academyLessonTitle(isAr ? entry.titleAr : entry.title)}</span></Link>)}
           </details>
-          <div className={styles.quietCard}><Sparkles size={19}/><div><strong>{isAr ? "التطبيق يثبت المعلومة" : "Make this lesson count"}</strong><p>{isAr ? "جرّب فكرة واحدة على الشارت واكتب أهم ملاحظة تعلّمتها." : "Try one idea on a chart, then write down your main takeaway."}</p><button className="min-h-10 text-xs text-[#dcc681]" onClick={()=>{setActivePanel("notes");document.getElementById("study-tab-notes")?.scrollIntoView({block:"center"});}}>{isAr ? "افتح ملاحظاتي" : "Open my notes"}</button></div></div>
+          <div className={styles.quietCard}><span aria-hidden="true" className={styles.tipEmoji}>💡</span><div><strong>{isAr ? "التطبيق يثبت المعلومة" : "Make this lesson count"}</strong><p>{isAr ? "جرّب فكرة واحدة على الشارت واكتب أهم ملاحظة تعلّمتها." : "Try one idea on a chart, then write down your main takeaway."}</p><button type="button" className="min-h-10 text-xs text-[#dcc681]" onClick={()=>{setActivePanel("notes");const tab=document.getElementById("study-tab-notes");tab?.scrollIntoView({block:"center"});tab?.focus();}}>{isAr ? "افتح ملاحظاتي" : "Open my notes"}</button></div></div>
         </aside>
       </div>
       {showCelebration && progressState.lessonCompleted ? (
           <div className="alpha-modal-backdrop fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
             <div
+              ref={celebrationRef}
               role="dialog"
               aria-modal="true"
               aria-labelledby="lesson-completion-dialog-title"
-              className="alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
+              className={`alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)] ${styles.celebration}`}
             >
-              <Sparkles className="mx-auto mb-3 h-8 w-8 text-[#C9A227]" />
+              <div className={styles.confetti} aria-hidden="true">{Array.from({length:12}, (_,index)=><i key={index}/>)}</div>
+              <span aria-hidden="true" className={styles.celebrationEmoji}>🎉</span>
               <p className="text-sm uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "ممتاز" : "Excellent work"}</p>
               <h3 id="lesson-completion-dialog-title" className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "نقاط الخبرة" : "XP Progress"} +{lesson.xpReward ?? 120}</p>
