@@ -8,7 +8,7 @@ import { lessons } from "../src/lib/content";
 import { resolveLessonResourceUrl } from "../src/lib/lesson-video";
 
 async function main() {
-  const baseURL = process.env.REVIEW_BASE_URL ?? "http://127.0.0.1:3217";
+  const baseURL = process.env.REVIEW_BASE_URL ?? "http://localhost:3217";
   if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseURL).hostname)) throw new Error("Synthetic fixtures require loopback.");
   const out = resolve(process.env.REVIEW_OUTPUT_DIR ?? "test-results/academy-release");
   await mkdir(out, { recursive: true });
@@ -142,7 +142,7 @@ async function main() {
         }
         await page.getByRole("link", { name: index === lessons.length - 1 ? (ar ? "العودة للمسار" : "Back to my path") : (ar ? "الدرس التالي" : "Next lesson"), exact: true }).click();
         await expect(page).toHaveURL(new RegExp(index === lessons.length - 1 ? `/${locale}/academy$` : `${lessons[index + 1].slug}$`));
-        findings.push(`${locale}/${lesson.slug}: video ${Math.round(duration)}s, artwork, keyboard tabs, PDF, download, resources, fullscreen exit, immediate notes, quiz failure/retry/pass, completion focus, and next/previous links passed.`);
+        findings.push(`${locale}/${lesson.slug}: video ${Math.round(duration)}s, artwork, keyboard tabs, PDF, download, resources, ${inlinePdf ? "inline PDF controls" : "unsupported-PDF fallback"}, immediate notes, quiz failure/retry/pass, completion focus, and next/previous links passed.`);
       }
       await expect(page.getByRole("link", { name: ar ? "راجع الدروس" : "Review lessons", exact: true })).toBeVisible();
       await expect(page.getByRole("progressbar", { name: ar ? "تقدم التعلّم" : "Learning progress" })).toHaveAttribute("aria-valuenow", "100");
