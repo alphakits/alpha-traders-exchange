@@ -26,6 +26,7 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.history.replaceState(null, "", "/");
   vi.clearAllMocks();
   vi.useFakeTimers();
   container = document.createElement("div");
@@ -44,6 +45,19 @@ afterEach(async () => {
 });
 
 describe("lesson progress hydration", () => {
+  it("opens the quiz when a student follows the dashboard's direct quiz link", async () => {
+    testLocale.value = "en";
+    window.history.replaceState(null, "", "/en/lessons/candles-foundation#lesson-quiz");
+    const scroll = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    expect(container.querySelector('#study-tab-quiz')?.getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector('#study-panel-quiz')?.hasAttribute("hidden")).toBe(false);
+    expect(scroll).toHaveBeenCalled();
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  });
+
   it("retains earned completion when a later practice attempt scores lower", async () => {
     testLocale.value = "en";
     container.innerHTML = renderToString(<LessonInterface {...props} />);

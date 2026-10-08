@@ -62,6 +62,13 @@ const SECTION_IDS = {
   navigation: "lesson-navigation",
 } as const;
 
+const PANEL_FOR_SECTION: Record<string, string> = {
+  [SECTION_IDS.summary]: "summary", [SECTION_IDS.takeaways]: "summary",
+  [SECTION_IDS.objectives]: "summary", [SECTION_IDS.concepts]: "summary",
+  [SECTION_IDS.notes]: "practice", [SECTION_IDS.visuals]: "practice", [SECTION_IDS.mistakes]: "practice",
+  [SECTION_IDS.workbook]: "resources", [SECTION_IDS.quiz]: "quiz", "study-panel-notes": "notes",
+};
+
 type SyncState = "idle" | "saving" | "saved";
 
 export function LessonInterface({
@@ -94,6 +101,21 @@ export function LessonInterface({
 
   useEffect(() => {
     setVisitedPanels(current => current.has(activePanel) ? current : new Set([...current, activePanel]));
+  }, [activePanel]);
+
+  useEffect(() => {
+    const openLinkedSection = () => {
+      const panel = PANEL_FOR_SECTION[window.location.hash.slice(1)];
+      if (panel) setActivePanel(panel);
+    };
+    openLinkedSection();
+    window.addEventListener("hashchange", openLinkedSection);
+    return () => window.removeEventListener("hashchange", openLinkedSection);
+  }, []);
+
+  useEffect(() => {
+    const section = window.location.hash.slice(1);
+    if (PANEL_FOR_SECTION[section] === activePanel) document.getElementById(section)?.scrollIntoView({ block: "start" });
   }, [activePanel]);
 
   const refreshCourseProgress = useCallback(() => {
@@ -222,8 +244,8 @@ export function LessonInterface({
       document.getElementById(SECTION_IDS.video)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
       return;
     }
-    if (!completionChecks.pdf) { setActivePanel("resources"); return; }
-    if (!completionChecks.quiz) { setActivePanel("quiz"); return; }
+    if (!completionChecks.pdf) { setActivePanel("resources"); document.getElementById("study-tab-resources")?.focus(); return; }
+    if (!completionChecks.quiz) { setActivePanel("quiz"); document.getElementById("study-tab-quiz")?.focus(); return; }
     void updateProgress("lesson_completed", (current) => ({ ...current, videoWatched: true, pdfOpened: true, quizScore: current.quizScore ?? 100 }));
   }
 

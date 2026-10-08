@@ -31,6 +31,10 @@ async function main() {
     expect(loginRedirect.pathname).toBe("/en/login");
     expect(loginRedirect.searchParams.get("redirectTo")).toBe("/en/lessons/candles-foundation");
     expect((await context.request.post("/api/auth/login", { data: { email: world.seller.email, password: world.seller.password } })).ok()).toBe(true);
+    await page.goto("/en/academy/dashboard", { waitUntil: "domcontentloaded", timeout: 120000 });
+    await page.getByRole("button", { name: "Become a Student", exact: true }).click();
+    await expect(page).toHaveURL(/\/en\/academy$/, { timeout: 60000 });
+    findings.push("Student self-enrollment completed through the real onboarding action.");
     for (const locale of ["en", "ar"]) {
       const ar = locale === "ar";
       await page.goto(`/${locale}/academy`, { waitUntil: "domcontentloaded", timeout: 120000 });
@@ -145,6 +149,9 @@ async function main() {
       await page.getByRole("link", { name: ar ? "عرض تقدّمي" : "View my progress", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/${locale}/academy/dashboard$`));
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await page.getByRole("link", { name: ar ? /اختبر فهمك/ : /Check your understanding/ }).click();
+      await expect(page.getByRole("tab", { name: ar ? "الاختبار" : "Quiz", exact: true })).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator("#lesson-quiz")).toBeVisible();
       expect((await context.request.get(`/${locale}/academy/alpha-traders-complete-strategy`)).status()).toBe(200);
       expect((await context.request.get(`/${locale}/learn-with-mark`)).status()).toBe(200);
       await page.evaluate(() => localStorage.clear());
