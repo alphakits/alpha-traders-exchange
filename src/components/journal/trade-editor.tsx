@@ -28,6 +28,8 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
   const field=<K extends keyof JournalTrade>(key:K,value:JournalTrade[K])=>{setTrade(v=>({...v,[key]:value}));setDirty(true);setError("");};
   const reportError=(e:unknown)=>setError(e instanceof JournalClientError && e.status===409
     ? t("This trade changed on another device. Close this form and reload before editing again.","تغيّرت الصفقة على جهاز آخر. أغلق النموذج وأعد التحميل قبل التعديل.")
+    : e instanceof JournalClientError && e.status===408
+    ? t("The connection timed out. Your change may have been saved. Reopen the journal to check before retrying.","انتهت مهلة الاتصال. قد يكون التغيير قد حُفظ. أعد فتح السجل للتحقق قبل المحاولة مجدداً.")
     : locale==="ar" ? "تعذّر إتمام العملية. راجع البيانات أو أعد المحاولة؛ لم يتم تجاهل تعديلاتك." : e instanceof Error ? e.message : "Could not save. Please try again.");
   useEffect(()=>{
     if (!initial.version) return;
@@ -68,7 +70,8 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
       {(["trade","notes","charts"] as const).map(key=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{key==="trade"?t("Trade","الصفقة"):key==="notes"?t("Notes & behavior","ملاحظات وسلوك"):t("Charts","الرسوم")}</button>)}
     </div>
     {error && <div className="j-error" role="alert">{error}</div>}
-    <form onSubmit={e=>{e.preventDefault();void save();}}>
+    <form aria-busy={busy} onSubmit={e=>{e.preventDefault();void save();}}>
+      <fieldset className="j-form-lock" disabled={busy}>
       <div hidden={tab!=="trade"}>
         <div className="j-form-grid">
           <label className="j-field"><span>{t("Symbol","الرمز")}</span><input autoFocus list="journal-symbols" value={trade.symbol} placeholder="NQ, ES, EURUSD, BTCUSD" maxLength={30} dir="ltr" onChange={e=>field("symbol",e.target.value.toUpperCase())}/><datalist id="journal-symbols">{["NQ","MNQ","ES","MES","XAUUSD","EURUSD","GBPUSD","BTCUSD","ETHUSD"].map(s=><option value={s} key={s}/>)}</datalist></label>
@@ -109,6 +112,7 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
         {trade.version>0?<button className="j-btn danger" type="button" disabled={busy} onClick={()=>setConfirmDelete(true)}><Trash2 size={16}/>{t("Delete","حذف")}</button>:<button className="j-btn ghost" type="button" onClick={close}>{t("Cancel","إلغاء")}</button>}
         <button type="submit" className="j-btn primary" disabled={busy}>{busy?<LoaderCircle className="j-spin" size={16}/>:<Check size={16}/>} {trade.version?t("Save changes","حفظ التعديلات"):t("Save trade","حفظ الصفقة")}</button>
       </div>
+      </fieldset>
     </form>
     {confirmDelete && <div className="j-delete-confirm" role="alert"><p>{t("Delete this trade and its charts? This cannot be undone.","حذف هذه الصفقة ورسومها؟ لا يمكن التراجع.")}</p><div className="j-actions"><button className="j-btn" disabled={busy} onClick={()=>setConfirmDelete(false)}>{t("Keep trade","الاحتفاظ بالصفقة")}</button><button className="j-btn danger" disabled={busy} onClick={()=>void remove()}>{t("Delete trade","حذف الصفقة")}</button></div></div>}
     {viewChart && <Dialog title={t("Chart review","مراجعة الرسم")} wide onClose={()=>setViewChart(null)}><img className="j-full-chart" src={viewChart.url} alt={t("Trade chart","رسم الصفقة")}/></Dialog>}

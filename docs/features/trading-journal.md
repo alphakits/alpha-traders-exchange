@@ -73,3 +73,15 @@ The code has not applied a production migration or enabled a live feature. Embed
 Broker imports/sync, automatic execution recognition, screen or voice recording, AI conversations, automatic chart analysis, multi-currency accounts, deposits/withdrawals, and import of legacy JSON/images are not implemented in this build. Any AI coaching should cite the relevant recorded trades, distinguish insufficient samples, and offer observations about process rather than promises of profit.
 
 TradePath's public page was used as a feature reference, not as proof of access to its private application or a benchmark demonstrating superiority: https://www.tradepath.ai/
+
+## Integration verification follow-up
+
+The real HTTP route handlers now have integration coverage for buyer, seller, and student access; signed-out and disabled-account denial; auth/database failures; origin checks; chart ownership; failed uploads; private downloads; chart limits; and durable cleanup retry. Tests execute the real migration, SQL, RLS, and Sharp decoder against embedded PostgreSQL. Hosted storage and the session lookup are controlled test dependencies; this is not a claim of a hosted end-to-end pass.
+
+The production client adapter is also exercised through the actual read handler and SQL with 501 trades, including rejecting an inconsistent snapshot when another device writes between pages. A generated 2800×1400 test chart remains 2048×1024 after sanitization, with EXIF removed.
+
+A pending trade, review, or rules save now disables the form's editable controls until the response arrives. This prevents typing during a slow request from being replaced by the returned saved version. Failed saves preserve the draft and allow retry. The browser workflow now runs the journal preview checks and retains its sample-data screenshots and results alongside the existing release gates.
+
+Ordinary API requests time out after 20 seconds; chart uploads allow 60 seconds. A timed-out write is reported as potentially saved, with no automatic retry. The user can check the saved record before retrying, while record IDs and versions continue to reject duplicate or stale writes. Caller cancellation remains distinct from a timeout. The focused suite contains 36 passing checks across the model, repository, HTTP handlers, client recovery, and pending-save forms; TypeScript, lint, and the 22-check bilingual browser flow are separate gates.
+
+Read-only hosted prerequisites inspection found no Supabase development branches, no journal tables or runtime role, no private journal chart bucket, and no journal enable flag configured in Vercel. These are the remaining hosted setup steps, not evidence of a live journal. No production records, schema, storage bucket, or enable flag were changed during verification.

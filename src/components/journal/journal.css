@@ -2686,7 +2686,7 @@
   background: #e9bb6312;
   box-shadow: inset 0 0 0 1px #e9bb6320;
 }
-.j-dialog form>div:not([hidden]):not(.j-editor-footer):not(.j-delete-confirm) {
+.j-dialog .j-form-lock>div:not([hidden]):not(.j-editor-footer):not(.j-delete-confirm) {
   animation: j-reveal .25s var(--j-ease);
 }
 .j-upload {
@@ -3356,4 +3356,12 @@
   .j-app button:hover,.j-app button:active:not(:disabled),.j-emotions button:hover>span {
     transform: none;
   }
+}
+
+/* Preserve a pending save: further edits become available after the response. */
+.j-form-lock {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
 }

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Check, LoaderCircle, SlidersHorizontal, Star } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
+import { JournalClientError } from "@/lib/journal/client";
 import { journalReviewInput, journalSettingsInput } from "@/lib/journal/validation";
 import { parseMoney, type JournalReview, type JournalSettings, type JournalLocale } from "@/lib/journal/model";
 import { phrase } from "./journal-ui";
@@ -19,17 +20,19 @@ export function ReviewForm({ initial,locale,adapter,onSaved,onDirty }: {
   ];
   useEffect(()=>()=>onDirty(false),[onDirty]);
   const change=(next:JournalReview)=>{setReview(next);onDirty(true);setMessage("");};
-  return <form className="j-panel j-review-form" onSubmit={async e=>{
+  return <form aria-busy={busy} className="j-panel j-review-form" onSubmit={async e=>{
     e.preventDefault();if(busy)return;setBusy(true);setError("");setMessage("");
     try{const value=journalReviewInput.parse(review);const saved=await adapter.saveReview(value);setReview(saved);onSaved(saved);onDirty(false);setMessage(t("Review saved","تم حفظ المراجعة"));}
-    catch{setError(t("Could not save. If this review changed elsewhere, reload before editing again.","تعذّر الحفظ. إذا تغيرت المراجعة على جهاز آخر، أعد التحميل قبل التعديل."));}finally{setBusy(false);}
+    catch(error){setError(error instanceof JournalClientError && error.status===408?t("The connection timed out. Check whether it saved before retrying; your draft is still here.","انتهت مهلة الاتصال. تحقق من الحفظ قبل المحاولة مجدداً؛ مسودتك ما زالت هنا."):t("Could not save. If this review changed elsewhere, reload before editing again.","تعذّر الحفظ. إذا تغيرت المراجعة على جهاز آخر، أعد التحميل قبل التعديل."));}finally{setBusy(false);}
   }}>
+    <fieldset className="j-form-lock" disabled={busy}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("REFLECT & RESET","راجع واستعد")}</span><h2>{review.period==="week"?t("Weekly notes","ملاحظات الأسبوع"):t("Session notes","ملاحظات الجلسة")}</h2></div><span className="j-pill">{t("Private","خاصة")}</span></div>
     {error && <p className="j-error" role="alert">{error}</p>}
     <div className="j-form-grid">{fields.map(([key,en,ar,placeholder],index)=><div className="j-field j-reflection-field" key={key}><div className="j-reflection-label"><span className="j-reflection-emoji" aria-hidden="true">{["📝","✨","💡","🎯"][index]}</span><label htmlFor={`journal-review-${key}`}>{t(en,ar)}</label></div><textarea id={`journal-review-${key}`} rows={4} dir="auto" maxLength={4000} value={review[key]} placeholder={placeholder} onChange={e=>change({...review,[key]:e.target.value})}/></div>)}</div>
     <div className="j-review-footer"><fieldset className="j-fieldset"><legend>{t("How was your execution?","كيف كان تنفيذك؟")}</legend><div className="j-rating">{[1,2,3,4,5].map(n=><button key={n} type="button" aria-label={`${t("Execution score","تقييم التنفيذ")} ${n}/5`} aria-pressed={review.rating===n} className={`${review.rating===n?"selected ":""}${review.rating!==null&&n<=review.rating?"filled":""}`} onClick={()=>change({...review,rating:review.rating===n?null:n})}><Star size={17} aria-hidden="true"/><span>{n}</span></button>)}</div></fieldset>
       <div><span className="j-save-status" role="status">{message}</span><button className="j-btn primary" disabled={busy}>{busy?<LoaderCircle size={16} className="j-spin"/>:<Check size={16}/>} {t("Save review","حفظ المراجعة")}</button></div>
     </div>
+    </fieldset>
   </form>;
 }
 export function RulesForm({ initial,locale,adapter,onSaved,onDirty }: {initial:JournalSettings;locale:JournalLocale;adapter:JournalAdapter;onSaved:(s:JournalSettings)=>void;onDirty:(value:boolean)=>void}) {
@@ -37,12 +40,13 @@ export function RulesForm({ initial,locale,adapter,onSaved,onDirty }: {initial:J
   const [dirty,setDirty]=useState(false);
   useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>e.preventDefault();window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty]);
   useEffect(()=>()=>onDirty(false),[onDirty]);
-  return <form className="j-panel j-rules-form" onChange={()=>{setDirty(true);onDirty(true);setMessage("");}} onSubmit={async e=>{
+  return <form aria-busy={busy} className="j-panel j-rules-form" onChange={()=>{setDirty(true);onDirty(true);setMessage("");}} onSubmit={async e=>{
     e.preventDefault();if(busy)return;setError("");setMessage("");
     const parsed=journalSettingsInput.safeParse({...settings,dailyLossLimitCents:parseMoney(limit)});
     if(!parsed.success){setError(t("Check your timezone and enter positive limits.","راجع المنطقة الزمنية وأدخل حدوداً موجبة."));return;}
-    setBusy(true);try{const saved=await adapter.saveSettings(parsed.data);setSettings(saved);onSaved(saved);setDirty(false);onDirty(false);setMessage(t("Rules saved","تم حفظ القواعد"));}catch{setError(t("Could not save. Reload if your rules changed on another device.","تعذّر الحفظ. أعد التحميل إذا تغيرت قواعدك على جهاز آخر."));}finally{setBusy(false);}
+    setBusy(true);try{const saved=await adapter.saveSettings(parsed.data);setSettings(saved);onSaved(saved);setDirty(false);onDirty(false);setMessage(t("Rules saved","تم حفظ القواعد"));}catch(error){setError(error instanceof JournalClientError && error.status===408?t("The connection timed out. Check whether it saved before retrying; your draft is still here.","انتهت مهلة الاتصال. تحقق من الحفظ قبل المحاولة مجدداً؛ مسودتك ما زالت هنا."):t("Could not save. Reload if your rules changed on another device.","تعذّر الحفظ. أعد التحميل إذا تغيرت قواعدك على جهاز آخر."));}finally{setBusy(false);}
   }}>
+    <fieldset className="j-form-lock" disabled={busy}>
     <div className="j-panel-head"><div><span className="j-kicker">{t("YOUR PROCESS","طريقتك")}</span><h2>{t("Trading rules","قواعد التداول")}</h2></div><SlidersHorizontal size={22} className="j-gold"/></div>
     <p className="j-section-copy">{t("Set your own limits. The journal flags them in your review; it does not control your broker.","حدد حدودك الخاصة. يظهر السجل التنبيهات في المراجعة ولا يتحكم بحساب الوسيط.")}</p>
     {error && <p className="j-error" role="alert">{error}</p>}
@@ -55,5 +59,6 @@ export function RulesForm({ initial,locale,adapter,onSaved,onDirty }: {initial:J
       <label className="j-field j-span-2"><span>{t("My trading plan","خطة التداول الخاصة بي")}</span><textarea maxLength={4000} rows={7} dir="auto" value={settings.rules} onChange={e=>setSettings({...settings,rules:e.target.value})} placeholder={t("Example: wait for my setup, define risk before entry, review after the session.","مثال: أنتظر الإعداد، أحدد المخاطرة قبل الدخول، وأراجع بعد الجلسة.")}/></label>
     </div>
     <div className="j-review-footer"><p className="j-hint">{t("Journal currency: USD. No automatic currency conversion.","عملة السجل: USD. لا يوجد تحويل تلقائي للعملات.")}</p><div><span className="j-save-status" role="status">{message}</span><button className="j-btn primary" disabled={busy}>{busy?<LoaderCircle className="j-spin" size={16}/>:<Check size={16}/>} {t("Save rules","حفظ القواعد")}</button></div></div>
+    </fieldset>
   </form>;
 }

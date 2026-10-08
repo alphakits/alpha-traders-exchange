@@ -13,11 +13,30 @@ export interface JournalAdapter {
 export class JournalClientError extends Error {
   constructor(message: string, public status = 0) { super(message); }
 }
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/journal${path}`, { ...init, cache: "no-store", credentials: "same-origin" });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new JournalClientError(body.error ?? "Could not complete the request.",response.status);
-  return body as T;
+async function request<T>(path: string, init?: RequestInit, timeoutMs = 20_000): Promise<T> {
+  const controller = new AbortController(), callerSignal = init?.signal;
+  let timedOut = false;
+  const cancel = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) cancel();
+  else callerSignal?.addEventListener("abort", cancel, { once: true });
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    const response = await fetch(`/api/journal${path}`, { ...init, signal: controller.signal, cache: "no-store", credentials: "same-origin" });
+    const body = await response.json().catch(error => {
+      if (controller.signal.aborted) throw error;
+      return {};
+    });
+    if (!response.ok) throw new JournalClientError(body.error ?? "Could not complete the request.", response.status);
+    return body as T;
+  } catch (error) {
+    if (timedOut) throw new JournalClientError(init?.method && init.method !== "GET"
+      ? "The connection timed out. Your change may have been saved. Reopen the journal to check before retrying."
+      : "The connection timed out. Please try again.", 408);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", cancel);
+  }
 }
 const json = (method: string, value: unknown): RequestInit => ({ method,headers: { "Content-Type":"application/json" },body: JSON.stringify(value) });
 export function tradeInput(trade: JournalTrade) {
@@ -43,7 +62,7 @@ export const journalApi: JournalAdapter = {
   async saveReview(review) { return (await request<{review:JournalReview}>("/reviews",json("PUT",review))).review; },
   async saveSettings(settings) { return (await request<{settings:JournalSettings}>("/settings",json("PUT",settings))).settings; },
   async charts(id) { return (await request<{charts:JournalAttachment[]}>(`/trades/${id}/charts`)).charts; },
-  async uploadChart(id,file) { return (await request<{chart:JournalAttachment}>(`/trades/${id}/charts`,{ method:"POST",headers:{ "Content-Type":file.type },body:file })).chart; },
+  async uploadChart(id,file) { return (await request<{chart:JournalAttachment}>(`/trades/${id}/charts`,{ method:"POST",headers:{ "Content-Type":file.type },body:file },60_000)).chart; },
   async deleteChart(id) { await request(`/charts/${id}`,{ method:"DELETE" }); },
 };
 
