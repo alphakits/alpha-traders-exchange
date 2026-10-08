@@ -89,7 +89,7 @@ it.each(["completed", "review_open", "locked"] as const)("keeps a %s notificatio
   refreshed.request.updatedAt = "2026-09-22T00:00:01.000Z";
   await act(async () => { RoomStream.instances[0]!.snapshot(refreshed); });
   await waitFor(() => expect(readTradeRoomCache<ReturnType<typeof room>>("feedback-request", buyer.id)?.request.status).toBe(status));
-  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
   await waitFor(() => expect(document.activeElement?.id).toBe("status-banner"));
 });
 
@@ -242,7 +242,7 @@ it.each([
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   fireEvent.click(await screen.findByRole("button", { name: "Mark Trade as Completed" }));
   expect(window.confirm).toHaveBeenCalled();
-  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
   const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
   expect(calls).toHaveLength(1);
   expect(JSON.parse(String(calls[0]?.[1]?.body))).toEqual({ action: "complete_trade", usdtSentConfirmed: true });
@@ -282,7 +282,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     // A later counterparty confirmation must replace the earlier success label.
     current = { ...current, request: { ...current.request, status: "review_open", updatedAt: "2026-09-22T00:00:05.000Z" } };
     await act(async () => RoomStream.instances.at(-1)!.snapshot(current));
-    expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
     expect(screen.queryByTestId("trade-action-feedback")).toBeNull();
   });
 

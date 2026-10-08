@@ -3090,7 +3090,7 @@ function TradeRoomPageSession({
   );
 
   return (
-    <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
+    <main data-complete={showSuccessScreen ? "true" : undefined} className="alpha-trade-room min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
@@ -3106,8 +3106,8 @@ function TradeRoomPageSession({
             <p className="text-xs text-[#9CA3AF]">{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
           </div>
           <div className="flex items-center gap-2">
-            <div role="progressbar" aria-label={isAr ? "تقدم الصفقة" : "Trade Progress"} aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100} className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+            <div role="progressbar" aria-label={isAr ? "تقدم الصفقة" : "Trade Progress"} aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100} data-complete={showSuccessScreen ? "true" : undefined} className="alpha-progress h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+              <div className="alpha-progress__fill" style={{ width: `${progressPercent}%` }} />
             </div>
             <bdi dir="ltr" className="text-xs text-[#C9A227]">{progressPercent}{isAr ? "٪" : "%"}</bdi>
           </div>
@@ -3120,7 +3120,7 @@ function TradeRoomPageSession({
             >
               <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="border-emerald-500/35 bg-emerald-500/10">
                 <div id="status-banner" ref={statusBannerRef} tabIndex={-1}><CardHeader>
-                  <CardTitle className="text-2xl">{isAr ? "✅ اكتملت الصفقة بنجاح" : "✅ Trade Completed Successfully"}</CardTitle>
+                  <CardTitle className="text-2xl"><span className="alpha-success-mark" aria-hidden="true"><CheckCircle2 /></span>{isAr ? "اكتملت الصفقة بنجاح" : "Trade Completed Successfully"}</CardTitle>
                 </CardHeader></div>
                 <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
                   {actionFeedback}
@@ -3161,7 +3161,7 @@ function TradeRoomPageSession({
           ) : (
           <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="border-emerald-500/35 bg-emerald-500/10">
             <div id="status-banner" ref={statusBannerRef} tabIndex={-1}><CardHeader>
-              <CardTitle className="text-2xl">{isAr ? "🎉 اكتملت الصفقة بنجاح" : "🎉 Trade Completed Successfully"}</CardTitle>
+              <CardTitle className="text-2xl"><span className="alpha-success-mark" aria-hidden="true"><CheckCircle2 /></span>{isAr ? "اكتملت الصفقة بنجاح" : "Trade Completed Successfully"}</CardTitle>
             </CardHeader></div>
             <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
                   {actionFeedback}
@@ -3586,27 +3586,32 @@ function TradeRoomPageSession({
 
             {tradeDetails}
 
-            <details data-testid="trade-progress-details" className="rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md">
+            <details data-testid="trade-progress-details" className="alpha-trade-progress rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
             <span className="min-w-0 truncate">
               <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
               <span className="font-semibold text-[#FDE68A]">{currencyText(tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer"))}</span>
             </span>
             <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
+            <ChevronDown className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />
           </summary>
           <div className="mt-3 space-y-2">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A]" style={{ width: `${progressPercent}%` }} />
+            <div className="alpha-progress h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+              <div className="alpha-progress__fill" style={{ width: `${progressPercent}%` }} />
             </div>
-            <div className="grid grid-cols-3 gap-1.5 text-[10px] text-[#9CA3AF]">
+            <div className="alpha-trade-step-grid">
               {tradeSteps.map((step, index) => (
                 <button
                   key={step.id}
                   type="button"
                   onClick={() => setSelectedStep(step.id)}
-                  className={`min-h-11 rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
+                  className="alpha-trade-step"
+                  data-state={index === currentStepIndex ? "current" : index < currentStepIndex ? "complete" : "upcoming"}
+                  aria-current={index === currentStepIndex ? "step" : undefined}
+                  aria-pressed={selectedStep === step.id}
                 >
-                  {currencyText(tradeStepLabel(step, isAr, request.priceMode === "buyer_offer"))}
+                  <span className="alpha-trade-step__icon" aria-hidden="true">{index < currentStepIndex ? <CheckCircle2 className="h-5 w-5" /> : step.icon}</span>
+                  <span>{currencyText(tradeStepLabel(step, isAr, request.priceMode === "buyer_offer"))}</span>
                 </button>
               ))}
             </div>
@@ -3872,7 +3877,7 @@ function TradeRoomPageSession({
                       return (
                         <div
                           key={message.id}
-                          className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                          className={`alpha-chat-bubble max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
                             message.kind === "system"
                               ? "mx-auto border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#D1D5DB]"
                               : message.senderRole === "owner"
