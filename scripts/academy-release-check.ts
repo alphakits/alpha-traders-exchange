@@ -32,7 +32,11 @@ async function main() {
     expect(loginRedirect.searchParams.get("redirectTo")).toBe("/en/lessons/candles-foundation");
     expect((await context.request.post("/api/auth/login", { data: { email: world.seller.email, password: world.seller.password } })).ok()).toBe(true);
     await page.goto("/en/academy/dashboard", { waitUntil: "domcontentloaded", timeout: 120000 });
+    await page.waitForURL(/\/en\/onboarding\?mode=manage$/, { timeout: 60000 });
+    await page.waitForLoadState("load");
+    const enrollment = page.waitForResponse(response => response.url().endsWith("/api/auth/onboarding/student") && response.request().method() === "POST");
     await page.getByRole("button", { name: "Become a Student", exact: true }).click();
+    expect((await enrollment).status()).toBe(200);
     await expect(page).toHaveURL(/\/en\/academy$/, { timeout: 60000 });
     findings.push("Student self-enrollment completed through the real onboarding action.");
     for (const locale of ["en", "ar"]) {
