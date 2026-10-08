@@ -122,6 +122,8 @@ describe("shared public market connection", () => {
     fetchMock.mockResolvedValue({ ok: false });
     await act(async () => { await page.result.current.refresh(); });
     expect(page.result.current.snapshot?.pairs.usdtIls.price).toBe(3.6);
+    expect(page.result.current.snapshot?.stale).toBe(true);
+    expect(page.result.current.snapshot?.status).toBe("degraded");
     expect(page.result.current.hasLiveFeed).toBe(false);
     expect(page.result.current.error).toBeTruthy();
   });

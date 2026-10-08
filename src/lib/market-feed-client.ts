@@ -57,7 +57,11 @@ export function createMarketFeedStore() {
     }).catch(() => {
       // A lifecycle cancellation must not replace a newer response or flash an
       // error on resume. A real timeout retains prices with an unavailable flag.
-      if (pending === request) notify({ ...state, isLoading: false, error: "Market feed unavailable" });
+      if (pending === request) notify({
+        snapshot: state.snapshot ? { ...state.snapshot, status: "degraded", stale: true } : null,
+        isLoading: false,
+        error: "Market feed unavailable",
+      });
     }).finally(() => {
       if (pending !== request) return;
       pending = null;
