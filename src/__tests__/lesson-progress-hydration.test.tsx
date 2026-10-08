@@ -63,17 +63,19 @@ describe("lesson progress hydration", () => {
     // Server HTML has no browser storage; the returning learner does.
     container.innerHTML = renderToString(<LessonInterface {...props} />);
     window.localStorage.setItem("alpha-traders:lesson-progress", JSON.stringify({ [lesson.id]: saved }));
-    const originalHeading = container.querySelector("h3");
+    const originalHeading = container.querySelector("h1");
     const recoverableErrors = vi.fn();
     await act(async () => {
       root = hydrateRoot(container, <LessonInterface {...props} />, { onRecoverableError: recoverableErrors });
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     expect(recoverableErrors).not.toHaveBeenCalled();
-    expect(container.querySelector("h3")).toBe(originalHeading);
+    expect(container.querySelector("h1")).toBe(originalHeading);
+    await act(async () => { (container.querySelector('#study-tab-notes') as HTMLButtonElement).click(); });
     expect(container.querySelector("textarea")?.value).toBe(saved.notes);
-    expect(container.textContent).toContain(locale === "ar" ? "الفيديو 1:30 · القراءة 45%" : "Video 1:30 · Reading 45%");
-    expect(container.textContent).toContain(`${locale === "ar" ? "تقدم الدورة" : "Course Progress"} ${completed ? 100 : 0}%`);
+    expect(container.querySelector('#study-panel-notes')?.getAttribute('hidden')).toBeNull();
+    expect(container.textContent).toContain(`${completed ? 100 : 0}% ${locale === "ar" ? "مكتمل" : "complete"}`);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(JSON.parse(window.localStorage.getItem("alpha-traders:lesson-progress")!)[lesson.id]).toEqual(saved);
     expect(container.querySelector('a[href="/learn-with-mark"]') !== null).toBe(completed);
     expect(createClient).not.toHaveBeenCalled();
