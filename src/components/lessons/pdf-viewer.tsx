@@ -26,6 +26,7 @@ export function PdfViewer({
   const [loaded, setLoaded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [readingProgress, setReadingProgress] = useState(initialProgress);
+  const readingProgressRef = useRef(initialProgress);
   const [hasError, setHasError] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
@@ -37,6 +38,7 @@ export function PdfViewer({
   const isWorkbook = source.embedUrl.endsWith(".html") || source.openUrl.endsWith(".html");
 
   useEffect(() => {
+    readingProgressRef.current = initialProgress;
     setReadingProgress(initialProgress);
   }, [initialProgress]);
 
@@ -53,9 +55,11 @@ export function PdfViewer({
   }, []);
 
   function bumpProgress(amount: number) {
-    const normalized = Math.min(100, Math.max(0, Math.round(readingProgress + amount)));
+    const previous = readingProgressRef.current;
+    const normalized = Math.min(100, Math.max(0, Math.round(previous + amount)));
+    readingProgressRef.current = normalized;
     setReadingProgress(normalized);
-    if (normalized > readingProgress) onProgress?.(normalized);
+    if (normalized > previous) onProgress?.(normalized);
   }
 
   async function toggleFullscreen() {

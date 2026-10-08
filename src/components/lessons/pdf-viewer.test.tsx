@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PdfViewer } from "./pdf-viewer";
 import { getLessonBySlug } from "@/lib/content";
@@ -27,6 +27,18 @@ afterEach(() => {
 });
 
 describe("workbook capability handling", () => {
+  it("preserves every rapid reading update and caps progress at completion", () => {
+    Object.defineProperty(navigator, "pdfViewerEnabled", { configurable: true, value: true });
+    const onProgress = vi.fn();
+    const { container } = render(<PdfViewer asset={asset} title="Workbook" onOpen={vi.fn()} onProgress={onProgress} initialProgress={95} />);
+    const workbook = container.querySelector("iframe")!.parentElement!;
+    act(() => {
+      for (let index = 0; index < 5; index += 1) fireEvent.wheel(workbook);
+    });
+    expect(screen.getByText("100%")).toBeTruthy();
+    expect(onProgress.mock.calls).toEqual([[97], [99], [100]]);
+  });
+
   it("offers an actual open action without an endless spinner when inline PDFs are unavailable", () => {
     Object.defineProperty(navigator, "pdfViewerEnabled", { configurable: true, value: false });
     const open = vi.spyOn(window, "open").mockReturnValue(null);
