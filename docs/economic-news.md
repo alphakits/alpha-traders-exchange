@@ -1,5 +1,32 @@
 # USD News delivery
 
+## News readability review — 8 October 2026
+
+The News screen groups events by calendar day in the selected timezone. Gold
+event titles, blue dates/times, teal confirmed actuals, neutral previous values,
+and (licensed mode only) lavender forecasts have explicit text labels. Missing
+values say Pending, Not added, or Not available; they never imply zero. Speeches
+and statements are labelled separately and do not show empty numerical grids.
+Source details, reporting periods, English titles on Arabic cards, and result
+comparisons are available in each card's native Details disclosure. Source
+revision notices remain visible outside the disclosure.
+
+The weekly notice is concise and still explicitly says results are not live.
+This week, Upcoming, Today, and Results preserve their existing scope. Events
+are ordered before grouping; Next release switches to the correct filter before
+scrolling and focusing its card. Motion respects reduced-motion preferences.
+The screen is shared by the browser and the installed website shell.
+
+Verification for the review branch: 90 focused News model/provider/API/access
+and component tests, TypeScript, and targeted ESLint. The actual before/after
+components were rendered with the existing weekly snapshot in a separate
+preview harness. 163 Chromium assertions covered English/Arabic at 320, 390,
+430, 768, and 1440 CSS pixels, filters, timezone conversion, focus/scrolling,
+disclosures, reduced motion, refresh failure, and session expiration. This
+is component and contract verification; production sessions, physical iPhone
+Safari, and production deployment were not exercised by the preview harness.
+Production release remains subject to the owner's requested visual review.
+
 The Home tab opens the public locale homepage. News replaces the bottom
 Notifications tab; the notification bell and its View all link remain intact.
 News requires an active signed-in account on both the website and the active
