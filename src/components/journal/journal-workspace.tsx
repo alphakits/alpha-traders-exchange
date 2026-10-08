@@ -18,7 +18,9 @@ export function JournalWorkspace({ locale="en",adapter=journalApi, preview=false
   const [query,setQuery]=useState(""),[outcome,setOutcome]=useState("all"),[visible,setVisible]=useState(30);
   const [dirty,setDirty]=useState(false),[notice,setNotice]=useState("");
   const settings=data?.settings??DEFAULT_SETTINGS,today=dayInZone(settings.timezone);
-  const [month,setMonth]=useState(today.slice(0,7)),[reviewDate,setReviewDate]=useState(today),[reviewPeriod,setReviewPeriod]=useState<"day"|"week">("day");
+  const [month,setMonth]=useState(today.slice(0,7)),[chosenReviewDate,setReviewDate]=useState<string|null>(null),[reviewPeriod,setReviewPeriod]=useState<"day"|"week">("day");
+  // Resolve the default session after account settings load; an explicit date stays selected.
+  const reviewDate=chosenReviewDate??today;
   useEffect(()=>{
     const controller=new AbortController();let active=true;
     setLoading(true);setError("");setData(null);
