@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { HelpDetails } from "@/components/ui/help-details";
 import { currencyText } from "@/components/ui/currency-text";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -167,45 +168,52 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
   const checkout = data?.checkout;
   const formatted = checkout ? (checkout.expectedMicros / 1e6).toFixed(6) : "";
   const controls = "w-full rounded-xl border border-white/20 bg-slate-950 px-4 py-3 text-white";
-  const Container = embedded ? "section" : "main";
-  return <Container dir={isAr ? "rtl" : "ltr"} className="commission-surface mx-auto max-w-2xl space-y-5 px-4 py-8 text-white">
-    {!embedded ? <Link className="text-sm text-amber-300" href={`/${isAr ? "ar" : "en"}/usdt-exchange`}>{message("Back to marketplace", "العودة للسوق")}</Link> : null}
-    <h1 className="commission-notice text-2xl font-bold">{message("Automatic commission checkout", "دفع العمولات تلقائيًا")}</h1>
-    <p className="commission-notice text-sm leading-6 text-slate-300">{message("Prepare your payment before sending. Send the amount shown once; the system verifies and settles it without owner approval.", "أنشئ تعليمات الدفع قبل التحويل. أرسل المبلغ الظاهر مرة واحدة؛ يتحقق النظام ويسوّي العمولة دون موافقة المالك.")}</p>
+  const Container = "section";
+  return <Container dir={isAr ? "rtl" : "ltr"} className="commission-surface mx-auto max-w-2xl space-y-5 px-4 py-6 text-white">
+    {!embedded ? <Link className="inline-flex min-h-11 items-center text-sm text-amber-300" href={`/${isAr ? "ar" : "en"}/usdt-exchange`}>{message("Back to marketplace", "العودة للسوق")}</Link> : null}
+    <h1 className="commission-notice text-2xl font-bold">{message("Pay commission", "دفع العمولة")}</h1>
     {error ? <p role="alert" className="rounded-xl border border-amber-400/40 p-4 text-sm text-amber-200">{error}</p> : null}
-    <button type="button" className="rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void refresh()} disabled={!authorized || busy}>{message("Refresh payment status", "تحديث حالة الدفع")}</button>
     {!data && !error ? <p role="status" className="commission-notice">{message("Loading your commissions…", "جارٍ تحميل العمولات…")}</p> : null}
-    {data ? <section className="space-y-3 rounded-2xl border border-white/15 p-5">
-      <p className="commission-notice">{message("Outstanding commission total", "مجموع العمولات المستحقة")}: <strong className="currency-money">{data.totalDueUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</strong></p>
-      {data.checkedAt && Number.isFinite(Date.parse(data.checkedAt)) ? <p className="text-xs text-slate-300">{message("Status refreshed", "آخر تحديث للحالة")}: <time dateTime={data.checkedAt}>{new Date(data.checkedAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}
-      {data.lastVerificationCheckAt && Number.isFinite(Date.parse(data.lastVerificationCheckAt)) ? <p className="text-xs text-slate-300">{message("Last payment verification result", "آخر نتيجة فحص للدفعة")}: <time dateTime={data.lastVerificationCheckAt}>{new Date(data.lastVerificationCheckAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : data.status === "waiting" ? <p className="text-xs text-slate-300">{message("No payment verification result has been recorded yet.", "لم تُسجّل نتيجة فحص للدفعة بعد.")}</p> : null}
-      {data.verificationCode ? <p className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm text-amber-200">{data.verificationCode === "receipt_pending" ? message("A matching receipt is awaiting network confirmation. Do not send again.", "دفعة مطابقة بانتظار تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("The verification service could not confirm this payment yet. Automatic checks will continue. Do not send again.", "لم تتمكن خدمة التحقق من تأكيد الدفعة بعد. يستمر الفحص التلقائي. لا تُعد الإرسال.") : message("The payment needs review before it can be credited. Check the original payment amount, network and destination. Do not send a second payment.", "الدفعة تحتاج إلى مراجعة قبل احتسابها. راجع مبلغ الدفعة الأصلية وشبكتها وعنوانها. لا ترسل دفعة ثانية.")}</p> : null}
-      {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice text-emerald-300">{message("Payment verified. No commission dues remain. Other account restrictions still apply.", "تم التحقق من الدفع. لا توجد عمولات مستحقة. تبقى أي قيود أخرى على الحساب سارية.")}</p> : null}
-      {data.status === "changed" ? <p role="alert" className="commission-notice text-amber-200">{message("These commissions changed after the payment instructions were created. Do not send another payment. Check the original payment status.", "تغيّرت العمولات بعد إنشاء تعليمات الدفع. لا ترسل دفعة أخرى. راجع حالة الدفعة الأصلية.")}</p> : null}
+    {data ? <section className="space-y-4 rounded-2xl border border-white/15 p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="commission-notice text-sm">{message("Amount due", "المبلغ المستحق")}</span>
+        <strong className="currency-money text-2xl" dir="ltr">{data.totalDueUsdt.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT</strong>
+      </div>
+      {data.verificationCode ? <p role="status" className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm">{data.verificationCode === "receipt_pending" ? message("Payment found. Waiting for network confirmation. Do not send again.", "وُجدت الدفعة. ننتظر تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("Verification is delayed. We will keep checking. Do not send again.", "تأخر التحقق. نواصل الفحص. لا تُعد الإرسال.") : message("Payment needs review. Check the original amount, network, and address. Do not pay again.", "تحتاج الدفعة للمراجعة. راجع المبلغ والشبكة والعنوان الأصلي. لا تدفع مجددًا.")}</p> : null}
+      {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice">{message("Paid. No commission due. Other account restrictions may still apply.", "تم الدفع. لا توجد عمولة مستحقة. قد تبقى قيود أخرى على الحساب.")}</p> : null}
+      {data.status === "changed" ? <p role="alert" className="commission-notice">{message("The amount due changed. Check your original payment. Do not send again.", "تغيّر المبلغ المستحق. راجع دفعتك الأصلية. لا تُعد الإرسال.")}</p> : null}
       {!checkout && data.pendingCount > 0 ? <>
-        <label className="block text-sm">{message("Network", "الشبكة")}<select className={controls} value={network} disabled={busy} onChange={(event) => setNetwork(event.target.value as "TRC20" | "BEP20")}><option value="TRC20">USDT · TRC20</option><option value="BEP20">USDT · BEP20</option></select></label>
-        <label className="block text-sm">{message("Amount you plan to send (USDT)", "المبلغ الذي تنوي إرساله (USDT)")}<input className={controls} inputMode="decimal" value={amount} disabled={busy} onChange={(event) => setAmount(event.target.value)} /></label>
-        <p className="text-xs leading-5 text-slate-300">{message("A difference of up to 1 USDT is allowed once for the combined payment. A small decimal reference may be added when an amount is already reserved. Copy the final amount displayed below, not an earlier amount.", "يسمح بفرق حتى 1 USDT مرة واحدة للدفعة المجمعة. قد تُضاف خانات عشرية صغيرة إذا كان المبلغ محجوزًا لدفعة أخرى. انسخ المبلغ النهائي الظاهر، وليس مبلغًا سابقًا.")}</p>
-        <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={notSent} disabled={busy} onChange={(event) => setNotSent(event.target.checked)} />{message("I have not sent this payment yet.", "لم أرسل هذه الدفعة بعد.")}</label>
-        <button type="button" className="w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || !amount} onClick={() => void create()}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : message("Prepare payment for all commissions", "إنشاء دفعة لجميع العمولات")}</button>
+        <p className="text-sm text-slate-300">{message("Choose your network, then get payment instructions.", "اختر الشبكة، ثم اعرض تعليمات الدفع.")}</p>
+        <label className="block text-sm">{message("Network", "الشبكة")}<select className={controls + " mt-2"} value={network} disabled={busy} onChange={(event) => setNetwork(event.target.value as "TRC20" | "BEP20")}><option value="TRC20">USDT · TRC20</option><option value="BEP20">USDT · BEP20</option></select></label>
+        <label className="block text-sm">{message("Payment amount (USDT)", "مبلغ الدفع (USDT)")}<input className={controls + " currency-money mt-2"} inputMode="decimal" dir="ltr" value={amount} disabled={busy} onChange={(event) => setAmount(event.target.value)} /></label>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm"><input type="checkbox" className="h-5 w-5 shrink-0" checked={notSent} disabled={busy} onChange={(event) => setNotSent(event.target.checked)} />{message("I have not sent this payment yet.", "لم أرسل هذه الدفعة بعد.")}</label>
+        <button type="button" className="min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || !amount} onClick={() => void create()}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : message("Get payment instructions", "عرض تعليمات الدفع")}</button>
       </> : null}
     </section> : null}
-    {checkout && data?.status === "waiting" ? <section className="space-y-4 rounded-2xl border border-emerald-400/40 p-5">
-      <h2 className="font-semibold">{message("Send this amount once", "أرسل هذا المبلغ مرة واحدة")}</h2>
-      <p className="currency-money text-2xl font-bold" dir="ltr">{formatted} USDT</p>
-      <p className="commission-notice rounded-xl border border-amber-300/30 p-3 text-sm leading-6 text-amber-200">{message("A difference of up to 1 USDT above or below the commission total is accepted after verification. If the payment could belong to another checkout, it needs review. Send only once; do not send a top-up while waiting.", "يُقبل فرق حتى 1 USDT زيادة أو نقصانًا عن مجموع العمولة بعد التحقق. إذا كان ممكنًا أن تخص الدفعة طلب دفع آخر، تحتاج إلى مراجعة. أرسل مرة واحدة فقط، ولا ترسل دفعة تكميلية أثناء الانتظار.")}</p>
-      <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(formatted, "amount")}>{copied === "amount" ? message("Copied", "تم النسخ") : message("Copy exact amount", "نسخ المبلغ كاملًا")}</button>
-      {checkout.roundedMicros ? <div className="space-y-2 rounded-xl border border-emerald-400/30 p-3">
-        <p className="text-sm">{message("You may instead send this reserved rounded amount:", "يمكنك بدلًا من ذلك إرسال هذا المبلغ المقرب والمحجوز لك:")}</p>
-        <p className="currency-money text-xl font-bold" dir="ltr">{(checkout.roundedMicros / 1e6).toFixed(0)} USDT</p>
-        <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy((checkout.roundedMicros! / 1e6).toFixed(0), "rounded")}>{copied === "rounded" ? message("Copied", "تم النسخ") : message("Copy rounded amount", "نسخ المبلغ المقرب")}</button>
-        <p className="text-sm text-slate-300">{message("Send only one of these amounts. Both are verified automatically; the excess is recorded with your payment.", "أرسل مبلغًا واحدًا فقط من هذين المبلغين. يتم تأكيد أي منهما تلقائيًا وتسجيل الزيادة مع دفعتك.")}</p>
-      </div> : null}
+    {checkout && data?.status === "waiting" ? <section className="space-y-4 rounded-2xl border border-amber-300/30 p-5">
+      <h2 className="font-semibold">{message("Send once", "أرسل مرة واحدة")}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="currency-money text-2xl font-bold" dir="ltr">{formatted} USDT</p>
+        <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void copy(formatted, "amount")}>{copied === "amount" ? message("Copied", "تم النسخ") : message("Copy exact amount", "نسخ المبلغ كاملًا")}</button>
+      </div>
       <p className="text-sm">{message("Network", "الشبكة")}: <strong>{checkout.network}</strong></p>
       <p className="break-all rounded-xl bg-black/30 p-3 font-mono text-sm" dir="ltr">{data.walletAddress}</p>
-      <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(data.walletAddress ?? "", "wallet")}>{copied === "wallet" ? message("Copied", "تم النسخ") : message("Copy receiving address", "نسخ عنوان الاستلام")}</button>
-      <p role="status" className="text-sm leading-6 text-slate-200">{message("Automatic checks run every minute. No screenshot, transaction-ID submission or owner approval is needed for a matching payment. Network confirmation can take longer. Do not resend while waiting.", "يتم الفحص التلقائي كل دقيقة. لا تحتاج الدفعة المطابقة إلى صورة أو إدخال معرّف معاملة أو موافقة المالك. قد يستغرق تأكيد الشبكة وقتًا أطول. لا تُعد الإرسال أثناء الانتظار.")}</p>
-      <p className="commission-notice text-xs leading-5 text-amber-200">{currencyText(message("Use USDT on the selected network and send a displayed payment amount. Pay the network fee separately so the full amount arrives. If no rounded option is shown, copy the exact decimal reference.", "استخدم USDT على الشبكة المختارة وأرسل أحد مبالغ الدفع الظاهرة. ادفع رسوم الشبكة بشكل منفصل ليصل المبلغ كاملًا. إذا لم يظهر خيار مبلغ مقرب، انسخ المبلغ كاملًا بخاناته العشرية."))}</p>
+      <button type="button" className="min-h-11 w-full rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(data.walletAddress ?? "", "wallet")}>{copied === "wallet" ? message("Copied", "تم النسخ") : message("Copy receiving address", "نسخ عنوان الاستلام")}</button>
+      <p className="commission-notice rounded-xl bg-amber-300/10 p-3 text-sm leading-6">{currencyText(message("Send USDT on this network. Pay network fees separately so the full amount arrives. Do not send again while waiting.", "أرسل USDT على هذه الشبكة. ادفع رسوم الشبكة منفصلة ليصل المبلغ كاملًا. لا تُعد الإرسال أثناء الانتظار."))}</p>
+      <p role="status" className="text-sm leading-6 text-slate-200">{message("Waiting for payment confirmation. We check every minute; network confirmation may take longer.", "بانتظار تأكيد الدفع. نفحص كل دقيقة؛ وقد يستغرق تأكيد الشبكة وقتًا أطول.")}</p>
+      {checkout.roundedMicros ? <HelpDetails title={message("Need a whole-number amount?", "تحتاج مبلغًا بدون كسور؟")}>
+        <p>{message("You can send this reserved amount instead. Send only one payment.", "يمكنك إرسال هذا المبلغ المحجوز بدلًا منه. أرسل دفعة واحدة فقط.")}</p>
+        <p className="currency-money text-xl font-bold" dir="ltr">{(checkout.roundedMicros / 1e6).toFixed(0)} USDT</p>
+        <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy((checkout.roundedMicros! / 1e6).toFixed(0), "rounded")}>{copied === "rounded" ? message("Copied", "تم النسخ") : message("Copy rounded amount", "نسخ المبلغ المقرب")}</button>
+        <p>{message("Any excess is recorded with your payment.", "تُسجّل أي زيادة مع دفعتك.")}</p>
+      </HelpDetails> : null}
     </section> : null}
+    <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void refresh()} disabled={!authorized || busy}>{message("Refresh payment status", "تحديث حالة الدفع")}</button>
+    <HelpDetails title={message("Payment details", "تفاصيل الدفع")}>
+      <p>{message("Up to 1 USDT above or below the combined total is accepted after verification. Ambiguous payments need review. Copy the final amount, including its decimal reference.", "يُقبل فرق حتى 1 USDT زيادة أو نقصانًا عن الإجمالي بعد التحقق. الدفعات غير الواضحة تحتاج للمراجعة. انسخ المبلغ النهائي بكامل كسوره.")}</p>
+      <p>{message("Matching payments settle automatically. No screenshot, transaction ID, or owner approval is needed. Do not send a top-up while waiting.", "تُسوّى الدفعات المطابقة تلقائيًا دون صورة أو معرّف معاملة أو موافقة المالك. لا ترسل مبلغًا إضافيًا أثناء الانتظار.")}</p>
+      {data?.checkedAt && Number.isFinite(Date.parse(data.checkedAt)) ? <p>{message("Status refreshed", "آخر تحديث للحالة")}: <time dateTime={data.checkedAt}>{new Date(data.checkedAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}
+      {data?.lastVerificationCheckAt && Number.isFinite(Date.parse(data.lastVerificationCheckAt)) ? <p>{message("Last payment check", "آخر فحص للدفع")}: <time dateTime={data.lastVerificationCheckAt}>{new Date(data.lastVerificationCheckAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}
+    </HelpDetails>
   </Container>;
 }

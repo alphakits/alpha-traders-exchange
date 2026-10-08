@@ -1,4 +1,5 @@
 "use client";
+import { HelpDetails } from "@/components/ui/help-details";
 
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -733,8 +734,8 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
             </h1>
             <CardDescription className="text-[15px] leading-6 text-[#B8BEC8] sm:text-base">
               {isAr
-                ? "ابدأ بما يحتاج إلى إجراء، ثم راجع آخر تحديثات حسابك."
-                : "Start with what needs action, then review your latest account updates."}
+                ? "تحديثات الصفقات وتنبيهات الحساب."
+                : "Trade updates and account alerts."}
             </CardDescription>
           </div>
 
@@ -877,7 +878,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
                             ) : null}
                           </div>
                           <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{currencyText(formatNotificationRelativeTime(notification.createdAt, locale))}</span>
-                          <p className={`mt-2 text-base leading-7 text-[#D7DBE2] ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto" className="text-base">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p>
+                          {!actionRequired && !notification.reason?.startsWith("commission_") && formatNotificationMessage(notification, locale).length > 200 ? <HelpDetails title={isAr ? "عرض التحديث" : "Read update"} className="mt-2"><p><bdi dir="auto">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p></HelpDetails> : <p className={`mt-2 text-base leading-7 text-[#D7DBE2] ${notification.reason?.startsWith("commission_") ? "commission-notice" : ""}`}><bdi dir="auto" className="text-base">{currencyText(formatNotificationMessage(notification, locale))}</bdi></p>}
                           <div className="mt-3 flex flex-wrap gap-1.5 text-xs leading-5">
                             {actionRequired ? <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 font-semibold text-amber-200">{isAr ? "مطلوب منك إجراء" : "Action required"}</span> : null}
                             {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId))}</bdi></span> : null}

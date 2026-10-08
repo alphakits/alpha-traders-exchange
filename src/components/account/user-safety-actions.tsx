@@ -59,8 +59,8 @@ export function UserSafetyActions({
     if (nextBlocked) {
       const warning = context === "trade"
         ? (isAr
-            ? "سيؤدي الحظر إلى منع الصفقات المستقبلية وإخفاء عروض هذا المستخدم. لن يغلق الصفقة الحالية أو يحذف سجلها؛ استخدم النزاع أو البلاغ عند الحاجة. هل تريد المتابعة؟"
-            : "Blocking prevents future trades and hides this user's listings. It will not close this trade or delete its record; use dispute or report tools when needed. Continue?")
+            ? "حظر الصفقات المستقبلية وإخفاء عروض هذا المستخدم؟ تبقى هذه الصفقة مفتوحة."
+            : "Block future trades and hide this user’s listings? This trade stays open.")
         : (isAr
             ? "سيؤدي الحظر إلى إخفاء عروض هذا المستخدم ومنع الصفقات الجديدة معه. يمكنك إلغاء الحظر لاحقًا. هل تريد المتابعة؟"
             : "Blocking hides this user's listings and prevents new trades with them. You can unblock later. Continue?");

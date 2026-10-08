@@ -153,10 +153,10 @@ export function ContactForm({
     ...T[locale],
     formTitle: locale === "ar" ? "استفسر عن ICT Mentorship" : "Ask about ICT Mentorship",
     message: locale === "ar" ? "هدفك وأسئلتك" : "Your learning goal and questions",
-    messagePlaceholder: locale === "ar" ? "شو حاب تفهم أو تطوّر؟ أي سوق بهمّك؟ احكِ عن صعوبة بالتطبيق أو سؤال عندك. لا ترسل أرصدة أو تفاصيل مالية أو كلمات مرور." : "What would you like to understand or improve? Which market interests you? Share a difficulty or a question. Do not include balances, financial details or passwords.",
+    messagePlaceholder: locale === "ar" ? "أهدافك وأسئلتك. لا ترسل تفاصيل مالية أو كلمات مرور." : "Your goals and questions. Do not include financial details or passwords.",
     send: locale === "ar" ? "إرسال استفسار المنتورشيب" : "Send mentorship enquiry",
     successTitle: locale === "ar" ? "تم تسجيل اهتمامك" : "Your interest has been recorded",
-    successBody: locale === "ar" ? "حُفظ استفسارك عن ICT Mentorship ليراجعه مارك. الرد على الاستفسار بيكون عبر البريد الإلكتروني اللي كتبته. هذا ليس حجزًا أو التزامًا بالدفع. اسمع شرح مارك أو ابدأ الأكاديمية المجانية أثناء انتظار الرد." : "Your ICT Mentorship enquiry has been saved for Mark to review. Replies to your enquiry use the email address you provided. This is not a booking or payment commitment. Hear Mark’s explanation or start the free Academy while awaiting a reply.",
+    successBody: locale === "ar" ? "حُفظ استفسارك لمارك. سنرد عبر البريد. هذا ليس حجزًا أو التزامًا بالدفع." : "Your enquiry is saved for Mark. We will reply by email. This is not a booking or payment commitment.",
   } : T[locale] ?? T.en;
   const isRtl = locale === "ar";
 

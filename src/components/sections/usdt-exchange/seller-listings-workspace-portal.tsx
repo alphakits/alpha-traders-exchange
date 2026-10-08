@@ -187,7 +187,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
-                  <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+                  <CardDescription>{isAr ? "عدّل عروضك أو أوقفها أو جدّدها." : "Edit, pause, or renew your listings."}</CardDescription>
                 </div>
                 {sortedDashboardListings.length ? (
                   <Button
@@ -224,7 +224,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don’t have any active listings yet."}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ عرضًا لاستقبال الطلبات." : "Create a listing to receive requests."}</p>
                   <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
@@ -286,7 +286,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                       <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{currencyText(formatIls(toNumber(listing.price)))}</p>
                       <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{currencyText(listingPaymentMethods)}</p>
                       <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{brandText(listingRequiredAction)}</p>
-                      <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
+                      <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#F4D87A]">{isDashboardListingExpanded ? (isAr ? "إغلاق" : "Close") : (isAr ? "إدارة" : "Manage")}<ChevronDown className={cn("h-4 w-4 transition-transform", isDashboardListingExpanded && "rotate-180")} /></span>
                     </button>
                     <div
                       id={`seller-listing-details-${listing.id}`}
@@ -297,7 +297,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                     >
                     {listing.status === "draft" && listing.approvalStatus === "pending" ? (
                       <p className="mb-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100">
-                        {brandText(isAr ? "بانتظار موافقة إدارة Alpha Traders — هذا العرض غير ظاهر للمشترين بعد." : "Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet.")}
+                        {brandText(isAr ? "بانتظار الموافقة. العرض غير ظاهر للمشترين بعد." : "Pending approval. Buyers cannot see this listing yet.")}
                       </p>
                     ) : null}
                     <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -322,7 +322,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         type="button"
                         size="sm"
                         variant="secondary"
-                        className="h-9"
+                        className="min-h-11"
                         disabled={listingBusy}
                         onClick={() => {
                           setEditingListingId(listing.id);
@@ -352,27 +352,27 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                         {isAr ? "تعديل" : "Edit"}
                       </Button>
                       {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
+                        <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
                           <PlayCircle className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:resume` ? (isAr ? "جارٍ الاستئناف..." : "Resuming...") : (isAr ? "استئناف" : "Resume")}
                         </Button>
                       ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
+                        <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
                           <PauseCircle className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:pause` ? (isAr ? "جارٍ الإيقاف..." : "Pausing...") : (isAr ? "إيقاف مؤقت" : "Pause")}
                         </Button>
                       ) : null}
                       {listing.status !== "draft" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
+                        <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
                           <Clock3 className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:renew` ? (isAr ? "جارٍ التجديد..." : "Renewing...") : (isAr ? "تجديد" : "Renew")}
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
                         <Trash2 className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:delete` ? (isAr ? "جارٍ الحذف..." : "Deleting...") : (isAr ? "حذف" : "Delete")}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="min-h-11" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
                         <Copy className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:duplicate` ? (isAr ? "جارٍ النسخ..." : "Duplicating...") : (isAr ? "نسخ العرض" : "Duplicate Listing")}
                       </Button>

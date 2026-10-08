@@ -256,8 +256,8 @@ export default function NewSellerListingScreen() {
       authenticated
       title={isEditing ? (isAr ? "تعديل العرض" : "Edit Listing") : (isAr ? "إنشاء عرض" : "Create Listing")}
       subtitle={isEditing
-        ? (isAr ? "حدّث تفاصيل العرض مع الاحتفاظ بسجل المراجعة." : "Update listing details while preserving the review trail.")
-        : (isAr ? "انشر عرض USDT بنفس قواعد وحماية الموقع." : "Publish a USDT offer with the same rules and safeguards as the website.")}
+        ? (isAr ? "حدّث تفاصيل عرضك." : "Update your listing details.")
+        : (isAr ? "حدّد الكمية والسعر وطرق الدفع." : "Set your amount, price, and payment methods.")}
     >
       {isEditing && listingQuery.isLoading ? <Text style={styles.helper}>{isAr ? "جارٍ تحميل العرض..." : "Loading listing..."}</Text> : null}
       <View style={styles.form}>

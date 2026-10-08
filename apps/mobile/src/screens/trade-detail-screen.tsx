@@ -449,8 +449,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     const message = query.data?.trade.feePolicyVersion === "buyer_seller_1pct_v1"
       ? `${locale === "ar" ? "أؤكد استلام الدفع وإرسال كامل USDT للمشتري. الإكمال نهائي." : "I confirm payment was received and the full USDT amount was sent to the buyer. Completion is final."} ${sellerFeeResponsibilityNotice(locale)}`
       : query.data?.trade.status === "usdt_sent" ? t("cashUsdtCompletionConfirmation") : locale === "ar"
-      ? "أؤكد استلام الدفعة وإرسال كامل USDT إلى محفظة المشتري الصحيحة. إكمال الصفقة يفتح التقييم ويسجل عمولة 1%. لا يلزم انتظار المشتري ولا يمكن إلغاء الصفقة بعدها."
-      : "I confirm payment was received and the full USDT amount was sent to the correct buyer wallet. Completing opens feedback and records the 1% commission. No buyer wait is required and the trade cannot be cancelled afterward.";
+      ? "أؤكد استلام الدفع وإرسال كامل USDT لمحفظة المشتري الصحيحة. الإكمال يسجّل العمولة ولا يمكن التراجع."
+      : "Confirm payment received and all USDT sent to the correct buyer wallet. Completion records the commission and cannot be undone.";
     Alert.alert(t("sentUsdtComplete"), message, [
       { text: t("cancel"), style: "cancel" },
       { text: t("confirm"), onPress: () => void completeCashTrade() },

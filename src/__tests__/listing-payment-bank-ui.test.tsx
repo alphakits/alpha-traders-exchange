@@ -71,7 +71,6 @@ async function openForm(preferredPaymentMethods = ["Bank Transfer"], locale: "ar
   for (const [id, value] of [["create-available", "1000"], ["create-price", "3.10"], ["create-min-trade", "100"], ["create-max-trade", "1000"]]) {
     fireEvent.change(document.getElementById(id)!, { target: { value } });
   }
-  fireEvent.click(form.getByRole("checkbox"));
   return form;
 }
 
@@ -79,7 +78,8 @@ describe("listing payment-method bank requirements", () => {
   it.each([true, false])("submits cash methods without profile bank details and gates Bank Transfer (mobile=%s)", async (isMobile) => {
     mobile = isMobile;
     const form = await openForm();
-    const submit = () => form.getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement;
+    fireEvent.click(form.getByRole("button", { name: "Continue to payment" }));
+    const submit = () => form.getByRole("button", { name: "Review listing" }) as HTMLButtonElement;
     expect(submit().disabled).toBe(true);
     expect(form.getByText(/No saved bank accounts found/)).toBeTruthy();
 
@@ -103,6 +103,8 @@ describe("listing payment-method bank requirements", () => {
     fireEvent.click(form.getByRole("button", { name: /Bank Transfer/ }));
     expect(submit().disabled).toBe(false);
     fireEvent.click(submit());
+    fireEvent.click(form.getByRole("checkbox"));
+    fireEvent.click(form.getByRole("button", { name: "Submit Listing" }));
     await waitFor(() => expect(submittedListing).toBeDefined());
     expect(submittedListing).toMatchObject({
       paymentMethods: ["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"], bankName: "Bank Hapoalim",
@@ -113,9 +115,13 @@ describe("listing payment-method bank requirements", () => {
   it("does not replace cardless ATM choices with the seller's saved payout bank", async () => {
     bankAccounts = [savedAccount];
     const form = await openForm(["Cardless ATM Withdrawal"]);
+    fireEvent.click(form.getByRole("button", { name: "Continue to payment" }));
     fireEvent.click(form.getByRole("button", { name: /Bank Hapoalim/ }));
     expect(form.queryByText("Payout bank account")).toBeNull();
+    fireEvent.click(form.getByRole("button", { name: "Review listing" }));
     const submit = form.getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(form.getByRole("checkbox"));
     await waitFor(() => expect(submit.disabled).toBe(false));
     fireEvent.click(submit);
     await waitFor(() => expect(submittedListing).toBeDefined());
@@ -127,8 +133,6 @@ describe("listing payment-method bank requirements", () => {
 describe("create-listing review summary", () => {
   it.each(["en", "ar"] as const)("keeps exact amounts and commission consent through submission (%s)", async (locale) => {
     const form = await openForm(["Face-to-Face (Meet in Person)"], locale);
-    const summary = form.getByRole("region", { name: locale === "ar" ? "المراجعة والإرسال" : "Review & submit" });
-    const review = within(summary);
     const available = document.getElementById("create-available") as HTMLInputElement;
     const maximum = document.getElementById("create-max-trade") as HTMLInputElement;
 
@@ -139,6 +143,9 @@ describe("create-listing review summary", () => {
     fireEvent.change(maximum, { target: { value: "500.500001" } });
     fireEvent.change(document.getElementById("create-network")!, { target: { value: "BEP20" } });
 
+    fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "متابعة إلى الدفع" : "Continue to payment" }));
+    fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "مراجعة العرض" : "Review listing" }));
+    const review = within(form.getByRole("region", { name: locale === "ar" ? "المراجعة والإرسال" : "Review & submit" }));
     expect(review.getByTestId("create-summary-amount").textContent).toBe("1,000.123456 USDT");
     expect(review.getByTestId("create-summary-range").textContent).toBe("100.125001 – 500.500001 USDT");
     expect(review.getByTestId("create-summary-total").textContent).toBe("₪3,100.38");
@@ -147,7 +154,6 @@ describe("create-listing review summary", () => {
 
     const submit = form.getByRole("button", { name: locale === "ar" ? "إرسال العرض" : "Submit Listing" }) as HTMLButtonElement;
     const agreement = review.getByRole("checkbox");
-    fireEvent.click(agreement);
     expect(submit.disabled).toBe(true);
     expect(submittedListing).toBeUndefined();
     fireEvent.click(agreement);
@@ -185,6 +191,9 @@ it.each(["en", "ar"] as const)("groups the seller's 50,000 / 5,000 inputs and su
   expect(maximum.value).toBe("50,000.12");
   fireEvent.change(maximum, { target: { value: "10,000.100000" } });
   expect(maximum.value).toBe("10,000.100000");
+  fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "متابعة إلى الدفع" : "Continue to payment" }));
+  fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "مراجعة العرض" : "Review listing" }));
+  fireEvent.click(form.getByRole("checkbox"));
   fireEvent.click(form.getByRole("button", { name: locale === "ar" ? "إرسال العرض" : "Submit Listing" }));
   await waitFor(() => expect(submittedListing).toBeDefined());
   expect(submittedListing).toMatchObject({ availableAmount: "50000.120000", minimumTrade: "5000.000001", maximumTrade: "10000.100000", price: "3.10" });
