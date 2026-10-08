@@ -14,6 +14,7 @@ import { TradeHeaderNotice } from "./trade-header-notice";
 import { OwnerActiveTradeNotices } from "./owner-active-trade-notices";
 import { SellerActiveTradeNotices } from "./seller-active-trade-notices";
 import { usesSellerActiveTradeHeader } from "@/lib/seller-active-trades";
+import { journalEnabled } from "@/lib/journal/feature";
 
 async function getNonBlockingTradeHeaderState(sessionUser: AlphaExchangeUser | null) {
   if (!sessionUser) {
@@ -76,6 +77,7 @@ export async function SiteHeader({
   const nav = [
     { href: "/", label: t("home") },
     { href: "/academy", label: t("academy") },
+    ...(sessionUser && journalEnabled() ? [{ href: "/journal", label: locale === "ar" ? "سجل التداول" : "Trading Journal" }] : []),
     { href: "/prop-firms", label: locale === "ar" ? "الشركات المموّلة" : "Prop Firms" },
     { href: "/community", label: t("community") },
     { href: "/news", label: locale === "ar" ? "الأخبار" : "News" },

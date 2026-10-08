@@ -1,0 +1,73 @@
+import { createServer } from "node:http";
+import { readFile,writeFile } from "node:fs/promises";
+import { chromium } from "playwright";
+import assert from "node:assert/strict";
+import path from "node:path";
+const htmlPath=process.argv[2],outDir=path.dirname(htmlPath);
+if(!htmlPath)throw new Error("Pass the generated preview HTML.");
+const html=await readFile(htmlPath);
+const server=createServer((_request,response)=>{response.writeHead(200,{"content-type":"text/html"});response.end(html);});
+await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+const browser=await chromium.launch({headless:true,executablePath:process.env.JOURNAL_BROWSER_EXECUTABLE||undefined,args:["--no-sandbox"]});
+const url=`http://127.0.0.1:${server.address().port}/journal.html`,errors=[],checks=[];let debugPage;
+async function ready(page){await page.getByText("Opening your journal…").waitFor({state:"hidden"});await page.locator('.j-stat').first().waitFor();}
+async function overflow(page,label){assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,label);checks.push(`${label}: no horizontal overflow`);}
+try{
+  const context=await browser.newContext({viewport:{width:1440,height:1080}}),page=await context.newPage();
+  debugPage=page;page.on("pageerror",e=>errors.push(e.message));page.on("dialog",d=>d.accept());
+  await page.goto(url);await ready(page);
+  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Desktop.png"),fullPage:true});
+  await overflow(page,"Desktop overview");
+  await page.getByRole('button',{name:'Insights',exact:true}).click();
+  await page.getByRole('heading',{name:'Following your plan'}).waitFor();
+  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Insights.png"),fullPage:true});
+  await page.getByRole('button',{name:'Review',exact:true}).click();
+  await page.getByRole('heading',{name:'Session notes',exact:true}).waitFor();
+  await page.screenshot({path:path.join(outDir,"Alpha-Journal-Review.png"),fullPage:true});
+  const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,deviceScaleFactor:1}),phone=await mobile.newPage();
+  phone.on('pageerror',e=>errors.push(e.message));phone.on('dialog',d=>d.accept());
+  await phone.goto(url);await ready(phone);await overflow(phone,"Mobile overview");
+  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Mobile.png"),fullPage:true});
+  for(const label of ['My trades','Review','Insights','My rules']){await phone.getByRole('button',{name:label,exact:true}).click();await overflow(phone,`Mobile ${label}`);}
+  await phone.getByRole('button',{name:'Overview',exact:true}).click();await phone.getByRole('button',{name:'العربية',exact:true}).click();
+  await phone.getByRole('heading',{name:'سجل التداول',exact:true}).waitFor();await overflow(phone,"Arabic mobile overview");
+  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Arabic.png"),fullPage:true});
+  await phone.getByRole('button',{name:'إضافة صفقة',exact:true}).click();await overflow(phone,"Arabic trade entry");
+  await phone.screenshot({path:path.join(outDir,"Alpha-Journal-Trade-Entry.png"),fullPage:false});
+  await mobile.close();
+
+  await page.getByRole('button',{name:'Try an empty journal',exact:true}).click();await page.getByText('No trades in this period',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Add trade',exact:true}).first().click();
+  await page.getByLabel('Symbol',{exact:true}).fill('MNQ');
+  await page.getByLabel('P&L before fees · USD',{exact:true}).fill('100.50');
+  await page.getByLabel('Fees · USD',{exact:true}).fill('0.50');
+  await page.getByRole('tab',{name:'Notes & behavior',exact:true}).click();
+  await page.getByRole('button',{name:'Yes',exact:true}).click();
+  await page.getByLabel('Trade notes',{exact:true}).fill('=HYPERLINK("https://example.test")\n<script>window.bad=true</script>\nملاحظة خاصة');
+  await page.getByRole('button',{name:'Save trade',exact:true}).click();
+  await page.locator('dialog').waitFor({state:'hidden'});
+  assert.equal(await page.locator('.j-stat').first().innerText().then(s=>s.includes('+$100.00')),true);
+  await page.reload();await ready(page);assert.equal(await page.locator('.j-stat').first().innerText().then(s=>s.includes('+$100.00')),true);checks.push('Trade create and reload persistence, exact fees, notes escaped');
+  assert.equal(await page.evaluate(()=>Boolean(window.bad)),false);
+  await page.getByRole('button',{name:/Open trade MNQ/}).first().click();
+  await page.getByLabel('P&L before fees · USD',{exact:true}).fill('-49.50');await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.locator('dialog').waitFor({state:'hidden'});
+  assert.equal(await page.locator('.j-stat').first().innerText().then(s=>s.includes('-$50.00')),true);checks.push('Editing recalculates net loss without duplicating the trade');
+  await page.getByRole('button',{name:/Open trade MNQ/}).first().click();await page.getByRole('tab',{name:'Charts',exact:true}).click();
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=','base64');
+  await page.locator('input[type=file]').setInputFiles({name:'chart.png',mimeType:'image/png',buffer:png});
+  await page.getByRole('button',{name:'View chart 1',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Close / إغلاق',exact:true}).click();await page.reload();await ready(page);
+  await page.getByRole('button',{name:/Open trade MNQ/}).first().click();await page.getByRole('tab',{name:'Charts',exact:true}).click();await page.getByRole('button',{name:'View chart 1',exact:true}).waitFor();checks.push('Chart upload and persistence after reload');
+  await page.getByRole('button',{name:'Close / إغلاق',exact:true}).click();
+  await page.getByRole('button',{name:'Review',exact:true}).click();await page.getByLabel('What I learned',{exact:true}).fill('Daily review survives reload.');await page.getByRole('button',{name:'Save review',exact:true}).click();await page.getByText('Review saved',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Weekly review',exact:true}).click();await page.getByLabel('What I learned',{exact:true}).fill('Weekly review is independent.');await page.getByRole('button',{name:'Save review',exact:true}).click();await page.getByText('Review saved',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Daily review',exact:true}).click();assert.equal(await page.getByLabel('What I learned',{exact:true}).inputValue(),'Daily review survives reload.');checks.push('Daily and weekly reviews remain separate');
+  await page.getByRole('button',{name:'My rules',exact:true}).click();await page.getByLabel('Daily loss limit · USD',{exact:true}).fill('50');await page.getByRole('button',{name:'Save rules',exact:true}).click();await page.getByText('Rules saved',{exact:true}).waitFor();
+  await page.reload();await ready(page);await page.getByRole('heading',{name:'Your daily limit is reached',exact:true}).waitFor();checks.push('Saved risk limits drive the daily reminder');
+  await page.getByRole('button',{name:'My trades',exact:true}).click();await page.getByRole('button',{name:'All time',exact:true}).click();
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export CSV',exact:true}).click();const downloaded=await download;const csv=await readFile(await downloaded.path(),'utf8');assert.ok(csv.includes('"-50.00"'));assert.ok(csv.includes("'=HYPERLINK"));checks.push('CSV exact net result and spreadsheet formula neutralization');
+  await page.getByRole('button',{name:/Open trade MNQ/}).first().click();await page.getByRole('button',{name:'Delete',exact:true}).click();await page.getByRole('button',{name:'Delete trade',exact:true}).click();await page.locator('dialog').waitFor({state:'hidden'});await page.getByText('No matching trades',{exact:true}).waitFor();checks.push('Trade deletion updates the list and statistics');
+  assert.deepEqual(errors,[]);checks.push('No browser runtime errors');
+  await writeFile(path.join(outDir,'journal-browser-results.json'),JSON.stringify({passed:true,checks,errors},null,2));
+  console.log(JSON.stringify({passed:true,checks,errors},null,2));
+}catch(error){console.error(error);console.error(JSON.stringify({errors,checks,body:await debugPage?.locator("body").innerText()},null,2));await debugPage?.screenshot({path:path.join(outDir,"journal-debug.png"),fullPage:true});throw error;}finally{await browser.close();server.close();}

@@ -6,6 +6,7 @@
   "fluid": true,
   "regions": ["dub1"],
   "crons": [
+    { "path": "/api/cron/journal-cleanup", "schedule": "17 * * * *" },
     { "path": "/api/cron/economic-news", "schedule": "* * * * *" },
     { "path": "/api/cron/trade-action-reminders", "schedule": "1-59/5 * * * *" },
     { "path": "/api/cron/commission-payment-verification", "schedule": "* * * * *" },

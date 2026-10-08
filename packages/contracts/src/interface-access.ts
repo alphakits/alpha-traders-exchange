@@ -48,7 +48,7 @@ export function canShowInterfaceLink(href: string, user: InterfaceSessionUser | 
     if (/[?&]mode=sell(?:[&#]|$)/.test(href) || /#create-listing(?:$|[?&])/.test(href)) return access.canSell;
     return !/[?#]/.test(href) || access.authenticated;
   }
-  if (/^\/(?:profile|settings|notifications|academy|lessons|prop-firms|news|learn-with-mark)(?:\/|$)/.test(path)) return access.authenticated;
+  if (/^\/(?:journal|profile|settings|notifications|academy|lessons|prop-firms|news|learn-with-mark)(?:\/|$)/.test(path)) return access.authenticated;
   if (path === "/start") return !access.authenticated;
   return true;
 }

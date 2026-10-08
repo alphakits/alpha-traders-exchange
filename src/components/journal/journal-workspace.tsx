@@ -1,0 +1,132 @@
+"use client";
+/* eslint-disable @next/next/no-img-element -- The small supplied WebP also renders as an embedded asset in the offline review build. */
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, CalendarDays, ChevronLeft, ChevronRight, Download, LayoutDashboard, List, LoaderCircle, LockKeyhole, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Target, TrendingUp } from "lucide-react";
+import { journalApi, type JournalAdapter } from "@/lib/journal/client";
+import { DEFAULT_SETTINGS, chronological, dailyResults, dayInZone, emptyReview, emptyTrade, groupResults, inPeriod, metrics, money, netPnl, shiftDate, weekStart, type JournalLocale, type JournalPeriod, type JournalSnapshot, type JournalTrade } from "@/lib/journal/model";
+import { Amount, Calendar, Empty, EquityChart, codeLabel, dateLabel, phrase } from "./journal-ui";
+import { TradeEditor } from "./trade-editor";
+import { ReviewForm, RulesForm } from "./journal-review";
+import "./journal.css";
+
+type View="overview"|"trades"|"review"|"insights"|"rules";
+export function JournalWorkspace({ locale="en",adapter=journalApi, preview=false,brandImage="/images/brand/alpha-traders-logo.webp" }: {locale?:JournalLocale;adapter?:JournalAdapter;preview?:boolean;brandImage?:string}) {
+  const t=phrase(locale);
+  const [data,setData]=useState<JournalSnapshot|null>(null),[error,setError]=useState("");
+  const [loading,setLoading]=useState(true),[reload,setReload]=useState(0),[view,setView]=useState<View>("overview");
+  const [period,setPeriod]=useState<JournalPeriod>("month"),[editor,setEditor]=useState<JournalTrade|null>(null);
+  const [query,setQuery]=useState(""),[outcome,setOutcome]=useState("all"),[visible,setVisible]=useState(30);
+  const [dirty,setDirty]=useState(false),[notice,setNotice]=useState("");
+  const settings=data?.settings??DEFAULT_SETTINGS,today=dayInZone(settings.timezone);
+  const [month,setMonth]=useState(today.slice(0,7)),[reviewDate,setReviewDate]=useState(today),[reviewPeriod,setReviewPeriod]=useState<"day"|"week">("day");
+  useEffect(()=>{
+    const controller=new AbortController();let active=true;
+    setLoading(true);setError("");setData(null);
+    adapter.load(controller.signal).then(value=>{if(active){setData(value);setMonth(dayInZone(value.settings.timezone).slice(0,7));}}).catch(()=>{if(active)setError(t("Your journal could not be loaded. Please try again.","تعذّر تحميل السجل. حاول مرة أخرى."));}).finally(()=>{if(active)setLoading(false);});
+    return()=>{active=false;controller.abort();};
+    // A locale change should not discard unsaved edits or trigger another fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[adapter,reload]);
+  useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>e.preventDefault();window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty]);
+  const navigate=(next:View)=>{if(dirty && !window.confirm(t("Leave without saving your changes?","المغادرة دون حفظ التعديلات؟")))return;setDirty(false);setView(next);setNotice("");};
+  const selected=useMemo(()=>data?.trades.filter(trade=>inPeriod(trade.date,period,today))??[],[data,period,today]);
+  const summary=useMemo(()=>metrics(selected),[selected]);
+  const filtered=useMemo(()=>chronological(selected).reverse().filter(trade=>{
+    const matches=`${trade.symbol} ${trade.strategy} ${trade.notes}`.toLowerCase().includes(query.toLowerCase());
+    if(!matches)return false;
+    if(outcome==="open")return trade.status==="open";
+    if(outcome==="all")return true;
+    return trade.status==="closed" && (outcome==="win"?netPnl(trade)>0:outcome==="loss"?netPnl(trade)<0:netPnl(trade)===0);
+  }),[selected,query,outcome]);
+  const saveTrade=(trade:JournalTrade)=>{setData(old=>old?{...old,trades:[...old.trades.filter(x=>x.id!==trade.id),trade]}:old);setNotice(t("Trade saved","تم حفظ الصفقة"));};
+  const reviewStart=reviewPeriod==="week"?weekStart(reviewDate):reviewDate;
+  const reviewTrades=data?.trades.filter(trade=>reviewPeriod==="day"?trade.date===reviewStart:trade.date>=reviewStart && trade.date<=shiftDate(reviewStart,6))??[];
+  const reviewStats=metrics(reviewTrades);
+  const review=data?.reviews.find(r=>r.date===reviewStart && r.period===reviewPeriod)??emptyReview(reviewStart,reviewPeriod);
+  const openDay=(date:string)=>{if(dirty && !window.confirm(t("Discard unsaved review?","تجاهل المراجعة غير المحفوظة؟")))return;setDirty(false);setReviewPeriod("day");setReviewDate(date);setView("review");};
+  const nav=[
+    {id:"overview" as const,icon:LayoutDashboard,label:t("Overview","نظرة عامة")},
+    {id:"trades" as const,icon:List,label:t("My trades","صفقاتي")},
+    {id:"review" as const,icon:BookOpen,label:t("Review","المراجعة")},
+    {id:"insights" as const,icon:Sparkles,label:t("Insights","التحليلات")},
+    {id:"rules" as const,icon:SlidersHorizontal,label:t("My rules","قواعدي")},
+  ];
+  const exportCsv=()=>{
+    const rows=[['Date','Time','Symbol','Direction','Status','Gross USD','Fees USD','Net USD','Risk USD','Setup','Session','Emotion','Followed plan','Notes'],...chronological(selected).map(trade=>[trade.date,trade.time,trade.symbol,trade.direction,trade.status,(trade.grossPnlCents/100).toFixed(2),(trade.feesCents/100).toFixed(2),trade.status==="closed"?(netPnl(trade)/100).toFixed(2):"",trade.riskCents===null?"":(trade.riskCents/100).toFixed(2),trade.strategy,trade.session,trade.emotion,trade.followedPlan===null?"":String(trade.followedPlan),trade.notes])];
+    const csv=rows.map((row,i)=>row.map((cell,j)=>{const s=String(cell);const escaped=(i>0 && [5,6,7,8].includes(j))?s:/^[=+\-@\t\r]/.test(s)?`'${s}`:s;return `"${escaped.replaceAll('"','""')}"`;}).join(',')).join('\r\n');
+    const url=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`alpha-trades-${period}-${today}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
+  };
+  const tradeRows=(rows:JournalTrade[],compact=false)=><div className="j-trade-table">
+    <div className="j-trade-table-head"><span>{t("Instrument / setup","الأداة / الإعداد")}</span><span>{t("Date","التاريخ")}</span><span>{t("Behavior","السلوك")}</span><span>{t("Net P&L","صافي النتيجة")}</span></div>
+    {rows.map(trade=><button key={trade.id} className="j-trade-row" onClick={()=>setEditor(trade)} aria-label={`${t("Open trade","فتح الصفقة")} ${trade.symbol} ${trade.date} ${trade.time}`}>
+      <div className="j-trade-symbol"><span className={`j-direction ${trade.direction}`} aria-hidden="true">{trade.direction==="long"?"L":"S"}</span><div><strong dir="ltr">{trade.symbol}</strong><span dir="auto">{trade.strategy||t("No setup tagged","بدون إعداد")}</span></div></div>
+      <div className="j-trade-date"><span>{dateLabel(trade.date,locale,true)}</span><small dir="ltr">{trade.time} · {trade.direction==="long"?t("Long","شراء"):t("Short","بيع")}</small></div>
+      <div className="j-trade-behavior"><span className={`j-pill ${trade.followedPlan===true?"good":trade.followedPlan===false?"warn":""}`}>{trade.followedPlan===true?t("On plan","التزام بالخطة"):trade.followedPlan===false?t("Off plan","خارج الخطة"):t("Not reviewed","لم تراجع")}</span>{!compact && trade.emotion && <small>{codeLabel(trade.emotion,locale)}</small>}</div>
+      <div className="j-trade-result">{trade.status==="closed"?<><Amount cents={netPnl(trade)} locale={locale}/><small>{trade.riskCents?`${(netPnl(trade)/trade.riskCents).toFixed(2)}R`:t("After fees","بعد الرسوم")}</small></>:<span className="j-pill">{t("Open","مفتوحة")}</span>}</div>
+    </button>)}
+  </div>;
+  const statCards=(stats:ReturnType<typeof metrics>)=><div className="j-stat-grid">
+    <div className="j-stat"><span>{t("Net P&L","صافي الربح والخسارة")}</span><strong><Amount cents={stats.net} locale={locale}/></strong><small>{t("After","بعد")} <span dir="ltr">{money(stats.fees,locale)}</span> {t("in fees","رسوم")}</small><span className="j-stat-decoration"><TrendingUp size={26}/></span></div>
+    <div className="j-stat"><span>{t("Win rate","نسبة الفوز")}</span><strong>{stats.winRate===null?"—":`${stats.winRate.toFixed(1)}%`}</strong><div className="j-win-bar" aria-hidden="true"><i style={{width:`${stats.winRate??0}%`}}/></div><small>{stats.wins} {t("wins","رابحة")} · {stats.lossCount} {t("losses","خاسرة")} · {stats.breakeven} {t("flat","تعادل")}</small></div>
+    <div className="j-stat"><span>{t("Total trades","إجمالي الصفقات")}</span><strong>{stats.count+stats.open}<small>{t("trades","صفقات")}</small></strong><small>{stats.count} {t("closed","مغلقة")} · {stats.open} {t("open","مفتوحة")}</small></div>
+    <div className="j-stat"><span>{t("Plan adherence","الالتزام بالخطة")}</span><strong>{stats.discipline===null?"—":`${Math.round(stats.discipline)}%`}<ShieldCheck size={25}/></strong><small>{stats.assessed} {t("reviewed trades","صفقات تمت مراجعتها")}</small></div>
+  </div>;
+  const onPlan=selected.filter(trade=>trade.followedPlan===true),offPlan=selected.filter(trade=>trade.followedPlan===false);
+  const dayTrades=data?.trades.filter(trade=>trade.date===today)??[],dayStats=metrics(dayTrades);
+  const bestSetup=groupResults(selected,"strategy").filter(s=>s.name!=="unrecorded")[0];
+  const currentWeek=dailyResults(data?.trades.filter(trade=>inPeriod(trade.date,"week",today))??[]);
+  const focusCard=<section className="j-panel j-focus"><div className="j-focus-icon"><Target size={22}/></div><span className="j-kicker">{t("YOUR NEXT FOCUS","تركيزك القادم")}</span><h2>{dayStats.net<=-settings.dailyLossLimitCents?t("Your daily limit is reached","وصلت إلى حد الخسارة اليومي"):dayTrades.length>=settings.maxTradesPerDay?t("Your trade limit is reached","وصلت إلى حد عدد الصفقات"):offPlan.length?t("Review the trades outside your plan","راجع الصفقات خارج خطتك"):t("Build a repeatable process","ابنِ طريقة قابلة للتكرار")}</h2><p>{dayStats.net<=-settings.dailyLossLimitCents?t(`Your daily loss limit is ${money(settings.dailyLossLimitCents)}. Review your recorded trades before your next session.`,`حد خسارتك اليومي ${money(settings.dailyLossLimitCents)}. راجع صفقاتك المسجلة قبل الجلسة القادمة.`):dayTrades.length>=settings.maxTradesPerDay?t(`You recorded ${dayTrades.length} trades against a daily limit of ${settings.maxTradesPerDay}. Make time to review the session.`,`سجلت ${dayTrades.length} صفقات وحدك اليومي ${settings.maxTradesPerDay}. خصص وقتاً لمراجعة الجلسة.`):offPlan.length?`${offPlan.length} ${t("off-plan trades in this period. Compare them with your planned trades in Insights.","صفقات خارج الخطة في هذه الفترة. قارنها بصفقات الالتزام في التحليلات.")}`:t("Tag your setup and review your decisions. The useful patterns come from your own records.","حدد إعدادك وراجع قراراتك. الأنماط المفيدة تظهر من سجلاتك.")}</p><button className="j-btn" onClick={()=>navigate(offPlan.length?"insights":"review")}>{offPlan.length?t("Compare behavior","قارن السلوك"):t("Review session","راجع الجلسة")}</button><div className="j-focus-foot"><LockKeyhole size={12}/>{t("Based on your journal","استناداً إلى سجلك")}</div></section>;
+  return <div className="j-app" dir={locale==="ar"?"rtl":"ltr"} lang={locale}>
+    <aside className="j-sidebar">
+      <div className="j-brand"><img src={brandImage} alt="Alpha Traders"/><div><strong>Alpha Traders</strong><small>TRADING JOURNAL</small></div></div>
+      <span className="j-nav-label">{t("MY WORKSPACE","مساحتي")}</span>
+      <nav aria-label={t("Journal navigation","التنقل في سجل التداول")}>{nav.map(({id,icon:Icon,label})=><button key={id} className={view===id?"active":""} onClick={()=>navigate(id)} aria-current={view===id?"page":undefined}><Icon size={19} aria-hidden="true"/><span>{label}</span></button>)}</nav>
+      <div className="j-sidebar-bottom"><LockKeyhole size={17}/><div><strong>{t("Your private journal","سجلك الخاص")}</strong><small>{preview?t("Preview · this device only","معاينة · على هذا الجهاز فقط"):t("Saved to your account","محفوظ في حسابك")}</small></div></div>
+    </aside>
+    <main className="j-main">
+      <header className="j-page-header"><div><div className="j-kicker">{t("THE TRADER BEHIND THE TRADES","المتداول وراء الصفقات")}</div><h1>{view==="overview"?t("Trading journal","سجل التداول"):nav.find(n=>n.id===view)?.label}</h1><p>{view==="overview"?t("A clearer view of your performance.","رؤية أوضح لأدائك."):view==="trades"?t("Every decision, in one place.","كل قرار، في مكان واحد."):view==="review"?t("Learn from the process, not only the result.","تعلّم من الطريقة، وليس من النتيجة فقط."):view==="insights"?t("Find the patterns in your own trading.","اكتشف الأنماط في تداولك."):t("Give every session a clear plan.","امنح كل جلسة خطة واضحة.")}</p></div>
+        <div className="j-header-actions"><span className="j-private"><LockKeyhole size={13}/>{t("Private","خاص")}</span><button className="j-btn primary" disabled={!data||loading} onClick={()=>setEditor(emptyTrade(today))}><Plus size={18}/>{t("Add trade","إضافة صفقة")}</button></div>
+      </header>
+      {loading?<div className="j-loading" role="status"><LoaderCircle className="j-spin" size={24}/>{t("Opening your journal…","جار فتح سجلك…")}</div>:error?<div className="j-error" role="alert"><p>{error}</p><button className="j-btn" onClick={()=>setReload(n=>n+1)}>{t("Try again","حاول مجدداً")}</button></div>:data && <>
+        <div className="j-toolbar"><div className="j-periods" aria-label={t("Results period","فترة النتائج")}>
+          {view!=="review"&&view!=="rules"&&(["today","week","month","all"] as const).map(p=><button key={p} className={period===p?"active":""} aria-pressed={period===p} onClick={()=>{setPeriod(p);setVisible(30);}}>{p==="today"?t("Today","اليوم"):p==="week"?t("This week","هذا الأسبوع"):p==="month"?t("This month","هذا الشهر"):t("All time","الكل")}</button>)}
+        </div><div className="j-toolbar-meta"><span>{t("USD","USD")} · {settings.timezone.replaceAll("_"," ")}</span><button className="j-icon" title={t("Reload journal","إعادة تحميل السجل")} aria-label={t("Reload journal","إعادة تحميل السجل")} onClick={()=>{if(!dirty||window.confirm(t("Discard unsaved changes and reload?","تجاهل المراجعة غير المحفوظة وإعادة التحميل؟"))){setDirty(false);setReload(n=>n+1);}}}><RefreshCw size={15}/></button></div></div>
+        {notice && <div className="j-notice" role="status">{notice}</div>}
+        {view==="overview" && <>
+          {statCards(summary)}
+          <div className="j-main-grid"><section className="j-panel j-equity-panel"><div className="j-panel-head"><div><span className="j-kicker">{t("PERFORMANCE","الأداء")}</span><h2>{t("Cumulative net P&L","صافي الربح والخسارة التراكمي")}</h2></div><span className="j-pill">{summary.count} {t("closed trades","صفقات مغلقة")}</span></div><EquityChart trades={selected} locale={locale}/><div className="j-equity-footer"><div><span>{t("Average per trade","متوسط الصفقة")}</span><strong>{summary.expectancy===null?"—":<Amount cents={summary.expectancy} locale={locale}/>}</strong></div><div><span>{t("Max drawdown","أكبر تراجع")}</span><strong className="j-money" dir="ltr">{money(summary.maxDrawdown,locale)}</strong></div><div><span>{t("Profit factor","معامل الربح")}</span><strong>{summary.profitFactor===null?(summary.gains?t("No losses","بلا خسائر"):"—"):summary.profitFactor.toFixed(2)}</strong></div></div></section>{focusCard}</div>
+          <div className="j-main-grid j-calendar-layout"><Calendar month={month} onMonth={setMonth} trades={data.trades} locale={locale} today={today} onDay={openDay} reviews={data.reviews.filter(r=>r.period==="day").map(r=>r.date)}/>
+            <section className="j-panel j-week"><div className="j-panel-head"><div><span className="j-kicker">{t("THIS WEEK","هذا الأسبوع")}</span><h2>{t("Day by day","يوماً بيوم")}</h2></div><CalendarDays size={20}/></div><div className="j-week-total"><Amount cents={currentWeek.reduce((n,d)=>n+d.net,0)} locale={locale}/><span>{t("Net P&L after fees","صافي النتيجة بعد الرسوم")}</span></div>{Array.from({length:7},(_,i)=>{const date=shiftDate(weekStart(today),i),day=currentWeek.find(d=>d.date===date);return <button className="j-week-row" key={date} onClick={()=>openDay(date)}><span>{new Intl.DateTimeFormat(locale==="ar"?"ar-IL":"en-US",{weekday:"short",timeZone:"UTC"}).format(new Date(`${date}T12:00:00Z`))}{date===today&&<i/>}</span>{day?<Amount cents={day.net} locale={locale}/>:<span className="j-muted">—</span>}</button>;})}<button className="j-btn ghost" onClick={()=>{setReviewPeriod("week");setReviewDate(today);navigate("review");}}>{t("Review this week","مراجعة الأسبوع")}</button></section>
+          </div>
+          <section className="j-panel"><div className="j-panel-head"><div><span className="j-kicker">{t("THE LATEST","الأحدث")}</span><h2>{t("Recent trades","آخر الصفقات")}</h2></div><button className="j-text-button" onClick={()=>navigate("trades")}>{t("View all trades","عرض جميع الصفقات")}</button></div>{selected.length?tradeRows(chronological(selected).reverse().slice(0,5),true):<Empty title={t("No trades in this period","لا توجد صفقات في هذه الفترة")} action={<button className="j-btn" onClick={()=>setEditor(emptyTrade(today))}><Plus size={16}/>{t("Add your first trade","أضف أول صفقة")}</button>}/>}</section>
+        </>}
+        {view==="trades" && <>
+          {statCards(summary)}<section className="j-panel"><div className="j-trade-filters"><label className="j-search"><Search size={17}/><input value={query} onChange={e=>{setQuery(e.target.value);setVisible(30);}} placeholder={t("Search symbol, setup or notes","ابحث عن رمز أو إعداد أو ملاحظة")} aria-label={t("Search trades","البحث عن صفقات")}/></label><select value={outcome} aria-label={t("Filter outcome","تصفية النتائج")} onChange={e=>{setOutcome(e.target.value);setVisible(30);}}>{[["all",t("All results","جميع النتائج")],["win",t("Wins","رابحة")],["loss",t("Losses","خاسرة")],["flat",t("Break-even","تعادل")],["open",t("Open","مفتوحة")]].map(([key,label])=><option key={key} value={key}>{label}</option>)}</select><button className="j-btn" disabled={!selected.length} onClick={exportCsv}><Download size={16}/>{t("Export CSV","تصدير CSV")}</button></div><p className="j-results-count">{filtered.length} {t("matching trades","صفقات مطابقة")}</p>{filtered.length?tradeRows(filtered.slice(0,visible)):<Empty title={t("No matching trades","لا توجد صفقات مطابقة")}/>} {filtered.length>visible&&<button className="j-btn j-load-more" onClick={()=>setVisible(n=>n+30)}>{t("Load more trades","تحميل المزيد")}</button>}</section>
+        </>}
+        {view==="review" && <>
+          <div className="j-review-toolbar"><div className="j-periods">{(["day","week"] as const).map(v=><button key={v} className={reviewPeriod===v?"active":""} onClick={()=>{if(!dirty||window.confirm(t("Discard unsaved review?","تجاهل المراجعة غير المحفوظة؟"))){setDirty(false);setReviewPeriod(v);}}}>{v==="day"?t("Daily review","مراجعة يومية"):t("Weekly review","مراجعة أسبوعية")}</button>)}</div><div className="j-date-control"><button className="j-icon" aria-label={t("Previous session","الجلسة السابقة")} onClick={()=>{if(!dirty||window.confirm(t("Discard unsaved review?","تجاهل المراجعة غير المحفوظة؟"))){setDirty(false);setReviewDate(shiftDate(reviewDate,reviewPeriod==="week"?-7:-1));}}}><ChevronLeft size={17}/></button><input type="date" dir="ltr" aria-label={t("Review date","تاريخ المراجعة")} value={reviewDate} onChange={e=>{if(e.target.value&&(!dirty||window.confirm(t("Discard unsaved review?","تجاهل المراجعة غير المحفوظة؟")))){setDirty(false);setReviewDate(e.target.value);}}}/><button className="j-icon" aria-label={t("Next session","الجلسة التالية")} onClick={()=>{if(!dirty||window.confirm(t("Discard unsaved review?","تجاهل المراجعة غير المحفوظة؟"))){setDirty(false);setReviewDate(shiftDate(reviewDate,reviewPeriod==="week"?7:1));}}}><ChevronRight size={17}/></button></div></div>
+          <h2 className="j-review-date">{dateLabel(reviewStart,locale)}{reviewPeriod==="week"?` – ${dateLabel(shiftDate(reviewStart,6),locale,true)}`:""}</h2>{statCards(reviewStats)}
+          <ReviewForm key={`${reviewStart}:${reviewPeriod}`} initial={review} locale={locale} adapter={adapter} onDirty={setDirty} onSaved={saved=>setData(old=>old?{...old,reviews:[...old.reviews.filter(r=>!(r.date===saved.date&&r.period===saved.period)),saved]}:old)}/>
+          <section className="j-panel"><div className="j-panel-head"><h2>{t("Session timeline","تسلسل الجلسة")}</h2><button className="j-btn" onClick={()=>setEditor(emptyTrade(reviewDate))}><Plus size={16}/>{t("Add trade","إضافة صفقة")}</button></div>{reviewTrades.length?tradeRows(chronological(reviewTrades)):<Empty title={t("No trades recorded","لا توجد صفقات مسجلة")} body={t("A no-trade day can still be worth reviewing.","حتى اليوم دون صفقات يستحق المراجعة.")}/>}</section>
+        </>}
+        {view==="insights" && <>
+          <div className="j-insight-note"><Sparkles size={18}/><span>{t("Patterns from your recorded trades. Small samples describe what happened; they do not predict the next trade.","أنماط من صفقاتك المسجلة. العينات الصغيرة تصف الماضي ولا تتنبأ بالصفقة القادمة.")}</span></div>
+          {selected.some(trade=>trade.status==="closed")?<>
+          <div className="j-insight-cards"><section className="j-panel"><span className="j-kicker">{t("BEST RECORDED SETUP","أفضل إعداد مسجل")}</span><h2 dir="auto">{bestSetup?.name??t("Tag your setups","حدد إعداداتك")}</h2>{bestSetup&&<><Amount cents={bestSetup.net} locale={locale}/><p>{bestSetup.count} {t("trades in this period","صفقات في هذه الفترة")}</p></>}</section><section className="j-panel"><span className="j-kicker">{t("RISK & RETURN","المخاطرة والعائد")}</span><h2>{summary.averageR===null?"—":`${summary.averageR.toFixed(2)}R`}</h2><p>{t("Average realized R","متوسط R المحقق")} · {summary.rCount} {t("trades with initial risk recorded","صفقات ذات مخاطرة أولية مسجلة")}</p></section><section className="j-panel"><span className="j-kicker">{t("DOWNSIDE","التراجع")}</span><h2 dir="ltr">{money(summary.maxDrawdown,locale)}</h2><p>{t("Largest decline from a running P&L peak in this period.","أكبر انخفاض من قمة النتيجة التراكمية خلال الفترة.")}</p></section></div>
+          <div className="j-main-grid j-even"><section className="j-panel"><div className="j-panel-head"><h2>{t("Following your plan","الالتزام بخطتك")}</h2><ShieldCheck size={21}/></div>{[{rows:onPlan,label:t("Followed my plan","التزمت بخطتي")},{rows:offPlan,label:t("Did not follow my plan","لم ألتزم بخطتي")}].map(({rows,label})=>{const s=metrics(rows);return <div className="j-compare" key={label}><div><strong>{label}</strong><span>{s.count} {t("closed trades","صفقات مغلقة")}</span></div><Amount cents={s.net} locale={locale}/></div>;})}<p className="j-hint">{t("Trades without a review are excluded from this comparison.","الصفقات دون تقييم لا تدخل في هذه المقارنة.")}</p></section><section className="j-panel"><div className="j-panel-head"><h2>{t("Patterns to review","أنماط للمراجعة")}</h2><Target size={21}/></div>{MISTAKE_ROWS(selected,locale)}<p className="j-hint">{t("P&L is associated with each tag, not caused by it. A trade may have more than one tag.","ترتبط النتيجة بالتصنيف ولا يثبت أنه سببها. قد تحمل الصفقة عدة تصنيفات.")}</p></section></div>
+          <div className="j-main-grid j-even">{(["strategy","emotion","session","symbol"] as const).map(key=><section className="j-panel" key={key}><div className="j-panel-head"><h2>{key==="strategy"?t("By setup","حسب الإعداد"):key==="emotion"?t("By emotion","حسب الشعور"):key==="session"?t("By session","حسب الجلسة"):t("By instrument","حسب الأداة")}</h2><span className="j-muted">{t("Net P&L","صافي النتيجة")}</span></div>{groupResults(selected,key).map(group=><div className="j-group-result" key={group.name}><div><strong dir="auto">{key==="emotion"||key==="session"||group.name==="unrecorded"?codeLabel(group.name,locale):group.name}</strong><small>{group.count} {t("trades","صفقات")} · {group.winRate?.toFixed(0)}% {t("wins","فوز")}</small></div><Amount cents={group.net} locale={locale}/></div>)}</section>)}</div>
+          </>:<Empty title={t("Insights grow with your journal","تنمو التحليلات مع سجلك")} body={t("Record a closed trade and tag its setup and behavior.","سجّل صفقة مغلقة وحدد إعدادها وسلوكك.")}/>}
+        </>}
+        {view==="rules" && <RulesForm initial={settings} locale={locale} adapter={adapter} onDirty={setDirty} onSaved={value=>setData(old=>old?{...old,settings:value}:old)}/>}
+        <footer className="j-footer"><span><LockKeyhole size={12}/>{t("Your trades. Your process. Your progress.","صفقاتك. طريقتك. تقدمك.")}</span><span>{t("Alpha Traders Academy & Exchange","Alpha Traders Academy & Exchange")}</span></footer>
+      </>}
+    </main>
+    {editor&&<TradeEditor initial={editor} key={editor.id} adapter={adapter} locale={locale} timezone={settings.timezone} onSaved={saveTrade} onDeleted={id=>{setData(old=>old?{...old,trades:old.trades.filter(trade=>trade.id!==id)}:old);setNotice(t("Trade deleted","تم حذف الصفقة"));}} onClose={()=>setEditor(null)}/>}
+  </div>;
+}
+function MISTAKE_ROWS(trades:JournalTrade[],locale:JournalLocale) {
+  const t=phrase(locale),groups=new Map<string,JournalTrade[]>();
+  for(const trade of trades.filter(t=>t.status==="closed"))for(const tag of trade.mistakes)groups.set(tag,[...(groups.get(tag)??[]),trade]);
+  if(!groups.size)return <p className="j-section-copy">{t("Tag mistakes in your trade notes to find repeated patterns.","صنّف الأخطاء في ملاحظات الصفقة لتحديد الأنماط المتكررة.")}</p>;
+  return [...groups].sort((a,b)=>b[1].length-a[1].length).slice(0,5).map(([tag,rows])=><div className="j-group-result" key={tag}><div><strong>{codeLabel(tag,locale)}</strong><small>{rows.length} {t("trades","صفقات")}</small></div><Amount cents={metrics(rows).net} locale={locale}/></div>);
+}

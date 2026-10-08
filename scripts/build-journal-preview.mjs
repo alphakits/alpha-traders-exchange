@@ -1,0 +1,12 @@
+import { build } from "esbuild";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+const destination=process.argv[2];
+if(!destination)throw new Error("Pass an output HTML path.");
+const result=await build({entryPoints:["scripts/journal-preview.tsx"],bundle:true,write:false,outdir:"preview",format:"iife",platform:"browser",jsx:"automatic",minify:true,define:{"process.env.NODE_ENV":"\"production\""},target:["es2020"],tsconfig:"tsconfig.json"});
+const js=result.outputFiles.find(f=>f.path.endsWith(".js")).text;
+const css=result.outputFiles.find(f=>f.path.endsWith(".css")).text;
+const logo=(await readFile("public/images/brand/alpha-traders-logo.webp")).toString("base64");
+const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><title>Alpha Traders — Trading Journal Preview</title><style>html,body{margin:0;background:#0b1013;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,textarea,select{font:inherit}.preview-banner{max-width:1680px;box-sizing:border-box;margin:auto;background:#232217;border-bottom:1px solid #bba26533;padding:10px 26px;display:flex;justify-content:space-between;gap:14px;align-items:center;color:#d6c69f;font-size:12px}.preview-banner>div{display:flex;align-items:center;gap:14px}.preview-banner strong{font-weight:600}.preview-banner span{color:#a8a084}.preview-banner button{color:#dfd0ac;border:1px solid #dfd0ac35;border-radius:6px;background:#dfd0ac07;padding:7px 10px;font-size:12px;cursor:pointer;min-height:33px}@media(max-width:640px){.preview-banner{padding:10px 16px;font-size:10px;gap:8px;flex-wrap:wrap}.preview-banner>div{gap:9px}.preview-banner>div:first-child{width:100%}.preview-banner button{font-size:11px}}${css}</style></head><body><div id="root"></div><script>window.JOURNAL_LOGO="data:image/webp;base64,${logo}";</script><script>${js.replaceAll("</script","<\\/script")}</script></body></html>`;
+await mkdir(path.dirname(destination),{recursive:true});await writeFile(destination,html);
+console.log(JSON.stringify({path:destination,bytes:Buffer.byteLength(html)}));
