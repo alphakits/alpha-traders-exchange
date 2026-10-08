@@ -41,7 +41,7 @@ export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, c
               dir={compact ? (isAr ? "rtl" : "ltr") : undefined}
               onClick={card.onClick}
               aria-label={`${card.title}: ${compact ? `${card.stat}. ` : ""}${card.subtitle}`}
-              className={cn("flex w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30", card.key === "commission" && "commission-surface", integrated && "min-w-0 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4D87A]", compact || integrated ? "min-h-[88px]" : "min-h-[96px]", toneClass)}
+              className={cn("alpha-task-tile flex w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30", card.key === "commission" && "commission-surface", integrated && "min-w-0 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F4D87A]", compact || integrated ? "min-h-[88px]" : "min-h-[96px]", toneClass)}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -49,7 +49,7 @@ export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, c
                   {["commission", "marketplace-compliance", "trades", "create-listing"].includes(card.key) ? <p className="mt-1 text-sm leading-5 text-[#C8CDD5]">{currencyText(card.subtitle)}</p> : null}
                 </div>
                 <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/20">
-                  <Icon className="h-4 w-4 text-[#F4D87A]" />
+                  <Icon aria-hidden="true" className="h-4 w-4 text-[#F4D87A]" />
                 </span>
               </div>
               <p className={cn("mt-auto pt-2 font-semibold", statIsAction ? "inline-flex items-center gap-1 text-sm text-[#F4D87A]" : "text-xl tracking-tight text-white")}>

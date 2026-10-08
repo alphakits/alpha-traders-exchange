@@ -14,7 +14,7 @@ import { brandText, currencyText, moneyText } from "@/components/ui/currency-tex
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
 import { useState, type Dispatch, type FormEvent, type ReactNode, type RefCallback, type SetStateAction } from "react";
-import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
+import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, PartyPopper, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,7 +57,7 @@ function ListingCreateSection({
   hidden?: boolean;
 }) {
   return (
-    <section hidden={hidden} aria-labelledby={id} className={cn("min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4", hidden && "hidden")}>
+    <section hidden={hidden} aria-labelledby={id} className={cn("alpha-step-panel min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4", hidden && "hidden")}>
       <div className="mb-4 flex items-center gap-3">
         <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#D4AF37]">
           {number}
@@ -1150,12 +1150,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <button type="button" aria-current={listingStep === index + 1 ? "step" : undefined}
                         disabled={index + 1 > listingStep}
                         onClick={() => changeListingStep((index + 1) as 1 | 2 | 3)}
-                        className={cn("flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border px-2 py-2 text-sm disabled:opacity-45", listingStep === index + 1 ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-[#F4D87A]" : "border-white/10 text-[#D1D5DB]")}>
-                        <span aria-hidden="true">{index + 1}</span>{label}
+                        className={cn("alpha-step-tab flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border px-2 py-2 text-sm disabled:opacity-45", listingStep === index + 1 ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-[#F4D87A]" : index + 1 < listingStep ? "border-emerald-400/25 bg-emerald-400/5 text-emerald-200" : "border-white/10 text-[#D1D5DB]")}>
+                        <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{index + 1 < listingStep ? <Check className="h-4 w-4" /> : index === 0 ? <Wallet className="h-4 w-4" /> : index === 1 ? <WalletCards className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>{label}
                       </button>
                     </li>
                   ))}
                 </ol>
+                {listingCreateResult?.tone !== "success" ? <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-white/10"><div className="alpha-step-progress h-full rounded-full bg-[#D4AF37]" style={{ width: `${listingStep / 3 * 100}%` }} /></div> : null}
                 <div className={cn("min-w-0 space-y-4", listingStep === 3 && "hidden")}>
                   <ListingCreateSection hidden={listingStep !== 1} id="create-amount-heading" number={1} icon={<Wallet className="h-4 w-4" />} title={isAr ? "الكمية والسعر" : "Amount & price"}>
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
@@ -1483,7 +1484,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       {listingCreateResult.tone === "error" ? (
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
                       ) : (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                        <span aria-hidden="true" className="alpha-success-badge inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-300/25 bg-emerald-300/10 text-[#F4D87A]"><PartyPopper className="h-6 w-6" /></span>
                       )}
                       <span>{currencyText(isAr && !containsArabicText(listingCreateResult.message) ? (listingCreateResult.tone === "error" ? "تعذّر نشر العرض. راجع الحقول وحاول مرة أخرى." : "تم إرسال العرض للمراجعة بنجاح.") : listingCreateResult.message)}</span>
                     </span>

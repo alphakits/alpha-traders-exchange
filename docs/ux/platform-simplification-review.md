@@ -16,6 +16,7 @@ Owner requested an easier buyer/seller experience across the website and app, wi
 | Notifications and help | Long non-action updates open on demand. Action and commission alerts stay visible. Help begins with four task links; full guides and FAQs open on demand. |
 | Public pages and learning | Shorter home, support, contact and learning-next-step copy. Full lessons and legal policies remain available. |
 | App and Arabic | Paired Arabic/English copy, RTL review, and matching retained mobile copy. The current app uses the website shell, so the web interface applies there too. |
+| Visual polish | Short step transitions, a moving progress line, completed-step checkmarks, task icons, responsive task cards, expanding help, and a small celebration after a listing is submitted. These are source changes, respect reduced-motion settings, and add no animation dependency. |
 
 ## Preserved behavior
 
@@ -30,3 +31,5 @@ The accompanying visual review contains real local browser screenshots with synt
 `scripts/ux-review-capture.ts` refuses non-loopback fixture targets. Run it against a local test-support server with an isolated in-memory repository. It checks required fields, navigation, consent, exact saved data, English/Arabic screens and overflow at 320, 390 and 1440 pixels. The `buyer` argument captures the buyer request and trade-room journey. Optional `REVIEW_CHROMIUM_PATH`, `REVIEW_CHROMIUM_ARGS` and `REVIEW_OUTPUT_DIR` select a local browser/runtime and output folder.
 
 A native device, real commission transfer, external notification delivery and production deployment are separate release checks; local screenshots and mocks do not prove those services. The repository's release safety gate and protected CI must pass before a separately approved live release.
+
+The expanded visual album compares the original source at `4271617` with this review branch at matching phone widths and fixture values. It includes Arabic and English. Conditional component examples and simulated payment/announcement states are labeled; the motion preview is a recording of the actual local interface. Temporary capture routes and synthetic account credentials are excluded from the review branch.

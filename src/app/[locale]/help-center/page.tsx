@@ -4,6 +4,7 @@ import { Link } from "@/i18n/navigation";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { buildPageMetadata } from "@/lib/seo";
 import { HelpDetails } from "@/components/ui/help-details";
+import { Coins, ListPlus, MessagesSquare, Wallet } from "lucide-react";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -45,11 +46,11 @@ export default async function HelpCenterPage({ params }: { params: Promise<{ loc
 
         <nav aria-label={isAr ? "مساعدة حسب المهمة" : "Help by task"} className="mt-6 grid gap-3 sm:grid-cols-2">
           {[
-            { href: "/usdt-exchange", en: "Buy USDT", ar: "شراء USDT" },
-            { href: "/dashboard/seller#create-listing", en: "Create a listing", ar: "إنشاء عرض" },
-            { href: "/trades", en: "Continue a trade", ar: "متابعة صفقة" },
-            { href: "/seller/commission-checkout", en: "Pay commission", ar: "دفع العمولة" },
-          ].map(task => <Link key={task.href} href={task.href} locale={locale} className="flex min-h-14 items-center rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 px-4 py-3 text-base font-semibold text-[#F4D87A]">{isAr ? task.ar : task.en}</Link>)}
+            { href: "/usdt-exchange", en: "Buy USDT", ar: "شراء USDT", icon: Wallet },
+            { href: "/dashboard/seller#create-listing", en: "Create a listing", ar: "إنشاء عرض", icon: ListPlus },
+            { href: "/trades", en: "Continue a trade", ar: "متابعة صفقة", icon: MessagesSquare },
+            { href: "/seller/commission-checkout", en: "Pay commission", ar: "دفع العمولة", icon: Coins },
+          ].map(task => <Link key={task.href} href={task.href} locale={locale} className="alpha-task-tile flex min-h-14 items-center gap-3 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 px-4 py-3 text-base font-semibold text-[#F4D87A]"><span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C9A227]/10"><task.icon className="h-5 w-5" /></span>{isAr ? task.ar : task.en}</Link>)}
         </nav>
         <HelpDetails title={isAr ? "كيف تتم الصفقة؟" : "How does a trade work?"} className="mt-5">
         <div className="grid gap-3 sm:grid-cols-2">
