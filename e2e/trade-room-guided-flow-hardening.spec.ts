@@ -764,7 +764,7 @@ test("trade-room Pay Now opens the canonical commission flow without an external
     ]);
 
     await expect(page).toHaveURL(/\/en\/usdt-exchange#commission-payment$/, { timeout: 20_000 });
-    await expect(page.locator("#commission-payment").getByRole("heading", { name: "Automatic commission checkout", exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#commission-payment").getByRole("heading", { name: "Pay commission", exact: true })).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(100);
     expect(popupUrls).toEqual([]);
   } finally {
