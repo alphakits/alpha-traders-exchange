@@ -62,8 +62,8 @@ export function calculateTradeBuyerFiatFee(amount: string, price: string) {
 
 export function sellerFeeResponsibilityNotice(locale: string) {
   return locale === "ar"
-    ? "عليك تحويل 2% إجمالاً إلى Alpha: 1% عمولتك و1% حصة المشتري ضمن دفعته. حصّل إجمالي الدفع الظاهر كاملاً قبل تأكيد الاستلام وإرسال USDT. إذا قبلت مبلغاً ناقصاً، تتحمّل حصة المشتري الناقصة من مالك؛ ويبقى كامل الـ2% مستحقاً حتى التحقق من السداد. يخص ذلك الصفقات الجديدة فقط."
-    : "You must pay Alpha 2% in total: your own 1% plus the buyer’s 1%, included in their payment. Collect the full displayed total before confirming receipt and sending USDT. If you accept less, you cover the missing buyer fee yourself; the full 2% remains due until payment is verified. This applies only to new-policy trades.";
+    ? "للصفقات الجديدة: ادفع لألفا 2% بعملة USDT بعد الإكمال (1% لكل طرف). حصّل كامل الدفع قبل إرسال USDT؛ وتحمّل أي نقص في حصة المشتري."
+    : "New trades: pay Alpha 2% in USDT after completion (1% each). Collect the full payment before sending USDT; cover any missing buyer fee yourself.";
 }
 
 /** One published fee policy for website and native terms, preserving legacy trades. */

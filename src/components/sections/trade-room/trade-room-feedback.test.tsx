@@ -661,7 +661,7 @@ it.each([
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   const confirm = await screen.findByRole("button", { name: button });
   expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("ILS 3,232.00");
-  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("Already includes the buyer’s 1% fee");
+  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("Buyer’s 1% fee included.");
   fireEvent.click(confirm);
   expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("I confirm I received the full ILS 3,232.00, including the buyer’s 1% fee"));
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);

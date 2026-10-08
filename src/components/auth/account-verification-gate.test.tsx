@@ -50,7 +50,7 @@ describe("AccountVerificationGate canonical session ownership", () => {
       </CanonicalSessionProvider>,
     );
 
-    expect(await screen.findByText("Email verification is the only verification method enabled and required to access Alpha Exchange.")).toBeTruthy();
+    expect(await screen.findByText("Verify your email to continue.")).toBeTruthy();
     expect(screen.getByText("Email verification")).toBeTruthy();
     expect(screen.queryByText("Phone verification")).toBeNull();
     expect(screen.queryByRole("button", { name: "Send verification code" })).toBeNull();

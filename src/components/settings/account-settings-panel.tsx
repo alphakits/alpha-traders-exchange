@@ -1080,7 +1080,7 @@ export function AccountSettingsPanel({
                   />
                 </div> : null}
                 {phoneVerificationEnabled ? <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
-                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل خدمات الهاتف المتاحة." : "Verify an E.164 phone number to enable available phone services.")}</p>
+                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لخدمات الهاتف وWhatsApp." : "Phone verified for phone and WhatsApp services.") : (isAr ? "وثّق رقم هاتفك مع رمز الدولة." : "Verify your phone number, including its country code.")}</p>
                   {phoneVerified && !phoneVerificationEditing ? <Button type="button" variant="secondary" onClick={() => { setPhoneVerificationEditing(true); setPhone(""); setPhoneCode(""); setPhoneMessage(null); }}>{isAr ? "إعادة التحقق من الهاتف" : "Reverify phone"}</Button> : null}
                   {(!phoneVerified || phoneVerificationEditing) && <div className="space-y-3">
                     <PhoneVerificationChannelPicker locale={isAr ? "ar" : "en"} value={phoneChannel} onChange={setPhoneChannel} disabled={Boolean(phoneBusy)} channels={phoneVerificationChannels} />

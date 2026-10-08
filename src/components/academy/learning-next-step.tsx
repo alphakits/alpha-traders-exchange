@@ -9,8 +9,8 @@ export function LearningNextStep({ locale, completed = false }: { locale: string
     </p>
     <h2 className="mt-3 text-xl font-semibold">{isAr ? "تعرّف على ICT Mentorship مع مارك" : "Explore ICT Mentorship with Mark"}</h2>
     <p className="mt-3 text-sm leading-7 text-[#D1D5DB]">{isAr
-      ? "تعلّمت تداول ولسه عندك أسئلة بالتطبيق؟ تعرّف على طريقة مارك بالدراسة والتطبيق ومراجعة القرارات. ICT Mentorship برنامج واحد برسوم حسب نقطة البداية. اسمع شرحه وشوف المنهج والرسوم وحالة استقبال الاستفسارات قبل قرارك. الأكاديمية المجانية بتضل مجانية."
-      : "Studied trading but still have questions about applying it? Explore Mark’s approach to study, practice and reviewing decisions. ICT Mentorship is one programme, with tuition based on your starting point. Hear his explanation and review the curriculum, fees and enquiry availability before deciding. The free Academy stays free."}</p>
+      ? "تعرّف على ICT Mentorship مع مارك: طريقته والمنهج والرسوم حسب مستواك. الأكاديمية المجانية تبقى مجانية."
+      : "Explore ICT Mentorship with Mark: his approach, curriculum, and tuition for your starting level. The free Academy stays free."}</p>
     <div className="mt-5 flex flex-wrap gap-3">
       <Link href="/learn-with-mark" className={buttonVariants({ variant: "secondary", className: "w-full sm:w-auto whitespace-normal text-center" })}>
         {isAr ? "تعرّف على الكورس والمرافقة" : "Explore the Course & Support"}

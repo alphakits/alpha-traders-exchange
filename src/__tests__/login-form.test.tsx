@@ -24,7 +24,7 @@ describe("LoginForm", () => {
     const page = render(<LoginForm locale="en" />);
     expect(page.container.querySelector('[data-login-surface="web"]')).not.toBeNull();
     expect(page.container.querySelector("[data-app-login-network]")).toBeNull();
-    expect(screen.getByText(/Welcome back to/)).toBeTruthy();
+    expect(screen.getByText("Sign in to continue.")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "Remember Me" })).toBeTruthy();
   });
 
@@ -34,8 +34,8 @@ describe("LoginForm", () => {
     if (native) window.ReactNativeWebView = { postMessage: vi.fn() };
     const page = render(<LoginForm locale={locale} redirectTo={`/${locale}/usdt-exchange?mode=buy`} />);
     expect(page.container.textContent).toContain(locale === "ar"
-      ? "سجّل الدخول للوصول إلى Alpha Exchange وتصفّح العروض المتاحة."
-      : "Sign in to access Alpha Exchange and browse available listings.");
+      ? "سجّل الدخول لتصفّح عروض USDT."
+      : "Sign in to browse USDT listings.");
   });
 
   it.each([

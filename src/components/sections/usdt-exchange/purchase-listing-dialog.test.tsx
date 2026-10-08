@@ -20,7 +20,7 @@ function Harness({ locale = "en", sellerProfileData = null, selectedMinTrade = 1
     selectedPaymentMethods={[selectedPaymentMethod!]} selectedPaymentMethod={selectedPaymentMethod} buyerTradeAmount={amount} selectedMinTrade={selectedMinTrade} selectedMaxTrade={selectedMaxTrade} buyerTradeAmountInvalid={amount <= 0 || amount < selectedMinTrade || amount > selectedMaxTrade}
     buyerWalletValidationError={null} buyerWalletInvalid={invalid} priceMode={priceMode} offeredPrice={offeredPrice} minimumOfferedPrice="2.85" offerPriceInvalid={price < 2.85} offeredTradePrice={Number(offeredPrice)}
     requiresSafetyNotice={false} safetyAcknowledged={false} showVerificationCta={false} isRedirectingToVerification={false} statusMessage={null} isSubmittingPurchase={isSubmittingPurchase}
-    onClose={onClose} onSubmit={onSubmit} onQuickBuy={noop} onPaymentMethodChange={noop} onBuyerAmountChange={(usdtAmount) => setBuyerInfo((current) => ({ ...current, usdtAmount }))}
+    onClose={onClose} onSubmit={onSubmit} onPaymentMethodChange={noop} onBuyerAmountChange={(usdtAmount) => setBuyerInfo((current) => ({ ...current, usdtAmount }))}
     onBuyerWalletChange={(receivingWalletAddress) => setBuyerInfo((current) => ({ ...current, receivingWalletAddress }))} onOfferedPriceChange={(value) => {
       setOfferedPrice(value);
       setBuyerInfo((current) => ({ ...current, usdtAmount: calculateCardlessUsdtAmount(current.cardlessIlsAmount ?? "", value, true) ?? "" }));
@@ -92,7 +92,7 @@ describe("cardless listing limits and escape", () => {
     expect(screen.getByRole("alert").textContent).toContain("No withdrawal amount from ₪100 to ₪10,000 fits");
     expect(screen.getByRole("alert").textContent).toContain("5,000 – 45,000 USDT");
     expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Quick Buy" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Quick Buy" })).toBeNull();
   });
 
   it("offers only compatible cash amounts for the reported 600–660 listing", () => {
@@ -105,7 +105,7 @@ describe("cardless listing limits and escape", () => {
     expect(amount.readOnly).toBe(true);
     expect(cash.compareDocumentPosition(amount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Quick Buy" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Quick Buy" })).toBeNull();
   });
 
   it("preserves an incompatible bank amount, explains it, and permits cancellation", () => {
@@ -117,7 +117,7 @@ describe("cardless listing limits and escape", () => {
     expect(cash.selectedOptions[0].disabled).toBe(true);
     expect(screen.getByRole("alert").textContent).toContain("Do not use a code for a different amount");
     expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Quick Buy" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Quick Buy" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(close).toHaveBeenCalledOnce();
     expect(submit).not.toHaveBeenCalled();

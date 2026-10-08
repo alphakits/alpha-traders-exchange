@@ -43,7 +43,7 @@ export function TradeRequestGroups({ requests, userId, side, locale }: {
   }
   return <div className="space-y-8">
     <section aria-labelledby={`${id}-active-trades`}>
-      <h2 id={`${id}-active-trades`} className="mb-4 text-xl font-semibold">{side === "seller" ? (isAr ? "طلبات المشترين الجديدة والنشطة" : "New and active buyer requests") : (isAr ? "طلبات الشراء الجديدة والنشطة" : "Your new and active requests")} <span className="text-[#F4D87A]">({groups.active.length})</span></h2>
+      <h2 id={`${id}-active-trades`} className="mb-4 text-xl font-semibold">{side === "seller" ? (isAr ? "الطلبات النشطة" : "Active requests") : (isAr ? "الطلبات النشطة" : "Active requests")} <span className="text-[#F4D87A]">({groups.active.length})</span></h2>
       {groups.active.length ? <div className="grid gap-3 md:grid-cols-2">{groups.active.map(request => tradeCard(request))}</div> : <p className="rounded-2xl border border-white/10 p-5 text-sm text-[#9CA3AF]">{isAr ? "لا توجد طلبات نشطة حالياً." : "No active requests right now."}</p>}
     </section>
     <section aria-labelledby={`${id}-completed-trades`}>
@@ -96,7 +96,7 @@ export function TradesWorkspace({ userId, sellerAccess, locale }: { userId: stri
   const ownRequests = activeUserId === userId && data?.userId === userId ? data.requests : null;
   return <section className="section-container page-shell pb-8">
     <div className="mb-6 flex items-center justify-between gap-4">
-      <div><h1 className="text-3xl font-semibold">{isAr ? "صفقاتي" : "My trades"}</h1><p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "طلباتك الأحدث أولاً، ثم سجل الصفقات المكتملة." : "Your latest requests first, then your completed trade history."}</p></div>
+      <div><h1 className="text-3xl font-semibold">{isAr ? "صفقاتي" : "My trades"}</h1><p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "افتح صفقة للمتابعة." : "Open a trade to continue."}</p></div>
       <Button type="button" variant="secondary" size="sm" disabled={refreshing} onClick={() => setRefreshVersion(value => value + 1)} aria-label={isAr ? "تحديث الصفقات" : "Refresh trades"}><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" /></Button>
     </div>
     {sellerAccess ? <div className="mb-6 flex gap-2" role="group" aria-label={isAr ? "نوع الصفقات" : "Trade side"}>

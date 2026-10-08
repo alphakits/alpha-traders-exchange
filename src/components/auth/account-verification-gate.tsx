@@ -246,21 +246,21 @@ function AccountVerificationContent({
             <div>
               <h1 className="text-2xl font-semibold text-white md:text-3xl">
                 {isAr
-                  ? "أكمل التحقق للدخول إلى Alpha Exchange"
-                  : "Complete verification to access Alpha Exchange"}
+                  ? "وثّق حسابك"
+                  : "Verify your account"}
               </h1>
               <p className="mt-2 text-sm text-[#D1D5DB]">
                 {phoneVerificationRequired
                   ? (isAr
-                    ? "يجب تأكيد البريد الإلكتروني ورقم الهاتف عبر رسالة SMS قبل استخدام حساب المشتري أو البائع."
-                    : "Verify your email and phone by SMS before using your buyer or seller account.")
+                    ? "وثّق بريدك وهاتفك لاستخدام المنصة."
+                    : "Verify your email and phone to use the exchange.")
                   : phoneVerificationEnabled
                   ? (isAr
-                    ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
-                    : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading.")
+                    ? "وثّق بريدك للمتابعة. توثيق الهاتف اختياري."
+                    : "Verify your email to continue. Phone verification is optional.")
                   : (isAr
-                    ? "التحقق من البريد الإلكتروني هو طريقة التحقق الوحيدة المفعّلة والمطلوبة للوصول إلى Alpha Exchange."
-                    : "Email verification is the only verification method enabled and required to access Alpha Exchange.")}
+                    ? "وثّق بريدك للمتابعة."
+                    : "Verify your email to continue.")}
               </p>
             </div>
           </div>
@@ -333,8 +333,8 @@ function AccountVerificationContent({
                   <PhoneVerificationChannelPicker locale={locale} value={phoneChannel} onChange={setPhoneChannel} disabled={sendingOtp || verifyingOtp} channels={phoneVerificationChannels} />
                   <p className="text-sm text-[#9CA3AF]">
                     {isAr
-                      ? "اضغط إرسال رمز التحقق لتصلك رسالة تحقق من Alpha Traders. الرمز صالح لمدة 10 دقائق."
-                      : "Tap Send verification code to receive a verification message from Alpha Traders. The code expires in 10 minutes."}
+                      ? "أرسل رمزًا لهاتفك. تنتهي صلاحيته بعد 10 دقائق."
+                      : "Send a code to your phone. It expires in 10 minutes."}
                   </p>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input
@@ -391,7 +391,7 @@ function AccountVerificationContent({
                     </Button>
                   </div>
                   <p className="text-sm text-[#6CAEFF]">
-                    {isAr ? "رقمك خاص. لا يراه إلا أنت ومالك المنصة، ولا يظهر للمشترين أو البائعين." : "Your number is private. Only you and the owner can see it. It is hidden from buyers and sellers."}
+                    {isAr ? "رقمك ظاهر لك ولمالك المنصة فقط." : "Only you and the owner can see your number."}
                   </p>
                 </div>
               )

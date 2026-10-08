@@ -15,22 +15,22 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstub
 async function flush() { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); }
 it("does not permit payment creation without pre-payment acknowledgement", async () => {
   render(<CommissionCheckoutPanel isAr={false} />);
-  const button = await screen.findByRole("button", { name: "Prepare payment for all commissions" });
+  const button = await screen.findByRole("button", { name: "Get payment instructions" });
   expect((button as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByText(wallet)).toBeNull();
 });
 it("39 for 40 is requested by seller and waits for independent verification, not owner approval", async () => {
   render(<CommissionCheckoutPanel isAr={false} />);
-  fireEvent.change(await screen.findByLabelText("Amount you plan to send (USDT)"), { target: { value: "39" } });
+  fireEvent.change(await screen.findByLabelText("Payment amount (USDT)"), { target: { value: "39" } });
   fireEvent.change(screen.getByLabelText("Network"), { target: { value: "BEP20" } });
   fireEvent.click(screen.getByRole("checkbox"));
   fetchMock.mockResolvedValueOnce(response({ status: "waiting" }, 201)).mockResolvedValue(response(waiting));
-  fireEvent.click(screen.getByRole("button", { name: "Prepare payment for all commissions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Get payment instructions" }));
   await screen.findByText("39.000000 USDT");
   const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
   expect(JSON.parse(post?.[1].body)).toEqual({ network: "BEP20", desiredAmount: "39", hasNotPaidYet: true });
-  expect(screen.queryByText(/Payment verified\. No commission/)).toBeNull();
-  expect(screen.getByText(/No screenshot, transaction-ID submission or owner approval/)).toBeTruthy();
+  expect(screen.queryByText(/Paid\. No commission/)).toBeNull();
+  expect(screen.getByText(/No screenshot, transaction ID, or owner approval/)).toBeTruthy();
 });
 it("hides recipient instructions when a backend amount/address response is invalid", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, walletAddress: "0x1111111111111111111111111111111111111111" }));
@@ -43,7 +43,7 @@ it("401 clears private values and never becomes successful zero dues", async () 
   fetchMock.mockResolvedValue(response({ error: "Unauthorized" }, 401));
   fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" }));
   await screen.findByText("Sign in with your seller account."); expect(screen.queryByText(wallet)).toBeNull();
-  expect(screen.queryByText(/No commission dues remain/)).toBeNull();
+  expect(screen.queryByText(/No commission due/)).toBeNull();
 });
 it("provider/backend outage hides payment controls rather than requesting duplicate payment", async () => {
   fetchMock.mockRejectedValue(Error("unavailable")); render(<CommissionCheckoutPanel isAr={false} />);
@@ -52,17 +52,17 @@ it("provider/backend outage hides payment controls rather than requesting duplic
 });
 it("paid result is displayed only after a successful status read", async () => {
   fetchMock.mockResolvedValue(response({ ...ready, status: "paid", pendingCount: 0, totalDueUsdt: 0 }));
-  render(<CommissionCheckoutPanel isAr={false} />); await screen.findByText(/Payment verified\. No commission dues remain/);
+  render(<CommissionCheckoutPanel isAr={false} />); await screen.findByText(/Paid\. No commission due/);
   expect(screen.queryByRole("checkbox")).toBeNull();
 });
 it("Arabic uses the same owner-free workflow and localized entry", async () => {
-  render(<CommissionCheckoutPanel isAr />); await screen.findByText("دفع العمولات تلقائيًا");
-  await waitFor(() => expect(screen.getByRole("button", { name: "إنشاء دفعة لجميع العمولات" })).toBeTruthy());
+  render(<CommissionCheckoutPanel isAr />); await screen.findByText("دفع العمولة");
+  await waitFor(() => expect(screen.getByRole("button", { name: "عرض تعليمات الدفع" })).toBeTruthy());
   expect(screen.getByRole("link", { name: "العودة للسوق" }).getAttribute("href")).toBe("/ar/usdt-exchange");
 });
 it("changed commission group does not show instructions to resend", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, status: "changed" })); render(<CommissionCheckoutPanel isAr={false} />);
-  await screen.findByText(/These commissions changed/); expect(screen.queryByText(wallet)).toBeNull();
+  await screen.findByText(/The amount due changed/); expect(screen.queryByText(wallet)).toBeNull();
 });
 it("embedded checkout refreshes the seller workspace once after canonical paid status", async () => {
   const onSettled = vi.fn();
@@ -86,7 +86,7 @@ it.each(["fetch", "body"])("releases a stalled status %s and permits a fresh rea
   await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
   expect(screen.getByRole("alert").textContent).toContain("Do not send another payment");
   fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" })); await flush();
-  expect(screen.getByLabelText("Amount you plan to send (USDT)")).toBeTruthy();
+  expect(screen.getByLabelText("Payment amount (USDT)")).toBeTruthy();
 });
 it.each(["fetch", "body"])("reconciles a stalled checkout %s using a read without repeating the mutation", async (phase) => {
   vi.useFakeTimers();
@@ -101,7 +101,7 @@ it.each(["fetch", "body"])("reconciles a stalled checkout %s using a read withou
   });
   render(<CommissionCheckoutPanel isAr={false} />); await flush();
   fireEvent.click(screen.getByRole("checkbox"));
-  fireEvent.click(screen.getByRole("button", { name: "Prepare payment for all commissions" })); await flush();
+  fireEvent.click(screen.getByRole("button", { name: "Get payment instructions" })); await flush();
   await act(async () => { await vi.advanceTimersByTimeAsync(20_000); }); await flush();
   expect(screen.getByText("39.000000 USDT")).toBeTruthy();
   expect(screen.queryByText("Preparing…")).toBeNull();
@@ -124,7 +124,7 @@ it("clears authorization on a rejected mutation without waiting for its body", a
   render(<CommissionCheckoutPanel isAr={false} />);
   fireEvent.click(await screen.findByRole("checkbox"));
   fetchMock.mockResolvedValueOnce({ ok: false, status: 401, json: () => new Promise(() => {}) });
-  fireEvent.click(screen.getByRole("button", { name: "Prepare payment for all commissions" })); await flush();
+  fireEvent.click(screen.getByRole("button", { name: "Get payment instructions" })); await flush();
   expect(screen.getByText("Sign in with your seller account.")).toBeTruthy();
   expect(screen.queryByRole("checkbox")).toBeNull();
 });
@@ -133,7 +133,7 @@ it("replaces a cancelled locale read immediately and ignores its late response",
   fetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveRead = resolve; }));
   const view = render(<CommissionCheckoutPanel isAr={false} />); await flush();
   view.rerender(<CommissionCheckoutPanel isAr />); await flush();
-  expect(screen.getByLabelText("المبلغ الذي تنوي إرساله (USDT)")).toBeTruthy();
+  expect(screen.getByLabelText("مبلغ الدفع (USDT)")).toBeTruthy();
   await act(async () => { resolveRead(response(waiting)); });
   expect(screen.queryByText(wallet)).toBeNull();
 });
@@ -145,7 +145,7 @@ it("pauses offline reads and recovers automatically when connectivity returns", 
   expect(fetchMock).not.toHaveBeenCalled();
   vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
   act(() => window.dispatchEvent(new Event("online"))); await flush();
-  expect(screen.getByLabelText("Amount you plan to send (USDT)")).toBeTruthy();
+  expect(screen.getByLabelText("Payment amount (USDT)")).toBeTruthy();
 });
 it("rejects a contradictory paid result without notifying the workspace", async () => {
   const onSettled = vi.fn();
@@ -155,13 +155,13 @@ it("rejects a contradictory paid result without notifying the workspace", async 
   expect(screen.queryByText(/Payment verified/)).toBeNull();
   expect(onSettled).not.toHaveBeenCalled();
 });
-it("shows the reserved rounded amount beside the exact amount with a single-payment instruction", async () => {
+it("keeps the reserved rounded alternative available with a single-payment instruction", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, totalDueUsdt: 29.2,
     checkout: { ...waiting.checkout, dueMicros: 29_200_000, expectedMicros: 29_200_000, roundedMicros: 30_000_000 } }));
   render(<CommissionCheckoutPanel isAr={false} />);
   await screen.findByText("29.200000 USDT");
   expect(screen.getByText("30 USDT")).toBeTruthy();
-  expect(screen.getByText(/Send only one of these amounts/)).toBeTruthy();
+  expect(screen.getByText(/Send only one payment/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Copy rounded amount" })).toBeTruthy();
 });
 it("hides instructions if a returned rounded option exceeds the allowed commission difference", async () => {

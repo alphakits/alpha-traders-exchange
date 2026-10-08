@@ -78,8 +78,8 @@ describe("USDT exchange localized mobile copy", () => {
     expect(buyerWorkspace).toContain("Continue Cash Trade");
     expect(sellerWorkspace).toContain("Continue Cash Trade");
     expect(buyerWorkspace).not.toContain("Mark Withdrawal Ready");
-    expect(buyerWorkspace).toContain("seller confirms USDT sent and then marks the trade completed");
-    expect(sellerWorkspace).toContain("Confirm USDT sent first, then mark the trade completed with a separate button");
+    expect(buyerWorkspace).toContain("The seller completes it after sending USDT.");
+    expect(sellerWorkspace).toContain("Open the trade for your next step.");
 
     const exchangePage = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
     expect(exchangePage).toContain('cashTrade ? "confirm-usdt-sent" : "release-usdt"');

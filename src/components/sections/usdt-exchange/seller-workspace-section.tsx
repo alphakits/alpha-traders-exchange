@@ -6,6 +6,7 @@ import { UserPresence } from "@/components/ui/user-presence";
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { CommissionCheckoutPanel } from "./commission-checkout-panel";
 import { CommissionAutomationPanel } from "./commission-automation-panel";
+import { HelpDetails } from "@/components/ui/help-details";
 import { PublicAccountId } from "@/components/ui/public-account-id";
 import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-identity";
 
@@ -13,7 +14,7 @@ import { brandText, currencyText, moneyText } from "@/components/ui/currency-tex
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
 import { useState, type Dispatch, type FormEvent, type ReactNode, type RefCallback, type SetStateAction } from "react";
-import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
+import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, PartyPopper, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,20 +47,22 @@ function ListingCreateSection({
   title,
   icon,
   children,
+  hidden = false,
 }: {
   id: string;
   number: number;
   title: string;
   icon: ReactNode;
   children: ReactNode;
+  hidden?: boolean;
 }) {
   return (
-    <section aria-labelledby={id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 alpha-reveal-fade motion-reduce:animate-none sm:p-4">
+    <section hidden={hidden} aria-labelledby={id} className={cn("alpha-step-panel min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3 sm:p-4", hidden && "hidden")}>
       <div className="mb-4 flex items-center gap-3">
         <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 text-sm font-semibold text-[#D4AF37]">
           {number}
         </span>
-        <h4 id={id} className="min-w-0 flex-1 text-base font-semibold leading-6 text-white">{title}</h4>
+        <h4 id={id} tabIndex={-1} className="min-w-0 flex-1 scroll-mt-28 text-base font-semibold leading-6 text-white outline-none">{title}</h4>
         <span aria-hidden="true" className="shrink-0 text-[#D4AF37]">{icon}</span>
       </div>
       <div className="min-w-0 space-y-4">{children}</div>
@@ -266,6 +269,15 @@ function abbreviatedTronTxId(value: string) {
 }
 
 export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
+  const [listingStep, setListingStep] = useState<1 | 2 | 3>(1);
+  function changeListingStep(step: 1 | 2 | 3) {
+    setListingStep(step);
+    window.requestAnimationFrame(() => {
+      const heading = document.getElementById(step === 1 ? "create-amount-heading" : step === 2 ? "create-payment-heading" : "create-review-heading");
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+  }
   const {
     activityHistory,
     commissionAdvancedOpen,
@@ -422,6 +434,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
   const isSuspendedSeller = sessionUser?.sellerStatus === "suspended";
   const [commissionAmountCopied, setCommissionAmountCopied] = useState(false);
 
+  const amountStepReady = listingCreateAmount > 0 && listingCreatePrice > 0
+    && !listingCreatePriceInvalid && !listingCreateTradeRangeInvalid;
+  const paymentStepReady = listingCreateSelectedMethods.length > 0
+    && (!listingCreateRequiresBank || listingCreateSelectedBanks.length > 0)
+    && (!listingCreateRequiresBankAccount || Boolean(listingCreateForm.bankAccountId))
+    && !listingCreateBankAccountMismatch;
+  const canAdvanceListing = listingStep === 1 ? amountStepReady : paymentStepReady;
+
   async function copyExactCommissionAmount() {
     try {
       await navigator.clipboard.writeText(commissionPayableAmountDue.toFixed(6));
@@ -504,12 +524,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription className="commission-notice">
-                {brandText(isAr ? "البائع مسؤول عن كامل عمولة 2% للصفقات الجديدة: 1% حصته و1% حصة المشتري، بما فيها أي نقص لم يحصّله، ويمكن للإدارة إصدار عمولة موثقة للبائع. أي عمولة غير مدفوعة تمنعك من قبول صفقات جديدة أو الشراء أو إنشاء عروض حتى التحقق من السداد. تبقى عروضك الحالية ظاهرة وتستقبل طلبات المشترين، ويمكنك إكمال الصفقات الحالية." : "New trades carry 1% buyer + 1% seller fees. The seller owes the full 2%, including any uncollected buyer share, and an administrator can issue a documented seller commission. Pay outstanding commission before accepting new trades, buying, or creating listings. Your current listings remain visible and receive buyer requests. Existing trades can finish.")}
+                {brandText(isAr ? "سدّد العمولة المستحقة لقبول صفقات جديدة أو الشراء أو إنشاء عروض. يمكنك إكمال صفقاتك الحالية." : "Settle unpaid commission to accept new trades, buy, or create listings. You can still finish existing trades.")}
               </CardDescription>
-              <p className="flex items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 px-3 py-2.5 text-xs leading-5 text-emerald-100">
-                <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                <span><strong className="font-semibold">{isAr ? "تأكيد تلقائي · فحص ذكي للبلوك تشين" : "Automatic confirmation · Smart Blockchain Scan"}</strong><br />{isAr ? "أرسل المبلغ الدقيق. تُسجّل الدفعة المطابقة كمدفوعة تلقائيًا دون انتظار موافقة يدوية." : "Send the exact amount. Matching payments are marked paid automatically, without waiting for manual approval."}</span>
-              </p>
             </CardHeader>
             <CardContent className="space-y-3">
               {sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? (
@@ -560,7 +576,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
               )}
-              <p className="commission-notice rounded-xl border border-amber-500/30 p-3 text-sm text-amber-200">{isAr ? "يمكنك إدارة 3 صفقات نشطة كحد أقصى. يمكن للمشترين إرسال الطلبات، لكن عليك تسديد جميع العمولات المستحقة قبل قبول صفقة جديدة؛ تبقى عروضك ظاهرة ويمكنك إكمال الصفقات الحالية. عمولة الصفقات الجديدة 2%: 1% منك و1% من المشتري." : "Maximum 3 active trades. Buyers can send requests. Pay all outstanding commission before accepting a new trade. Listings stay visible and existing trades can finish. New trades owe 2% total: your 1% plus the buyer’s 1%."}</p>
+              <HelpDetails title={isAr ? "العمولات وحدود التداول" : "Fees and trade limits"}>
+                <p className="commission-notice">{currencyText(sellerFeeResponsibilityNotice(locale))}</p>
+                <p>{isAr ? "حتى 3 صفقات نشطة. تبقى عروضك ظاهرة وتستقبل الطلبات." : "Up to 3 active trades. Your listings stay visible and can receive requests."}</p>
+                <Link href="/safety-trust" locale={locale} className="underline underline-offset-2">{isAr ? "سياسة العمولة كاملة" : "Full fee policy"}</Link>
+              </HelpDetails>
               {sellerWorkspaceSummary?.blockedReason ? (
                 <p className="commission-notice rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
               ) : null}
@@ -1077,14 +1097,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
-                {isAr ? "يتم إرسال العرض للمراجعة أولًا قبل نشره في السوق." : "Listings are submitted to owner review before publishing live."}
+                {isAr ? "الكمية، طريقة الدفع، ثم المراجعة." : "Amount, payment method, then review."}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-              {listingCreationBlocked ? (
+              {listingCreationBlocked && listingCreateResult?.tone !== "success" ? (
                 <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
                   <p className={listingBlockedByCommission ? "commission-notice font-semibold" : "font-semibold"}>{listingBlockedByCommission ? (isAr ? "ادفع العمولة أولاً" : "Pay commission first") : (isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked")}</p>
-                  <p className="commission-notice mt-1 text-xs text-[#FDE68A]">{currencyText(isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason)}</p>
+                  <p className="commission-notice mt-1 text-sm text-[#FDE68A]">{currencyText(isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason)}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {listingBlockedByActiveLimit ? (
                       <Button
@@ -1116,9 +1136,29 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
               ) : null}
-              <form className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)] xl:items-start" onSubmit={handleSellerListingCreateSubmit}>
-                <div className="min-w-0 space-y-4">
-                  <ListingCreateSection id="create-amount-heading" number={1} icon={<Wallet className="h-4 w-4" />} title={isAr ? "الكمية والسعر" : "Amount & price"}>
+              <form className="mx-auto grid min-w-0 max-w-3xl gap-4" onSubmit={(event) => {
+                if (listingStep !== 3) {
+                  event.preventDefault();
+                  if (canAdvanceListing && !listingCreationBlocked) changeListingStep(listingStep === 1 ? 2 : 3);
+                  return;
+                }
+                void handleSellerListingCreateSubmit(event);
+              }}>
+                <ol hidden={listingCreateResult?.tone === "success"} aria-label={isAr ? "خطوات إنشاء العرض" : "Create listing steps"} className={cn("grid grid-cols-3 gap-2", listingCreateResult?.tone === "success" && "hidden")}>
+                  {(isAr ? ["الكمية", "الدفع", "المراجعة"] : ["Amount", "Payment", "Review"]).map((label, index) => (
+                    <li key={index}>
+                      <button type="button" aria-current={listingStep === index + 1 ? "step" : undefined}
+                        disabled={index + 1 > listingStep}
+                        onClick={() => changeListingStep((index + 1) as 1 | 2 | 3)}
+                        className={cn("alpha-step-tab flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border px-2 py-2 text-sm disabled:opacity-45", listingStep === index + 1 ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-[#F4D87A]" : index + 1 < listingStep ? "border-emerald-400/25 bg-emerald-400/5 text-emerald-200" : "border-white/10 text-[#D1D5DB]")}>
+                        <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center">{index + 1 < listingStep ? <Check className="h-4 w-4" /> : index === 0 ? <Wallet className="h-4 w-4" /> : index === 1 ? <WalletCards className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>{label}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+                {listingCreateResult?.tone !== "success" ? <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-white/10"><div className="alpha-step-progress h-full rounded-full bg-[#D4AF37]" style={{ width: `${listingStep / 3 * 100}%` }} /></div> : null}
+                <div className={cn("min-w-0 space-y-4", listingStep === 3 && "hidden")}>
+                  <ListingCreateSection hidden={listingStep !== 1} id="create-amount-heading" number={1} icon={<Wallet className="h-4 w-4" />} title={isAr ? "الكمية والسعر" : "Amount & price"}>
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-available" required>{currencyText(isAr ? "USDT المتاح" : "Available USDT")}</FieldLabel>
@@ -1131,12 +1171,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     }}
                     inputMode="decimal"
                     aria-required
-                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}`}
+                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-base", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}`}
                   />
-                  <p className="text-xs text-[#9CA3AF]">{isAr ? "يمكن إدخال ما يصل إلى 6 منازل عشرية." : "You can enter up to 6 decimal places."}</p>
+                  <p className="text-sm text-[#9CA3AF]">{isAr ? "حتى 6 منازل عشرية." : "Up to 6 decimal places."}</p>
                 </div>
                 <div className="min-w-0 space-y-2">
-                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-price" required>{currencyText(isAr ? "السعر لكل USDT" : "Price per USDT")}</FieldLabel>
+                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-price" required>{currencyText(isAr ? "سعر USDT بالشيكل" : "Price per USDT (ILS)")}</FieldLabel>
                   <GroupedDecimalInput
                     id="create-price"
                     inputMode="decimal"
@@ -1146,9 +1186,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     onValueChange={(price) => setListingCreateForm((prev) => ({ ...prev, price }))}
                     aria-required
                     aria-invalid={listingCreatePriceInvalid || undefined}
-                    className={`currency-money ${cn("h-12 text-base transition-all duration-200 md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}`}
+                    className={`currency-money ${cn("h-12 text-base transition-all duration-200 md:h-11 md:text-base", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}`}
                   />
-                  <p className={`text-xs transition-colors duration-200 ${
+                  <p className={`text-sm transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                   }`}>
                     {currencyText(listingCreatePriceInvalid
@@ -1159,21 +1199,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </p>
                 </div>
                 <div className="min-w-0 space-y-2">
-                  <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-currency" required>{isAr ? "العملة" : "Currency"}</FieldLabel>
-                  <Input
-                    id="create-currency"
-                    value="ILS"
-                    readOnly
-                    aria-describedby="create-currency-help"
-                    className="h-12 text-base md:h-11 md:text-sm"
-                  />
-                  <p id="create-currency-help" className="text-xs text-[#9CA3AF]">
-                    {isAr ? "الأسعار والإجماليات بالشيكل الإسرائيلي (ILS)." : "Prices and totals are in Israeli shekels (ILS)."}
-                  </p>
-                </div>
-                <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-network" required>{isAr ? "الشبكة" : "Network"}</FieldLabel>
-                  <select id="create-network" className="flex h-12 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-base text-white md:h-11 md:text-sm transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                  <select id="create-network" className="flex h-12 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-base text-white md:h-11 md:text-base transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                     <option value="TRC20">TRC20</option>
                     <option value="ERC20">ERC20</option>
                     <option value="BEP20">BEP20</option>
@@ -1181,9 +1208,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </select>
                 </div>
                     </div>
-              <div className={`rounded-xl border p-3 text-sm text-[#E5E7EB] transition-colors ${listingCreateGuardCardTone}`}>
-                <p className="text-xs font-semibold text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
-                <p className={`mt-1 text-xs ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
+              <HelpDetails title={isAr ? "سعر السوق وحدود السعر" : "Market price details"} className={listingCreateGuardCardTone}>
+                <p className="text-sm font-semibold text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
+                <p className={`mt-1 text-sm ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
                   {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "السوق غير متاح مؤقتاً — يتم استخدام آخر سعر معروف." : "Market temporarily unavailable — using last known price.")}
                 </p>
                 <div className="mt-2 grid gap-1 sm:grid-cols-2">
@@ -1191,9 +1218,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(formatIls(maxAllowedListingPrice))}</span></p>
                   {listingCreateAmount > 0 ? <p className="sm:col-span-2">{moneyText(listingCreateForm.availableAmount)} {currencyText("USDT")} ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
                 </div>
-              </div>
-                  </ListingCreateSection>
-                  <ListingCreateSection id="create-limits-heading" number={2} icon={<TrendingUp className="h-4 w-4" />} title={isAr ? "حدود الصفقة" : "Trade limits"}>
+              </HelpDetails>
+                  <h5 className="border-t border-white/10 pt-4 text-sm font-semibold text-white">{isAr ? "حدود الطلب (USDT)" : "Order limits (USDT)"}</h5>
                     <div className="grid min-w-0 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-min-trade" required>{currencyText(isAr ? "أدنى صفقة (USDT)" : "Minimum Trade (USDT)")}</FieldLabel>
@@ -1204,9 +1230,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     onValueChange={(minimumTrade) => setListingCreateForm((prev) => ({ ...prev, minimumTrade }))}
                     inputMode="decimal"
                     aria-required
-                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}`}
+                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-base", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}`}
                   />
-                  <p className="text-xs text-[#9CA3AF]">{isAr ? "أصغر مبلغ صفقة تقبله." : "The smallest trade amount you are willing to accept."}</p>
+                  <p className="text-sm text-[#9CA3AF]">{isAr ? "أصغر طلب تقبله." : "Smallest order you accept."}</p>
                 </div>
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-max-trade" required>{currencyText(isAr ? "أقصى صفقة (USDT)" : "Maximum Trade (USDT)")}</FieldLabel>
@@ -1228,13 +1254,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     inputMode="decimal"
                     aria-required
                     aria-invalid={listingCreateTradeRangeInvalid || undefined}
-                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-sm", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}`}
+                    className={`currency-money ${cn("h-12 text-base md:h-11 md:text-base", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}`}
                   />
-                  <p className="text-xs text-[#9CA3AF]">{currencyText(isAr ? "لا يمكن أن يتجاوز مبلغ USDT المعروض." : "Maximum trade cannot exceed your listed USDT amount.")}</p>
+                  <p className="text-sm text-[#9CA3AF]">{currencyText(isAr ? "لا يتجاوز كمية USDT المتاحة." : "Cannot exceed available USDT.")}</p>
                 </div>
                     </div>
                   </ListingCreateSection>
-                  <ListingCreateSection id="create-payment-heading" number={3} icon={<WalletCards className="h-4 w-4" />} title={isAr ? "طرق الدفع" : "Payment methods"}>
+                  <ListingCreateSection hidden={listingStep !== 2} id="create-payment-heading" number={2} icon={<WalletCards className="h-4 w-4" />} title={isAr ? "طرق الدفع" : "Payment methods"}>
                 <div className="min-w-0 space-y-3">
                   <FieldLabel className="text-sm normal-case tracking-normal" required>{isAr ? "طريقة الدفع" : "Payment Method"}</FieldLabel>
                   <div className="mt-3 grid gap-2 2xl:grid-cols-3">
@@ -1269,14 +1295,13 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       );
                     })}
                   </div>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`}</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "تحتاج إلى حساب بنكي محفوظ فقط عند اختيار التحويل البنكي. السحب بلا بطاقة واللقاء الشخصي لا يحتاجان إلى حساب بنكي في ملفك." : "A saved bank account is required only for Bank Transfer. Cardless Withdrawal and Face to Face do not require bank details in your profile."}</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>راجع إرشادات أمان الدفع في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
+                  <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`}</p>
+                  {listingCreateRequiresBankAccount ? <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "التحويل البنكي يتطلب حسابًا بنكيًا محفوظًا." : "Bank Transfer requires a saved bank account."}</p> : null}
                 </div>
                 {listingCreateRequiresBank ? (
                 <div className="min-w-0 border-t border-white/10 pt-4">
                   <FieldLabel className="text-sm normal-case tracking-normal" required>{listingCreateRequiresBankAccount ? (isAr ? "البنوك المدعومة" : "Supported banks") : (isAr ? "بنوك السحب بلا بطاقة" : "Cardless withdrawal banks")}</FieldLabel>
-                  <p className="mt-1 text-xs text-[#D1D5DB]">{listingCreateRequiresBankAccount
+                  <p className="mt-1 text-sm text-[#D1D5DB]">{listingCreateRequiresBankAccount
                     ? (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`)
                     : (isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك يمكنك استلام السحب بلا بطاقة منها. لا تحتاج إلى إدخال تفاصيل حسابك البنكي.` : `Choose up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks where you can collect cardless withdrawals. No personal bank account details are needed.`)}</p>
                   <div className="mt-3 grid gap-2" data-testid="create-bank-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 7rem), 1fr))" }}>
@@ -1310,23 +1335,23 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       );
                     })}
                   </div>
-                  {listingCreateSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {currencyText(listingCreateSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", "))}</p> : null}
+                  {listingCreateSelectedBanks.length ? <p className="mt-2 text-sm text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {currencyText(listingCreateSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", "))}</p> : null}
                 </div>
                 ) : null}
                 {listingCreateRequiresBankAccount ? (
                 <div className="min-w-0 border-t border-white/10 pt-4">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-bank-account" required>{isAr ? "حساب البنك لاستلام الدفع" : "Payout bank account"}</FieldLabel>
                   {sellerBankAccountsLoading ? (
-                    <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
+                    <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
                   ) : sellerBankAccounts.length === 0 ? (
-                    <p className="mt-2 text-xs text-amber-300">
+                    <p className="mt-2 text-sm text-amber-300">
                       {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</a>.
                     </p>
                   ) : (
                     <>
                       <select
                         id="create-bank-account"
-                        className="mt-2 flex h-12 w-full min-w-0 rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-base text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] md:h-11 md:text-sm"
+                        className="mt-2 flex h-12 w-full min-w-0 rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-base text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] md:h-11 md:text-base"
                         value={listingCreateForm.bankAccountId}
                         onChange={(event) => setListingCreateForm((prev) => {
                           const bankAccountId = event.target.value;
@@ -1350,18 +1375,21 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           </option>
                         ))}
                       </select>
-                      <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "رقم الحساب الكامل يظل مخفيًا عن المشترين حتى بداية الصفقة." : "Your full account number stays hidden from buyers until the trade starts."}</p>
+                      <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تظهر التفاصيل البنكية بعد قبولك للصفقة فقط." : "Bank details appear only after you accept the trade."}</p>
                     </>
                   )}
                 </div>
                 ) : null}
                   </ListingCreateSection>
                 </div>
-                <ListingCreateSection id="create-review-heading" number={4} icon={<CheckCircle2 className="h-4 w-4" />} title={isAr ? "المراجعة والإرسال" : "Review & submit"}>
+                <ListingCreateSection hidden={listingStep !== 3} id="create-review-heading" number={3} icon={<CheckCircle2 className="h-4 w-4" />} title={isAr ? "المراجعة والإرسال" : "Review & submit"}>
+                {listingCreateResult?.tone !== "success" ? <>
+                <HelpDetails title={isAr ? "إضافة ملاحظة للمشترين (اختياري)" : "Add a note for buyers (optional)"}>
                 <div className="min-w-0 space-y-2">
                   <FieldLabel className="text-sm normal-case tracking-normal" htmlFor="create-description" optional optionalLabel={isAr ? "اختياري" : "optional"}>{isAr ? "وصف البائع" : "Seller Description"}</FieldLabel>
-                  <Textarea id="create-description" className="min-h-[96px] text-base md:text-sm" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                  <Textarea id="create-description" className="min-h-[96px] text-base md:text-base" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
                 </div>
+                </HelpDetails>
                 <div className="min-w-0 rounded-xl border border-white/10 bg-black/20 p-3">
                   <p className="text-sm font-semibold text-white">{isAr ? "ملخص عرضك" : "Your listing"}</p>
                   <dl className="mt-3 space-y-3 text-sm">
@@ -1395,14 +1423,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     ) : null}
                   </dl>
                   <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
-                    <p className="text-xs text-[#9CA3AF]">{isAr ? "القيمة الإجمالية للعرض" : "Total listing value"}</p>
+                    <p className="text-sm text-[#9CA3AF]">{isAr ? "القيمة الإجمالية للعرض" : "Total listing value"}</p>
                     <p data-testid="create-summary-total" dir="ltr" className="break-words text-2xl font-semibold">{currencyText(formatIls(listingCreateTotalIls))}</p>
-                    <p className="commission-notice text-xs text-[#9CA3AF]">{isAr ? "قبل عمولة المنصة على الصفقات المكتملة." : "Before platform commission on completed trades."}</p>
+                    <p className="commission-notice text-sm text-[#9CA3AF]">{isAr ? "قبل عمولة المنصة على الصفقات المكتملة." : "Before platform commission on completed trades."}</p>
                   </div>
                 </div>
                 <div className="commission-notice-panel rounded-xl border p-3 text-sm">
                   <p className="commission-notice text-sm font-semibold text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
-                  <p className="commission-notice mt-2 text-sm leading-6">{brandText(isAr ? "تخضع الصفقات الجديدة لعمولة 1% على المشتري و1% على البائع. البائع مسؤول عن دفع كامل 2% لألفا ويتحمل أي نقص في حصة المشتري. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "New trades carry 1% buyer + 1% seller fees. The seller must pay Alpha the full 2% and cover any buyer-fee shortfall. By publishing this listing, you agree to pay the platform commission after a successful trade.")}</p>
+                  <p className="commission-notice mt-2 text-sm leading-6">{brandText(isAr ? "1% على المشتري + 1% على البائع. بعد كل صفقة مكتملة، تدفع لألفا كامل 2% بعملة USDT." : "1% buyer + 1% seller. After each completed trade, you pay Alpha the full 2% in USDT.")}</p>
                   <label className="mt-3 flex min-h-12 cursor-pointer items-start gap-3 py-2 text-sm text-[#E5E7EB]">
                     <input
                       type="checkbox"
@@ -1410,9 +1438,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       onChange={(event) => setListingCommissionAgreement(event.target.checked)}
                       className="mt-0.5 h-5 w-5 shrink-0 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
                     />
-                    <span className="commission-notice">{brandText(isAr ? "أفهم أن حصتي 1% وعليّ دفع الحصتين لألفا (2%) وتحمل أي حصة للمشتري لم أحصّلها." : "I understand my own fee is 1% and I must pay Alpha both shares (2%), covering any uncollected buyer share.")}</span>
+                    <span className="commission-notice">{brandText(isAr ? "أوافق على دفع الحصتين (2%) وتحمّل أي نقص في حصة المشتري." : "I agree to pay both shares (2%) and cover any missing buyer fee.")}</span>
                   </label>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
+                  <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
                 </div>
                 {listingCreatePriceInvalid || listingCreateTradeRangeInvalid || !listingCreateSelectedMethods.length || (listingCreateRequiresBank && !listingCreateSelectedBanks.length) || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId) || listingCreateBankAccountMismatch || !listingCommissionAgreement ? (
                 <div className={`rounded-xl border p-3 transition-colors ${listingCreateGuardTone}`}>
@@ -1438,6 +1466,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   </div>
                 </div>
                 ) : null}
+                </> : null}
                 {listingCreateResult ? (
                   <ActionFeedback revealKey={listingCreateResult}
                     id="listing-publish-result"
@@ -1455,14 +1484,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       {listingCreateResult.tone === "error" ? (
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
                       ) : (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                        <span aria-hidden="true" className="alpha-success-badge inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-emerald-300/25 bg-emerald-300/10 text-[#F4D87A]"><PartyPopper className="h-6 w-6" /></span>
                       )}
                       <span>{currencyText(isAr && !containsArabicText(listingCreateResult.message) ? (listingCreateResult.tone === "error" ? "تعذّر نشر العرض. راجع الحقول وحاول مرة أخرى." : "تم إرسال العرض للمراجعة بنجاح.") : listingCreateResult.message)}</span>
                     </span>
                     <button
                       type="button"
                       aria-label={isAr ? "إغلاق نتيجة نشر العرض" : "Dismiss listing result"}
-                      onClick={() => setListingCreateResult(null)}
+                      onClick={() => { setListingCreateResult(null); if (listingCreateResult.tone === "success") changeListingStep(1); }}
                       className={cn(
                         "shrink-0 rounded-full p-0.5 transition hover:text-white",
                         listingCreateResult.tone === "error" ? "text-red-300" : "text-emerald-300",
@@ -1472,13 +1501,22 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </button>
                   </ActionFeedback>
                 ) : null}
-                <div className="space-y-2">
+                {listingCreateResult?.tone === "success" ? (
+                  <div className="space-y-3">
+                    <Button type="button" className="min-h-12 w-full" onClick={() => { void scrollToMyListingsSection(); }}>{isAr ? "إدارة العروض" : "Manage Listings"}</Button>
+                    {!listingCreationBlocked ? <Button type="button" variant="secondary" className="min-h-12 w-full" onClick={() => { setListingCreateResult(null); changeListingStep(1); }}>{isAr ? "إنشاء عرض آخر" : "Create another listing"}</Button> : null}
+                  </div>
+                ) : <div className="space-y-2">
                   <Button type="submit" className="min-h-12 w-full whitespace-normal px-4 py-3" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
                     {listingActionKey === "create:new" ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "إرسال العرض" : "Submit Listing")}
                   </Button>
-                  <p className="text-center text-xs leading-5 text-[#9CA3AF]">{isAr ? "يظهر العرض للمشترين بعد موافقة الإدارة." : "Your listing becomes visible to buyers after owner approval."}</p>
-                </div>
+                  <p className="text-center text-sm leading-5 text-[#9CA3AF]">{isAr ? "يظهر للمشترين بعد الموافقة." : "Visible to buyers after approval."}</p>
+                </div>}
                 </ListingCreateSection>
+                <div className="flex flex-wrap items-center gap-3">
+                  {listingStep > 1 && listingCreateResult?.tone !== "success" ? <Button type="button" variant="secondary" className="min-h-12" onClick={() => changeListingStep(listingStep === 3 ? 2 : 1)}>{isAr ? "رجوع" : "Back"}</Button> : null}
+                  {listingStep < 3 ? <Button type="button" className="min-h-12 flex-1" disabled={!canAdvanceListing || listingCreationBlocked} onClick={() => changeListingStep(listingStep === 1 ? 2 : 3)}>{listingStep === 1 ? (isAr ? "متابعة إلى الدفع" : "Continue to payment") : (isAr ? "مراجعة العرض" : "Review listing")}</Button> : null}
+                </div>
               </form>
             </CardContent>
           </Card> : null}
@@ -1544,7 +1582,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     : sellerRequests.length === 0
                       ? (isAr ? "لا توجد طلبات شراء حتى الآن." : "No purchase requests yet.")
                       : (isAr ? "لا توجد طلبات تطابق البحث." : "No requests match your filters.")}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "عند استلام أول طلب شراء، ستتمكن من الرد عليه فورًا من هنا." : "Your next buyer request will appear here with quick actions to accept, decline, or continue the trade."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "ستظهر طلبات المشترين الجديدة هنا." : "New buyer requests will appear here."}</p>
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
                     <Button type="button" size="sm" variant="secondary" onClick={() => scrollToMyListingsSection()}>
                       {isAr ? "عرض عروضي" : "View My Listings"}
@@ -1561,7 +1599,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء قيد الانتظار" : "No purchase requests yet."}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "عند استلام أول طلب شراء، ستتمكن من الرد عليه فورًا من هنا." : "Your next buyer request will appear here with quick actions to accept, decline, or continue the trade."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "ستظهر طلبات المشترين الجديدة هنا." : "New buyer requests will appear here."}</p>
                 </div>
               ) : null}
               {(sellerRequestSections.action.length || sellerRequestSections.active.length || sellerRequestSections.waiting.length) ? (
@@ -1715,8 +1753,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
                         <p className="mt-1">
                           {currencyText(isAr
-                            ? "تابع داخل غرفة التداول. بعد تأكيد استلام النقد ستظهر محفظة المشتري. أكّد إرسال USDT أولًا، ثم حدّد الصفقة كمكتملة بزر منفصل."
-                            : "Continue inside the Trade Room. After cash confirmation, the buyer wallet appears. Confirm USDT sent first, then mark the trade completed with a separate button.")}
+                            ? "افتح الصفقة للخطوة التالية."
+                            : "Open the trade for your next step.")}
                         </p>
                       </div>
                     ) : (
