@@ -1,8 +1,8 @@
-﻿"use client";
+"use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Bookmark, CheckCircle2, Clock3, FileText, PlayCircle, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, Bookmark, CheckCircle2, ChevronLeft, ChevronDown, FileText, PlayCircle } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { Lesson } from "@/types/academy";
@@ -20,8 +20,8 @@ import {
   updateLessonProgress,
 } from "@/lib/learning-progress";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { formatLessonDifficulty } from "@/lib/academy-localization";
+import { academyLessonTitle } from "@/lib/academy-journey";
+import styles from "@/components/academy/academy-experience.module.css";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { LearningNextStep } from "@/components/academy/learning-next-step";
@@ -62,6 +62,13 @@ const SECTION_IDS = {
   navigation: "lesson-navigation",
 } as const;
 
+const PANEL_FOR_SECTION: Record<string, string> = {
+  [SECTION_IDS.summary]: "summary", [SECTION_IDS.takeaways]: "summary",
+  [SECTION_IDS.objectives]: "summary", [SECTION_IDS.concepts]: "summary",
+  [SECTION_IDS.notes]: "practice", [SECTION_IDS.visuals]: "practice", [SECTION_IDS.mistakes]: "practice",
+  [SECTION_IDS.workbook]: "resources", [SECTION_IDS.quiz]: "quiz", "study-panel-notes": "notes",
+};
+
 type SyncState = "idle" | "saving" | "saved";
 
 export function LessonInterface({
@@ -85,8 +92,31 @@ export function LessonInterface({
   const [courseComplete, setCourseComplete] = useState(false);
   const [notesDraft, setNotesDraft] = useState(progressState.notes);
   const [notesSyncState, setNotesSyncState] = useState<SyncState>("idle");
+  const [storageError, setStorageError] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const celebrationRef = useRef<HTMLDivElement>(null);
+  const [activePanel, setActivePanel] = useState("summary");
+  const [visitedPanels, setVisitedPanels] = useState(() => new Set(["summary"]));
   const [selfHostedVideoErrored, setSelfHostedVideoErrored] = useState(false);
+
+  useEffect(() => {
+    setVisitedPanels(current => current.has(activePanel) ? current : new Set([...current, activePanel]));
+  }, [activePanel]);
+
+  useEffect(() => {
+    const openLinkedSection = () => {
+      const panel = PANEL_FOR_SECTION[window.location.hash.slice(1)];
+      if (panel) setActivePanel(panel);
+    };
+    openLinkedSection();
+    window.addEventListener("hashchange", openLinkedSection);
+    return () => window.removeEventListener("hashchange", openLinkedSection);
+  }, []);
+
+  useEffect(() => {
+    const section = window.location.hash.slice(1);
+    if (PANEL_FOR_SECTION[section] === activePanel) document.getElementById(section)?.scrollIntoView({ block: "start" });
+  }, [activePanel]);
 
   const refreshCourseProgress = useCallback(() => {
     setCourseProgress(getCourseProgressPercent(lesson.courseId, courseLessons.map((entry) => entry.id)));
@@ -109,44 +139,54 @@ export function LessonInterface({
     pdf: hasPdf ? progressState.pdfOpened : true,
     quiz: hasQuiz ? isQuizPassed(progressState.quizScore) : true,
   };
-  const completionEligible = completionChecks.video && completionChecks.pdf && completionChecks.quiz;
 
   const activeCheckValues = [completionChecks.video, completionChecks.pdf, ...(hasQuiz ? [completionChecks.quiz] : [])];
   const completionPercent = Math.round((activeCheckValues.filter(Boolean).length / activeCheckValues.length) * 100);
-  const shouldShowResume = progressState.videoPositionSeconds > 0 || progressState.pdfReadProgress > 0 || progressState.notes.length > 0;
   const isEmbeddedFallbackProvider = lesson.assets.videoProvider !== "self-hosted";
   const lessonDuration = lesson.estimatedDurationMinutes || lesson.durationMinutes;
+  const stepNumber = Math.max(1, courseLessons.findIndex(entry => entry.id === lesson.id) + 1);
   const narrative = lessonNarrative ?? undefined;
 
   useEffect(() => {
-    markLessonAsCurrent(lesson);
-    const timer = window.setInterval(() => addStudyMinutes(1), 60000);
+    try { markLessonAsCurrent(lesson); } catch { setStorageError(true); }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      try { addStudyMinutes(1); } catch { setStorageError(true); }
+    }, 60000);
     return () => window.clearInterval(timer);
   }, [lesson]);
 
   useEffect(() => {
-    setNotesDraft(progressState.notes);
-  }, [progressState.notes]);
-
-  useEffect(() => {
-    if (progressState.lessonCompleted) {
-      setShowCelebration(true);
-    }
-  }, [progressState.lessonCompleted]);
+    if (notesSyncState !== "saved") return;
+    const timer = window.setTimeout(() => setNotesSyncState("idle"), 1400);
+    return () => window.clearTimeout(timer);
+  }, [notesSyncState]);
 
   useEffect(() => {
     if (!showCelebration) return;
 
     const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     document.body.style.overflow = "hidden";
+    const focusable = () => Array.from(celebrationRef.current?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])") ?? []);
+    focusable()[0]?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setShowCelebration(false);
+      if (event.key === "Tab") {
+        const elements = focusable();
+        const first = elements[0];
+        const last = elements.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+      else document.getElementById("study-tab-quiz")?.focus();
     };
   }, [showCelebration]);
 
@@ -155,6 +195,8 @@ export function LessonInterface({
       eventType: Parameters<typeof updateLessonProgress>[0]["eventType"],
       updater: Parameters<typeof updateLessonProgress>[0]["updater"],
     ) => {
+      try {
+      const wasCompleted = getLessonProgressState(lesson.id, lesson.courseId, lesson.slug).lessonCompleted;
       const next = await updateLessonProgress({
         lessonId: lesson.id,
         courseId: lesson.courseId,
@@ -163,125 +205,67 @@ export function LessonInterface({
         updater,
       });
       setProgressState(next);
+      if (next.lessonCompleted && !wasCompleted) setShowCelebration(true);
       refreshCourseProgress();
+      setStorageError(false);
+      return true;
+      } catch {
+        setStorageError(true);
+        return false;
+      }
     },
     [lesson.courseId, lesson.id, lesson.slug, refreshCourseProgress],
   );
 
-  useEffect(() => {
-    if (notesDraft === progressState.notes) return;
+  async function saveNotes(value: string) {
+    setNotesDraft(value);
     setNotesSyncState("saving");
-    let idleTimer: number;
-    const timer = window.setTimeout(() => {
-      void updateProgress("notes_updated", (current) => ({
-        ...current,
-        notes: notesDraft,
-        notesSavedAt: new Date().toISOString(),
-      }));
-      setNotesSyncState("saved");
-      idleTimer = window.setTimeout(() => setNotesSyncState("idle"), 1400);
-    }, 500);
-    return () => {
-      window.clearTimeout(timer);
-      window.clearTimeout(idleTimer);
-    };
-  }, [notesDraft, progressState.notes, updateProgress]);
+    // Browser-local writes happen immediately, including just before navigation.
+    const saved = await updateProgress("notes_updated", (current) => ({
+      ...current, notes: value, notesSavedAt: new Date().toISOString(),
+    }));
+    setNotesSyncState(saved ? "saved" : "idle");
+  }
+
+  const panels = [
+    { id: "summary", label: isAr ? "الملخّص" : "Overview" },
+    { id: "practice", label: isAr ? "التطبيق" : "Practice" },
+    { id: "resources", label: isAr ? "الملفات" : "Workbook" },
+    { id: "notes", label: isAr ? "ملاحظاتي" : "My notes" },
+    { id: "quiz", label: isAr ? "الاختبار" : "Quiz" },
+  ];
+  const nextTaskLabel = !completionChecks.video ? (isAr ? "شاهد الفيديو" : "Watch the video")
+    : !completionChecks.pdf ? (isAr ? "افتح ملف العمل" : "Open the workbook")
+    : !completionChecks.quiz ? (isAr ? "اختبر فهمك" : "Try the quiz")
+    : (isAr ? "إكمال الدرس" : "Complete lesson");
+
+  function openNextTask() {
+    if (!completionChecks.video) {
+      document.getElementById(SECTION_IDS.video)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      return;
+    }
+    if (!completionChecks.pdf) { setActivePanel("resources"); document.getElementById("study-tab-resources")?.focus(); return; }
+    if (!completionChecks.quiz) { setActivePanel("quiz"); document.getElementById("study-tab-quiz")?.focus(); return; }
+    void updateProgress("lesson_completed", (current) => ({ ...current, videoWatched: true, pdfOpened: true, quizScore: current.quizScore ?? 100 }));
+  }
 
   return (
-    <div className="section-container page-shell">
-      <div className="sticky top-20 z-20 mb-4 rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-3 backdrop-blur-xl">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{isAr ? lesson.titleAr : lesson.title}</p>
-            <p className="text-xs text-[#9CA3AF]">
-              {isAr ? "تقدم الدورة" : "Course Progress"} {courseProgress}%
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {previousSlug ? (
-              <Link href={`/lessons/${previousSlug}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                {isAr ? "السابق" : "Previous"}
-              </Link>
-            ) : null}
-            {nextSlug ? (
-              <Link href={`/lessons/${nextSlug}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
-                {isAr ? "التالي" : "Next"}
-              </Link>
-            ) : null}
-            <Button
-              size="sm"
-              disabled={!completionEligible}
-              onClick={() =>
-                void updateProgress("lesson_completed", (current) => ({
-                  ...current,
-                  videoWatched: true,
-                  pdfOpened: true,
-                  quizScore: current.quizScore ?? 100,
-                }))
-              }
-            >
-              {progressState.lessonCompleted ? (isAr ? "مكتمل" : "Completed") : isAr ? "إكمال الدرس" : "Mark Complete"}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <main className="min-w-0 space-y-4">
-          {shouldShowResume ? (
-            <Card>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
-                <div>
-                  <p className="text-sm font-medium">{isAr ? "تابع من حيث توقفت" : "Continue where you left off"}</p>
-                  <p className="text-xs text-[#9CA3AF]">
-                    {isAr ? "الفيديو" : "Video"} {Math.floor(progressState.videoPositionSeconds / 60)}:
-                    {`${Math.floor(progressState.videoPositionSeconds % 60)}`.padStart(2, "0")} · {isAr ? "القراءة" : "Reading"} {progressState.pdfReadProgress}%
-                  </p>
-                </div>
-                <Button variant="secondary" size="sm" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-                  {isAr ? "متابعة الآن" : "Resume Now"}
-                </Button>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card id={SECTION_IDS.overview}>
-            <CardHeader>
-              <CardDescription>{isAr ? lesson.moduleAr : lesson.module}</CardDescription>
-              <CardTitle className="text-2xl md:text-3xl">{isAr ? lesson.titleAr : lesson.title}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm leading-7 text-[#9CA3AF]">{isAr ? lesson.descriptionAr : lesson.description}</p>
-              {narrative ? (
-                <p className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/[0.04] p-4 text-sm leading-7 text-[#E5E7EB]">
-                  {isAr ? narrative.introAr : narrative.intro}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
-                <span className="rounded-full border border-white/10 px-3 py-1">{isAr ? `الدرس ${lesson.lessonNumber || lesson.order}` : `Lesson ${lesson.lessonNumber || lesson.order}`}</span>
-                <span className="rounded-full border border-white/10 px-3 py-1">{lessonDuration} {isAr ? "دقيقة" : "minutes"}</span>
-                <span className="rounded-full border border-white/10 px-3 py-1">{formatLessonDifficulty(lesson.difficulty, isAr ? "ar" : "en")}</span>
-                {lesson.instructor ? <span className="rounded-full border border-white/10 px-3 py-1">{lesson.instructor}</span> : null}
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-[#9CA3AF]">
-                  <span>{isAr ? "التقدم داخل الدرس" : "Lesson Progress"}</span>
-                  <span>{completionPercent}%</span>
-                </div>
-                <Progress value={completionPercent} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card id={SECTION_IDS.video}>
-            <CardHeader>
-              <CardTitle>{isAr ? "الفيديو" : "Lesson Video"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+    <div className={`section-container page-shell ${styles.studyShell}`} dir={isAr ? "rtl" : "ltr"}>
+      <Link href="/academy" className={styles.backLink}><ChevronLeft size={15} className={styles.directional} />{isAr ? "مساري التعليمي" : "My learning path"}</Link>
+      <header className={styles.studyHeading}>
+        <div><span className={styles.eyebrow}>{isAr ? `الخطوة ${stepNumber} من ${courseLessons.length}` : `STEP ${stepNumber} OF ${courseLessons.length}`} · {isAr ? "مع مارك" : "WITH MARK"}</span><h1>{academyLessonTitle(isAr ? lesson.titleAr : lesson.title)}</h1><p>{lessonDuration} {isAr ? "دقيقة تعلّم تقريبًا" : "min estimated study time"} · {isAr ? "تعلّم على راحتك" : "Go at your own pace"}</p></div>
+        <button type="button" className={styles.bookmarkButton} aria-pressed={progressState.bookmarked} aria-label={isAr ? "حفظ الدرس" : "Bookmark lesson"} onClick={()=>void updateProgress("bookmark_toggled", current=>({...current, bookmarked: !current.bookmarked}))}><Bookmark size={16} fill={progressState.bookmarked ? "currentColor" : "none"} /><span>{progressState.bookmarked ? (isAr ? "محفوظ" : "Saved") : (isAr ? "حفظ" : "Save")}</span></button>
+      </header>
+      {storageError ? <p role="alert" className="mb-4 rounded-xl border border-amber-300/30 p-3 text-sm text-amber-200">{isAr ? "تعذر الحفظ في هذا المتصفح. اسمح بالتخزين وانسخ ملاحظاتك قبل مغادرة الصفحة." : "This browser could not save your work. Allow browser storage and copy your notes before leaving."}</p> : null}
+      <div className={styles.studyGrid}>
+        <main className={styles.studyMain}>
+          <Card id={SECTION_IDS.video} className="scroll-mt-28 overflow-hidden">
+            <CardContent className="space-y-4 p-0">
               <div className="aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                 <VideoPlayer
                   asset={lesson.assets}
                   title={isAr ? lesson.titleAr : lesson.title}
+                  poster={narrative?.visuals[0]?.src}
                   initialTimeSeconds={progressState.videoPositionSeconds}
                   onVideoPlay={() => undefined}
                   onVideoComplete={() => {
@@ -301,16 +285,13 @@ export function LessonInterface({
                 />
               </div>
               {lesson.assets.videoChapters.length ? (
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <details className="mx-4 mb-4 rounded-xl border border-white/10"><summary className="cursor-pointer p-3 text-xs text-[#dcca8e]">{isAr ? "مواضيع الفيديو" : "Video topics"}</summary><div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
                   {lesson.assets.videoChapters.map((chapter) => (
                     <div key={chapter.id} className="rounded-xl border border-white/10 p-3 text-sm">
-                      <p className="text-xs text-[#9CA3AF]">
-                        {Math.floor(chapter.timeSeconds / 60)}:{`${chapter.timeSeconds % 60}`.padStart(2, "0")}
-                      </p>
-                      <p className="mt-1">{isAr ? chapter.titleAr : chapter.title}</p>
+                      <p>{isAr ? chapter.titleAr : chapter.title}</p>
                     </div>
                   ))}
-                </div>
+                </div></details>
               ) : null}
               {(isEmbeddedFallbackProvider || selfHostedVideoErrored) && !progressState.videoWatched ? (
                 <Button
@@ -329,6 +310,28 @@ export function LessonInterface({
             </CardContent>
           </Card>
 
+
+          <div className={styles.lessonChecklist} aria-label={isAr ? "خطوات الدرس" : "Lesson steps"}>
+            <span data-done={completionChecks.video}>{completionChecks.video ? <CheckCircle2 size={14} /> : <PlayCircle size={14} />}{isAr ? "شاهد" : "Watch"}</span>
+            {hasPdf ? <button type="button" data-done={completionChecks.pdf} onClick={()=>setActivePanel("resources")}><FileText size={14} />{isAr ? "طبّق" : "Workbook"}</button> : null}
+            {hasQuiz ? <button type="button" data-done={completionChecks.quiz} onClick={()=>setActivePanel("quiz")}><CheckCircle2 size={14} />{isAr ? "اختبر فهمك" : "Check yourself"}</button> : null}
+            <span>{completionPercent}%</span>
+          </div>
+          <div className={styles.studyTabs} role="tablist" aria-label={isAr ? "أدوات الدرس" : "Lesson tools"}>
+            {panels.map((panel,index)=><button type="button" role="tab" id={`study-tab-${panel.id}`} key={panel.id} aria-controls={`study-panel-${panel.id}`} aria-selected={activePanel===panel.id} tabIndex={activePanel===panel.id ? 0 : -1} onClick={()=>setActivePanel(panel.id)} onKeyDown={event=>{
+              let nextIndex=index;
+              if(event.key==="Home") nextIndex=0;
+              else if(event.key==="End") nextIndex=panels.length-1;
+              else if(event.key==="ArrowRight") nextIndex=(index+(isAr ? -1 : 1)+panels.length)%panels.length;
+              else if(event.key==="ArrowLeft") nextIndex=(index+(isAr ? 1 : -1)+panels.length)%panels.length;
+              else return;
+              event.preventDefault();setActivePanel(panels[nextIndex].id);
+              document.getElementById(`study-tab-${panels[nextIndex].id}`)?.focus();
+            }}>{panel.label}</button>)}
+          </div>
+          {panels.map(panel=><div role="tabpanel" id={`study-panel-${panel.id}`} key={panel.id} aria-labelledby={`study-tab-${panel.id}`} tabIndex={0} hidden={activePanel!==panel.id} className={activePanel===panel.id ? styles.studyPanel : undefined}>
+            {activePanel===panel.id || visitedPanels.has(panel.id) ? <>
+              {panel.id === "summary" ? <>
           <Card id={SECTION_IDS.summary}>
             <CardHeader>
               <CardTitle>{isAr ? "ملخص الدرس" : "Lesson Summary"}</CardTitle>
@@ -352,6 +355,10 @@ export function LessonInterface({
             </CardContent>
           </Card>
 
+          <details className="rounded-xl border border-white/10 p-4">
+            <summary className="cursor-pointer text-sm text-[#d9c68b]">{isAr ? "تعمّق أكثر: المفاهيم والأهداف" : "Go deeper: concepts & objectives"}</summary>
+            <div className="mt-4 space-y-4">
+              {narrative ? <p className="text-sm leading-7 text-[#a4ab9b]">{isAr ? narrative.introAr : narrative.intro}</p> : null}
           {narrative ? (
             <Card id={SECTION_IDS.concepts}>
               <CardHeader>
@@ -382,49 +389,11 @@ export function LessonInterface({
             </CardContent>
           </Card>
 
-          <Card id={SECTION_IDS.workbook}>
-            <CardHeader>
-              <CardTitle>{isAr ? "ملف العمل / PDF" : "Workbook / PDF"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {narrative ? (
-                <p className="text-sm leading-7 text-[#9CA3AF]">{isAr ? narrative.workbookIntroAr : narrative.workbookIntro}</p>
-              ) : null}
-              <PdfViewer
-                asset={lesson.assets}
-                title={isAr ? lesson.titleAr : lesson.title}
-                initialProgress={progressState.pdfReadProgress}
-                onOpen={() => {
-                  void updateProgress("pdf_opened", (current) => ({ ...current, pdfOpened: true }));
-                }}
-                onProgress={(value) => {
-                  void updateProgress("pdf_progress", (current) => ({
-                    ...current,
-                    pdfOpened: true,
-                    pdfReadProgress: value,
-                  }));
-                }}
-              />
 
-              {lesson.assets.resources.length ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {lesson.assets.resources.map((resource) => (
-                    <a
-                      key={resource.id}
-                      href={resolveLessonResourceUrl(resource.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="premium-card flex items-center gap-2 rounded-xl p-3 text-sm hover:-translate-y-0.5"
-                    >
-                      <FileText className="h-4 w-4 text-[#C9A227]" />
-                      <span>{isAr ? resource.labelAr : resource.label}</span>
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
+            </div>
+          </details>
+              </> : null}
+              {panel.id === "practice" ? <>
           <Card id={SECTION_IDS.notes}>
             <CardHeader>
               <CardTitle>{isAr ? "ملاحظات الدرس" : "Lesson Notes"}</CardTitle>
@@ -474,131 +443,56 @@ export function LessonInterface({
             </Card>
           ) : null}
 
-          <Card id={SECTION_IDS.quiz}>
+
+                {narrative ? <Card><CardHeader><CardTitle>{isAr ? "جرّب بنفسك" : "Try it yourself"}</CardTitle></CardHeader><CardContent className="space-y-3">{(isAr ? narrative.practicalExamplesAr : narrative.practicalExamples).map(item=><p className="text-sm leading-7 text-[#aeb4a4]" key={item}>{item}</p>)}</CardContent></Card> : null}
+              </> : null}
+              {panel.id === "resources" ? <>
+          <Card id={SECTION_IDS.workbook}>
             <CardHeader>
-              <CardTitle>{isAr ? "اختبار الدرس" : "Lesson Quiz"}</CardTitle>
-              <CardDescription>{isAr ? "أكمل الاختبار لتأكيد استيعابك قبل الانتقال للدرس التالي." : "Complete the quiz to confirm understanding before moving to the next lesson."}</CardDescription>
+              <CardTitle>{isAr ? "ملف العمل / PDF" : "Workbook / PDF"}</CardTitle>
             </CardHeader>
-            <CardContent>
-              {narrative ? <p className="mb-4 text-sm leading-7 text-[#9CA3AF]">{isAr ? narrative.quizContextAr : narrative.quizContext}</p> : null}
-              <LessonQuiz
-                questions={lesson.quiz}
-                onCompleted={(score) => {
-                  void updateProgress("quiz_completed", (current) => ({
+            <CardContent className="space-y-4">
+              {narrative ? (
+                <p className="text-sm leading-7 text-[#9CA3AF]">{isAr ? narrative.workbookIntroAr : narrative.workbookIntro}</p>
+              ) : null}
+              <PdfViewer
+                asset={lesson.assets}
+                title={isAr ? lesson.titleAr : lesson.title}
+                initialProgress={progressState.pdfReadProgress}
+                onOpen={() => {
+                  void updateProgress("pdf_opened", (current) => ({ ...current, pdfOpened: true }));
+                }}
+                onProgress={(value) => {
+                  void updateProgress("pdf_progress", (current) => ({
                     ...current,
-                    quizScore: score,
+                    pdfOpened: true,
+                    pdfReadProgress: value,
                   }));
                 }}
               />
-            </CardContent>
-          </Card>
 
-          {courseComplete ? <LearningNextStep locale={locale} completed /> : null}
-
-          <Card id={SECTION_IDS.navigation}>
-            <CardHeader>
-              <CardTitle>{isAr ? "التنقل بين الدروس" : "Lesson Navigation"}</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 sm:grid-cols-2">
-              {previousSlug ? (
-                <Link href={`/lessons/${previousSlug}`} className={cn(buttonVariants({ variant: "secondary" }), "w-full justify-start")}>
-                  {isAr ? "الدرس السابق" : "Previous Lesson"}
-                </Link>
-              ) : (
-                <div className="rounded-full border border-white/10 px-4 py-3 text-sm text-[#6B7280]">{isAr ? "هذا أول درس" : "This is the first lesson"}</div>
-              )}
-              {nextSlug ? (
-                <Link href={`/lessons/${nextSlug}`} className={cn(buttonVariants(), "w-full justify-start")}>
-                  {isAr ? "الدرس التالي" : "Next Lesson"}
-                </Link>
-              ) : (
-                <div className="rounded-full border border-white/10 px-4 py-3 text-sm text-[#6B7280]">{isAr ? "هذا آخر درس" : "This is the final lesson"}</div>
-              )}
-            </CardContent>
-          </Card>
-        </main>
-
-        <aside className="space-y-4 xl:sticky xl:top-40 xl:self-start">
-          <Card>
-            <CardHeader>
-              <CardDescription>{isAr ? "تنقل الدورة" : "Course Navigation"}</CardDescription>
-              <CardTitle className="text-lg">{isAr ? lesson.moduleAr : lesson.module}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {courseLessons.map((entry) => (
-                <Link
-                  key={entry.id}
-                  href={`/lessons/${entry.slug}`}
-                  className={`block rounded-lg px-3 py-2 text-sm ${
-                    lesson.slug === entry.slug ? "bg-[#C9A227]/20 text-[#C9A227]" : "text-[#9CA3AF] hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  <span className="block truncate">
-                    {(entry.lessonNumber || entry.order).toString().padStart(2, "0")} · {locale === "ar" ? entry.titleAr : entry.title}
-                  </span>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardDescription>{isAr ? "تقدم الطالب" : "Student Progress"}</CardDescription>
-              <CardTitle className="text-lg">{courseProgress}%</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Progress value={courseProgress} />
-              <div className="rounded-xl border border-white/10 p-3">
-                <div className="mb-2 flex items-center justify-between text-xs text-[#9CA3AF]">
-                  <span>{isAr ? "جاهزية الإكمال" : "Completion Readiness"}</span>
-                  <span>{completionPercent}%</span>
+              {lesson.assets.resources.length ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {lesson.assets.resources.map((resource) => (
+                    <a
+                      key={resource.id}
+                      href={resolveLessonResourceUrl(resource.url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="premium-card flex items-center gap-2 rounded-xl p-3 text-sm hover:-translate-y-0.5"
+                    >
+                      <FileText className="h-4 w-4 text-[#C9A227]" />
+                      <span>{isAr ? resource.labelAr : resource.label}</span>
+                    </a>
+                  ))}
                 </div>
-                <Progress value={completionPercent} />
-              </div>
-              <div className="space-y-2 text-sm text-[#9CA3AF]">
-                <div className="flex items-center gap-2">
-                  <PlayCircle className="h-4 w-4 text-[#C9A227]" />
-                  {completionChecks.video ? (isAr ? "تمت مشاهدة الفيديو" : "Video completed") : isAr ? "الفيديو غير مكتمل" : "Video pending"}
-                </div>
-                {hasPdf ? (
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-[#C9A227]" />
-                    {completionChecks.pdf ? (isAr ? "تم فتح الملف" : "Workbook opened") : isAr ? "ملف العمل غير مكتمل" : "Workbook pending"}
-                  </div>
-                ) : null}
-                {hasQuiz ? (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-[#C9A227]" />
-                    {completionChecks.quiz
-                      ? `${isAr ? "تم الاختبار" : "Quiz passed"} ${progressState.quizScore ?? 0}%`
-                      : isAr
-                        ? "الاختبار غير مكتمل"
-                        : "Quiz pending"}
-                  </div>
-                ) : null}
-                <div className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4 text-[#C9A227]" />
-                  {isAr ? "المدة" : "Duration"}: {lessonDuration} {isAr ? "دقيقة" : "minutes"}
-                </div>
-              </div>
+              ) : null}
             </CardContent>
           </Card>
 
-          {narrative ? (
-            <Card>
-              <CardHeader>
-                <CardDescription>{isAr ? "أمثلة عملية" : "Practical Examples"}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {(isAr ? narrative.practicalExamplesAr : narrative.practicalExamples).map((item, index) => (
-                  <p key={`${item}-${index}`} className="rounded-xl border border-white/10 p-3 text-sm text-[#D1D5DB]">
-                    {item}
-                  </p>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
 
+              </> : null}
+              {panel.id === "notes" ? <>
           <Card>
             <CardHeader>
               <CardDescription>{isAr ? "ملاحظاتك" : "Your Notes"}</CardDescription>
@@ -607,47 +501,69 @@ export function LessonInterface({
             <CardContent className="space-y-2">
               <textarea
                 value={notesDraft}
-                onChange={(event) => setNotesDraft(event.target.value)}
-                rows={7}
-                className="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-sm outline-none transition focus:border-[#C9A227]/60"
-                placeholder={isAr ? "اكتب ملاحظاتك..." : "Write your notes..."}
+                onChange={(event) => void saveNotes(event.target.value)}
+                rows={9}
+                className={styles.noteArea}
+                placeholder={isAr ? "ما الفكرة التي تعلّمتها؟ كيف ستطبقها على الشارت؟" : "What did you learn? How will you apply it on a chart?"}
                 aria-label={isAr ? "ملاحظات الدرس" : "Lesson notes"}
               />
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#9CA3AF]" role="status">
                 {notesSyncState === "saving" ? (isAr ? "جاري الحفظ..." : "Saving...") : notesSyncState === "saved" ? (isAr ? "✓ تم الحفظ" : "✓ Saved") : " "}
               </p>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <button
-                type="button"
-                onClick={() =>
-                  void updateProgress("bookmark_toggled", (current) => ({
+              </> : null}
+              {panel.id === "quiz" ? <>
+          <Card id={SECTION_IDS.quiz}>
+            <CardHeader>
+              <CardTitle>{isAr ? "اختبار الدرس" : "Lesson Quiz"}</CardTitle>
+              <CardDescription>{isAr ? "اختبر فهمك. تحتاج إلى 70٪ للاجتياز، وإعادة المحاولة لا تلغي تقدمك المكتمل." : "Check your understanding. Pass with 70%; practice attempts won’t erase completed progress."}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {narrative ? <p className="mb-4 text-sm leading-7 text-[#9CA3AF]">{isAr ? narrative.quizContextAr : narrative.quizContext}</p> : null}
+              <LessonQuiz
+                questions={lesson.quiz}
+                onCompleted={(score) => {
+                  void updateProgress("quiz_completed", (current) => ({
                     ...current,
-                    bookmarked: !current.bookmarked,
-                  }))
-                }
-                className="flex w-full items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm"
-              >
-                <Bookmark className="h-4 w-4 text-[#C9A227]" />
-                {progressState.bookmarked ? (isAr ? "تم حفظ الدرس" : "Bookmarked") : isAr ? "حفظ الدرس" : "Bookmark Lesson"}
-              </button>
+                    quizScore: Math.max(current.quizScore ?? 0, score),
+                  }));
+                }}
+              />
             </CardContent>
           </Card>
+
+
+              </> : null}
+            </> : null}
+          </div>)}
+          <div className={styles.nextAction}>
+            <p>{progressState.lessonCompleted ? (isAr ? "أحسنت! أنت جاهز للخطوة التالية." : "Well done. You’re ready for your next step.") : (isAr ? "خطوتك التالية" : "Your next step")}</p>
+            {progressState.lessonCompleted ? <Link href={nextSlug ? `/lessons/${nextSlug}` : "/academy"} className={buttonVariants({size:"sm"})}>{nextSlug ? (isAr ? "الدرس التالي" : "Next lesson") : (isAr ? "العودة للمسار" : "Back to my path")}</Link> : <Button size="sm" onClick={openNextTask}>{nextTaskLabel}</Button>}
+          </div>
+          {courseComplete ? <div className="mt-5"><LearningNextStep locale={locale} completed /></div> : null}
+          {previousSlug ? <Link href={`/lessons/${previousSlug}`} className={`${styles.backLink} mt-4`}>{isAr ? "الدرس السابق" : "Previous lesson"}</Link> : null}
+        </main>
+        <aside className={styles.studySidebar}>
+          <details open>
+            <summary>{isAr ? "في هذا المسار" : "In this learning path"}<ChevronDown size={15}/></summary>
+            <div className="px-4 pb-4"><Progress value={courseProgress}/><p className="mt-2 text-xs text-[#969c8d]">{courseProgress}% {isAr ? "مكتمل" : "complete"}</p></div>
+            {courseLessons.map((entry,index)=><Link key={entry.id} href={`/lessons/${entry.slug}`} aria-current={lesson.id===entry.id ? "page" : undefined} className={styles.sidebarLesson}><span>{String(index+1).padStart(2,"0")}</span><span>{academyLessonTitle(isAr ? entry.titleAr : entry.title)}</span></Link>)}
+          </details>
+          <div className={styles.quietCard}><span aria-hidden="true" className={styles.tipEmoji}>💡</span><div><strong>{isAr ? "التطبيق يثبت المعلومة" : "Make this lesson count"}</strong><p>{isAr ? "جرّب فكرة واحدة على الشارت واكتب أهم ملاحظة تعلّمتها." : "Try one idea on a chart, then write down your main takeaway."}</p><button type="button" className="min-h-10 text-xs text-[#dcc681]" onClick={()=>{setActivePanel("notes");const tab=document.getElementById("study-tab-notes");tab?.scrollIntoView({block:"center"});tab?.focus();}}>{isAr ? "افتح ملاحظاتي" : "Open my notes"}</button></div></div>
         </aside>
       </div>
-
       {showCelebration && progressState.lessonCompleted ? (
           <div className="alpha-modal-backdrop fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
             <div
+              ref={celebrationRef}
               role="dialog"
               aria-modal="true"
               aria-labelledby="lesson-completion-dialog-title"
-              className="alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
+              className={`alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)] ${styles.celebration}`}
             >
-              <Sparkles className="mx-auto mb-3 h-8 w-8 text-[#C9A227]" />
+              <div className={styles.confetti} aria-hidden="true">{Array.from({length:12}, (_,index)=><i key={index}/>)}</div>
+              <span aria-hidden="true" className={styles.celebrationEmoji}>🎉</span>
               <p className="text-sm uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "ممتاز" : "Excellent work"}</p>
               <h3 id="lesson-completion-dialog-title" className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "نقاط الخبرة" : "XP Progress"} +{lesson.xpReward ?? 120}</p>
@@ -671,6 +587,7 @@ export function LessonInterface({
             </div>
           </div>
       ) : null}
+
     </div>
   );
 }
