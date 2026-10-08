@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { currencyText } from "@/components/ui/currency-text";
 import type { MarketChartSnapshot, MarketChartSymbol } from "@/types/market-chart";
+import { runClientRequest } from "@/lib/client-request-deadline";
 
 type Locale = "ar" | "en";
 const TABS = [
@@ -61,27 +62,58 @@ function MarketChart({ title, symbol, locale }: { title: string; symbol: MarketC
   useEffect(() => {
     let stopped = false;
     let refresh: ReturnType<typeof setTimeout> | undefined;
-    let controller: AbortController;
+    let controller: AbortController | null = null;
+    const available = () => document.visibilityState !== "hidden" && navigator.onLine !== false;
     async function load() {
-      controller = new AbortController();
-      const deadline = setTimeout(() => controller.abort(), 10_000);
+      if (stopped || controller || !available()) return;
+      clearTimeout(refresh);
+      const current = new AbortController();
+      controller = current;
       try {
-        const response = await fetch(`/api/market/chart?symbol=${symbol}`, { signal: controller.signal });
-        if (!response.ok) throw new Error("chart_unavailable");
-        const payload = await response.json() as { chart: MarketChartSnapshot | null };
-        if (!payload.chart || payload.chart.symbol !== symbol || payload.chart.candles.length < 2) {
-          throw new Error("chart_unavailable");
-        }
-        if (!stopped) { setChart(payload.chart); setFailed(false); }
+        const next = await runClientRequest(current, 10_000, async (signal) => {
+          const response = await fetch(`/api/market/chart?symbol=${symbol}`, { signal });
+          if (!response.ok) throw new Error("chart_unavailable");
+          const payload = await response.json() as { chart: MarketChartSnapshot | null };
+          if (!payload.chart || payload.chart.symbol !== symbol || payload.chart.candles.length < 2) {
+            throw new Error("chart_unavailable");
+          }
+          return payload.chart;
+        });
+        if (!stopped && controller === current) { setChart(next); setFailed(false); }
       } catch {
-        if (!stopped) setFailed(true);
+        if (!stopped && controller === current) setFailed(true);
       } finally {
-        clearTimeout(deadline);
-        if (!stopped) refresh = setTimeout(load, 60_000);
+        if (controller === current) {
+          controller = null;
+          if (!stopped && available()) refresh = setTimeout(load, 60_000);
+        }
       }
     }
+    let active = available();
+    const syncAvailability = () => {
+      const next = available();
+      if (next === active) return;
+      active = next;
+      if (active) void load();
+      else {
+        clearTimeout(refresh);
+        const previous = controller;
+        controller = null;
+        previous?.abort();
+      }
+    };
+    document.addEventListener("visibilitychange", syncAvailability);
+    window.addEventListener("online", syncAvailability);
+    window.addEventListener("offline", syncAvailability);
     void load();
-    return () => { stopped = true; controller?.abort(); clearTimeout(refresh); };
+    return () => {
+      stopped = true;
+      controller?.abort();
+      clearTimeout(refresh);
+      document.removeEventListener("visibilitychange", syncAvailability);
+      window.removeEventListener("online", syncAvailability);
+      window.removeEventListener("offline", syncAvailability);
+    };
   }, [symbol, retry]);
 
   return (
