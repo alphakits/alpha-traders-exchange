@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +27,44 @@ describe("USD News page", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify(feed))));
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
+  it.each(["en", "ar"] as const)("shows exactly three non-overlapping calendar weeks with expandable results in %s", locale => {
+    const events = [
+      { ...event, id: "te-10", scheduledAt: "2026-09-14T12:30:00Z", actual: "0%" },
+      { ...event, id: "te-11", scheduledAt: "2026-09-20T20:59:59Z", actual: "0.1%" },
+      { ...event, id: "te-12", scheduledAt: "2026-09-20T21:00:00Z", actual: "0.2%" },
+      event,
+      { ...event, id: "te-13", scheduledAt: "2026-09-27T21:00:00Z" },
+      { ...event, id: "te-14", scheduledAt: "2026-10-04T20:59:59Z" },
+      { ...event, id: "te-15", scheduledAt: "2026-10-04T21:00:00Z" },
+    ];
+    render(<NewsPage locale={locale} initialFeed={{ ...feed, events }} initialNow={now} />);
+    const labels = locale === "ar" ? ["هذا الأسبوع", "الأسبوع القادم", "الأسبوع السابق"] : ["This week", "Next week", "Previous week"];
+    const controls = within(screen.getByRole("group", { name: locale === "ar" ? "عرض الأخبار" : "News view" })).getAllByRole("button");
+    expect(controls.map((button) => button.textContent)).toEqual(labels);
+    const ids = () => [...document.querySelectorAll("article")].map((card) => card.id);
+    expect(ids()).toEqual(["event-te-12", "event-te-1"]);
+    fireEvent.click(controls[1]);
+    expect(ids()).toEqual(["event-te-13", "event-te-14"]);
+    fireEvent.click(controls[2]);
+    expect(ids()).toEqual(["event-te-10", "event-te-11"]);
+    expect(screen.queryByRole("link", { name: /Next release|الخبر القادم/ })).toBeNull();
+    const details = document.querySelector("article details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(true);
+    expect(details.querySelector("dd")?.textContent).toBe("0%");
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(false);
+  });
+  it("opens a previous-week deep link with its results and hides it when another week is chosen", () => {
+    const past = { ...event, id: "te-10", scheduledAt: "2026-09-14T12:30:00Z", actual: "0%" };
+    render(<NewsPage locale="en" initialFeed={{ ...feed, events: [past, event] }} initialNow={now} eventId={past.id} />);
+    expect(screen.getByRole("button", { name: "Previous week" }).getAttribute("aria-pressed")).toBe("true");
+    expect((document.querySelector("article details") as HTMLDetailsElement).open).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next week" }));
+    expect(document.querySelector("article")).toBeNull();
+    expect(screen.getByText("No confirmed events have been added for next week yet.")).toBeTruthy();
+  });
   it.each(["en", "ar"] as const)("shows the weekly calendar honestly without live controls in %s", async locale => {
     session.user = { id: "weekly-user" };
     const weekly: NewsFeed = { ...feed, mode: "weekly", updatedAt: new Date(now - 86_400_000).toISOString(),
@@ -34,7 +72,7 @@ describe("USD News page", () => {
     vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify(weekly)));
     render(<NewsPage locale={locale} initialFeed={weekly} initialNow={now} />);
     expect(screen.getByText(locale === "ar" ? "تحديث كل أحد · النتائج ليست لحظية" : "Updated Sundays · Results are not live")).toBeTruthy();
-    expect(screen.queryByText(locale === "ar" ? "المتوقع" : "Forecast")).toBeNull();
+    expect(document.querySelector("article details")?.hasAttribute("open")).toBe(false);
     expect(screen.queryByText(/News updates are delayed|تحديث الأخبار متأخر|may be out of date/)).toBeNull();
     expect(document.querySelector('a[href^="http"]')).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(299_999); });
@@ -49,10 +87,10 @@ describe("USD News page", () => {
     render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [released, passed] }} initialNow={now} />);
     expect(screen.getByText("Result not added")).toBeTruthy();
     expect(screen.queryByText("Awaiting result")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    fireEvent.click(screen.getByRole("button", { name: "This week" }));
     expect(screen.getByText("Confirmed result")).toBeTruthy();
     expect(screen.getByText("0%")).toBeTruthy();
-    expect(screen.queryByText("Forecast")).toBeNull();
+    expect(screen.getAllByText("Forecast").length).toBeGreaterThan(0);
   });
   it("hides expired weekly coverage even before a successful API refresh", () => {
     render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", coverageEnd: new Date(now).toISOString() }} initialNow={now} />);
@@ -67,10 +105,11 @@ describe("USD News page", () => {
     expect(screen.getByRole("heading", { name: locale === "ar" ? "حدث سابق هذا الأسبوع" : "Earlier in the week" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: locale === "ar" ? event.titleAr : event.title })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: locale === "ar" ? "حدث الأسبوع التالي" : "Following week release" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "القادمة" : "Upcoming" }));
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "الأسبوع القادم" : "Next week" }));
     expect(screen.queryByRole("heading", { name: locale === "ar" ? "حدث سابق هذا الأسبوع" : "Earlier in the week" })).toBeNull();
     expect(screen.queryByRole("heading", { name: locale === "ar" ? event.titleAr : event.title })).toBeNull();
     expect(screen.getByRole("heading", { name: locale === "ar" ? "حدث الأسبوع التالي" : "Following week release" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "هذا الأسبوع" : "This week" }));
     fireEvent.click(screen.getByRole("link", { name: locale === "ar" ? /الخبر القادم/ : /Next release/ }));
     expect(screen.getByRole("button", { name: locale === "ar" ? "هذا الأسبوع" : "This week" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("heading", { name: locale === "ar" ? event.titleAr : event.title })).toBeTruthy();
@@ -85,12 +124,12 @@ describe("USD News page", () => {
     expect(screen.getByRole("heading", { name: event.title })).toBeTruthy();
     expect(screen.getByText(/Mon 28 Sep.*Sun 4 Oct/)).toBeTruthy();
   });
-  it("opens Upcoming when the next release falls after this week", () => {
+  it("opens Next week when the next release falls after this week", () => {
     const later = { ...event, scheduledAt: "2026-09-28T12:30:00Z", forecast: null };
     render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [later] }} initialNow={now} />);
     expect(screen.queryByRole("heading", { name: event.title })).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: /Next release/ }));
-    expect(screen.getByRole("button", { name: "Upcoming" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Next week" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("heading", { name: event.title })).toBeTruthy();
   });
   it("renders compact upcoming USD news in Israel time with no made-up actual", () => {
@@ -109,7 +148,7 @@ describe("USD News page", () => {
     const days = screen.getAllByRole("region");
     expect(days).toHaveLength(2);
     expect(days[0].querySelectorAll("article")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    fireEvent.click(screen.getByRole("button", { name: "This week" }));
     fireEvent.click(screen.getByRole("link", { name: /Next release/ }));
     expect(document.activeElement?.id).toBe("event-te-3");
     expect(screen.getByRole("button", { name: "This week" }).getAttribute("aria-pressed")).toBe("true");
@@ -190,7 +229,7 @@ describe("USD News page", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...feed, events: [{ ...event, scheduledAt: "2026-09-23T11:30:00Z", actual: "0.4%" }] })));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    fireEvent.click(screen.getByRole("button", { name: "This week" }));
     expect(screen.getByText("0.4%")).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -257,7 +296,7 @@ describe("USD News page", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     visible.mockReturnValue("visible");
     await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
-    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    fireEvent.click(screen.getByRole("button", { name: "This week" }));
     expect(screen.getByText("0.4%")).toBeTruthy();
     visible.mockRestore();
   });

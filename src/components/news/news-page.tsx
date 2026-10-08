@@ -11,7 +11,8 @@ import styles from "./news-page.module.css";
 import { getSignedOutPageDestination } from "@/lib/protected-page";
 import { newsFeedStaleAfterMs, newsDayKey, newsWeekRange, newsEventStatus, newsEventTitle, type NewsEvent, type NewsFeed, type NewsLocale } from "@/lib/economic-news/model";
 
-type Filter = "week" | "upcoming" | "today" | "released";
+type Filter = "week" | "next" | "previous";
+const FILTERS: Filter[] = ["week", "next", "previous"];
 type RefreshFeedback = "preparing" | "updated" | "unavailable" | "failed";
 const LIVE_CHECK_INTERVAL_MS = 30_000;
 const ACTIVATION_CHECK_INTERVAL_MS = 5 * 60_000;
@@ -33,7 +34,17 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
   const { user } = useCanonicalSession();
   const [feed, setFeed] = useState(initialFeed);
   const [now, setNow] = useState(initialNow);
-  const [filter, setFilter] = useState<Filter>(initialFeed.mode === "weekly" ? "week" : "upcoming");
+  const [filter, setFilter] = useState<Filter>(() => {
+    const linked = initialFeed.events.find((event) => event.id === eventId);
+    if (linked) {
+      const day = newsDayKey(linked.scheduledAt, "Asia/Jerusalem");
+      for (const [name, offset] of [["previous", -1], ["next", 1]] as const) {
+        const range = newsWeekRange(initialNow, "Asia/Jerusalem", offset);
+        if (day >= range.start && day < range.end) return name;
+      }
+    }
+    return "week";
+  });
   const [timeZone, setTimeZone] = useState("Asia/Jerusalem");
   const [deviceZone, setDeviceZone] = useState("Asia/Jerusalem");
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
@@ -72,7 +83,6 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
         const data = await response.json() as NewsFeed;
         if (!disposed) {
           feedStatusRef.current = data.status;
-          if (data.mode === "weekly" && feedModeRef.current !== "weekly") setFilter("week");
           feedModeRef.current = data.mode;
           setFeed(data);
           setNow(Date.now());
@@ -117,23 +127,26 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
   const available = (feed.status === "ready" || feed.status === "stale")
     && (!weekly || !feed.coverageEnd || now < Date.parse(feed.coverageEnd));
   const orderedEvents = [...feed.events].sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt) || a.id.localeCompare(b.id));
-  const selected = eventId ? orderedEvents.find((event) => event.id === eventId) : undefined;
-  const next = orderedEvents.find((event) => newsEventStatus(event, now) === "scheduled");
+  const linked = eventId ? orderedEvents.find((event) => event.id === eventId) : undefined;
   const today = newsDayKey(new Date(now).toISOString(), timeZone);
-  const thisWeek = newsWeekRange(now, timeZone);
-  const thisWeekSunday = new Date(Date.parse(`${thisWeek.end}T12:00:00Z`) - 86_400_000).toISOString();
-  const nextFilter: Filter = weekly && next && newsDayKey(next.scheduledAt, timeZone) < thisWeek.end ? "week" : "upcoming";
+  const ranges = {
+    week: newsWeekRange(now, timeZone),
+    next: newsWeekRange(now, timeZone, 1),
+    previous: newsWeekRange(now, timeZone, -1),
+  };
+  const range = ranges[filter];
+  const linkedDay = linked ? newsDayKey(linked.scheduledAt, timeZone) : null;
+  const selected = linkedDay && (linkedDay >= range.start && linkedDay < range.end
+    || filter === "week" && (linkedDay < ranges.previous.start || linkedDay >= ranges.next.end)) ? linked : undefined;
+  const rangeSunday = new Date(Date.parse(`${range.end}T12:00:00Z`) - 86_400_000).toISOString();
+  const next = orderedEvents.find((event) => newsEventStatus(event, now) === "scheduled"
+    && newsDayKey(event.scheduledAt, timeZone) < ranges.next.end);
+  const nextFilter: Filter = next && newsDayKey(next.scheduledAt, timeZone) < ranges.week.end ? "week" : "next";
   const filtered = orderedEvents.filter((event) => {
     if (event.id === selected?.id) return false;
     const day = newsDayKey(event.scheduledAt, timeZone);
-    if (filter === "week") return day >= thisWeek.start && day < thisWeek.end;
-    if (filter === "today") return day === today;
-    if (filter === "released") return newsEventStatus(event, now) === "released";
-    return newsEventStatus(event, now) !== "released"
-      && (Date.parse(event.scheduledAt) > now || day === today)
-      && (!weekly || day >= thisWeek.end);
+    return day >= range.start && day < range.end;
   });
-  if (filter === "released") filtered.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt));
   const grouped = new Map<string, NewsEvent[]>();
   for (const event of filtered) {
     const day = newsDayKey(event.scheduledAt, timeZone);
@@ -154,17 +167,16 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
 
   const emptyMessages: Record<Filter, string> = isAr ? {
     week: "لا توجد أحداث اقتصادية مدرجة لهذا الأسبوع.",
-    upcoming: "لم تتوفر بعد مواعيد مؤكّدة للأسابيع التالية.",
-    today: "لا توجد أحداث مجدولة اليوم.",
-    released: "لا توجد نتائج مؤكّدة حاليًا.",
+    next: "لم تُضف أحداث مؤكّدة للأسبوع القادم بعد.",
+    previous: "لا تتوفر أحداث محفوظة للأسبوع السابق.",
   } : {
     week: "No economic events are listed for this week.",
-    upcoming: "No later events have been confirmed yet.",
-    today: "No events are scheduled for today.",
-    released: "No confirmed results are available yet.",
+    next: "No confirmed events have been added for next week yet.",
+    previous: "No events are saved for the previous week.",
   };
-  const filterLabels: Record<Filter, string> = isAr ? { week: "هذا الأسبوع", upcoming: "القادمة", today: "اليوم", released: "النتائج" } : { week: "This week", upcoming: "Upcoming", today: "Today", released: "Results" };
-  const filters: Filter[] = weekly ? ["week", "upcoming", "today", "released"] : ["upcoming", "today", "released"];
+  const filterLabels: Record<Filter, string> = isAr
+    ? { week: "هذا الأسبوع", next: "الأسبوع القادم", previous: "الأسبوع السابق" }
+    : { week: "This week", next: "Next week", previous: "Previous week" };
   const refreshMessages: Record<RefreshFeedback, string> = isAr ? {
     preparing: "تم التحقق. لم تبدأ تحديثات الأخبار المباشرة بعد.",
     updated: "تم تحديث الأخبار.",
@@ -196,14 +208,13 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
             : (isAr ? "حاول التحديث بعد قليل." : "Try refreshing again shortly.")}</p></div>
         ) : (
           <>
-            {selected ? <EventCard event={selected} locale={locale} timeZone={timeZone} now={now} selected weekly={weekly} /> : eventId ? <p role="status" className="mt-4 text-sm text-[#9CA3AF]">{isAr ? "هذا الخبر غير متاح حاليًا." : "This event is currently unavailable."}</p> : next ? (
+            <div className={styles.filters} role="group" aria-label={isAr ? "عرض الأخبار" : "News view"}>{FILTERS.map((item) => <button key={item} type="button" aria-pressed={filter === item} onClick={() => setFilter(item)} className={styles.filter}>{filterLabels[item]}</button>)}</div>
+            <p className={styles.range}>{formatDate(`${range.start}T12:00:00Z`, locale, "UTC", false)} — {formatDate(rangeSunday, locale, "UTC", false)}</p>
+            {selected ? <EventCard event={selected} locale={locale} timeZone={timeZone} now={now} selected weekly={weekly} /> : eventId && !linked ? <p role="status" className="mt-4 text-sm text-[#9CA3AF]">{isAr ? "هذا الخبر غير متاح حاليًا." : "This event is currently unavailable."}</p> : next && filter === "week" ? (
               <a href={`#event-${next.id}`} onClick={(e) => { e.preventDefault(); setFilter(nextFilter); setScrollTarget(next.id); }} className={styles.nextEvent}>
                 <div><div className={styles.nextTop}><p className={styles.nextLabel}><Clock3 size={15} aria-hidden="true" />{isAr ? "الخبر القادم" : "Next release"}</p><span className={styles.countdown}>{countdown(next.scheduledAt, now, locale)}</span></div><p className={styles.nextTitle} dir="auto">{newsEventTitle(next, locale)}</p><p className={styles.nextDate}>{formatDate(next.scheduledAt, locale, timeZone)}</p></div>
               </a>
             ) : null}
-            <div className={styles.filters} role="group" aria-label={isAr ? "عرض الأخبار" : "News view"}>{filters.map((item) => <button key={item} type="button" aria-pressed={filter === item} onClick={() => setFilter(item)} className={styles.filter}>{filterLabels[item]}</button>)}</div>
-            {weekly && filter === "week" ? <p className={styles.range}>{formatDate(`${thisWeek.start}T12:00:00Z`, locale, "UTC", false)} — {formatDate(thisWeekSunday, locale, "UTC", false)}</p> : null}
-            {weekly && filter === "upcoming" ? <p className={styles.range}>{isAr ? "بعد هذا الأسبوع · من " : "After this week · From "}{formatDate(`${thisWeek.end}T12:00:00Z`, locale, "UTC", false)}</p> : null}
             <div aria-label={isAr ? "الأحداث الاقتصادية" : "Economic events"}>
               {[...grouped].map(([day, events]) => <section key={day} className={styles.dayGroup} aria-labelledby={`day-${day}`}>
                 <h2 id={`day-${day}`} className={styles.dayHeading}>
@@ -221,7 +232,7 @@ export function NewsPage({ locale, initialFeed, initialNow, eventId }: {
           <summary><span>{isAr ? "كيف أقرأ النتائج؟" : "How to read results"}</span><ChevronDown size={16} aria-hidden="true" /></summary>
           <dl className={styles.guideContent}>
             <div><dt className={styles.actual}>{isAr ? "النتيجة الفعلية" : "Actual"}</dt><dd>{isAr ? "الرقم المؤكد الصادر عن المصدر." : "The confirmed figure from the source."}</dd></div>
-            {!weekly ? <div><dt className={styles.forecast}>{isAr ? "المتوقع" : "Forecast"}</dt><dd>{isAr ? "التقدير قبل صدور النتيجة، إن توفر." : "The estimate before release, when available."}</dd></div> : null}
+            <div><dt className={styles.forecast}>{isAr ? "المتوقع" : "Forecast"}</dt><dd>{isAr ? "التقدير قبل صدور النتيجة، إن توفر." : "The estimate before release, when available."}</dd></div>
             <div><dt className={styles.previous}>{isAr ? "السابق" : "Previous"}</dt><dd>{isAr ? "رقم الفترة السابقة للمقارنة." : "The prior period’s figure for comparison."}</dd></div>
             <div><dt>{isAr ? "غير مضافة / غير متاح" : "Not added / Not available"}</dt><dd>{isAr ? "لا توجد قيمة مؤكدة في التقويم. لا يعني ذلك صفرًا." : "No confirmed value in the calendar. It does not mean zero."}</dd></div>
           </dl>

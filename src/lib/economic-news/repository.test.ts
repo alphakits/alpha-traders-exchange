@@ -64,6 +64,14 @@ describe("news storage and provider isolation (real PostgreSQL)", () => {
     expect(feed).toMatchObject({ status: "ready", provider: null });
     expect(feed.events[0]).toMatchObject({ actual: "0.1%", corrected: true });
   });
+  it("reads the full previous and next calendar weeks without admitting unbounded history", async () => {
+    const events = [-16, -14, -8, 0, 8, 14, 16].map((offset, index) => ({
+      ...event, id: `te-${index + 1}`, providerId: `${index + 1}`,
+      scheduledAt: new Date(now.getTime() + offset * 86_400_000).toISOString(),
+    }));
+    await persistNewsSnapshot(events, now);
+    expect((await readNewsFeed(now.getTime())).events.map((item) => item.id)).toEqual(["te-2", "te-3", "te-4", "te-5", "te-6"]);
+  });
   it("starts a separate provider baseline and never mixes cached events or queued alerts", async () => {
     await persistNewsSnapshot([event], now);
     await persistNewsSnapshot([{ ...event, actual: "0%" }], new Date(now.getTime() + 1000));

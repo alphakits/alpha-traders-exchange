@@ -1,6 +1,6 @@
 import "server-only";
 import snapshot from "./weekly-calendar.json";
-import { WEEKLY_NEWS_STALE_AFTER_MS, type NewsFeed } from "./model";
+import { NEWS_CALENDAR_WINDOW_MS, WEEKLY_NEWS_STALE_AFTER_MS, type NewsFeed } from "./model";
 import { weeklyCalendarSchema, type WeeklyCalendar } from "./weekly-schema";
 
 const parsed = weeklyCalendarSchema.safeParse(snapshot);
@@ -17,7 +17,9 @@ export function weeklyNewsFeed(calendar: WeeklyCalendar, now: number, eventId?: 
   return {
     ...base,
     status: now - Date.parse(calendar.verifiedAt) > WEEKLY_NEWS_STALE_AFTER_MS ? "stale" : "ready",
-    events: calendar.events.filter((event) => Date.parse(event.scheduledAt) >= now - 7 * 86_400_000 || event.id === eventId)
+    // The bounded snapshot includes the previous full calendar week. A rolling
+    // seven-day cutoff would erase its early events as the current week passes.
+    events: calendar.events.filter((event) => Date.parse(event.scheduledAt) >= now - NEWS_CALENDAR_WINDOW_MS || event.id === eventId)
       .map((event) => ({
         id: event.id, providerId: event.id, title: event.title, titleAr: event.titleAr,
         scheduledAt: event.scheduledAt, currency: "USD" as const, impact: "high" as const,
