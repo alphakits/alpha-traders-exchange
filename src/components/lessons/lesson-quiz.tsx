@@ -5,6 +5,7 @@ import { RotateCcw } from "lucide-react";
 import { useLocale } from "next-intl";
 import type { QuizQuestion } from "@/types/academy";
 import { Button } from "@/components/ui/button";
+import styles from "@/components/academy/academy-experience.module.css";
 
 export function LessonQuiz({
   questions,
@@ -17,6 +18,7 @@ export function LessonQuiz({
   const isAr = locale === "ar";
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
+  const answeredCount = questions.filter(question => answers[question.id] !== undefined).length;
 
   const scorePercent = useMemo(() => {
     if (!questions.length) return 0;
@@ -25,6 +27,7 @@ export function LessonQuiz({
   }, [answers, questions]);
 
   function submitQuiz() {
+    if (answeredCount !== questions.length || submitted) return;
     setSubmitted(true);
     onCompleted(scorePercent);
   }
@@ -49,14 +52,14 @@ export function LessonQuiz({
         const isCorrect = selected === question.correctIndex;
 
         return (
-          <div key={question.id} className="space-y-3 rounded-xl border border-white/10 p-4">
+          <fieldset key={question.id} className="space-y-3 rounded-xl border border-white/10 p-4">
             <p className="text-sm text-[#9CA3AF]">
               {isAr ? "سؤال" : "Question"} {index + 1}
             </p>
-            <h4 className="text-base font-medium">{label}</h4>
+            <legend className="px-1 text-base font-medium">{label}</legend>
             <div className="space-y-2">
               {options.map((option, optionIndex) => (
-                <label key={`${question.id}-${optionIndex}`} className="flex items-center gap-2 rounded-lg border border-white/10 p-3 text-sm">
+                <label key={`${question.id}-${optionIndex}`} data-selected={selected === optionIndex} data-correct={submitted && optionIndex === question.correctIndex} className={`flex items-center gap-2 rounded-lg border border-white/10 p-3 text-sm ${styles.quizOption}`}>
                   <input
                     type="radio"
                     name={question.id}
@@ -81,18 +84,19 @@ export function LessonQuiz({
                 {explanation}
               </p>
             ) : null}
-          </div>
+          </fieldset>
         );
       })}
 
       {questions.length ? (
         <div className="flex flex-wrap items-center gap-2">
           {!submitted ? (
-            <Button onClick={submitQuiz}>{isAr ? "إرسال الاختبار" : "Submit Quiz"}</Button>
+            <><p className="w-full text-xs text-[#9CA3AF]" role="status">{answeredCount} / {questions.length} {isAr ? "إجابات · أجب عن كل الأسئلة ثم أرسل الاختبار" : "answered · Answer every question, then submit"}</p><Button onClick={submitQuiz} disabled={answeredCount !== questions.length}>{isAr ? "إرسال الاختبار" : "Submit Quiz"}</Button></>
           ) : (
             <>
-              <p className="text-sm text-[#C9A227]">
+              <p className={styles.quizResult} role="status"><span aria-hidden="true">{scorePercent >= 70 ? "🎯" : "💡"}</span>{" "}
                 {isAr ? "النتيجة" : "Score"}: {scorePercent}%
+                <span className="block">{scorePercent >= 70 ? (isAr ? "أحسنت! اجتزت الاختبار." : "Nice work. You passed this check!") : (isAr ? "راجع الشرح وجرّب مرة أخرى. تحتاج إلى 70٪ للاجتياز." : "Review the explanations and try again. You need 70% to pass.")}</span>
               </p>
               <Button variant="secondary" onClick={retryQuiz}>
                 <RotateCcw className="h-4 w-4" />
