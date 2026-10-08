@@ -8,7 +8,7 @@ const testLocale = vi.hoisted(() => ({ value: "en" }));
 vi.mock("next-intl", () => ({ useLocale: () => testLocale.value }));
 vi.mock("@/i18n/navigation", () => ({ Link: (props: ComponentProps<"a">) => <a {...props} /> }));
 vi.mock("next/image", () => ({ default: () => null }));
-vi.mock("next/dynamic", () => ({ default: () => () => null }));
+vi.mock("next/dynamic", () => ({ default: () => ({ onCompleted }: { onCompleted?: (score: number) => void }) => onCompleted ? <button onClick={() => onCompleted(0)}>Submit practice attempt</button> : null }));
 vi.mock("@/components/lessons/video-player", () => ({ VideoPlayer: () => null }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: vi.fn() }));
 
@@ -44,6 +44,18 @@ afterEach(async () => {
 });
 
 describe("lesson progress hydration", () => {
+  it("retains earned completion when a later practice attempt scores lower", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    const completed = { ...getLessonProgressState(lesson.id, lesson.courseId, lesson.slug), videoWatched: true, pdfOpened: true, quizCompleted: true, quizScore: 100, lessonCompleted: true };
+    window.localStorage.setItem("alpha-traders:lesson-progress", JSON.stringify({ [lesson.id]: completed }));
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { (container.querySelector('#study-tab-quiz') as HTMLButtonElement).click(); });
+    await act(async () => { fireEvent.click(Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Submit practice attempt")!); });
+    expect(getLessonProgressState(lesson.id, lesson.courseId, lesson.slug)).toMatchObject({ quizScore: 100, lessonCompleted: true });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("saves the final note edit before immediate navigation", async () => {
     testLocale.value = "en";
     container.innerHTML = renderToString(<LessonInterface {...props} />);

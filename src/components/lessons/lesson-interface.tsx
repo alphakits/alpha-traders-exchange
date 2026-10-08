@@ -122,6 +122,7 @@ export function LessonInterface({
   const completionPercent = Math.round((activeCheckValues.filter(Boolean).length / activeCheckValues.length) * 100);
   const isEmbeddedFallbackProvider = lesson.assets.videoProvider !== "self-hosted";
   const lessonDuration = lesson.estimatedDurationMinutes || lesson.durationMinutes;
+  const stepNumber = Math.max(1, courseLessons.findIndex(entry => entry.id === lesson.id) + 1);
   const narrative = lessonNarrative ?? undefined;
 
   useEffect(() => {
@@ -163,6 +164,7 @@ export function LessonInterface({
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
       if (previousFocus?.isConnected) previousFocus.focus();
+      else document.getElementById("study-tab-quiz")?.focus();
     };
   }, [showCelebration]);
 
@@ -229,7 +231,7 @@ export function LessonInterface({
     <div className={`section-container page-shell ${styles.studyShell}`} dir={isAr ? "rtl" : "ltr"}>
       <Link href="/academy" className={styles.backLink}><ChevronLeft size={15} className={styles.directional} />{isAr ? "مساري التعليمي" : "My learning path"}</Link>
       <header className={styles.studyHeading}>
-        <div><span className={styles.eyebrow}>{isAr ? `الدرس ${lesson.lessonNumber || lesson.order}` : `LESSON ${lesson.lessonNumber || lesson.order}`} · {isAr ? "مع مارك" : "WITH MARK"}</span><h1>{academyLessonTitle(isAr ? lesson.titleAr : lesson.title)}</h1><p>{lessonDuration} {isAr ? "دقيقة تعلّم تقريبًا" : "min estimated study time"} · {isAr ? "تعلّم على راحتك" : "Go at your own pace"}</p></div>
+        <div><span className={styles.eyebrow}>{isAr ? `الخطوة ${stepNumber} من ${courseLessons.length}` : `STEP ${stepNumber} OF ${courseLessons.length}`} · {isAr ? "مع مارك" : "WITH MARK"}</span><h1>{academyLessonTitle(isAr ? lesson.titleAr : lesson.title)}</h1><p>{lessonDuration} {isAr ? "دقيقة تعلّم تقريبًا" : "min estimated study time"} · {isAr ? "تعلّم على راحتك" : "Go at your own pace"}</p></div>
         <button type="button" className={styles.bookmarkButton} aria-pressed={progressState.bookmarked} aria-label={isAr ? "حفظ الدرس" : "Bookmark lesson"} onClick={()=>void updateProgress("bookmark_toggled", current=>({...current, bookmarked: !current.bookmarked}))}><Bookmark size={16} fill={progressState.bookmarked ? "currentColor" : "none"} /><span>{progressState.bookmarked ? (isAr ? "محفوظ" : "Saved") : (isAr ? "حفظ" : "Save")}</span></button>
       </header>
       {storageError ? <p role="alert" className="mb-4 rounded-xl border border-amber-300/30 p-3 text-sm text-amber-200">{isAr ? "تعذر الحفظ في هذا المتصفح. اسمح بالتخزين وانسخ ملاحظاتك قبل مغادرة الصفحة." : "This browser could not save your work. Allow browser storage and copy your notes before leaving."}</p> : null}
@@ -493,7 +495,7 @@ export function LessonInterface({
           <Card id={SECTION_IDS.quiz}>
             <CardHeader>
               <CardTitle>{isAr ? "اختبار الدرس" : "Lesson Quiz"}</CardTitle>
-              <CardDescription>{isAr ? "أكمل الاختبار لتأكيد استيعابك قبل الانتقال للدرس التالي." : "Complete the quiz to confirm understanding before moving to the next lesson."}</CardDescription>
+              <CardDescription>{isAr ? "اختبر فهمك. تحتاج إلى 70٪ للاجتياز، وإعادة المحاولة لا تلغي تقدمك المكتمل." : "Check your understanding. Pass with 70%; practice attempts won’t erase completed progress."}</CardDescription>
             </CardHeader>
             <CardContent>
               {narrative ? <p className="mb-4 text-sm leading-7 text-[#9CA3AF]">{isAr ? narrative.quizContextAr : narrative.quizContext}</p> : null}
@@ -502,7 +504,7 @@ export function LessonInterface({
                 onCompleted={(score) => {
                   void updateProgress("quiz_completed", (current) => ({
                     ...current,
-                    quizScore: score,
+                    quizScore: Math.max(current.quizScore ?? 0, score),
                   }));
                 }}
               />

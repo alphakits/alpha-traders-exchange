@@ -25,9 +25,11 @@ async function main() {
   const findings: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   try {
-    const anonymous = await context.request.get("/en/lessons/candles-foundation");
-    expect(new URL(anonymous.url()).pathname).toBe("/en/login");
-    expect(new URL(anonymous.url()).searchParams.get("redirectTo")).toBe("/en/lessons/candles-foundation");
+    const anonymous = await context.request.get("/en/lessons/candles-foundation", { maxRedirects: 0 });
+    expect(anonymous.status()).toBe(307);
+    const loginRedirect = new URL(anonymous.headers().location, baseURL);
+    expect(loginRedirect.pathname).toBe("/en/login");
+    expect(loginRedirect.searchParams.get("redirectTo")).toBe("/en/lessons/candles-foundation");
     expect((await context.request.post("/api/auth/login", { data: { email: world.seller.email, password: world.seller.password } })).ok()).toBe(true);
     for (const locale of ["en", "ar"]) {
       const ar = locale === "ar";
@@ -65,15 +67,18 @@ async function main() {
         await expect(page.locator("#lesson-visuals")).toBeVisible();
         await expect.poll(() => page.locator("#lesson-visuals img").evaluateAll(nodes => nodes.every(node => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0))).toBe(true);
         await page.getByRole("tab", { name: ar ? "الملفات" : "Workbook", exact: true }).click();
-        await expect(page.locator("#lesson-workbook iframe")).toBeVisible();
         const pdfResponse = await context.request.get(lesson.assets.pdfUrl);
         expect(pdfResponse.status(), `${lesson.slug} workbook`).toBe(200);
         expect((await pdfResponse.body()).subarray(0, 4).toString()).toBe("%PDF");
+        await pdfResponse.dispose();
+        const inlinePdf = await page.evaluate(() => navigator.pdfViewerEnabled !== false);
+        if (inlinePdf) await expect(page.locator("#lesson-workbook iframe")).toBeVisible();
+        else await expect(page.getByText(ar ? "افتح ملف العمل أو نزّله لقراءته على جهازك." : "Open or download the workbook to read it on your device.")).toBeVisible();
+        const openedPdf = context.waitForEvent("request", { predicate: req => new URL(req.url()).pathname === lesson.assets.pdfUrl && req.isNavigationRequest() });
+        await page.getByRole("button", { name: ar ? "القراءة أونلاين" : "Read Online", exact: true }).click();
+        await openedPdf;
         await expect.poll(async () => (await progress())?.pdfOpened).toBe(true);
-        const [popup] = await Promise.all([page.waitForEvent("popup"), page.getByRole("button", { name: ar ? "القراءة أونلاين" : "Read Online", exact: true }).click()]);
-        await popup.waitForLoadState("domcontentloaded");
-        expect(new URL(popup.url()).pathname).toBe(lesson.assets.pdfUrl);
-        await popup.close();
+        for (const popup of context.pages().filter(item => item !== page)) await popup.close();
         const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: ar ? "تنزيل PDF" : "Download PDF", exact: true }).click()]);
         expect(await download.failure()).toBeNull();
         const fullscreen = page.getByRole("button", { name: ar ? "ملء الشاشة" : "Fullscreen", exact: true });
@@ -89,8 +94,10 @@ async function main() {
         for (const resource of lesson.assets.resources) {
           const href = resolveLessonResourceUrl(resource.url);
           await expect(page.locator("#lesson-workbook").getByRole("link", { name: ar ? resource.labelAr : resource.label, exact: true })).toHaveAttribute("href", href);
-          const asset = await context.request.get(href, { headers: { Range: "bytes=0-63" } });
+          // Playback is checked above; HEAD avoids retaining entire media files in the test runner.
+          const asset = await context.request.head(href);
           expect([200, 206], `${lesson.slug}: ${resource.label}`).toContain(asset.status());
+          await asset.dispose();
         }
         await page.getByRole("tab", { name: ar ? "ملاحظاتي" : "My notes", exact: true }).click();
         const note = `${locale}: ${lesson.slug} saved before leaving!`;

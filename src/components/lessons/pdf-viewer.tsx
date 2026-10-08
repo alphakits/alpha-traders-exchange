@@ -29,6 +29,7 @@ export function PdfViewer({
   const [hasError, setHasError] = useState(false);
   const [canFullscreen, setCanFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
+  const [inlineSupported, setInlineSupported] = useState(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hasOpenedRef = useRef(false);
   const source = useMemo(() => resolveLessonPdfSource(asset), [asset]);
@@ -38,6 +39,11 @@ export function PdfViewer({
   useEffect(() => {
     setReadingProgress(initialProgress);
   }, [initialProgress]);
+
+  useEffect(() => {
+    const directPdf = /\.pdf(?:[?#]|$)/i.test(source.embedUrl);
+    setInlineSupported(!directPdf || navigator.pdfViewerEnabled !== false);
+  }, [source.embedUrl]);
 
   useEffect(() => {
     setCanFullscreen(Boolean(document.fullscreenEnabled && containerRef.current?.requestFullscreen));
@@ -100,7 +106,7 @@ export function PdfViewer({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {canFullscreen ? <Button variant="secondary" size="sm" onClick={toggleFullscreen} disabled={!hasDocument}>
+        {canFullscreen && inlineSupported ? <Button variant="secondary" size="sm" onClick={toggleFullscreen} disabled={!hasDocument}>
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
           {isAr ? (isFullscreen ? "تصغير" : "ملء الشاشة") : isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
         </Button> : null}
@@ -129,7 +135,9 @@ export function PdfViewer({
           </div>
         ) : null}
 
-        {!loaded && hasDocument ? (
+        {!inlineSupported && hasDocument ? <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-[#D1D5DB]"><div className="space-y-3"><ExternalLink className="mx-auto h-6 w-6 text-[#C9A227]"/><p>{isAr ? "افتح ملف العمل أو نزّله لقراءته على جهازك." : "Open or download the workbook to read it on your device."}</p></div></div> : null}
+
+        {!loaded && hasDocument && inlineSupported ? (
           <div className="absolute inset-0 z-10 grid place-items-center bg-gradient-to-br from-white/5 to-white/0 text-sm text-[#9CA3AF]">
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-[#C9A227]" />
@@ -157,7 +165,7 @@ export function PdfViewer({
           </div>
         ) : null}
 
-        {hasDocument ? (
+        {hasDocument && inlineSupported ? (
           <iframe
             title={title}
             src={source.embedUrl}
