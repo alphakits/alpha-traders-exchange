@@ -104,8 +104,8 @@ export default async function LocaleLayout({
       <OfflineBanner locale={appLocale} />
       <PwaInstallPrompt locale={appLocale} />
       <div
-        className={`${inter.variable} ${plexArabic.variable} min-h-screen text-white ${
-          appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
+        className={`${inter.variable} ${plexArabic.variable} alpha-interface min-h-screen text-white ${
+          appLocale === "ar" ? "alpha-interface--ar" : ""
         }`}
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>

@@ -547,7 +547,7 @@ export function LessonInterface({
         <aside className={styles.studySidebar}>
           <details open>
             <summary>{isAr ? "في هذا المسار" : "In this learning path"}<ChevronDown size={15}/></summary>
-            <div className="px-4 pb-4"><Progress value={courseProgress}/><p className="mt-2 text-xs text-[#969c8d]">{courseProgress}% {isAr ? "مكتمل" : "complete"}</p></div>
+            <div className="px-4 pb-4"><Progress value={courseProgress} label={isAr ? "تقدم الدورة" : "Course progress"} /><p className="mt-2 text-xs text-[#969c8d]">{courseProgress}% {isAr ? "مكتمل" : "complete"}</p></div>
             {courseLessons.map((entry,index)=><Link key={entry.id} href={`/lessons/${entry.slug}`} aria-current={lesson.id===entry.id ? "page" : undefined} className={styles.sidebarLesson}><span>{String(index+1).padStart(2,"0")}</span><span>{academyLessonTitle(isAr ? entry.titleAr : entry.title)}</span></Link>)}
           </details>
           <div className={styles.quietCard}><span aria-hidden="true" className={styles.tipEmoji}>💡</span><div><strong>{isAr ? "التطبيق يثبت المعلومة" : "Make this lesson count"}</strong><p>{isAr ? "جرّب فكرة واحدة على الشارت واكتب أهم ملاحظة تعلّمتها." : "Try one idea on a chart, then write down your main takeaway."}</p><button type="button" className="min-h-10 text-xs text-[#dcc681]" onClick={()=>{setActivePanel("notes");const tab=document.getElementById("study-tab-notes");tab?.scrollIntoView({block:"center"});tab?.focus();}}>{isAr ? "افتح ملاحظاتي" : "Open my notes"}</button></div></div>
@@ -568,7 +568,7 @@ export function LessonInterface({
               <h3 id="lesson-completion-dialog-title" className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "نقاط الخبرة" : "XP Progress"} +{lesson.xpReward ?? 120}</p>
               <div className="mx-auto mt-3 max-w-sm">
-                <Progress value={courseProgress} />
+                <Progress value={courseProgress} label={isAr ? "تقدم الدورة" : "Course progress"} />
               </div>
               {courseComplete ? <p className="mt-4 text-sm leading-7 text-[#D1D5DB]">{isAr ? "أكملت دروس هذا المسار. يمكنك متابعة التعلّم المجاني أو استكشاف ICT Mentorship مع مارك، باختيارك." : "You’ve completed this track. Keep learning for free, or explore ICT Mentorship with Mark."}</p> : null}
               <div className="mt-5 flex flex-wrap justify-center gap-2">

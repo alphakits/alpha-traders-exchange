@@ -87,7 +87,7 @@ export function AcademyRoadmap({ courses }: { courses: AcademyRoadmapCourse[] })
                         <span>{isAr ? "تقدم المسار" : "Track Progress"}</span>
                         <span>{percent}%</span>
                       </div>
-                      <Progress value={percent} />
+                      <Progress value={percent} label={isAr ? "تقدم المسار" : "Track progress"} />
                     </div>
                     <div className="space-y-1">
                       {courseLessons.map((lesson, index) => {

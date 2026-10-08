@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./visual-polish.css";
 import type { Metadata, Viewport } from "next";
 import { getLocale } from "next-intl/server";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";

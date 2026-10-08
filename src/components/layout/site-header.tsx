@@ -87,10 +87,10 @@ export async function SiteHeader({
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+    <header className="alpha-site-header sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
       <div className="section-container relative flex min-h-16 flex-wrap items-center justify-between gap-x-1.5 gap-y-2 py-2 sm:gap-x-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
-        <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
+        <Link href="/" locale={locale} className="alpha-brand-link inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
             alt={locale === "ar" ? `شعار ${BRAND_PRIMARY_NAME}` : `${BRAND_NAME} logo`}

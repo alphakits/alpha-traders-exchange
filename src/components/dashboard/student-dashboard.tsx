@@ -68,7 +68,7 @@ export function StudentDashboard() {
             <CardTitle><bdi dir="ltr">{overallProgress}%</bdi></CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Progress value={overallProgress} />
+            <Progress value={overallProgress} label={isAr ? "تقدم الدورة" : "Course progress"} />
             <p className="text-sm text-[#9CA3AF]">
               <bdi dir="ltr">{snapshot.completedLessons}/{lessons.length}</bdi> {isAr ? "دروس مكتملة" : "lessons completed"}
             </p>

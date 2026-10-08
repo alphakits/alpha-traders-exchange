@@ -49,8 +49,8 @@ export default async function AuthLocaleLayout({
       <HtmlAttributesSetter lang={appLocale} dir={localeDirection[appLocale]} />
       <div
         dir={localeDirection[appLocale]}
-        className={`${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} flex min-h-screen flex-col bg-[#050505] text-white ${
-          appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
+        className={`${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} alpha-interface flex min-h-screen flex-col bg-[#050505] text-white ${
+          appLocale === "ar" ? "alpha-interface--ar" : ""
         }`}
       >
         <header className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pt-5 sm:pt-7">

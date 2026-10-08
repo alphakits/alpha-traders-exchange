@@ -40,9 +40,9 @@ export async function HomePage({
   };
 
   return (
-    <div className="space-y-16 py-10 md:space-y-20 md:py-14">
+    <div className="alpha-home space-y-16 py-10 md:space-y-20 md:py-14">
       <section className="section-container">
-        <div className="relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
+        <div className="alpha-home-hero relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
           <div className="alpha-reveal-fade absolute inset-0">
             <Image
               src="/images/hero/hero-trading-office.webp"
