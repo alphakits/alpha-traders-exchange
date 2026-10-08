@@ -62,6 +62,13 @@ describe("USD economic news data", () => {
     expect(newsWeekRange(Date.parse("2026-10-25T12:00:00Z"), "Asia/Jerusalem")).toEqual({ start: "2026-10-19", end: "2026-10-26" });
     expect(newsWeekRange(Date.parse("2027-01-01T12:00:00Z"), "Asia/Jerusalem")).toEqual({ start: "2026-12-28", end: "2027-01-04" });
   });
+  it("calculates adjacent complete weeks across DST, year and timezone boundaries", () => {
+    const sunday = Date.parse("2026-10-25T21:30:00Z");
+    expect(newsWeekRange(sunday, "Asia/Jerusalem", -1)).toEqual({ start: "2026-10-12", end: "2026-10-19" });
+    expect(newsWeekRange(sunday, "Europe/Bucharest", 1)).toEqual({ start: "2026-10-26", end: "2026-11-02" });
+    expect(newsWeekRange(Date.parse("2027-01-01T12:00:00Z"), "Asia/Jerusalem", 1)).toEqual({ start: "2027-01-04", end: "2027-01-11" });
+    expect(newsWeekRange(Date.parse("2027-01-01T12:00:00Z"), "Asia/Jerusalem", -1)).toEqual({ start: "2026-12-21", end: "2026-12-28" });
+  });
   it("keeps speeches without numeric results separate from awaited numerical releases", () => {
     const speech = normalizeEconomicNews([{ ...row, Event: "FOMC Press Conference", Actual: "" }], now)[0];
     expect(newsEventStatus(speech, now.getTime())).toBe("no_numeric_result");

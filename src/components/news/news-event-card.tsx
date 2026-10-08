@@ -26,47 +26,56 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
   const resultItems = [
     { label: isAr ? "النتيجة الفعلية" : "Actual", value: released ? event.actual : null, tone: released ? styles.actual : styles.missing,
       missing: isAr ? (status === "awaiting" ? "غير مضافة" : "لم تصدر بعد") : (status === "awaiting" ? "Not added" : "Pending") },
-    ...(!weekly ? [{ label: isAr ? "المتوقع" : "Forecast", value: event.forecast, tone: styles.forecast, missing: isAr ? "غير متاح" : "Not available" }] : []),
+    { label: isAr ? "المتوقع" : "Forecast", value: event.forecast, tone: styles.forecast, missing: isAr ? "غير متاح" : "Not available" },
     { label: isAr ? "السابق" : "Previous", value: event.previous, tone: styles.previous, missing: isAr ? "غير متاح" : "Not available" },
   ];
+  const action = released || status === "awaiting"
+    ? (isAr ? "عرض النتائج" : "View results")
+    : event.kind === "speech" ? (isAr ? "عرض التفاصيل" : "View details")
+      : (isAr ? "عرض التوقعات" : "View expectations");
   return (
     <article id={`event-${event.id}`} tabIndex={-1} aria-labelledby={`title-${event.id}`} className={`${styles.eventCard} ${selected ? styles.selectedCard : ""}`}>
-      <div className={styles.eventMeta}>
-        <span className={styles.eventKind}>
-          {event.kind === "speech" ? <FileText size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
-          <bdi>USD</bdi><span aria-hidden="true">·</span>{event.kind === "speech" ? (isAr ? "خطاب / بيان" : "Speech / statement") : (isAr ? "بيانات اقتصادية" : "Economic release")}
-        </span>
-        <span className={`${styles.status} ${released ? styles.confirmed : ""}`}>
-          {released ? <Check size={13} aria-hidden="true" /> : null}{labels[status]}
-        </span>
-      </div>
-      <h3 id={`title-${event.id}`} className={styles.eventTitle} dir="auto">{title}</h3>
-      <div className={styles.eventWhen}>
-        <span><CalendarDays size={16} aria-hidden="true" /><time dateTime={event.scheduledAt}>{formatNewsDate(event.scheduledAt, locale, timeZone, false)}</time></span>
-        <span><Clock3 size={16} aria-hidden="true" />{event.timing === "exact"
-          ? <time dateTime={event.scheduledAt} className={styles.eventTime}>{new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(event.scheduledAt))}</time>
-          : <span>{isAr ? "لم يُحدد الوقت" : "Time to be confirmed"}</span>}</span>
-      </div>
-      {event.kind === "release" || released ? (
-        <dl className={styles.results} style={{ gridTemplateColumns: `repeat(${resultItems.length}, minmax(0, 1fr))` }}>
-          {resultItems.map((item) => <div key={item.label} className={styles.resultCell}>
-            <dt>{item.label}</dt>
-            <dd className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{item.value}</bdi>}</dd>
-          </div>)}
-        </dl>
-      ) : null}
-      {event.revised !== null || event.corrected ? <p className={styles.revision}>{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
-      <details className={styles.eventDetails}>
-        <summary aria-label={`${isAr ? "تفاصيل" : "Details"}: ${title}`}><span>{isAr ? "التفاصيل والمصدر" : "Details & source"}</span><ChevronDown size={15} aria-hidden="true" /></summary>
-        <div className={styles.detailBody}>
-          {isAr && event.titleAr !== event.title ? <p dir="ltr">{event.title}</p> : null}
-          {event.reference ? <p>{isAr ? "الفترة: " : "Period: "}<bdi>{event.reference}</bdi></p> : null}
-          {released ? <p>{newsResultSummary(event, locale)}</p> : null}
-          {event.revised !== null ? <p>{isAr ? "السابق بعد المراجعة: " : "Revised previous: "}<bdi dir="ltr">{event.revised}</bdi></p> : null}
-          {event.kind === "speech" ? <p>{isAr ? "نص الخطاب أو البيان غير متاح في هذا التقويم." : "The speech or statement text is not included in this calendar."}</p> : null}
-          {weekly && status === "awaiting" ? <p>{isAr ? "مرّ الموعد المجدول، ولم تُضف نتيجة مؤكدة إلى التحديث الأسبوعي بعد." : "The scheduled time has passed. A confirmed result has not been added to the weekly update yet."}</p> : null}
-          {event.source ? <p>{isAr ? "المصدر: " : "Source: "}<bdi>{event.source}</bdi></p> : null}
-          {event.providerUpdatedAt ? <p>{isAr ? "تحديث المصدر: " : "Source updated: "}{formatNewsDate(event.providerUpdatedAt, locale, timeZone)}</p> : null}
+      <details className={styles.eventDetails} open={selected}>
+        <summary aria-label={`${action}: ${title}`}>
+          <div className={styles.eventMeta}>
+            <span className={styles.eventKind}>
+              {event.kind === "speech" ? <FileText size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
+              <bdi>USD</bdi><span aria-hidden="true">·</span>{event.kind === "speech" ? (isAr ? "خطاب / بيان" : "Speech / statement") : (isAr ? "بيانات اقتصادية" : "Economic release")}
+            </span>
+            <span className={`${styles.status} ${released ? styles.confirmed : ""}`}>
+              {released ? <Check size={13} aria-hidden="true" /> : null}{labels[status]}
+            </span>
+          </div>
+          <h3 id={`title-${event.id}`} className={styles.eventTitle} dir="auto">{title}</h3>
+          <div className={styles.eventWhen}>
+            <span><CalendarDays size={16} aria-hidden="true" /><time dateTime={event.scheduledAt}>{formatNewsDate(event.scheduledAt, locale, timeZone, false)}</time></span>
+            <span><Clock3 size={16} aria-hidden="true" />{event.timing === "exact"
+              ? <time dateTime={event.scheduledAt} className={styles.eventTime}>{new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(event.scheduledAt))}</time>
+              : <span>{isAr ? "لم يُحدد الوقت" : "Time to be confirmed"}</span>}</span>
+          </div>
+          <span className={styles.disclosureHint}><span>{action}</span><ChevronDown size={16} aria-hidden="true" /></span>
+        </summary>
+        <div className={styles.expandedContent}>
+          {event.kind === "release" || released ? (
+            <dl className={styles.results} style={{ gridTemplateColumns: `repeat(${resultItems.length}, minmax(0, 1fr))` }}>
+              {resultItems.map((item) => <div key={item.label} className={styles.resultCell}>
+                <dt>{item.label}</dt>
+                <dd className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{item.value}</bdi>}</dd>
+              </div>)}
+            </dl>
+          ) : null}
+          {event.revised !== null || event.corrected ? <p className={styles.revision}>{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
+          <div className={styles.detailBody}>
+            {isAr && event.titleAr !== event.title ? <p dir="ltr">{event.title}</p> : null}
+            {event.reference ? <p>{isAr ? "الفترة: " : "Period: "}<bdi>{event.reference}</bdi></p> : null}
+            {released ? <p>{newsResultSummary(event, locale)}</p> : null}
+            {event.revised !== null ? <p>{isAr ? "السابق بعد المراجعة: " : "Revised previous: "}<bdi dir="ltr">{event.revised}</bdi></p> : null}
+            {event.kind === "speech" ? <p>{isAr ? "نص الخطاب أو البيان غير متاح في هذا التقويم." : "The speech or statement text is not included in this calendar."}</p> : null}
+            {weekly && status === "awaiting" ? <p>{isAr ? "مرّ الموعد المجدول، ولم تُضف نتيجة مؤكدة إلى التحديث الأسبوعي بعد." : "The scheduled time has passed. A confirmed result has not been added to the weekly update yet."}</p> : null}
+            {weekly && event.kind === "release" && event.forecast === null ? <p>{isAr ? "التوقعات الرقمية غير متاحة في التقويم الأسبوعي." : "Consensus forecasts are not available in the weekly calendar."}</p> : null}
+            {event.source ? <p>{isAr ? "المصدر: " : "Source: "}<bdi>{event.source}</bdi></p> : null}
+            {event.providerUpdatedAt ? <p>{isAr ? "تحديث المصدر: " : "Source updated: "}{formatNewsDate(event.providerUpdatedAt, locale, timeZone)}</p> : null}
+          </div>
         </div>
       </details>
     </article>

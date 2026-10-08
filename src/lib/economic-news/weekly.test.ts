@@ -34,6 +34,14 @@ describe("free weekly official calendar", () => {
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt) - 1).events[0].actual).toBeNull();
     expect(weeklyNewsFeed(nearRelease, Date.parse(event.scheduledAt)).events[0].actual).toBe("0");
   });
+  it("retains the start of the previous full week on Sunday and preserves old event links", () => {
+    const previousMonday = { ...calendar.events[0], scheduledAt: "2026-09-28T12:30:00Z", publishedAt: "2026-09-28T12:30:00Z", actual: "0%" };
+    const data = { ...calendar, events: [previousMonday] };
+    const sunday = Date.parse("2026-10-11T20:59:59Z");
+    expect(weeklyNewsFeed(data, sunday).events[0]).toMatchObject({ id: previousMonday.id, actual: "0%" });
+    expect(weeklyNewsFeed(data, sunday + 7 * 86_400_000).events).toHaveLength(0);
+    expect(weeklyNewsFeed(data, sunday + 7 * 86_400_000, previousMonday.id).events).toHaveLength(1);
+  });
   it.each(["duplicate", "source", "malformed URL", "agency", "future actual", "offset", "forecast", "coverage", "week length", "week start"])("rejects invalid %s data before deployment", (problem) => {
     const data = clone();
     if (problem === "duplicate") data.events.push({ ...data.events[0] });

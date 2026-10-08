@@ -4,17 +4,23 @@
 
 The News screen groups events by calendar day in the selected timezone. Gold
 event titles, blue dates/times, teal confirmed actuals, neutral previous values,
-and (licensed mode only) lavender forecasts have explicit text labels. Missing
+and lavender forecasts have explicit text labels. Missing
 values say Pending, Not added, or Not available; they never imply zero. Speeches
 and statements are labelled separately and do not show empty numerical grids.
-Source details, reporting periods, English titles on Arabic cards, and result
-comparisons are available in each card's native Details disclosure. Source
-revision notices remain visible outside the disclosure.
+Each card is a native disclosure: tap its title/date area to open results,
+forecasts, previous values, revisions, reporting period, and source. Cards
+start closed; a direct event link opens the selected event. Speeches use the
+same interaction without an invented numeric result. Missing consensus values
+are explicitly unavailable in the free weekly calendar.
 
 The weekly notice is concise and still explicitly says results are not live.
-This week, Upcoming, Today, and Results preserve their existing scope. Events
-are ordered before grouping; Next release switches to the correct filter before
-scrolling and focusing its card. Motion respects reduced-motion preferences.
+Exactly three views are available in both feed modes: This week (default),
+Next week, and Previous week. Each uses a complete Monday–Sunday range in the
+selected timezone. This week includes both passed and upcoming events; next
+and previous weeks never overlap it or include more distant weeks. Events
+are ordered before grouping; Next release switches to the correct week before
+scrolling and focusing its card. The shortcut appears only in This week.
+Motion respects reduced-motion preferences.
 The screen is shared by the browser and the installed website shell.
 
 Verification for the review branch: 90 focused News model/provider/API/access
@@ -25,7 +31,13 @@ preview harness. 163 Chromium assertions covered English/Arabic at 320, 390,
 disclosures, reduced motion, refresh failure, and session expiration. This
 is component and contract verification; production sessions, physical iPhone
 Safari, and production deployment were not exercised by the preview harness.
-Production release remains subject to the owner's requested visual review.
+The readability update was released in PR #360. The follow-up replaces its
+four filters with the owner-requested three week views and collapsed cards.
+The follow-up passes 96 focused tests, TypeScript and ESLint. A saved-snapshot
+component harness passes 244 browser assertions across the same five widths
+and both languages, including native click/keyboard disclosures and complete
+previous/next week partitions. These are simulated API checks, not a licensed
+provider activation or physical-device certification.
 
 The Home tab opens the public locale homepage. News replaces the bottom
 Notifications tab; the notification bell and its View all link remain intact.
@@ -50,7 +62,7 @@ The calendar covers selected major USD releases, rather than promising every
 event or reproducing a supplier's impact ratings. The weekly update checks
 recent results and upcoming dates; values remain the last confirmed snapshot
 through the week. Consensus forecasts and instantaneous result alerts are not
-included. The UI identifies this mode and the last verification time in both
+included; an expanded card labels unavailable forecasts explicitly. The UI identifies this mode and the last verification time in both
 English and Arabic, polls its private API every five minutes while visible,
 and retains Israel/device timezone selection. Expired sessions still clear
 the data and redirect to sign-in. The existing app displays the same screen.
@@ -58,16 +70,18 @@ the data and redirect to sign-in. The existing app displays the same screen.
 Sunday maintenance is performed by the owner's scheduled Codex automation,
 using official public sources and the connected GitHub repository. Update only
 the JSON on current `main` after reading its file SHA; the existing Git/Vercel
-integration builds the update. Retain seven days of recent events and about
-35 days of verified upcoming dates, with stable IDs and actual UTC instants
+integration builds the update. Retain all events from the Monday of the previous calendar week and about
+four weeks of verified upcoming dates (within the 45-day coverage cap), with stable IDs and actual UTC instants
 converted from `America/New_York` using IANA DST rules. Do not infer dates from
 last month's weekday, fabricate release times, forecasts or actuals, or mark
 old values as newly released. Exclude an unconfirmed exact time or use
 `timing: tentative`; uncertain numeric values stay null. Do not advance
 `verifiedAt` unless the source dates/results were actually checked. Set `weekStart` to the coming Monday calendar date and `weekEnd` to the following Monday (exclusive), as YYYY-MM-DD. These fields record the verified prepared week. The default This week tab uses
 the current Monday–Sunday calendar week in the selected timezone, including
-already-passed events and confirmed results. Upcoming shows later weeks,
-starting the following Monday, so it does not repeat This week's events.
+already-passed events and confirmed results. Next week shows only the following
+Monday–Sunday, and Previous week shows only the preceding Monday–Sunday.
+The server retains a bounded 15-day lookback so earlier days of Previous week
+do not disappear during the current week.
 The displayed date range changes at local Monday without waiting for a new
 snapshot. The Next release shortcut opens whichever tab contains its event.
 
@@ -145,7 +159,7 @@ News tables when activated. It never changes exchange schemas or trade rows.
 
 ## Licensed-feed timing and behavior
 
-- Cron reads a bounded past/next seven-day window once per minute. Visible News
+- Cron reads a bounded past/next 15-day window once per minute. Visible News
   pages refresh every 30 seconds; hidden pages stop polling. Delivery is not
   advertised as instantaneous: provider delay plus polling/caching applies.
 - Before activation, visible pages check the private News API every five minutes
