@@ -19,6 +19,8 @@ export type NewsEvent = {
   timing: "exact" | "tentative";
   kind: "release" | "speech";
   corrected?: boolean;
+  outcome?: { en: string; ar: string };
+  publishedAt?: string | null;
 };
 
 export type NewsFeed = {
@@ -30,6 +32,7 @@ export type NewsFeed = {
   coverageEnd?: string;
   weekStart?: string;
   weekEnd?: string;
+  resultsVerifiedAt?: string;
 };
 
 export type NewsPreferences = { inApp: boolean; email: boolean };
@@ -108,6 +111,8 @@ export function newsEventTitle(event: NewsEvent, locale: NewsLocale) {
 
 export function newsEventStatus(event: NewsEvent, now: number) {
   if (event.actual !== null && Date.parse(event.scheduledAt) <= now) return "released";
+  if (event.kind === "speech" && event.outcome && event.publishedAt
+    && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now) return "published";
   if (event.timing === "tentative") return "tentative";
   if (Date.parse(event.scheduledAt) > now) return "scheduled";
   return event.kind === "speech" ? "no_numeric_result" : "awaiting";
