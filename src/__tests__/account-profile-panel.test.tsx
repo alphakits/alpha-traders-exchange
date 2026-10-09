@@ -374,6 +374,19 @@ describe("AccountProfilePanel", () => {
     expect(nav.compareDocumentPosition(document.getElementById("profile-edit-form")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it.each([
+    ["en", "buyer"], ["en", "seller"], ["en", "student"],
+    ["ar", "buyer"], ["ar", "seller"], ["ar", "student"],
+  ] as const)("opens the released journal from the %s %s profile", async (locale, role) => {
+    const payload = role === "seller" ? makeSellerPayload("gold", 8) : makePayload(role);
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => payload }));
+    render(<AccountProfilePanel locale={locale} journalEnabled />);
+    const journal = await screen.findByRole("link", { name: locale === "ar" ? "سجل التداول" : "Trading journal" });
+    expect(journal.getAttribute("href")).toBe("/journal");
+    expect(journal.closest("nav")).toBeTruthy();
+    expect(screen.queryByText(locale === "ar" ? "قريبًا" : "Coming soon")).toBeNull();
+  });
+
   it("never exposes an unexpected English photo API error in Arabic", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

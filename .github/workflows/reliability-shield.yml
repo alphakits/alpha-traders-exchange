@@ -69,6 +69,20 @@ jobs:
       - name: Verify authenticated marketplace and Trade Room flows
         run: npm run test:e2e
 
+      - name: Verify the bilingual trading journal and saved records
+        run: |
+          node scripts/build-journal-preview.mjs test-results/journal/Alpha-Traders-Trading-Journal.html
+          node scripts/verify-journal-preview.mjs test-results/journal/Alpha-Traders-Trading-Journal.html
+
+      - name: Preserve journal screenshots and verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-journal-review
+          path: test-results/journal/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Preserve owner header visual checks
         if: always()
         uses: actions/upload-artifact@v4
