@@ -367,7 +367,7 @@ describe("AccountProfilePanel", () => {
     stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makeSellerPayload("gold", 8) }));
     render(<AccountProfilePanel locale="en" />);
     const nav = await screen.findByRole("navigation", { name: "Quick actions" });
-    expect(nav.querySelector('a[href="/dashboard/seller"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/usdt-exchange#my-listings-section"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/trades"]')).toBeTruthy();
     expect(nav.querySelector('a[href="/journal"]')).toBeNull();
     expect(screen.getByText("Coming soon")).toBeTruthy();

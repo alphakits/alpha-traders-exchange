@@ -9,6 +9,6 @@ export async function GET(request: Request) {
   const chart = await getMarketChart(symbol);
   return NextResponse.json({ chart }, {
     status: chart ? 200 : 503,
-    headers: { "Cache-Control": chart && !chart.stale ? "public, s-maxage=30, max-age=0" : "no-store" },
+    headers: { "Cache-Control": chart && !chart.stale ? "public, s-maxage=10, max-age=0" : "no-store" },
   });
 }
