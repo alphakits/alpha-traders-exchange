@@ -452,8 +452,10 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
   }, [canonicalUser]);
 
   useEffect(() => {
+    const keepCurrentProfile = Boolean(savedFormRef.current
+      && (!hasCanonicalSession || savedFormRef.current.id === canonicalUser?.id));
     if (canonicalSessionResolving) {
-      setLoading(true);
+      if (!keepCurrentProfile) setLoading(true);
       return;
     }
     if (hasCanonicalSession && !canonicalUser) {
@@ -489,8 +491,12 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
     let mounted = true;
 
     void (async () => {
-      setLoading(true);
-      setMessage(null);
+      // Refresh the same account in place. A successful save or background
+      // session check must not unmount the editor, move focus, or erase feedback.
+      if (!keepCurrentProfile) {
+        setLoading(true);
+        setMessage(null);
+      }
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
@@ -501,7 +507,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
         } catch {
           if (!mounted || controller.signal.aborted) return;
           if (attempt === 0) continue;
-          setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
+          if (!keepCurrentProfile) setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
           setLoading(false);
         }
       }
@@ -692,7 +698,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
         return;
       }
       applyProfilePayload(data, true);
-      void refreshCanonicalSession?.({ force: true });
+      void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم حفظ الهوية بنجاح." : "Trading identity saved.");
     } catch {
       setMessage(isAr
@@ -730,6 +736,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
           roleLabel: roleLabelFromBadge(nextBadge),
         };
       });
+      void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
     } catch {
       setMessage(isAr
@@ -767,6 +774,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
           roleLabel: roleLabelFromBadge(nextBadge),
         };
       });
+      void refreshCanonicalSession?.({ force: true, background: true });
       setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
     } catch {
       setMessage(isAr

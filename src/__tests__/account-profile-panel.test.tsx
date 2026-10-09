@@ -317,6 +317,37 @@ describe("AccountProfilePanel", () => {
     expect(document.getElementById("profile-panel-alerts")?.hidden).toBe(true);
   });
 
+  it("keeps the editor and save confirmation mounted while the canonical account refreshes", async () => {
+    let profile = makePayload("buyer");
+    const user = { ...profile.profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: profile.profile.memberSince };
+    let saved = false;
+    let releaseSession: () => void = () => {};
+    const sessionGate = new Promise<void>(resolve => { releaseSession = resolve; });
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/me") {
+        if (saved) await sessionGate;
+        return Response.json({ user: { ...user, bio: profile.profile.bio } });
+      }
+      if (init?.method === "PATCH") {
+        profile = { ...profile, profile: { ...profile.profile, ...JSON.parse(String(init.body)) } };
+        saved = true;
+      }
+      return Response.json(profile);
+    }));
+    render(<CanonicalSessionProvider initialSessionUser={user}><AccountProfilePanel locale="en" /></CanonicalSessionProvider>);
+    await screen.findByRole("tab", { name: "Edit profile" });
+    fireEvent.click(screen.getByRole("tab", { name: "Edit profile" }));
+    const bio = screen.getByRole("textbox", { name: "Professional bio" });
+    fireEvent.change(bio, { target: { value: "My saved profile" } });
+    fireEvent.submit(document.getElementById("profile-edit-form")!);
+    await screen.findByText("Trading identity saved.");
+    expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Professional bio" })).toBe(bio);
+    await act(async () => { releaseSession(); await sessionGate; });
+    await waitFor(() => expect(screen.getByText("Trading identity saved.")).toBeTruthy());
+    expect(screen.getByRole("textbox", { name: "Professional bio" })).toBe(bio);
+  });
+
   it("opens contact and notification deep links in the matching section", async () => {
     stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload("buyer") }));
     const originalLocation = window.location;
