@@ -21,6 +21,7 @@ export function PrivateProfileHeader({
   nameClassName,
   coverActions,
   photoActions,
+  compact = false,
   children,
 }: {
   locale: "en" | "ar";
@@ -35,34 +36,35 @@ export function PrivateProfileHeader({
   nameClassName?: string;
   coverActions?: ReactNode;
   photoActions?: ReactNode;
+  compact?: boolean;
   children?: ReactNode;
 }) {
   const isAr = locale === "ar";
   const name = fullName.trim() || publicId;
 
   return (
-    <div data-private-profile-header>
-      <div className={cn("relative h-36 border-b border-white/10 bg-gradient-to-r md:h-44", coverClassName, sellerRank && "seller-prestige-cover")}>
+    <div data-private-profile-header className={compact ? "profile-compact-header" : undefined}>
+      <div className={cn("profile-cover relative h-36 border-b border-white/10 bg-gradient-to-r md:h-44", coverClassName, sellerRank && "seller-prestige-cover")}>
         {coverUrl ? <Image src={coverUrl} alt={isAr ? "صورة الغلاف" : "Cover"} fill unoptimized className="object-cover opacity-90" /> : null}
         <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/75" />
         <RankRadiance rank={publicOwner ? "owner" : sellerRank} />
-        {sellerRank ? <SellerRankIdentity rank={sellerRank} locale={locale} owner={publicOwner} /> : null}
+        {sellerRank && !compact ? <SellerRankIdentity rank={sellerRank} locale={locale} owner={publicOwner} /> : null}
         <div className="absolute end-3 top-3 flex flex-wrap gap-2">{coverActions}</div>
       </div>
 
-      <div className="relative px-5 pb-5 md:px-8">
-        <div className="flex items-start justify-between gap-3">
-          <div className={cn("relative -mt-12 h-24 w-24 shrink-0 overflow-hidden rounded-2xl border bg-[#08090C]", avatarClassName)}>
+      <div className="profile-header-body relative px-5 pb-5 md:px-8">
+        <div className="profile-photo-row flex items-start justify-between gap-3">
+          <div className={cn("profile-avatar relative -mt-12 h-24 w-24 shrink-0 overflow-hidden rounded-2xl border bg-[#08090C]", avatarClassName)}>
             {avatarUrl ? (
               <Image src={avatarUrl} alt={isAr ? "الصورة الشخصية" : "Profile"} width={112} height={112} unoptimized className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-3xl font-semibold text-[#F4D87A]">{currencyText(name.charAt(0).toUpperCase())}</div>
             )}
           </div>
-          <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 pt-3">{photoActions}</div>
+          {photoActions ? <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 pt-3">{photoActions}</div> : null}
         </div>
 
-        <div className="mt-4 min-w-0">
+        <div className="profile-header-identity mt-4 min-w-0">
           <p className={cn("text-2xl font-semibold leading-tight text-white [overflow-wrap:anywhere] md:text-3xl", nameClassName)}>
             <bdi dir="auto">{currencyText(name)}</bdi>
           </p>
