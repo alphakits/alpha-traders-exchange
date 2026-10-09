@@ -8,6 +8,7 @@
 .profile-workspace label:has(input[type="checkbox"]) { min-height: 2.75rem; cursor: pointer; }
 .profile-workspace :where(.profile-tab-panel, .profile-tab-panel > *, .profile-detail-grid > *) { min-width: 0; }
 .profile-workspace .profile-tab-panel[hidden] { display: none; }
+.profile-workspace :where(.profile-tab-panel, #contact-details) { scroll-margin-top: 6rem; }
 .profile-workspace .profile-compact-header .profile-cover {
   height: 4.5rem;
   min-height: 0;

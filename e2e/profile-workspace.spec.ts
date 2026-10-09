@@ -118,6 +118,7 @@ test("profile edits survive section changes and live refresh, save, and persist 
   const workspace = page.locator(".profile-workspace");
   const edit = workspace.getByRole("tab", { name: "Edit profile", exact: true });
   await expect(edit).toHaveAttribute("aria-selected", "true");
+  await expect(workspace.locator("#contact-details")).toBeInViewport();
   const bio = workspace.getByLabel("Professional bio");
   const previousBio = await bio.inputValue();
   const draft = "My profile review — saved from the phone layout.";
@@ -153,4 +154,7 @@ test("Arabic profile tabs support RTL keyboard navigation and notification deep 
   await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
   await tabs.nth(1).press("End");
   await expect(tabs.nth(2)).toBeFocused();
+  await page.locator(".profile-workspace").getByRole("button", { name: "تعديل الملف", exact: true }).click();
+  await expect(page.locator("#profile-panel-edit")).toBeFocused();
+  await expect(page.locator("#profile-panel-edit")).toBeInViewport();
 });

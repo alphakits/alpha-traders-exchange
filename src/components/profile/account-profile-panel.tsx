@@ -364,6 +364,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState<ProfileSection>("overview");
   const [alertsVisited, setAlertsVisited] = useState(false);
+  const pendingSectionTarget = useRef<string | null>(null);
   const savedFormRef = useRef<{ id: string; value: ProfileFormState } | null>(null);
   const selectSection = useCallback((section: ProfileSection) => {
     setActiveSection(section);
@@ -374,13 +375,27 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
     if (loading) return;
     const revealHash = () => {
       const hash = window.location.hash;
-      if (["#contact-details", "#edit-profile", "#profile-panel-edit"].includes(hash)) selectSection("edit");
-      if (["#notification-preferences", "#news-preferences", "#profile-panel-alerts"].includes(hash)) selectSection("alerts");
+      if (["#contact-details", "#edit-profile", "#profile-panel-edit"].includes(hash)) {
+        pendingSectionTarget.current = hash === "#edit-profile" ? "profile-panel-edit" : hash.slice(1);
+        selectSection("edit");
+      }
+      if (["#notification-preferences", "#news-preferences", "#profile-panel-alerts"].includes(hash)) {
+        pendingSectionTarget.current = hash.slice(1);
+        selectSection("alerts");
+      }
     };
     revealHash();
     window.addEventListener("hashchange", revealHash);
     return () => window.removeEventListener("hashchange", revealHash);
   }, [loading, selectSection]);
+  useEffect(() => {
+    if (loading || !pendingSectionTarget.current) return;
+    const target = document.getElementById(pendingSectionTarget.current);
+    if (!target || target.closest("[hidden]")) return;
+    pendingSectionTarget.current = null;
+    if (target.matches('[role="tabpanel"]')) target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: "start", behavior: "instant" });
+  }, [activeSection, loading]);
   const [message, setMessage, messageFeedbackKey] = useActionFeedbackState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
@@ -464,6 +479,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
       setPayload(null);
       savedFormRef.current = null;
       setActiveSection("overview");
+      pendingSectionTarget.current = null;
       setAlertsVisited(false);
       setSessionRoles([]);
       setAvatarUrl("");
@@ -871,7 +887,15 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
       <div className="mx-auto max-w-6xl space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-white">{isAr ? "ملفي الشخصي" : "My profile"}</h1>
-          <Button type="button" size="sm" variant="secondary" onClick={() => selectSection("edit")}>{isAr ? "تعديل الملف" : "Edit profile"}</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={() => {
+            const target = document.getElementById("profile-panel-edit");
+            if (activeSection === "edit") {
+              target?.focus({ preventScroll: true });
+              target?.scrollIntoView?.({ block: "start", behavior: "instant" });
+            }
+            else pendingSectionTarget.current = "profile-panel-edit";
+            selectSection("edit");
+          }}>{isAr ? "تعديل الملف" : "Edit profile"}</Button>
         </div>
         <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
           <PrivateProfileHeader
