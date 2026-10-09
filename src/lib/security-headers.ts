@@ -36,7 +36,7 @@ export function buildSecurityHeaders(input: { isProduction: boolean }): Security
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https:",
+    "connect-src 'self' https: wss://data-stream.binance.vision",
     "media-src 'self' https: blob:",
     "frame-src 'self'",
     "frame-ancestors 'none'",

@@ -10,7 +10,7 @@ const trustedRoutes = {
   terms: "terms",
   support: "support",
   sellerApplication: "usdt-exchange",
-  sellerWorkspace: "dashboard/seller",
+  sellerWorkspace: "usdt-exchange#my-listings-section",
 } as const;
 
 export type TrustedWebDestination = keyof typeof trustedRoutes;

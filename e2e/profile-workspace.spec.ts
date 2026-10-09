@@ -76,7 +76,7 @@ for (const locale of ["en", "ar"] as const) {
       await expect(workspace.getByRole("heading", { level: 1 })).toHaveText(locale === "ar" ? "ملفي الشخصي" : "My profile");
       const actions = workspace.getByRole("navigation");
       const target = role === "OWNER" || role === "ADMIN" ? "/admin/alpha-exchange"
-        : role === "SELLER" ? "/dashboard/seller"
+        : role === "SELLER" ? "/usdt-exchange#my-listings-section"
           : role === "GUEST" || role === "STUDENT" ? "/academy" : "/dashboard";
       await expect(actions.locator("a").first()).toHaveAttribute("href", `/${locale}${target}`);
       await expect(actions.locator("a[href$='/journal']")).toHaveCount(0);

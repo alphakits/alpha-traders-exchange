@@ -1,27 +1,27 @@
 import "server-only";
 import type { MarketCandle, MarketChartSnapshot, MarketChartSymbol } from "@/types/market-chart";
 
-const CACHE_MS = 45_000;
-const MAX_STALE_MS = 60 * 60_000;
+const CACHE_MS = 10_000;
+const MAX_STALE_MS = 15 * 60_000;
 const PROVIDER_TIMEOUT_MS = 3_000;
 const cache = new Map<MarketChartSymbol, { checkedAt: number; snapshot: MarketChartSnapshot | null }>();
 const pending = new Map<MarketChartSymbol, Promise<MarketChartSnapshot | null>>();
 
 export function parseMarketCandles(payload: unknown, now = Date.now()): MarketCandle[] {
-  if (!Array.isArray(payload) || payload.length < 2 || payload.length > 24) throw new Error("invalid_chart_data");
+  if (!Array.isArray(payload) || payload.length < 2 || payload.length > 48) throw new Error("invalid_chart_data");
   let previousTime = 0;
   const candles = payload.map((row: unknown): MarketCandle => {
     if (!Array.isArray(row) || row.length < 5) throw new Error("invalid_chart_data");
     const [time, open, high, low, close] = row.slice(0, 5).map(Number);
     if (![time, open, high, low, close].every(Number.isFinite)
-      || !Number.isSafeInteger(time) || time <= previousTime || time > now
+      || !Number.isSafeInteger(time) || time % 300_000 !== 0 || time <= previousTime || time > now
       || low <= 0 || high < low || open < low || open > high || close < low || close > high) {
       throw new Error("invalid_chart_data");
     }
     previousTime = time;
     return { time, open, high, low, close };
   });
-  if (now - candles[candles.length - 1].time > 2 * 60 * 60_000) throw new Error("outdated_chart_data");
+  if (now - candles[candles.length - 1].time > 10 * 60_000) throw new Error("outdated_chart_data");
   return candles;
 }
 
@@ -38,7 +38,7 @@ async function fetchCandles(origin: string, symbol: MarketChartSymbol) {
   try {
     return await Promise.race([
       (async () => {
-        const response = await fetch(`${origin}/api/v3/klines?symbol=${symbol}&interval=1h&limit=24`, {
+        const response = await fetch(`${origin}/api/v3/klines?symbol=${symbol}&interval=5m&limit=48`, {
           cache: "no-store", redirect: "error", signal: controller.signal,
         });
         if (!response.ok) {
@@ -60,7 +60,7 @@ async function refreshChart(symbol: MarketChartSymbol): Promise<MarketChartSnaps
     try {
       const candles = await fetchCandles(origin, symbol);
       const snapshot: MarketChartSnapshot = {
-        symbol, interval: "1h", source: "Binance", candles, stale: false, updatedAt: new Date().toISOString(),
+        symbol, interval: "5m", source: "Binance", candles, stale: false, updatedAt: new Date().toISOString(),
       };
       cache.set(symbol, { checkedAt: Date.now(), snapshot });
       return snapshot;
