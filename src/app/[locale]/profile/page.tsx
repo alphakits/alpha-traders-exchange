@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { buildPageMetadata } from "@/lib/seo";
+import { journalEnabled } from "@/lib/journal/feature";
 
 export const dynamic = "force-dynamic";
 
@@ -23,5 +24,5 @@ export default async function ProfilePage({ params }: { params: Promise<{ locale
     redirect(`/${locale}/login?redirectTo=/${locale}/profile`);
   }
 
-  return <AccountProfilePanel locale={locale === "ar" ? "ar" : "en"} initialSessionRoles={user.roles ?? [user.role]} />;
+  return <AccountProfilePanel locale={locale === "ar" ? "ar" : "en"} initialSessionRoles={user.roles ?? [user.role]} journalEnabled={journalEnabled()} />;
 }
