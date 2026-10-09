@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from production_health import (APIS, BASE, CONTROL, HEALTH, LISTINGS, MARKET,
+from production_health import (APIS, AUTH_GUARDS, BASE, CONTROL, HEALTH, LISTINGS, MARKET,
                                PAGES, Monitor, Page, assess, validate)
 
 NOW = dt.datetime(2026, 10, 7, 17, 0, tzinfo=dt.timezone.utc)
@@ -35,10 +35,43 @@ def health(**overrides):
 
 def healthy_report():
     return {"complete": True, "runnerErrors": [],
-            "observations": [sample(p) for p in APIS + PAGES + APIS]}
+            "observations": [sample(p) for p in APIS + PAGES + APIS + AUTH_GUARDS]}
 
 
 class ContractTests(unittest.TestCase):
+    def test_private_api_requires_unauthorized_json_and_no_store(self):
+        for path in AUTH_GUARDS:
+            observation = sample(path, headers=[{"status": 401, "headers": {"cache-control": "private, no-store, max-age=0"}}])
+            observation["metrics"]["http_code"] = 401
+            self.assertEqual(validate(observation, '{"error":"Unauthorized"}'), [])
+            observation["metrics"]["http_code"] = 200
+            self.assertIn("signed_out_guard_failed", validate(observation, '{"error":"Unauthorized"}'))
+            observation["metrics"]["http_code"] = 401
+            observation["headers"] = []
+            self.assertIn("private_api_cache_policy_missing", validate(observation, '{"error":"Unauthorized"}'))
+
+    def test_private_api_rejects_redirects_malformed_json_and_partial_responses(self):
+        observation = sample(AUTH_GUARDS[0], headers=[{"status": 401, "headers": {"cache-control": "private, no-store"}}])
+        observation["metrics"]["http_code"] = 401
+        for body in ('[]', 'not JSON', '{"records":[]}'):
+            self.assertIn("malformed_response_contract", validate(observation, body))
+        observation["metrics"]["url_effective"] = "https://other.test" + AUTH_GUARDS[0]
+        self.assertIn("unexpected_auth_redirect", validate(observation, '{"error":"Unauthorized"}'))
+        observation["metrics"]["exitcode"] = 18
+        self.assertEqual(validate(observation, '{"error":"Unauthorized"}'), [])
+        self.assertEqual(observation["coverageError"], "incomplete_response")
+
+    def test_journal_requires_locale_preserving_sign_in_redirect(self):
+        for locale, direction in [("ar", "rtl"), ("en", "ltr")]:
+            path = f"/{locale}/journal"
+            observation = sample(path)
+            body = f'<html lang="{locale}" dir="{direction}"><title>Alpha Traders</title></html>'
+            self.assertIn("journal_sign_in_redirect_missing", validate(observation, body))
+            observation["metrics"]["url_effective"] = BASE + f"/{locale}/login?redirectTo=%2F{locale}%2Fjournal"
+            self.assertEqual(validate(observation, body), [])
+            observation["metrics"]["url_effective"] = BASE + f"/{locale}/login"
+            self.assertIn("journal_return_path_lost", validate(observation, body))
+
     def test_health_timestamp_boundaries_and_skew(self):
         for offset, stale in [(-181, True), (-180, False), (60, False), (61, True)]:
             with self.subTest(offset=offset):
@@ -126,6 +159,42 @@ class ContractTests(unittest.TestCase):
 
 
 class IncidentTests(unittest.TestCase):
+    def test_late_monitor_detects_the_observation_gap_despite_healthy_site(self):
+        report = healthy_report()
+        report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)
+        previous = {"finishedUtc": (NOW - dt.timedelta(seconds=1800)).isoformat()}
+        result = assess(report, previous)
+        self.assertEqual(result["status"], "verification_limited")
+        self.assertEqual(report["observationGapSeconds"], 1800)
+        self.assertTrue(any(i["code"] == "observation_gap_exceeded" for i in result["activeIncidents"].values()))
+        self.assertFalse(any(i["kind"] == "component" for i in result["activeIncidents"].values()))
+
+    def test_cadence_boundaries_deduplication_and_recovery(self):
+        report = healthy_report()
+        report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)
+        previous = {"finishedUtc": (NOW - dt.timedelta(seconds=901)).isoformat()}
+        first = assess(report, previous)
+        repeated = assess(report, {**previous, **first})
+        self.assertFalse(repeated["notification"]["required"])
+        recovered = assess(report, {**first, "finishedUtc": (NOW - dt.timedelta(seconds=900)).isoformat()})
+        self.assertEqual(recovered["status"], "healthy")
+        self.assertTrue(recovered["notification"]["resolved"])
+
+    def test_missing_invalid_or_future_previous_observation_is_unverified(self):
+        report = healthy_report()
+        report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)
+        for previous in ({}, {"finishedUtc": "not-a-date"}, {"finishedUtc": None},
+                         {"finishedUtc": (NOW + dt.timedelta(seconds=61)).isoformat()}):
+            result = assess(report, previous)
+            self.assertEqual(result["status"], "verification_limited")
+            self.assertTrue(any(i["code"] == "previous_observation_unavailable" for i in result["activeIncidents"].values()))
+
+    def test_observation_gap_limit_rejects_invalid_configuration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for limit in (0, -1, float("nan"), float("inf")):
+                with self.assertRaises(ValueError):
+                    Monitor(Path(folder) / "report.json", max_observation_gap_seconds=limit)
+
     def test_healthy_run_without_changes_is_silent(self):
         result = assess(healthy_report())
         self.assertEqual(result["status"], "healthy")

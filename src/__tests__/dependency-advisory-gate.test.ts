@@ -52,8 +52,20 @@ describe("dependency advisory release gate", () => {
     expect(() => assessDependencyAudit(report({ parent: { severity: "high", via: ["missing"] } }), guarded)).toThrow(/missing advisory/);
     expect(() => assessDependencyAudit(report({ first: { severity: "high", via: ["second"] }, second: { severity: "high", via: ["first"] } }), guarded)).toThrow(/cannot resolve/);
   });
-  it("keeps moderate findings visible without pretending the npm audit is clean", () => {
+  it("blocks unreviewed moderate findings while keeping them visible", () => {
     const data = report({ decoder: { severity: "moderate", via: [{ name: "decoder", severity: "moderate", url: "https://example.invalid/advisory" }] } });
-    expect(assessDependencyAudit(data, guarded)).toMatchObject({ blockers: [], moderate: ["decoder"], totals: { moderate: 1 } });
+    expect(assessDependencyAudit(data, guarded).blockers).toHaveLength(1);
+    expect(assessDependencyAudit(data, guarded)).toMatchObject({ moderate: ["decoder"], totals: { moderate: 1 } });
+  });
+  it("requires the exact verified decoder backport for its moderate advisory chain", () => {
+    const decoder: Advisory = { name: "decode-uri-component", severity: "moderate", url: "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr" };
+    const data = report({ "decode-uri-component": { severity: "moderate", via: [decoder] }, "query-string": { severity: "moderate", via: ["decode-uri-component"] } });
+    expect(assessDependencyAudit(data).blockers).toHaveLength(2);
+    expect(assessDependencyAudit(data, guarded)).toMatchObject({ blockers: [], guarded: ["decode-uri-component: " + decoder.url] });
+    expect(assessDependencyAudit(report({ decoder: { severity: "high", via: [{ ...decoder, severity: "high" }] } }), guarded).blockers).toHaveLength(1);
+  });
+  it("blocks the Next.js cache advisories until the upstream fixed version is installed", () => {
+    const next: Advisory = { name: "next", severity: "moderate", url: "https://github.com/advisories/GHSA-4jqv-mc3x-m676" };
+    expect(assessDependencyAudit(report({ next: { severity: "moderate", via: [next] } }), guarded).blockers).toHaveLength(1);
   });
 });

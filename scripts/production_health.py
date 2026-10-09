@@ -23,8 +23,9 @@ HEALTH = "/api/health"
 LISTINGS = "/api/alpha-exchange/listings"
 MARKET = "/api/alpha-exchange/market-rate"
 APIS = [HEALTH, LISTINGS, MARKET]
+AUTH_GUARDS = ["/api/journal", "/api/news"]
 PAGES = ["/", "/ar", "/en", "/ar/login", "/en/login",
-         "/ar/usdt-exchange", "/en/usdt-exchange"]
+         "/ar/usdt-exchange", "/en/usdt-exchange", "/ar/journal", "/en/journal"]
 METRICS = ("http_code", "http_connect", "url_effective", "num_redirects",
            "num_connects", "conn_id", "http_version", "content_type",
            "time_namelookup", "time_connect", "time_appconnect",
@@ -111,6 +112,29 @@ def validate(observation, body):
     if not m.get("http_code"):
         observation["coverageError"] = "no_production_response"
         return []
+    if path in AUTH_GUARDS:
+        if m.get("exitcode", 0):
+            observation["coverageError"] = "incomplete_response"
+            return []
+        issues = []
+        if m["http_code"] != 401:
+            issues.append("signed_out_guard_failed")
+        if "json" not in (m.get("content_type") or "").lower():
+            issues.append("wrong_content_type")
+        cache = (headers[-1]["headers"].get("cache-control", "") if headers else "")
+        directives = {part.strip().lower() for part in cache.split(",")}
+        if not {"private", "no-store"} <= directives:
+            issues.append("private_api_cache_policy_missing")
+        try:
+            data = json.loads(body, parse_constant=reject_nonfinite)
+            if not isinstance(data, dict) or not isinstance(data.get("error"), str):
+                issues.append("malformed_response_contract")
+        except (ValueError, TypeError):
+            issues.append("malformed_response_contract")
+        destination = urlsplit(m.get("url_effective", ""))
+        if destination.path != path or destination.netloc != urlsplit(BASE).netloc or destination.scheme != "https":
+            issues.append("unexpected_auth_redirect")
+        return sorted(set(issues))
     if observation["phase"] == "asset" and observation["method"] == "HEAD" and m["http_code"] in (405, 501):
         return []  # Availability will be checked with a bounded GET.
     if m["http_code"] not in ([200, 206] if observation["phase"] == "asset" else [200]):
@@ -184,6 +208,11 @@ def validate(observation, body):
                         issues.append("exchange_return_path_lost")
                 elif destination.path != path:
                     issues.append("unexpected_exchange_redirect")
+            if path.endswith("/journal"):
+                if destination.path != f"/{locale}/login":
+                    issues.append("journal_sign_in_redirect_missing")
+                elif parse_qs(destination.query).get("redirectTo") != [path]:
+                    issues.append("journal_return_path_lost")
             if path in PAGES[:5]:
                 observation["assets"] = sorted(page.scripts)
                 if not page.scripts:
@@ -205,13 +234,17 @@ def atomic_json(path, value):
 
 
 class Monitor:
-    def __init__(self, output, previous=None):
+    def __init__(self, output, previous=None, max_observation_gap_seconds=None):
         self.output = Path(output)
         self.previous = previous or {}
         self.deadline = time.monotonic() + 220
         self.stopped = False
         self.report = {"schemaVersion": 1, "startedUtc": utcnow().isoformat(),
                        "complete": False, "observations": [], "runnerErrors": []}
+        if max_observation_gap_seconds is not None:
+            if not finite(max_observation_gap_seconds, positive=True):
+                raise ValueError("Observation gap limit must be a positive finite number")
+            self.report["maxObservationGapSeconds"] = max_observation_gap_seconds
         atomic_json(self.output, self.report)
 
     def record(self, observation):
@@ -279,11 +312,11 @@ class Monitor:
             self.batch([LISTINGS], "fresh")
             # Every URL causes a new response; only the underlying connection is reusable.
             # Warm the connection with the homepage so both health samples can reuse it.
-            self.batch([PAGES[0]] + APIS + APIS + PAGES[1:], "keepalive")
+            self.batch([PAGES[0]] + APIS + APIS + PAGES[1:] + AUTH_GUARDS, "keepalive")
             observations = self.report["observations"]
             # Confirm a newly failing/slow observation with up to two more requests,
             # even when earlier connection-comparison samples were healthy.
-            for path in APIS + PAGES:
+            for path in APIS + PAGES + AUTH_GUARDS:
                 samples = [o for o in observations if o["path"] == path]
                 for _ in range(2):
                     if not samples or not (samples[-1]["issues"] or samples[-1]["coverageError"]
@@ -322,7 +355,7 @@ def assess(report, previous=None):
         key = f"{kind}:{component}:{code}"
         incidents[key] = {"kind": kind, "component": component, "code": code}
 
-    expected = APIS + PAGES + sorted({url for o in observations for url in o.get("assets", [])})
+    expected = APIS + PAGES + AUTH_GUARDS + sorted({url for o in observations for url in o.get("assets", [])})
     for path in expected:
         samples = [o for o in observations if o["path"] == path]
         reached = [o for o in samples if not o["coverageError"]]
@@ -352,6 +385,20 @@ def assess(report, previous=None):
             incident("monitoring", "network", "connection_comparison_inconclusive")
     if gaps or report.get("runnerErrors") or not report.get("complete"):
         incident("monitoring", "coverage", "production_partially_unverified")
+    if report.get("maxObservationGapSeconds") is not None:
+        # A fresh successful probe cannot erase time during which no observation
+        # ran. This detects gaps once the runner resumes; it is not a substitute
+        # for an independent dead-man monitor watching a stopped scheduler.
+        try:
+            previous_finished = timestamp((previous or {})["finishedUtc"])
+            gap_seconds = (timestamp(report["startedUtc"]) - previous_finished).total_seconds()
+            report["observationGapSeconds"] = round(gap_seconds, 3)
+            if gap_seconds < -60:
+                raise ValueError("Previous observation is in the future")
+            if gap_seconds > report["maxObservationGapSeconds"]:
+                incident("monitoring", "scheduler", "observation_gap_exceeded")
+        except (KeyError, ValueError, TypeError, AttributeError):
+            incident("monitoring", "scheduler", "previous_observation_unavailable")
     previous_incidents = (previous or {}).get("activeIncidents", {})
     # A lost connection must never resolve an earlier confirmed production incident.
     if gaps or not report.get("complete"):
@@ -369,9 +416,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--previous")
+    parser.add_argument("--max-observation-gap-seconds", type=float)
     arguments = parser.parse_args()
     previous = json.loads(Path(arguments.previous).read_text()) if arguments.previous else None
-    report = Monitor(arguments.output, previous).run()
+    report = Monitor(arguments.output, previous, arguments.max_observation_gap_seconds).run()
     print(json.dumps({key: report[key] for key in ("status", "coverageGaps", "activeIncidents", "notification")}))
     return 0 if report["status"] == "healthy" else 1 if report["status"] == "component_degraded" else 2
 

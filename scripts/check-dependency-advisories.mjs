@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 // These exact upstream advisories have source-verified local backports.
 // Do not broaden this list to silence a new advisory or severity change.
 const guardedAdvisories = new Map([
-  ["https://github.com/advisories/GHSA-vfj7-8cjw-p6xm", "braces"],
-  ["https://github.com/advisories/GHSA-86w9-cpqp-85rv", "node-forge"],
+  ["https://github.com/advisories/GHSA-vfj7-8cjw-p6xm", { name: "braces", severity: "high" }],
+  ["https://github.com/advisories/GHSA-86w9-cpqp-85rv", { name: "node-forge", severity: "high" }],
+  ["https://github.com/advisories/GHSA-vcc3-ghjq-m6fr", { name: "decode-uri-component", severity: "moderate" }],
 ]);
 const severities = ["info", "low", "moderate", "high", "critical"];
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -48,12 +49,13 @@ export function assessDependencyAudit(report, { backportsVerified = false } = {}
   for (const [name, entry] of Object.entries(vulnerabilities)) {
     if (!severities.includes(entry?.severity)) throw new Error(`Unknown advisory severity for ${name}.`);
     if (entry.severity === "moderate") moderate.push(name);
-    if (!["high", "critical"].includes(entry.severity)) continue;
+    if (!["moderate", "high", "critical"].includes(entry.severity)) continue;
     const roots = rootsFor(name);
     if (roots.length === 0) throw new Error(`Dependency audit cannot resolve the advisory chain for ${name}.`);
     for (const advisory of roots) {
-      const expectedPackage = guardedAdvisories.get(advisory.url);
-      if (backportsVerified && entry.severity === "high" && advisory.severity === "high" && expectedPackage === advisory.name) {
+      const expected = guardedAdvisories.get(advisory.url);
+      if (backportsVerified && expected?.name === advisory.name
+          && expected.severity === advisory.severity && entry.severity === expected.severity) {
         guarded.add(`${advisory.name}: ${advisory.url}`);
       } else {
         blockers.add(`${name}: ${advisory.name} ${advisory.severity} ${advisory.url}`);
@@ -81,7 +83,7 @@ export function runDependencyAudit() {
   catch { throw new Error("Fresh dependency audit returned malformed JSON; release remains blocked."); }
   const assessment = assessDependencyAudit(report, { backportsVerified: true });
   console.log(JSON.stringify(assessment, null, 2));
-  if (assessment.blockers.length) throw new Error("Unreviewed high/critical dependency advisories block release.");
+  if (assessment.blockers.length) throw new Error("Unreviewed moderate/high/critical dependency advisories block release.");
   console.log("Dependency advisory gate passed. Guarded and moderate findings remain explicitly reported; this is not a clean npm audit.");
 }
 
