@@ -257,7 +257,7 @@ export function LoginForm({
     <section className={`${styles.page} ${isNativeApp ? appStyles.page : ""}`} data-login-surface={isNativeApp ? "app" : "web"}>
       <LoginAtmosphere />
       <div className={`${styles.card} ${isNativeApp ? appStyles.card : ""} mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border lg:grid-cols-[1.05fr_0.95fr]`}>
-        <div className="relative hidden overflow-hidden border-r border-white/10 bg-[radial-gradient(circle_at_22%_20%,rgba(201,162,39,0.2),transparent_34%),radial-gradient(circle_at_80%_22%,rgba(147,197,253,0.16),transparent_28%),linear-gradient(160deg,#050505,#0b0b0b_52%,#111827)] p-10 lg:flex lg:flex-col">
+        <div className={`${styles.promo} relative hidden overflow-hidden border-r border-white/10 bg-[radial-gradient(circle_at_22%_20%,rgba(201,162,39,0.2),transparent_34%),radial-gradient(circle_at_80%_22%,rgba(147,197,253,0.16),transparent_28%),linear-gradient(160deg,#050505,#0b0b0b_52%,#111827)] p-10 lg:flex lg:flex-col`}>
           <div className="absolute inset-0 opacity-40">
             <div className="absolute left-14 top-16 h-40 w-40 rounded-full bg-[#C9A227]/10 blur-3xl" />
             <div className="absolute right-14 top-28 h-32 w-32 rounded-full bg-[#93C5FD]/10 blur-3xl" />
@@ -272,7 +272,7 @@ export function LoginForm({
               {isAr ? "دوراتك وصفقاتك في حساب واحد." : "Your courses and trades, in one account."}
             </p>
           </div>
-          <div className="relative z-10 mt-8 grid gap-3">
+          <div className={`${styles.promoFeatures} relative z-10 mt-8 grid gap-3`}>
             {[
               isAr ? "حفظ تقدّمك في الأكاديمية" : "Save Academy progress",
               isAr ? "الوصول إلى دوراتك وصفقاتك" : "Access your courses and active trades",
@@ -284,7 +284,7 @@ export function LoginForm({
               </div>
             ))}
           </div>
-          <div className="relative z-10 mt-auto grid gap-3 pt-8">
+          <div className={`${styles.promoWorkspace} relative z-10 mt-auto grid gap-3 pt-8`}>
             <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "لوحة التداول" : "Trading Workspace"}</p>
               <div className="mt-3 grid grid-cols-2 gap-3">
@@ -301,16 +301,16 @@ export function LoginForm({
           </div>
         </div>
 
-        <div className={`relative ${isNativeApp ? appStyles.panel : "p-5"} sm:p-8 lg:p-10`}>
+        <div className={`${styles.panel} relative ${isNativeApp ? appStyles.panel : "p-5"} sm:p-8 lg:p-10`}>
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(201,162,39,0.08),transparent_36%)]" />
           <div className="relative z-10 mx-auto w-full max-w-xl">
-            <div className={isNativeApp ? appStyles.heading : "contents"}>
+            <div className={isNativeApp ? appStyles.heading : styles.heading}>
               <p className={`${isNativeApp ? appStyles.badge : ""} inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]`}>
                 {isAr ? "تجربة دخول مميزة" : "Premium Sign In"}
               </p>
               <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
             </div>
-            <p className={`${isNativeApp ? appStyles.intro : ""} mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]`}>
+            <p className={`${isNativeApp ? appStyles.intro : styles.intro} mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]`}>
               {brandText(isExchangePage(redirectTo ?? "")
                 ? (isAr ? "سجّل الدخول لتصفّح عروض USDT." : "Sign in to browse USDT listings.")
                 : isNativeApp
@@ -318,7 +318,7 @@ export function LoginForm({
                 : (isAr ? "سجّل الدخول للمتابعة." : "Sign in to continue."))}
             </p>
 
-            <div className={isNativeApp ? appStyles.benefits : "mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2"}>
+            <div className={isNativeApp ? appStyles.benefits : `${styles.benefits} mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2`}>
               {(isAr
                 ? ["حفظ تقدّمك في الأكاديمية", "الوصول إلى دوراتك", "شراء وبيع USDT بأمان", "استلام الإشعارات", "بناء ملفك كمتداول", "تتبّع رحلتك في التداول"]
                 : ["Save Academy progress", "Access your courses", "Buy & sell USDT securely", "Receive notifications", "Build your trader profile", "Track your trading journey"]
@@ -331,12 +331,12 @@ export function LoginForm({
               })}
             </div>
 
-            <form className={`${isNativeApp ? appStyles.form : ""} mt-6 grid gap-4`} onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
-              <div className={`${isNativeApp ? appStyles.field : ""} grid gap-2`}>
+            <form className={`${isNativeApp ? appStyles.form : styles.form} mt-6 grid gap-4`} onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
+              <div className={`${isNativeApp ? appStyles.field : styles.field} grid gap-2`}>
                 <label htmlFor="login-email" className="text-sm text-[#B7B7B7]">{isAr ? "البريد الإلكتروني" : "Email"}</label>
                 <Input id="login-email" name="email" aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder="you@example.com" type="email" dir="ltr" autoComplete="username" autoCapitalize="none" spellCheck={false} required disabled={isNativeApp && isLoginSubmitting} value={form.email} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, email: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
               </div>
-              <div className={`${isNativeApp ? appStyles.field : ""} grid gap-2`}>
+              <div className={`${isNativeApp ? appStyles.field : styles.field} grid gap-2`}>
                 <label htmlFor="login-password" className="text-sm text-[#B7B7B7]">{isAr ? "كلمة المرور" : "Password"}</label>
                 <div className="relative">
                   <Input id="login-password" name="password" aria-label={isAr ? "كلمة المرور" : "Password"} placeholder="••••••••" type={showPassword ? "text" : "password"} dir="ltr" autoComplete="current-password" autoCapitalize="none" spellCheck={false} required disabled={isNativeApp && isLoginSubmitting} value={form.password} onChange={(event) => { editedCredentials.current = true; setForm((prev) => ({ ...prev, password: event.target.value })); }} className="h-12 rounded-2xl border-white/15 bg-black/30 pr-14 text-base text-white placeholder:text-[#6B7280] focus-visible:border-[#C9A227]" />
@@ -353,7 +353,7 @@ export function LoginForm({
                   </button>
                 </div>
               </div>
-              <div className={`${isNativeApp ? appStyles.options : ""} flex flex-wrap items-center justify-between gap-x-3 text-sm`}>
+              <div className={`${isNativeApp ? appStyles.options : styles.options} flex flex-wrap items-center justify-between gap-x-3 text-sm`}>
                 <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[#D1D5DB]">
                   <input name="rememberMe" type="checkbox" disabled={isNativeApp && isLoginSubmitting} checked={form.rememberMe} onChange={(event) => {
                     const checked = event.target.checked;
@@ -392,7 +392,7 @@ export function LoginForm({
             ) : null}
             {statusMessage ? <ActionFeedback revealKey={statusMessageFeedbackKey} as="p" className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200" role="status" aria-live="polite">{currencyText(statusMessage)}</ActionFeedback> : null}
 
-            <p className={`${isNativeApp ? appStyles.register : ""} mt-6 text-sm text-[#9CA3AF]`}>
+            <p className={`${isNativeApp ? appStyles.register : styles.register} mt-6 text-sm text-[#9CA3AF]`}>
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}
               <Link href={isMentorshipEntry(redirectTo) ? "/register?intent=mentorship" : isAcademyEntry(redirectTo) ? "/register?intent=learn" : "/register"} className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                 {isAr ? "أنشئ حسابًا" : "Create Account"}

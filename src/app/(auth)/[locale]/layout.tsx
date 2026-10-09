@@ -10,6 +10,7 @@ import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME } from "@/lib/brand";
 import { LocaleSwitcher } from "@/components/layout/locale-switcher";
 import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 import appLoginStyles from "@/components/auth/app-login-network.module.css";
+import loginStyles from "@/components/auth/login-atmosphere.module.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -49,7 +50,7 @@ export default async function AuthLocaleLayout({
       <HtmlAttributesSetter lang={appLocale} dir={localeDirection[appLocale]} />
       <div
         dir={localeDirection[appLocale]}
-        className={`${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} alpha-interface flex min-h-screen flex-col bg-[#050505] text-white ${
+        className={`${loginStyles.authShell} ${appLoginStyles.authShell} ${inter.variable} ${plexArabic.variable} alpha-interface flex min-h-screen flex-col bg-[#050505] text-white ${
           appLocale === "ar" ? "alpha-interface--ar" : ""
         }`}
       >
