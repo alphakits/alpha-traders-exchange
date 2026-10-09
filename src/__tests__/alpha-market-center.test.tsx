@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
 import type { MarketSnapshot } from "@/types/market";
@@ -27,10 +27,27 @@ const snapshot: MarketSnapshot = {
 };
 
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
 });
 
 describe("AlphaMarketCenterView", () => {
+  it.each(["en", "ar"] as const)("never labels a failed or stale %s feed as live", (locale) => {
+    const props = { locale, isLoading: false, error: "Market feed unavailable" };
+    const { rerender } = render(<AlphaMarketCenterView {...props} snapshot={snapshot} />);
+    const delayed = locale === "ar" ? "تحديث متأخر" : "Delayed update";
+    const live = locale === "ar" ? "مباشر" : "LIVE";
+    expect(screen.queryByText(live, { exact: true })).toBeNull();
+    expect(screen.getAllByText(delayed, { exact: true })).toHaveLength(2);
+    expect(screen.getByText("$100,000")).toBeTruthy();
+    rerender(<AlphaMarketCenterView {...props} error={null} snapshot={{ ...snapshot, stale: true }} />);
+    expect(screen.queryByText(live, { exact: true })).toBeNull();
+    expect(screen.getAllByText(delayed, { exact: true })).toHaveLength(2);
+    rerender(<AlphaMarketCenterView {...props} error={null} snapshot={snapshot} />);
+    expect(screen.getAllByText(live, { exact: true })).toHaveLength(2);
+    expect(screen.queryByText(delayed)).toBeNull();
+  });
+
   it("renders a supplied feed without starting another market request", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
