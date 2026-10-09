@@ -154,17 +154,13 @@ describe("compact Exchange home", () => {
   ])("reveals seller insights when the asynchronously mounted section becomes visible ($width px, $locale)", async ({ width, locale }) => {
     viewportWidth = width;
     user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
-    const observe = vi.fn();
-    const disconnect = vi.fn();
-    let notify!: IntersectionObserverCallback;
-    let observer!: IntersectionObserver;
+    const observations = new Map<Element, { notify: IntersectionObserverCallback; observer: IntersectionObserver }>();
     vi.stubGlobal("IntersectionObserver", class {
-      constructor(callback: IntersectionObserverCallback) {
-        notify = callback;
-        observer = this as unknown as IntersectionObserver;
+      constructor(private callback: IntersectionObserverCallback) {}
+      observe(target: Element) {
+        observations.set(target, { notify: this.callback, observer: this as unknown as IntersectionObserver });
       }
-      observe = observe;
-      disconnect = disconnect;
+      disconnect = vi.fn();
     });
 
     render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
@@ -172,8 +168,11 @@ describe("compact Exchange home", () => {
     // workers. Wait for that boundary before exercising the visibility observer.
     const placeholder = await screen.findByRole("heading", { name: locale === "ar" ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand" }, { timeout: 10_000 });
     // The observer must attach after the lazy workspace module has mounted.
-    await waitFor(() => expect(observe).toHaveBeenCalled());
-    const target = observe.mock.calls[0][0] as HTMLElement;
+    // Market cards have their own observers. Exercise the one attached to the
+    // seller insights card, independently of component mount order.
+    const observedInsights = () => [...observations.entries()].find(([element]) => element.contains(placeholder));
+    await waitFor(() => expect(observedInsights()).toBeDefined());
+    const [target, { notify, observer }] = observedInsights()!;
     // Observe the visible card, so a quick scroll cannot skip a one-pixel sentinel.
     expect(target.contains(placeholder)).toBe(true);
     const entry = (isIntersecting: boolean): IntersectionObserverEntry => ({
@@ -188,7 +187,7 @@ describe("compact Exchange home", () => {
     expect(await screen.findByRole("heading", { name: locale === "ar" ? "ملف البائع" : "Seller Profile" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: locale === "ar" ? "الخط الزمني للنشاط" : "Activity Timeline" })).toBeTruthy();
     expect(document.contains(placeholder)).toBe(false);
-    expect(disconnect).toHaveBeenCalled();
+    expect(observer.disconnect).toHaveBeenCalled();
   });
 
   it("renders seller insights when the browser has no visibility observer", async () => {

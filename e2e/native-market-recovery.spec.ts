@@ -17,11 +17,12 @@ for (const locale of ["en", "ar"] as const) {
         // The local fixture can use deterministic data when provider access is
         // unavailable. Leave this unset for preview/production feed verification.
         if (process.env.E2E_CHART_MOCK_DATA === "1") {
+          await page.addInitScript(() => Object.defineProperty(window, "WebSocket", { value: undefined, configurable: true }));
           await page.route("**/api/market/chart?*", (route) => route.fulfill({ json: { chart: {
             symbol: new URL(route.request().url()).searchParams.get("symbol"),
-            interval: "1h", source: "Binance", stale: false, updatedAt: new Date().toISOString(),
-            candles: Array.from({ length: 24 }, (_, index) => ({
-              time: Date.now() - (23 - index) * 3_600_000,
+            interval: "5m", source: "Binance", stale: false, updatedAt: new Date().toISOString(),
+            candles: Array.from({ length: 48 }, (_, index) => ({
+              time: Math.floor(Date.now() / 300_000) * 300_000 - (47 - index) * 300_000,
               open: 2700 + index * 2, high: 2710 + index * 2,
               low: 2695 + index * 2, close: 2705 + index * 2,
             })),
@@ -29,14 +30,19 @@ for (const locale of ["en", "ar"] as const) {
         }
         await page.goto(`/${locale}`, { waitUntil: "domcontentloaded" });
         const charts = page.locator("[data-market-charts]");
-        await expect(charts.getByRole("img", { name: /ETH\/USDT/ })).toBeVisible({ timeout: 30_000 });
-        await page.getByRole("button", { name: "BTC/USDT", exact: true }).click();
-        const chart = charts.getByRole("img", { name: /BTC\/USDT/ });
-        await expect(chart).toBeVisible({ timeout: 30_000 });
         const beforeUrl = page.url();
-        await chart.click();
-        await chart.click({ button: "middle" });
-        await expect(charts.locator("a, iframe, [href], [target]")).toHaveCount(0);
+        for (const symbol of ["BTCUSDT", "ETHUSDT"]) {
+          const card = charts.locator(`[data-market-chart="${symbol}"]`);
+          await card.scrollIntoViewIfNeeded();
+          const chart = card.getByRole("img", { name: /(?:BTC|ETH)\s*\/\s*USDT/ });
+          await expect(chart).toBeVisible({ timeout: 30_000 });
+          // Real pointer input also covers passive SVGs with pointer-events:none.
+          const box = await chart.boundingBox();
+          expect(box).not.toBeNull();
+          await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+          await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2, { button: "middle" });
+        }
+        await expect(charts.locator("a, button, iframe, [href], [target]")).toHaveCount(0);
         expect(page.url()).toBe(beforeUrl);
         expect(context.pages()).toHaveLength(1);
         expect(externalChartRequests).toEqual([]);

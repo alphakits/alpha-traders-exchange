@@ -5,6 +5,7 @@ import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./s
 import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 import type { MarketSnapshot } from "../src/types/market";
+import type { MarketChartSnapshot } from "../src/types/market-chart";
 
 const scrypt = promisify(scryptCb);
 const H = { "x-alpha-test-support": "enabled" };
@@ -207,7 +208,7 @@ test.describe("Marketplace Pulse", () => {
   const summaryMetricValue = (page: Page, label: string) =>
     page.locator("p", { hasText: label }).first().locator("xpath=following-sibling::p[1]");
 
-  test("tiles match actual market data and disclose its live or degraded status", async ({ page }) => {
+  test("tiles match real reference quotes and five-minute candles with accurate feed status", async ({ page }) => {
     const seller = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
     try {
       await login(seller, sellerEmail, sellerPassword);
@@ -235,20 +236,36 @@ test.describe("Marketplace Pulse", () => {
     expect(marketResponse.ok()).toBe(true);
     const marketPayload = await marketResponse.json() as { snapshot: MarketSnapshot };
     await page.route("**/api/market/center", route => route.fulfill({ json: marketPayload }));
+    // Freeze real history responses for exact price assertions. Stream updates
+    // and rollover are covered separately; a new tick must not race this check.
+    await page.addInitScript(() => Object.defineProperty(window, "WebSocket", { value: undefined, configurable: true }));
+    const charts = await Promise.all((["BTCUSDT", "ETHUSDT"] as const).map(async symbol => {
+      const response = await page.request.get(`/api/market/chart?symbol=${symbol}`);
+      expect(response.ok()).toBe(true);
+      const payload = await response.json() as { chart: MarketChartSnapshot };
+      expect(payload.chart.interval).toBe("5m");
+      expect(payload.chart.candles.length).toBeGreaterThan(2);
+      await page.route(`**/api/market/chart?symbol=${symbol}`, route => route.fulfill({ json: payload }));
+      return payload.chart;
+    }));
     await gotoMarketplace(page);
     const { snapshot } = marketPayload;
     expect(["live", "degraded"]).toContain(snapshot.status);
     const overview = page.locator("#market-overview");
-    await overview.locator("summary").click();
-    await expect(overview.getByText(snapshot.status === "live" ? "LIVE" : "Degraded", { exact: true }).first()).toBeVisible({ timeout: 20000 });
-    if (snapshot.status === "degraded") await expect(overview.getByText("LIVE", { exact: true })).toHaveCount(0);
-    for (const pair of Object.values(snapshot.pairs)) {
-      expect(Number.isFinite(pair.price) && pair.price > 0).toBe(true);
-      const tile = overview.getByRole("article").filter({ has: page.getByText(pair.label, { exact: true }) });
-      const expectedPrice = `${pair.key === "usdtIls" ? "₪" : "$"}${new Intl.NumberFormat(pair.key === "usdtIls" ? "en-IL" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pair.price)}`;
+    await expect(overview.locator("summary, details, button, a, iframe")).toHaveCount(0);
+    const reference = overview.locator('[data-market-chart="USDTILS"]');
+    await reference.scrollIntoViewIfNeeded();
+    await expect(reference.getByText(`₪${snapshot.pairs.usdtIls.price.toFixed(2)}`, { exact: true })).toBeVisible();
+    const referenceFresh = !snapshot.stale && !snapshot.unavailablePairs.includes("usdtIls");
+    await expect(reference.getByText(referenceFresh ? "History since this page opened" : "Reference update delayed", { exact: true })).toBeVisible();
+    for (const chart of charts) {
+      const tile = overview.locator(`[data-market-chart="${chart.symbol}"]`);
+      await tile.scrollIntoViewIfNeeded();
+      const last = chart.candles[chart.candles.length - 1];
+      const expectedPrice = `$${last.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       await expect(tile.getByText(expectedPrice, { exact: true })).toBeVisible();
-      const expectedChange = pair.changePercent === null ? "--" : `${pair.changePercent > 0 ? "+" : ""}${pair.changePercent.toFixed(2)}%`;
-      await expect(tile.getByText(expectedChange, { exact: true })).toBeVisible();
+      await expect(tile.getByRole("img")).toHaveAttribute("data-candle-count", String(chart.candles.length));
+      await expect(tile.getByRole("status")).toHaveText(chart.stale ? "Delayed update" : "Auto-refresh");
     }
   });
 

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const now = Date.parse("2026-10-06T01:30:00Z");
 const rows = [
-  [now - 5_400_000, "2700", "2710", "2690", "2705"],
-  [now - 1_800_000, "2705", "2715", "2695", "2700"],
+  [now - 600_000, "2700", "2710", "2690", "2705"],
+  [now - 300_000, "2705", "2715", "2695", "2700"],
 ];
 beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); vi.setSystemTime(now); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -15,6 +15,8 @@ describe("first-party chart data", () => {
     const { getMarketChart } = await import("./market-chart-service");
     const [one, two] = await Promise.all([getMarketChart("ETHUSDT"), getMarketChart("ETHUSDT")]);
     expect(one).toEqual(two);
+    expect(one?.interval).toBe("5m");
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("interval=5m&limit=48"), expect.any(Object));
     expect(one?.candles[0]).toEqual({ time: rows[0][0], open: 2700, high: 2710, low: 2690, close: 2705 });
     await getMarketChart("ETHUSDT");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -31,7 +33,7 @@ describe("first-party chart data", () => {
     const first = await getMarketChart("ETHUSDT");
     expect(first?.stale).toBe(false);
     expect(fetchMock.mock.calls[1][0]).toContain("https://api.binance.com/");
-    vi.setSystemTime(now + 60_000);
+    vi.setSystemTime(now + 20_000);
     const delayed = await getMarketChart("ETHUSDT");
     expect(delayed).toEqual({ ...first, stale: true });
     vi.setSystemTime(now + 3_660_000);
@@ -46,7 +48,7 @@ describe("first-party chart data", () => {
     await vi.advanceTimersByTimeAsync(6_001);
     expect(await request).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    vi.setSystemTime(now + 60_000);
+    vi.setSystemTime(now + 20_000);
     fetchMock.mockResolvedValue({ ok: true, json: async () => rows });
     expect((await getMarketChart("ETHUSDT"))?.stale).toBe(false);
   });

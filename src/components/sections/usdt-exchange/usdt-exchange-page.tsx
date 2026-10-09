@@ -1,4 +1,6 @@
 "use client";
+
+import { LiveMarketCards } from "@/components/market/live-market-cards";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
@@ -739,41 +741,6 @@ export function greetingByTime(isAr: boolean, value: string | number | Date = Da
   return isAr ? "مساء النور" : "Good evening";
 }
 
-
-function formatMarketCardPrice(pairKey: "usdtIls" | "btcUsdt" | "ethUsdt", value: number) {
-  if (pairKey === "usdtIls") {
-    return `₪${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatMarketCardChange(changePercent: number | null) {
-  if (changePercent === null || Number.isNaN(changePercent)) return "--";
-  const sign = changePercent > 0 ? "+" : "";
-  return `${sign}${changePercent.toFixed(2)}%`;
-}
-
-function buildSparklinePath(changePercent: number | null, seed: number) {
-  const pointCount = 20;
-  const pointRange = pointCount - 1;
-  const trend = (changePercent ?? 0) / 36;
-  const values: number[] = [];
-
-  for (let index = 0; index < pointCount; index += 1) {
-    const progress = index / pointRange;
-    const wave = Math.sin((index + seed) * 0.85) * 0.08 + Math.cos((index + seed) * 0.42) * 0.04;
-    const raw = 0.5 + trend * (progress - 0.5) + wave;
-    values.push(Math.min(0.88, Math.max(0.12, raw)));
-  }
-
-  return values
-    .map((value, index) => {
-      const x = (index / pointRange) * 100;
-      const y = (1 - value) * 32;
-      return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence", isAr = false) {
   const map = isAr ? {
@@ -2710,6 +2677,19 @@ export function UsdtExchangePage({
     };
   }, [fetchSellerProfileData, selectedListing]);
 
+  useEffect(() => {
+    if (!hasSellerWorkspaceAccess || isWorkspaceWidgetsLoading) return;
+    const revealSellerWorkspace = () => {
+      const anchor = window.location.hash.slice(1);
+      if (anchor !== "my-listings-section" && anchor !== "purchase-requests-section") return;
+      if (anchor === "my-listings-section") setSellerListingsExpanded(true);
+      window.requestAnimationFrame(() => focusWorkspaceSection(anchor));
+    };
+    revealSellerWorkspace();
+    window.addEventListener("hashchange", revealSellerWorkspace);
+    return () => window.removeEventListener("hashchange", revealSellerWorkspace);
+  }, [hasSellerWorkspaceAccess, isWorkspaceWidgetsLoading, sellerDashboardListingsTarget]);
+
   // Scroll to create-listing when navigated with hash, retrying briefly while deferred UI mounts.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3035,7 +3015,7 @@ export function UsdtExchangePage({
       });
       return;
     }
-    router.push(`/dashboard/seller#seller-listing-${encodeURIComponent(listing.id)}`);
+    router.push(`/usdt-exchange#seller-listing-${encodeURIComponent(listing.id)}`);
     setStatusMessage(isAr ? `أدر عرضك من لوحة البائع (${shortListingRef(listing)}).` : `Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
   }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection, setSellerWorkspaceMessage, setStatusMessage]);
 
@@ -3900,7 +3880,7 @@ export function UsdtExchangePage({
         onClick: () => {
           if (desktopSellerNavigation) return openSellerRequests(false);
           if (focusWorkspaceSection("purchase-requests-section")) return;
-          router.push("/dashboard/seller#purchase-requests-section");
+          router.push("/usdt-exchange#purchase-requests-section");
         },
         icon: HandCoins,
         tone: "blue",
@@ -5371,53 +5351,15 @@ export function UsdtExchangePage({
           </div>
         </div>
 
-        {/* Professional live market panel */}
-        <MarketplaceToolPanel id="market-overview" tabIndex={desktopWorkspaceNavigation ? -1 : undefined} title={isAr ? "نظرة عامة على السوق" : "Market Overview"} isAr={isAr} icon={<TrendingUp aria-hidden="true" className="h-4 w-4 shrink-0 text-[#D4AF37]" />} className="mt-4" bodyClassName="">
-          {(() => {
-            const marketCards = [
-              marketSnapshot?.pairs.usdtIls ?? { key: "usdtIls" as const, label: "USDT / ILS", price: marketPricePerUsdt, changePercent: null, source: "alpha-reference" },
-              marketSnapshot?.pairs.btcUsdt ?? { key: "btcUsdt" as const, label: "BTC / USDT", price: 0, changePercent: null, source: "coinbase-spot" },
-              marketSnapshot?.pairs.ethUsdt ?? { key: "ethUsdt" as const, label: "ETH / USDT", price: 0, changePercent: null, source: "coinbase-spot" },
-            ];
-
-            return (
-              <div className="px-4 py-4 sm:px-5">
-                <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:grid-cols-3 md:overflow-visible md:pb-0">
-                  {marketCards.map((pair, index) => {
-                    const positive = pair.changePercent !== null && pair.changePercent >= 0;
-                    const spark = buildSparklinePath(pair.changePercent, index * 4 + 3);
-                    return (
-                      <article
-                        key={pair.key}
-                        className="min-w-[230px] snap-start rounded-2xl border border-[#C9A227]/20 bg-[linear-gradient(155deg,rgba(201,162,39,0.14),rgba(8,8,8,0.9)_42%,rgba(8,8,8,0.98))] p-4 shadow-[0_10px_28px_rgba(0,0,0,0.35)] md:min-w-0"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.14em] text-[#F4D87A]">{currencyText(pair.label)}</p>
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${positive ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-rose-500/35 bg-rose-500/10 text-rose-300"}`}>
-                            {currencyText(formatMarketCardChange(pair.changePercent))}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{currencyText(formatMarketCardPrice(pair.key, pair.price))}</p>
-                        <div className="mt-3 h-10 rounded-xl border border-white/10 bg-black/30 px-2 py-1">
-                          <svg viewBox="0 0 100 32" className="h-full w-full" preserveAspectRatio="none" role="img" aria-label={marketTrendAriaLabel(pair.label, isAr)}>
-                            <path d={spark} fill="none" stroke={positive ? "#34D399" : "#F87171"} strokeWidth="2" strokeLinecap="round" />
-                          </svg>
-                        </div>
-                        <p className="mt-2 text-xs leading-5 text-[#AEB5C0]">{currencyText(marketReferenceLabel(pair.reference, pair.source, isAr))}</p>
-                      </article>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] px-4 py-2.5 text-[11px] text-[#9CA3AF] sm:px-5">
-            <span>
-              {isAr ? "آخر تحديث" : "Last update"}: {currencyText(formatIsraelMarketTime(marketSnapshot?.updatedAt, isAr))}
-            </span>
-            <span>{isAr ? "الحالة" : "Status"}: <span className={marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}>{marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "متدهور" : "Degraded")}</span></span>
-          </div>
-        </MarketplaceToolPanel>
+        <section id="market-overview" tabIndex={desktopWorkspaceNavigation ? -1 : undefined}
+          aria-label={isAr ? "نظرة عامة على السوق" : "Market Overview"}
+          className="mt-4 min-w-0 scroll-mt-24 rounded-2xl border border-white/10 bg-[#0B0B0B]/90">
+          <h3 className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-sm font-semibold sm:px-5 sm:text-base">
+            <TrendingUp aria-hidden="true" className="h-4 w-4 shrink-0 text-[#D4AF37]" />
+            {isAr ? "نظرة عامة على السوق" : "Market Overview"}
+          </h3>
+          <div className="px-3 py-4 sm:px-5"><LiveMarketCards snapshot={marketSnapshot} locale={locale} /></div>
+        </section>
 
         {isApprovedSeller && showSellerWorkspace ? (
           <SellerListingsWorkspacePortal
@@ -5600,7 +5542,7 @@ export function UsdtExchangePage({
                 {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
               </p>
               {canAccessListingCreation ? (
-                <Button type="button" className="mt-4" onClick={() => router.push("/dashboard/seller")}>
+                <Button type="button" className="mt-4" onClick={() => router.push("/usdt-exchange#my-listings-section")}>
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
               ) : null}

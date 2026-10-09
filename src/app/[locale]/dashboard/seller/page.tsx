@@ -52,5 +52,5 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
     );
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} workspaceMode="seller" />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
 }

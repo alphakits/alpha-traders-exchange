@@ -10,7 +10,7 @@ export type MarketCandle = {
 
 export type MarketChartSnapshot = {
   symbol: MarketChartSymbol;
-  interval: "1h";
+  interval: "5m";
   source: "Binance";
   updatedAt: string;
   stale: boolean;

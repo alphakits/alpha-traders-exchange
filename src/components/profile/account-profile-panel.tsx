@@ -985,9 +985,9 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
             <div className="grid grid-cols-2 gap-3">
               <div className="profile-summary-stat"><span>{isAr ? "صفقات مكتملة" : "Completed trades"}</span><strong>{payload.stats.completedTrades.toLocaleString("en-IL")}</strong></div>
               {payload.stats.kind === "seller" ? <>
-                <Link href="/dashboard/seller#my-listings-section" className="profile-summary-stat"><span>{isAr ? "عروض نشطة" : "Active listings"}</span><strong>{payload.stats.activeListings.toLocaleString("en-IL")}</strong></Link>
+                <Link href="/usdt-exchange#my-listings-section" className="profile-summary-stat"><span>{isAr ? "عروض نشطة" : "Active listings"}</span><strong>{payload.stats.activeListings.toLocaleString("en-IL")}</strong></Link>
                 <div className="profile-summary-stat"><span>{isAr ? "التقييم" : "Rating"}</span><strong>{payload.stats.averageRating > 0 ? `${payload.stats.averageRating.toFixed(2)} ★` : "—"}</strong></div>
-                <Link href="/dashboard/seller#create-listing" className="profile-summary-stat profile-summary-stat--action">{isAr ? "إضافة عرض" : "Add listing"}</Link>
+                <Link href="/usdt-exchange#create-listing" className="profile-summary-stat profile-summary-stat--action">{isAr ? "إضافة عرض" : "Add listing"}</Link>
               </> : <>
                 <Link href="/trades" className="profile-summary-stat"><span>{isAr ? "صفقات نشطة" : "Active trades"}</span><strong>{payload.stats.activeTrades.toLocaleString("en-IL")}</strong></Link>
                 <div className="profile-summary-stat"><span>{isAr ? "التقييمات المكتوبة" : "Reviews written"}</span><strong>{payload.stats.reviewsGiven.toLocaleString("en-IL")}</strong></div>

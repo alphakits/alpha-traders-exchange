@@ -58,7 +58,7 @@ export function ProfileQuickActions({ locale, admin, owner, seller, trading, use
     admin
       ? { href: "/admin/alpha-exchange", label: owner ? (isAr ? "لوحة المالك" : "Owner Dashboard") : (isAr ? "لوحة الإدارة" : "Admin Dashboard"), icon: Crown }
       : seller
-        ? { href: "/dashboard/seller", label: isAr ? "مساحة البائع" : "Seller workspace", icon: List }
+        ? { href: "/usdt-exchange#my-listings-section", label: isAr ? "مساحة البائع" : "Seller workspace", icon: List }
         : trading
           ? { href: "/dashboard", label: isAr ? "مساحة المشتري" : "Buyer workspace", accessibleLabel: isAr ? "مساحة المشتري — فتح لوحة المشتري" : "Buyer workspace — open buyer dashboard", icon: LayoutDashboard }
           : { href: "/academy", label: isAr ? "الأكاديمية" : "Academy", icon: GraduationCap },

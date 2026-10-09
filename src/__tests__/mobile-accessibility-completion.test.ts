@@ -104,12 +104,12 @@ describe("mobile accessibility completion", () => {
     expect(footer).toContain('inline-flex min-h-11 items-center gap-2');
   });
 
-  it("labels the first-party market chart and shows keyboard focus on its controls", () => {
-    const chart = source("src/components/market/market-price-charts.tsx");
+  it("labels the view-only market chart for assistive technology", () => {
+    const chart = source("src/components/market/candlestick-chart.tsx");
 
     expect(chart).toContain('role="img" aria-label=');
-    expect(chart).toContain('focus-visible:ring-2');
-    expect(chart).toContain('focus-visible:ring-[#C9A227]');
+    expect(chart).toContain('5-minute candlestick chart');
+    expect(chart).toContain('شموع ٥ دقائق');
   });
 
   it("keeps small-screen checkbox and radio controls at least 24px with any pointer", () => {

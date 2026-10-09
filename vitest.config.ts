@@ -9,7 +9,7 @@ export default defineConfig({
     server: { deps: { inline: ["next-intl"] } },
     environment: "jsdom",
     globals: true,
-    setupFiles: [],
+    setupFiles: ["./src/test/browser-network.ts"],
     include: [
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
