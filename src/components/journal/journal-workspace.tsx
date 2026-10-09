@@ -1,17 +1,20 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- The small supplied WebP also renders as an embedded asset in the offline review build. */
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, Download, LayoutDashboard, List, LoaderCircle, LockKeyhole, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Target, TrendingUp, WalletCards, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, CalendarDays, Check, ChevronLeft, ChevronRight, Download, LayoutDashboard, List, LoaderCircle, LockKeyhole, Plus, RefreshCw, Search, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Target, TrendingUp, WalletCards, X } from "lucide-react";
 import { journalApi, type JournalAdapter } from "@/lib/journal/client";
 import { DEFAULT_SETTINGS, chronological, dailyResults, dayInZone, emptyReview, emptyTrade, groupResults, inPeriod, metrics, money, netPnl, shiftDate, weekStart, type JournalLocale, type JournalPeriod, type JournalSnapshot, type JournalTrade } from "@/lib/journal/model";
 import { Amount, Calendar, Empty, EquityChart, ProgressRing, codeLabel, dateLabel, phrase } from "./journal-ui";
 import { TradeEditor } from "./trade-editor";
 import { ReviewForm, RulesForm } from "./journal-review";
+import { JournalPrivacy, JournalShareDialog } from "./journal-share";
+import { resultsShare, rulesShare, tradeShare, type JournalShare } from "@/lib/journal/sharing";
 import "./journal.css";
 
 type View="overview"|"trades"|"review"|"insights"|"rules";
 export function JournalWorkspace({ locale="en",adapter=journalApi, preview=false,brandImage="/images/brand/alpha-traders-logo.webp" }: {locale?:JournalLocale;adapter?:JournalAdapter;preview?:boolean;brandImage?:string}) {
   const t=phrase(locale);
+  const [share,setShare]=useState<{doc:JournalShare;tradeId?:string}|null>(null);
   const [data,setData]=useState<JournalSnapshot|null>(null),[error,setError]=useState("");
   const [loading,setLoading]=useState(true),[reload,setReload]=useState(0),[view,setView]=useState<View>("overview");
   const [period,setPeriod]=useState<JournalPeriod>("month"),[editor,setEditor]=useState<JournalTrade|null>(null);
@@ -60,12 +63,12 @@ export function JournalWorkspace({ locale="en",adapter=journalApi, preview=false
   };
   const tradeRows=(rows:JournalTrade[],compact=false)=><div className="j-trade-table">
     <div className="j-trade-table-head"><span>{t("Instrument / setup","الأداة / الإعداد")}</span><span>{t("Date","التاريخ")}</span><span>{t("Behavior","السلوك")}</span><span>{t("Net P&L","صافي النتيجة")}</span></div>
-    {rows.map(trade=><button key={trade.id} className="j-trade-row" onClick={()=>setEditor(trade)} aria-label={`${t("Open trade","فتح الصفقة")} ${trade.symbol} ${trade.date} ${trade.time}`}>
+    {rows.map(trade=><div className="j-trade-share-row" key={trade.id}><button className="j-trade-row" onClick={()=>setEditor(trade)} aria-label={`${t("Open trade","فتح الصفقة")} ${trade.symbol} ${trade.date} ${trade.time}`}>
       <div className="j-trade-symbol"><span className={`j-direction ${trade.direction}`} aria-hidden="true">{trade.direction==="long"?"L":"S"}</span><div><strong dir="ltr">{trade.symbol}</strong><span dir="auto">{trade.strategy||t("No setup tagged","بدون إعداد")}</span></div></div>
       <div className="j-trade-date"><span>{dateLabel(trade.date,locale,true)}</span><small dir="ltr">{trade.time} · {trade.direction==="long"?t("Long","شراء"):t("Short","بيع")}</small></div>
       <div className="j-trade-behavior"><span className={`j-pill ${trade.followedPlan===true?"good":trade.followedPlan===false?"warn":""}`}>{trade.followedPlan===true?t("On plan","التزام بالخطة"):trade.followedPlan===false?t("Off plan","خارج الخطة"):t("Not reviewed","لم تراجع")}</span>{!compact && trade.emotion && <small>{codeLabel(trade.emotion,locale)}</small>}</div>
       <div className="j-trade-result">{trade.status==="closed"?<><Amount cents={netPnl(trade)} locale={locale}/><small>{trade.riskCents?`${(netPnl(trade)/trade.riskCents).toFixed(2)}R`:t("After fees","بعد الرسوم")}</small></>:<span className="j-pill">{t("Open","مفتوحة")}</span>}</div>
-    </button>)}
+    </button><button className="j-icon j-row-share" aria-label={`${t("Share trade","مشاركة الصفقة")} ${trade.symbol} ${trade.date} ${trade.time}`} title={t("Share this trade only","مشاركة هذه الصفقة فقط")} onClick={()=>setShare({doc:tradeShare(trade,locale),tradeId:trade.id})}><Share2 size={17}/></button></div>)}
   </div>;
   const statCards=(stats:ReturnType<typeof metrics>)=><div className="j-stat-grid">
     <div className="j-stat j-stat-pnl"><span className="j-stat-label">{t("Net P&L","صافي الربح والخسارة")}<WalletCards size={17} aria-hidden="true"/></span><strong><Amount cents={stats.net} locale={locale}/></strong><small>{t("After","بعد")} <span dir="ltr">{money(stats.fees,locale)}</span> {t("in fees","رسوم")}</small></div>
@@ -89,10 +92,11 @@ export function JournalWorkspace({ locale="en",adapter=journalApi, preview=false
       <header className="j-page-header"><div><div className="j-kicker"><span className="j-header-mark" aria-hidden="true"/>{t("THE TRADER BEHIND THE TRADES","المتداول وراء الصفقات")}</div><h1>{view==="overview"?t("Trading journal","سجل التداول"):nav.find(n=>n.id===view)?.label}</h1><p>{view==="overview"?t("Know your numbers. Understand your decisions.","اعرف أرقامك. افهم قراراتك."):view==="trades"?t("Every decision, in one place.","كل قرار، في مكان واحد."):view==="review"?t("Learn from the process, not only the result.","تعلّم من الطريقة، وليس من النتيجة فقط."):view==="insights"?t("Find the patterns in your own trading.","اكتشف الأنماط في تداولك."):t("Give every session a clear plan.","امنح كل جلسة خطة واضحة.")}</p></div>
         <div className="j-header-actions"><span className="j-private"><LockKeyhole size={13}/>{t("Private","خاص")}</span><button className="j-btn primary" disabled={!data||loading} onClick={()=>setEditor(emptyTrade(today))}><Plus size={18}/>{t("Add trade","إضافة صفقة")}</button></div>
       </header>
+      <JournalPrivacy locale={locale}/>
       {loading?<div className="j-loading" role="status"><LoaderCircle className="j-spin" size={24}/>{t("Opening your journal…","جار فتح سجلك…")}</div>:error?<div className="j-error" role="alert"><p>{error}</p><button className="j-btn" onClick={()=>setReload(n=>n+1)}>{t("Try again","حاول مجدداً")}</button></div>:data && <>
         <div className="j-toolbar"><div className="j-periods" aria-label={t("Results period","فترة النتائج")}>
           {view!=="review"&&view!=="rules"&&(["today","week","month","all"] as const).map(p=><button key={p} className={period===p?"active":""} aria-pressed={period===p} onClick={()=>{setPeriod(p);setVisible(30);}}>{p==="today"?t("Today","اليوم"):p==="week"?t("This week","هذا الأسبوع"):p==="month"?t("This month","هذا الشهر"):t("All time","الكل")}</button>)}
-        </div><div className="j-toolbar-meta"><span>{t("USD","USD")} · {settings.timezone.replaceAll("_"," ")}</span><button className="j-icon" title={t("Reload journal","إعادة تحميل السجل")} aria-label={t("Reload journal","إعادة تحميل السجل")} onClick={()=>{if(!dirty||window.confirm(t("Discard unsaved changes and reload?","تجاهل المراجعة غير المحفوظة وإعادة التحميل؟"))){setDirty(false);setReload(n=>n+1);}}}><RefreshCw size={15}/></button></div></div>
+        </div><div className="j-toolbar-meta"><button className="j-btn j-share-trigger" disabled={dirty} title={dirty?t("Save your changes before sharing","احفظ تعديلاتك قبل المشاركة"):undefined} onClick={()=>setShare({doc:view==="rules"?rulesShare(settings,locale):view==="review"?resultsShare(reviewTrades,reviewPeriod==="week"?`${reviewStart} – ${shiftDate(reviewStart,6)}`:reviewStart,locale,review):resultsShare(selected,period==="today"?today:period==="week"?`${weekStart(today)} – ${shiftDate(weekStart(today),6)}`:period==="month"?today.slice(0,7):t("All time","كل الفترات"),locale)})}><Share2 size={15}/>{view==="rules"?t("Share my plan","مشاركة خطتي"):view==="review"?(reviewPeriod==="day"?t("Share this day","مشاركة هذا اليوم"):t("Share this week","مشاركة هذا الأسبوع")):t("Share statistics","مشاركة الإحصائيات")}</button><span>{t("USD","USD")} · {settings.timezone.replaceAll("_"," ")}</span><button className="j-icon" title={t("Reload journal","إعادة تحميل السجل")} aria-label={t("Reload journal","إعادة تحميل السجل")} onClick={()=>{if(!dirty||window.confirm(t("Discard unsaved changes and reload?","تجاهل المراجعة غير المحفوظة وإعادة التحميل؟"))){setDirty(false);setReload(n=>n+1);}}}><RefreshCw size={15}/></button></div></div>
         {notice && <div className="j-notice" role="status"><span className="j-notice-icon"><Check size={17} aria-hidden="true"/></span><span>{notice}</span><button className="j-icon" aria-label={t("Dismiss notification","إغلاق الإشعار")} onClick={()=>setNotice("")}><X size={15}/></button></div>}
         <div className="j-view" key={view}>
         {view==="overview" && <>
@@ -125,6 +129,7 @@ export function JournalWorkspace({ locale="en",adapter=journalApi, preview=false
         <footer className="j-footer"><span><LockKeyhole size={12}/>{t("Your trades. Your process. Your progress.","صفقاتك. طريقتك. تقدمك.")}</span><span>Alpha Traders <span className="j-footer-star" aria-hidden="true">✦</span> Academy & Exchange</span></footer>
       </>}
     </main>
+    {share&&<JournalShareDialog doc={share.doc} tradeId={share.tradeId} adapter={adapter} locale={locale} onClose={()=>setShare(null)}/>}
     {editor&&<TradeEditor initial={editor} key={editor.id} adapter={adapter} locale={locale} timezone={settings.timezone} onSaved={saveTrade} onDeleted={id=>{setData(old=>old?{...old,trades:old.trades.filter(trade=>trade.id!==id)}:old);setNotice(t("Trade deleted","تم حذف الصفقة"));}} onClose={()=>setEditor(null)}/>}
   </div>;
 }

@@ -1,12 +1,15 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Private chart endpoints require the viewer's cookie and must bypass the public image optimizer. */
 import { useEffect, useRef, useState } from "react";
-import { Check, ImagePlus, LoaderCircle, Trash2, X } from "lucide-react";
+import { Check, ImagePlus, LoaderCircle, Share2, Trash2, X } from "lucide-react";
 import type { JournalAdapter } from "@/lib/journal/client";
 import { JournalClientError, prepareChart, tradeInput } from "@/lib/journal/client";
 import { EMOTIONS, MISTAKES, parseMoney, type JournalTrade, type JournalAttachment, type JournalLocale } from "@/lib/journal/model";
 import { journalTradeInput } from "@/lib/journal/validation";
 import { Amount, Dialog, codeLabel, phrase } from "./journal-ui";
+
+import { JournalShareDialog } from "./journal-share";
+import { tradeShare } from "@/lib/journal/sharing";
 
 const EMOTION_EMOJI: Record<(typeof EMOTIONS)[number],string> = {
   calm:"😌", confident:"😎", fearful:"😟", greedy:"🤑", frustrated:"😤", fomo:"😰", revenge:"😠",
@@ -17,6 +20,7 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
   onSaved:(trade:JournalTrade)=>void;onDeleted:(id:string)=>void;onClose:()=>void;
 }) {
   const t=phrase(locale); const [trade,setTrade]=useState(initial);
+  const [sharing,setSharing]=useState(false);
   const [gross,setGross]=useState(initial.version ? (initial.grossPnlCents/100).toFixed(2):"");
   const [fees,setFees]=useState((initial.feesCents/100).toFixed(2));
   const [risk,setRisk]=useState(initial.riskCents ? (initial.riskCents/100).toFixed(2):"");
@@ -69,6 +73,7 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
     <div className="j-editor-tabs" role="tablist" aria-label={t("Trade sections","أقسام الصفقة")}>
       {(["trade","notes","charts"] as const).map(key=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{key==="trade"?t("Trade","الصفقة"):key==="notes"?t("Notes & behavior","ملاحظات وسلوك"):t("Charts","الرسوم")}</button>)}
     </div>
+    {trade.version>0&&<div className="j-trade-share-bar"><button type="button" className="j-btn" disabled={busy||dirty} onClick={()=>setSharing(true)}><Share2 size={16}/>{t("Share this trade","مشاركة هذه الصفقة")}</button><span>{dirty?t("Save changes before sharing.","احفظ التعديلات قبل المشاركة."):t("Private unless you choose to share.","خاصة إلا إذا اخترت مشاركتها.")}</span></div>}
     {error && <div className="j-error" role="alert">{error}</div>}
     <form aria-busy={busy} onSubmit={e=>{e.preventDefault();void save();}}>
       <fieldset className="j-form-lock" disabled={busy}>
@@ -115,6 +120,7 @@ export function TradeEditor({ initial, adapter, locale, timezone, onSaved, onDel
       </fieldset>
     </form>
     {confirmDelete && <div className="j-delete-confirm" role="alert"><p>{t("Delete this trade and its charts? This cannot be undone.","حذف هذه الصفقة ورسومها؟ لا يمكن التراجع.")}</p><div className="j-actions"><button className="j-btn" disabled={busy} onClick={()=>setConfirmDelete(false)}>{t("Keep trade","الاحتفاظ بالصفقة")}</button><button className="j-btn danger" disabled={busy} onClick={()=>void remove()}>{t("Delete trade","حذف الصفقة")}</button></div></div>}
+    {sharing&&<JournalShareDialog doc={tradeShare(trade,locale)} tradeId={trade.id} locale={locale} adapter={adapter} onClose={()=>setSharing(false)}/>}
     {viewChart && <Dialog title={t("Chart review","مراجعة الرسم")} wide onClose={()=>setViewChart(null)}><img className="j-full-chart" src={viewChart.url} alt={t("Trade chart","رسم الصفقة")}/></Dialog>}
   </Dialog>;
 }
