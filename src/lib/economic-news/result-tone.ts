@@ -21,6 +21,8 @@ function numericResult(raw: string | null) {
 // USD, crypto or equities. Inflation, wages, rates and Fed remarks can have mixed
 // implications, so an unsigned reading for those series stays neutral.
 function comparisonDirection(title: string) {
+  // GDP price indexes/deflators are inflation measures, not growth releases.
+  if (/\b(?:cpi|ppi|pce)\b|inflation|price|deflator|earnings|wage|interest|policy rate/i.test(title)) return 0;
   if (/unemployment rate|(?:initial|continuing).*claims|jobless claims|unemployment claims/i.test(title)) return -1;
   if (/non[ -]?farm.*(?:payroll|employment)|adp.*employment|gdp|gross domestic product|retail sales|durable goods|industrial production|consumer confidence|trade balance/i.test(title)) return 1;
   return 0;

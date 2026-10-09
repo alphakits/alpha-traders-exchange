@@ -49,7 +49,7 @@ describe("News result colors", () => {
     expect(meaning({ actual: "-0%", forecast: null, previous: null, revised: null })).toEqual({ tone: "neutral", label: "Zero" });
     expect(meaning({ actual: "29K", forecast: null, previous: "29K", revised: null }).tone).toBe("neutral");
   });
-  it.each(["CPI m/m", "PPI MoM", "Fed interest rate decision", "Average hourly earnings", "Unknown series"])("does not invent good/bad news for %s", title => {
+  it.each(["CPI m/m", "PPI MoM", "Fed interest rate decision", "Average hourly earnings", "GDP Price Index", "GDP Deflator", "Gross domestic product price index", "Unknown series"])("does not invent good/bad news for %s", title => {
     expect(meaning({ title, actual: "4%", forecast: "3%" })).toEqual({ tone: "neutral", label: "Context dependent" });
   });
   it("never colors future or unpublished data as an outcome", () => {
