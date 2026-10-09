@@ -7,6 +7,9 @@ export type MarketPair = {
   changePercent: number | null;
   source: string;
   reference?: string;
+  quotedAt?: string;
+  validUntil?: string;
+  quoteStatus?: "live" | "closed" | "stale" | "unavailable";
 };
 
 export type MarketSnapshot = {

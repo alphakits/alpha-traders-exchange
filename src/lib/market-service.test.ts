@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarketSnapshot } from "@/types/market";
 
 function healthyResponse(url: string) {
-  const payload = url.includes("open.er-api") || url.includes("frankfurter")
-    ? { rates: { ILS: 3.25 } }
+  const payload = url.includes("fx.example")
+    ? { base: "USD", quote: "ILS", symbol: "FX_IDC:USDILS", price: 3.25, quotedAt: new Date().toISOString(), marketState: "open" }
     : url.includes("BTC")
       ? { price: "81000", data: { amount: "81000" } }
       : { price: "2700", data: { amount: "2700" } };
@@ -13,14 +13,37 @@ function healthyResponse(url: string) {
 }
 
 function isPrimaryProvider(url: string) {
-  return url.includes("open.er-api") || url.includes("binance");
+  return url.includes("fx.example") || url.includes("binance");
 }
 
 describe("market provider reliability", () => {
+  it("shares the exact display quote with listing validation and rejects a lost FX feed", async () => {
+    const fetchMock = vi.fn((input: string) => Promise.resolve(healthyResponse(input)));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getMarketSnapshot, getUsdtIlsReferenceRate } = await import("@/lib/market-service");
+    const snapshot = await getMarketSnapshot();
+    expect(await getUsdtIlsReferenceRate()).toBe(snapshot.pairs.usdtIls.price);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    fetchMock.mockImplementation((input: string) => Promise.resolve(input.includes("fx.example") ? { ok: false } as Response : healthyResponse(input)));
+    await vi.advanceTimersByTimeAsync(5_001);
+    await expect(getUsdtIlsReferenceRate()).rejects.toThrow("out of date");
+    const failed = await getMarketSnapshot();
+    expect(failed.pairs.usdtIls).toMatchObject({ price: 3.25, quotedAt: snapshot.pairs.usdtIls.quotedAt, quoteStatus: "stale" });
+  });
+
+  it("does not block a valid FX quote just because crypto is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: string) => Promise.resolve(input.includes("fx.example") ? healthyResponse(input) : { ok: false } as Response)));
+    const { getMarketSnapshot, getUsdtIlsReferenceRate } = await import("@/lib/market-service");
+    expect((await getMarketSnapshot()).stale).toBe(true);
+    expect(await getUsdtIlsReferenceRate()).toBe(3.25);
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();
     vi.stubEnv("ALPHA_EXCHANGE_USD_ILS_RATE", "");
+    vi.stubEnv("ALPHA_FX_REFERENCE_URL", "https://fx.example/quote");
+    vi.stubEnv("ALPHA_FX_REFERENCE_SYMBOL", "FX_IDC:USDILS");
     vi.stubEnv("ALPHA_MARKET_BTC_USDT_RATE", "");
     vi.stubEnv("ALPHA_MARKET_ETH_USDT_RATE", "");
     vi.stubEnv("ALPHA_MARKET_CACHE_TTL_MS", "");
@@ -33,7 +56,7 @@ describe("market provider reliability", () => {
     vi.unstubAllGlobals();
   });
 
-  it("releases concurrent callers through backup providers when initial connections stall", async () => {
+  it("bounds concurrent callers when FX stalls and uses crypto backup providers", async () => {
     const primarySignals: AbortSignal[] = [];
     const fetchMock = vi.fn((input: string, init?: RequestInit) => {
       if (isPrimaryProvider(input)) {
@@ -51,11 +74,11 @@ describe("market provider reliability", () => {
 
     expect(results).toHaveLength(2);
     expect(results[0]).toBe(results[1]);
-    expect(results[0]).toMatchObject({ status: "live", stale: false });
-    expect(results[0].pairs.usdtIls.price).toBe(3.25);
+    expect(results[0]).toMatchObject({ status: "degraded", stale: true, unavailablePairs: ["usdtIls"] });
+    expect(results[0].pairs.usdtIls.price).toBe(0);
     expect(primarySignals).toHaveLength(3);
     expect(primarySignals.every((signal) => signal.aborted)).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -73,7 +96,7 @@ describe("market provider reliability", () => {
     void getMarketSnapshot().then((snapshot) => { result = snapshot; });
     await vi.advanceTimersByTimeAsync(3_000);
 
-    expect(result).toMatchObject({ status: "live", stale: false });
+    expect(result).toMatchObject({ status: "degraded", stale: true, unavailablePairs: ["usdtIls"] });
     expect(primarySignals).toHaveLength(3);
     expect(primarySignals.every((signal) => signal.aborted)).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
@@ -88,7 +111,7 @@ describe("market provider reliability", () => {
     await vi.advanceTimersByTimeAsync(6_000);
 
     expect(result).toMatchObject({ status: "degraded", stale: true });
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(vi.getTimerCount()).toBe(0);
 
     const recoveredFetch = vi.fn((input: string) => Promise.resolve(healthyResponse(input)));
@@ -100,7 +123,7 @@ describe("market provider reliability", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("falls back immediately on HTTP failures and reuses healthy cached results", async () => {
+  it("marks unavailable FX on HTTP failure and briefly caches failures without substituting another source", async () => {
     const fetchMock = vi.fn((input: string) => Promise.resolve(isPrimaryProvider(input)
       ? { ok: false, status: 503 } as Response
       : healthyResponse(input)));
@@ -108,10 +131,10 @@ describe("market provider reliability", () => {
     const { getMarketSnapshot } = await import("@/lib/market-service");
     const result = await getMarketSnapshot();
 
-    expect(result).toMatchObject({ status: "live", stale: false });
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(result).toMatchObject({ status: "degraded", stale: true, unavailablePairs: ["usdtIls"] });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(await getMarketSnapshot()).toBe(result);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceListingById, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireMarketplaceVerificationForTrading } from "@/lib/api-auth";
@@ -59,7 +60,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (action === "renew") {
       // Validate the existing listing's price against market rate before renewing.
       // A listing that was valid when created may violate the cap if market rate dropped.
-      const marketRateForRenew = await fetchUsdIlsMarketRate();
+      const marketRateForRenew = (existingListing?.currency ?? "ILS").trim().toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
       if (existingListing) {
         const renewPriceError = getListingPriceValidationError({
           price: existingListing.price,
@@ -131,7 +132,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const effectiveCurrency = (currency ?? existingListing?.currency ?? "ILS").trim().toUpperCase();
     const shouldValidateStoredPrice = status === "active" || currency !== undefined;
     const effectivePrice = price ?? (shouldValidateStoredPrice ? existingListing?.price : undefined) ?? "";
-    const marketRate = effectivePrice ? await fetchUsdIlsMarketRate() : undefined;
+    const marketRate = effectivePrice && effectiveCurrency === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
     const priceValidationError = getListingPriceValidationError({ price: effectivePrice, currency: effectiveCurrency, marketRate });
     if (priceValidationError) {
       return NextResponse.json({ error: priceValidationError }, { status: 400 });
@@ -238,6 +239,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update listing." }, { status: 400 });
   }
 }
@@ -285,6 +287,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete listing." }, { status: 400 });
   }
 }

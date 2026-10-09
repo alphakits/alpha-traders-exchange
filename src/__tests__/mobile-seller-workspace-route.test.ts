@@ -1,9 +1,11 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
+  getUsdtIlsReferenceRate: vi.fn(),
   canPublishListings: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   getMarketplaceListingById: vi.fn(),
@@ -22,6 +24,7 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
   updateMarketplaceListingForSeller: mocks.updateMarketplaceListingForSeller,
   updateSellerAvailabilityStatus: mocks.updateSellerAvailabilityStatus,
 }));
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: mocks.getUsdtIlsReferenceRate }));
 vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMobileApiUser }));
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
@@ -86,6 +89,7 @@ function listing(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getUsdtIlsReferenceRate.mockReset().mockResolvedValue(3.05437);
   mocks.requireMobileApiUser.mockResolvedValue({
     user: {
       id: "seller-1",
@@ -114,6 +118,33 @@ beforeEach(() => {
 });
 
 describe("mobile seller workspace routes", () => {
+  it("refuses resumption without a quote but still permits pausing", async () => {
+    mocks.getUsdtIlsReferenceRate.mockRejectedValue(new FxReferenceUnavailableError());
+    mocks.getMarketplaceListingById.mockResolvedValue(listing({ status: "paused" }));
+    const response = await PATCH_LISTING(patchRequest("/api/mobile/v1/seller/listings/listing-own", { action: "resume" }), { params: Promise.resolve({ listingId: "listing-own" }) });
+    expect(response.status).toBe(503);
+    expect(mocks.updateMarketplaceListingForSeller).not.toHaveBeenCalled();
+    mocks.getMarketplaceListingById.mockResolvedValue(listing());
+    mocks.updateMarketplaceListingForSeller.mockResolvedValue(listing({ status: "paused" }));
+    const paused = await PATCH_LISTING(patchRequest("/api/mobile/v1/seller/listings/listing-own", { action: "pause" }), { params: Promise.resolve({ listingId: "listing-own" }) });
+    expect(paused.status).toBe(200);
+    expect(mocks.getUsdtIlsReferenceRate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects resuming an over-cap listing at the current USD/ILS quote", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue(listing({ status: "paused", price: "3.41" }));
+    const response = await PATCH_LISTING(patchRequest("/api/mobile/v1/seller/listings/listing-own", { action: "resume" }), { params: Promise.resolve({ listingId: "listing-own" }) });
+    expect(response.status).toBe(400);
+    expect(mocks.updateMarketplaceListingForSeller).not.toHaveBeenCalled();
+  });
+  it("allows resuming at the displayed cent ceiling", async () => {
+    mocks.getMarketplaceListingById.mockResolvedValue(listing({ status: "paused", price: "3.40" }));
+    mocks.updateMarketplaceListingForSeller.mockResolvedValue(listing({ price: "3.40" }));
+    const response = await PATCH_LISTING(patchRequest("/api/mobile/v1/seller/listings/listing-own", { action: "resume" }), { params: Promise.resolve({ listingId: "listing-own" }) });
+    expect(response.status).toBe(200);
+    expect(mocks.getUsdtIlsReferenceRate).toHaveBeenCalledTimes(1);
+  });
+
   it("returns editable limits based on remaining inventory after a legacy partial sale", async () => {
     mocks.getMyMarketplaceListings.mockResolvedValue([
       listing({ availableAmount: "2011.285267", maximumTrade: "7,000" }),

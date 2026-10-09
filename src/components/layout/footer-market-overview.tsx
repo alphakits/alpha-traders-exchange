@@ -1,5 +1,6 @@
 "use client";
 
+import { isFxReferenceUsable } from "@/lib/fx-reference-policy";
 import { currencyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { useMarketFeed } from "@/components/market/use-market-feed";
@@ -12,9 +13,9 @@ const PAIR_ORDER: Array<{ key: MarketPairKey; label: string }> = [
 ];
 
 function formatPrice(key: MarketPairKey, price: number | null) {
-  if (price === null) return "--";
+  if (price === null || price <= 0) return "--";
   if (key === "usdtIls") {
-    return `₪${price.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `₪${price.toFixed(5)}`;
   }
   return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -39,8 +40,8 @@ function formatIsraelTime(value: string | null | undefined, isAr: boolean) {
 
 export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
   const isAr = locale === "ar";
-  const { snapshot, isLoading, error } = useMarketFeed({ refreshMs: 45_000 });
-  const isLive = Boolean(snapshot?.status === "live" && !snapshot.stale && !error);
+  const { snapshot, isLoading, error } = useMarketFeed();
+  const isLive = Boolean(snapshot?.status === "live" && isFxReferenceUsable(snapshot) && !snapshot.stale && !error);
 
   const pairs = PAIR_ORDER.map(({ key, label }) => {
     const pair: MarketPair | null = snapshot?.pairs[key] ?? null;
@@ -104,7 +105,7 @@ export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
       <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-[#9CA3AF] sm:text-[11px]">
         <span>
           {isAr ? "آخر تحديث" : "Last update"}: {" "}
-          <bdi dir="ltr">{currencyText(formatIsraelTime(snapshot?.updatedAt, isAr))}</bdi>
+          <bdi dir="ltr">{currencyText(formatIsraelTime(snapshot?.pairs.usdtIls.quotedAt, isAr))}</bdi>
         </span>
         <span>
           {isAr ? "الحالة" : "Status"}: {" "}

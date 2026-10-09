@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest } from "next/server";
 import {
   canPublishListings,
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     if (!listing || listing.sellerId !== auth.user.id) return mobileError("NOT_FOUND", requestId, locale, 404);
     return mobileJson({ listing: toMobileSellerListingDetail(listing) }, requestId);
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     logEvent("error", {
       event: "mobile_seller_listing_detail",
       outcome: "failed",
@@ -150,7 +152,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (requiresIsraeliBankSelection(paymentMethods) && (!banks.length || banks.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS)) {
         return mobileError("INVALID_REQUEST", requestId, locale, 400);
       }
-      const marketRate = await fetchUsdIlsMarketRate();
+      const marketRate = currency === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
       if (getListingPriceValidationError({ price, currency, marketRate })) {
         return mobileError("INVALID_REQUEST", requestId, locale, 400);
       }
@@ -186,6 +188,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     ) {
       return mobileError("LISTING_ACTION_NOT_ALLOWED", requestId, locale, 409);
     }
+    if (action === "resume") {
+      const marketRate = (existing.currency ?? "ILS").toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
+      if (getListingPriceValidationError({ price: existing.price, currency: existing.currency, marketRate })) {
+        return mobileError("INVALID_REQUEST", requestId, locale, 400);
+      }
+    }
     const listing = await updateMarketplaceListingForSeller({
       listingId,
       sellerId: auth.user.id,
@@ -194,6 +202,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     });
     return mobileJson({ listing: toMobileSellerListing(listing) }, requestId);
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     const mapped = sellerListingMutationError(error);
     logEvent("error", {
       event: "mobile_seller_listing_status",
@@ -239,6 +248,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     });
     return mobileJson({ deleted: true as const }, requestId);
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     const mapped = sellerListingMutationError(error);
     logEvent("error", {
       event: "mobile_seller_listing_delete",

@@ -26,7 +26,7 @@ import {
   priceForUsdInput,
   usdAmountToCurrency,
 } from "../../src/finance/financial-display";
-import { useUsdDisplayRate } from "../../src/finance/use-usd-display-rate";
+import { useUsdDisplayReference } from "../../src/finance/use-usd-display-rate";
 
 const NETWORKS: MobileSupportedNetwork[] = ["TRC20", "ERC20", "BEP20", "SOL"];
 const PAYMENT_METHODS = [
@@ -73,7 +73,7 @@ export default function NewSellerListingScreen() {
   const queryClient = useQueryClient();
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
-  const usdIlsRate = useUsdDisplayRate();
+  const { rate: usdIlsRate, available: marketReferenceAvailable } = useUsdDisplayReference();
   const isAr = locale === "ar";
   const canSell = canUseSellerTools(user);
   const [availableAmount, setAvailableAmount] = useState("");
@@ -108,7 +108,7 @@ export default function NewSellerListingScreen() {
 
   useEffect(() => {
     const listing = listingQuery.data?.listing;
-    if (!listing || initializedListingRef.current === listing.id) return;
+    if (!marketReferenceAvailable || !listing || initializedListingRef.current === listing.id) return;
     initializedListingRef.current = listing.id;
     setAvailableAmount(formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 }));
     setPrice(priceForUsdInput(listing.price, listing.currency, usdIlsRate));
@@ -121,7 +121,7 @@ export default function NewSellerListingScreen() {
     setSellerDescription(listing.sellerDescription);
     setResponseTime(listing.responseTime);
     setAcceptedCommission(true);
-  }, [listingQuery.data?.listing, usdIlsRate]);
+  }, [listingQuery.data?.listing, usdIlsRate, marketReferenceAvailable]);
   const requiresBankSelection = paymentMethods.includes("Bank Transfer")
     || paymentMethods.includes("Cardless ATM Withdrawal");
   const requiresPayoutAccount = paymentMethods.includes("Bank Transfer");
@@ -199,6 +199,7 @@ export default function NewSellerListingScreen() {
   }
 
   function validateAndSubmit() {
+    if (!marketReferenceAvailable) { setError(isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote"); return; }
     const amount = financialNumber(availableAmount);
     const listingPrice = financialNumber(price);
     const minimum = financialNumber(minimumTrade);
@@ -371,7 +372,8 @@ export default function NewSellerListingScreen() {
           </Pressable>
         )}
         {error ? <Text accessibilityRole="alert" style={[styles.error, isRTL && styles.rtlText]}>{error}</Text> : null}
-        <GoldButton disabled={isEditing && !listingQuery.data} loading={mutation.isPending} onPress={validateAndSubmit}>
+        <Text style={[styles.reference, isRTL && styles.rtlText]}>{marketReferenceAvailable ? `USD / ILS: ₪${usdIlsRate.toFixed(5)}` : (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote")}</Text>
+        <GoldButton disabled={!marketReferenceAvailable || (isEditing && !listingQuery.data)} loading={mutation.isPending} onPress={validateAndSubmit}>
           {isEditing ? (isAr ? "حفظ التعديلات" : "Save changes") : (isAr ? "إرسال العرض للمراجعة" : "Submit listing for review")}
         </GoldButton>
         {isEditing ? (
@@ -415,6 +417,7 @@ const styles = StyleSheet.create({
   check: { color: colors.background, fontWeight: "900" },
   commissionCopy: { flex: 1, gap: spacing.xs },
   commissionTitle: { color: colors.commissionNotice, fontSize: typography.small, fontWeight: "900" },
+  reference: { color: colors.textMuted, fontSize: typography.small, lineHeight: 20 },
   error: { color: colors.danger, fontSize: typography.small, fontWeight: "700", lineHeight: 20 },
   pressed: { opacity: 0.72 },
   rowReverse: { flexDirection: "row-reverse" },

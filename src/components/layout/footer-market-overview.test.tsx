@@ -20,7 +20,7 @@ const snapshot: MarketSnapshot = {
   pairs: {
     btcUsdt: { key: "btcUsdt", label: "BTC / USDT", price: 101234.56, changePercent: 2.35, source: "test" },
     ethUsdt: { key: "ethUsdt", label: "ETH / USDT", price: 3456.78, changePercent: -1.2, source: "test" },
-    usdtIls: { key: "usdtIls", label: "USDT / ILS", price: 3.64, changePercent: 0, source: "test" },
+    usdtIls: { key: "usdtIls", label: "USDT / ILS", price: 3.64, changePercent: 0, source: "test", quoteStatus: "live", quotedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString() },
   },
 };
 
@@ -39,10 +39,10 @@ describe("FooterMarketOverview", () => {
   it("renders the current feed values instead of hardcoded footer prices", () => {
     render(<FooterMarketOverview locale="en" />);
 
-    expect(useMarketFeedMock).toHaveBeenCalledWith({ refreshMs: 45_000 });
+    expect(useMarketFeedMock).toHaveBeenCalledWith();
     expect(screen.getByText("$101,234.56")).toBeTruthy();
     expect(screen.getByText("$3,456.78")).toBeTruthy();
-    expect(screen.getByText("₪3.64")).toBeTruthy();
+    expect(screen.getByText("₪3.64000")).toBeTruthy();
     expect(screen.getByText("+2.35%")).toBeTruthy();
     expect(screen.getByText("-1.20%")).toBeTruthy();
     expect(screen.getByText("0.00%")).toBeTruthy();
@@ -55,7 +55,7 @@ describe("FooterMarketOverview", () => {
     const pairLabel = screen.getByText((_, element) => element?.tagName === "BDI" && element.textContent === "USDT / ILS");
     const row = pairLabel.closest("div");
     expect(pairLabel.closest("bdi")?.getAttribute("dir")).toBe("ltr");
-    expect(screen.getByText("₪3.64").closest("bdi")?.getAttribute("dir")).toBe("ltr");
+    expect(screen.getByText("₪3.64000").closest("bdi")?.getAttribute("dir")).toBe("ltr");
     expect(row?.className).toContain("flex-wrap");
     expect(row?.className).not.toContain("truncate");
     expect(screen.getAllByText("مباشر").length).toBeGreaterThan(0);

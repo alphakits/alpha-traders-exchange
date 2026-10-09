@@ -234,6 +234,9 @@ export type MobileContactInput = {
 export type PublicMarketPairKey = "ethUsdt" | "btcUsdt" | "usdtIls";
 
 export type PublicMarketPair = {
+  quotedAt?: string;
+  validUntil?: string;
+  quoteStatus?: "live" | "closed" | "stale" | "unavailable";
   key: PublicMarketPairKey;
   label: string;
   price: number;

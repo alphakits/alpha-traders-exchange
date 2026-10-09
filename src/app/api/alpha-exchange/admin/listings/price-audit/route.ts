@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError, maximumIlsListingPrice } from "@/lib/fx-reference-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { getMarketplaceListings, adminOverrideMarketplaceListing } from "@/lib/alpha-exchange-store";
 import { requireApiAdmin } from "@/lib/api-auth";
@@ -12,11 +13,20 @@ import { fetchUsdIlsMarketRate, getListingPriceValidationError, MAX_ILS_PRICE_OV
  * Force-closes all over-priced listings with an audit log entry.
  */
 
+async function freshReference() {
+  try { return await fetchUsdIlsMarketRate(); }
+  catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message }, { status: 503 });
+    throw error;
+  }
+}
+
 export async function GET() {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
 
-  const marketRate = await fetchUsdIlsMarketRate();
+  const marketRate = await freshReference();
+  if (typeof marketRate !== "number") return marketRate;
   const listings = await getMarketplaceListings();
   const violations = listings
     .filter((l) => l.status === "active" || l.status === "paused")
@@ -29,8 +39,8 @@ export async function GET() {
       price: l.price,
       currency: l.currency,
       status: l.status,
-      maxAllowed: (marketRate + MAX_ILS_PRICE_OVER_MARKET).toFixed(2),
-      marketRate: marketRate.toFixed(4),
+      maxAllowed: maximumIlsListingPrice(marketRate).toFixed(2),
+      marketRate: marketRate.toFixed(5),
     }));
 
   return NextResponse.json({ marketRate, violations, count: violations.length });
@@ -45,7 +55,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "action must be 'close_all'" }, { status: 400 });
   }
 
-  const marketRate = await fetchUsdIlsMarketRate();
+  const marketRate = await freshReference();
+  if (typeof marketRate !== "number") return marketRate;
   const listings = await getMarketplaceListings();
   const violations = listings.filter(
     (l) =>
@@ -60,7 +71,7 @@ export async function POST(request: NextRequest) {
         listingId: listing.id,
         adminUserId: user.id,
         action: "force_close",
-        reason: `Price ₪${listing.price} exceeds market cap ₪${(marketRate + MAX_ILS_PRICE_OVER_MARKET).toFixed(2)} (market ₪${marketRate.toFixed(4)} + ₪${MAX_ILS_PRICE_OVER_MARKET.toFixed(2)}).`,
+        reason: `Price ₪${listing.price} exceeds market cap ₪${maximumIlsListingPrice(marketRate).toFixed(2)} (market ₪${marketRate.toFixed(5)} + ₪${MAX_ILS_PRICE_OVER_MARKET.toFixed(2)}).`,
       });
       results.push({ id: listing.id, outcome: "force_closed" });
     } catch (err) {

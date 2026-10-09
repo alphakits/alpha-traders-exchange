@@ -1,7 +1,7 @@
 import type { MarketSnapshot } from "@/types/market";
 import { runClientRequest } from "@/lib/client-request-deadline";
 
-export const DEFAULT_MARKET_REFRESH_MS = 45_000;
+export const DEFAULT_MARKET_REFRESH_MS = 5_000;
 export const MARKET_FEED_TIMEOUT_MS = 15_000;
 
 type MarketFeedState = {
@@ -58,7 +58,7 @@ export function createMarketFeedStore() {
       // A lifecycle cancellation must not replace a newer response or flash an
       // error on resume. A real timeout retains prices with an unavailable flag.
       if (pending === request) notify({
-        snapshot: state.snapshot ? { ...state.snapshot, status: "degraded", stale: true } : null,
+        snapshot: state.snapshot ? { ...state.snapshot, status: "degraded", stale: true, unavailablePairs: ["btcUsdt", "ethUsdt", "usdtIls"] } : null,
         isLoading: false,
         error: "Market feed unavailable",
       });
@@ -82,7 +82,7 @@ export function createMarketFeedStore() {
       // but only a successful fresh response may restore the live status.
       if (state.snapshot) notify({
         ...state,
-        snapshot: { ...state.snapshot, status: "degraded", stale: true },
+        snapshot: { ...state.snapshot, status: "degraded", stale: true, unavailablePairs: ["btcUsdt", "ethUsdt", "usdtIls"] },
       });
     }
   };

@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest } from "next/server";
 import {
   canPublishListings,
@@ -98,6 +99,7 @@ export async function GET(request: NextRequest) {
       },
     }, requestId);
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     logEvent("error", {
       event: "mobile_seller_listings_list",
       outcome: "failed",
@@ -170,7 +172,7 @@ export async function POST(request: NextRequest) {
         return mobileError("INVALID_REQUEST", requestId, locale, 400);
       }
     }
-    const marketRate = await fetchUsdIlsMarketRate();
+    const marketRate = currency === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
     if (getListingPriceValidationError({ price, currency, marketRate })) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -196,6 +198,7 @@ export async function POST(request: NextRequest) {
     });
     return mobileJson({ listing: toMobileSellerListing(listing) }, requestId, { status: 201 });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     logEvent("error", {
       event: "mobile_seller_listing_create",
       outcome: "failed",

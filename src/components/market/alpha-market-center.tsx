@@ -1,5 +1,6 @@
 "use client";
 
+import { isFxReferenceUsable } from "@/lib/fx-reference-policy";
 import { currencyText } from "@/components/ui/currency-text";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
@@ -23,7 +24,7 @@ type Locale = "ar" | "en";
 
 function formatPrice(value: number, key: "ethUsdt" | "btcUsdt" | "usdtIls") {
   if (key === "btcUsdt" || key === "ethUsdt") return `$${value.toLocaleString("en-US", { maximumFractionDigits: key === "ethUsdt" ? 2 : 0 })}`;
-  return `₪${value.toFixed(2)}`;
+  return value > 0 ? `₪${value.toFixed(5)}` : "—";
 }
 
 function formatChange(changePercent: number | null) {
@@ -34,7 +35,7 @@ function formatChange(changePercent: number | null) {
 
 function ageLabel(updatedAt: string, now: number, isAr: boolean) {
   const updatedMs = new Date(updatedAt).getTime();
-  if (!updatedMs) return isAr ? "تم التحديث الآن" : "Updated just now";
+  if (!updatedMs) return isAr ? "بانتظار سعر محدّث" : "Waiting for a fresh quote";
   const seconds = Math.max(0, Math.floor((now - updatedMs) / 1000));
   return isAr ? `تم التحديث قبل ${seconds} ثانية` : `Updated ${seconds} sec ago`;
 }
@@ -49,7 +50,7 @@ function marketSourceLabel(value: string, isAr: boolean) {
 }
 
 export function AlphaMarketCenter({ locale, showCta = false }: { locale: Locale; showCta?: boolean }) {
-  const { snapshot, isLoading, error } = useMarketFeed({ refreshMs: 45_000 });
+  const { snapshot, isLoading, error } = useMarketFeed();
 
   return (
     <AlphaMarketCenterView
@@ -99,8 +100,9 @@ export function AlphaMarketCenterView({
   }
 
   if (!snapshot) return null;
-  const isLive = snapshot.status === "live" && !snapshot.stale && !error;
-  const statusLabel = isLive ? (isAr ? "مباشر" : "LIVE") : (isAr ? "تحديث متأخر" : "Delayed update");
+  const isLive = snapshot.pairs.usdtIls.quoteStatus === "live" && isFxReferenceUsable(snapshot, now) && !snapshot.stale && !error;
+  const isClosed = snapshot.pairs.usdtIls.quoteStatus === "closed" && isFxReferenceUsable(snapshot, now) && !snapshot.stale && !error;
+  const statusLabel = isClosed ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : isLive ? (isAr ? "مباشر" : "LIVE") : (isAr ? "تحديث متأخر" : "Delayed update");
   const statusClass = isLive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200";
   const heroPair = snapshot.pairs.usdtIls;
   const supportingPairs = [snapshot.pairs.btcUsdt, snapshot.pairs.ethUsdt];
@@ -120,7 +122,7 @@ export function AlphaMarketCenterView({
             {statusLabel}
           </div>
         </div>
-        <p className="text-xs text-[#9CA3AF]"><bdi dir="auto">{currencyText(ageLabel(snapshot.updatedAt, now, isAr))}</bdi></p>
+        <p className="text-xs text-[#9CA3AF]"><bdi dir="auto">{currencyText(ageLabel(snapshot.pairs.usdtIls.quotedAt ?? "", now, isAr))}</bdi></p>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
@@ -137,7 +139,7 @@ export function AlphaMarketCenterView({
             </div>
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText("USDT / ILS")}</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{currencyText("USD / ILS")}</p>
                 <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{currencyText(formatPrice(heroPair.price, heroPair.key))}</bdi></p>
                 <div className={`mt-3 inline-flex items-center gap-1.5 text-sm ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                   <ArrowUpRight className={`h-4 w-4 ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "" : "rotate-90"}`} />

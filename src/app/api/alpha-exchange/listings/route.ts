@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requireMarketplaceVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
     if (!rawPrice || !price) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
-    const marketRate = await fetchUsdIlsMarketRate();
+    const marketRate = currency.trim().toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
     logProfile("fetchUsdIlsMarketRate");
     const priceValidationError = getListingPriceValidationError({ price, currency, marketRate });
     if (priceValidationError) {
@@ -175,6 +176,7 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create listing." }, { status: 400 });
   }
 }
