@@ -43,6 +43,14 @@ jobs:
       - name: Run the release safety gate
         run: npm run verify:release
 
+      - name: Verify the continuous public monitor contracts
+        run: python3 -m unittest discover -s scripts -p test_production_health.py -v
+
+      - name: Verify the packaged continuous monitor worker
+        run: |
+          docker build -f Dockerfile.discord-worker -t alpha-discord-worker:ci .
+          docker run --rm --entrypoint sh alpha-discord-worker:ci -c 'python3 --version && curl --version && test -r scripts/production_health.py'
+
   critical-browser-flows:
     name: Mobile and desktop critical flows
     needs: quality-gate

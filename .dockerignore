@@ -12,5 +12,7 @@
 !packages/contracts/
 !packages/contracts/src/
 !packages/contracts/src/**
+!scripts/
+!scripts/production_health.py
 **/*.test.ts
 **/*.test.tsx

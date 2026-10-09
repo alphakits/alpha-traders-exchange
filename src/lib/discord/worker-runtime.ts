@@ -16,6 +16,7 @@ import type { DiscordService } from "@/lib/discord/service";
 import { logEvent } from "@/lib/structured-logging";
 import { createDiscordWorkerHealthServer } from "@/lib/discord/worker-health-server";
 import type { DiscordWorkerRuntimeConfig } from "@/lib/discord/worker-config";
+import type { ProductionHealthWorker } from "@/lib/production-health-worker";
 
 type WorkerService = Pick<
   DiscordService,
@@ -63,6 +64,7 @@ type WorkerRuntimeDependencies = {
     start(): Promise<void>;
     shutdown(): Promise<void>;
   };
+  productionHealth?: Pick<ProductionHealthWorker, "start" | "shutdown" | "getSnapshot">;
   createHealthServer?: typeof createDiscordWorkerHealthServer;
 };
 
@@ -118,6 +120,7 @@ export class DiscordWorkerRuntime {
   private readonly operatorReconciliation:
     WorkerRuntimeDependencies["operatorReconciliation"];
   private healthServer: Server | null = null;
+  private readonly productionHealth: WorkerRuntimeDependencies["productionHealth"];
   private startPromise: Promise<DiscordDiagnostics> | null = null;
   private shutdownPromise: Promise<void> | null = null;
 
@@ -132,6 +135,7 @@ export class DiscordWorkerRuntime {
     commands,
     onboardingContent,
     operatorReconciliation,
+    productionHealth,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
     this.config = config;
@@ -145,6 +149,7 @@ export class DiscordWorkerRuntime {
     this.commands = commands;
     this.onboardingContent = onboardingContent;
     this.operatorReconciliation = operatorReconciliation;
+    this.productionHealth = productionHealth;
   }
 
   start(): Promise<DiscordDiagnostics> {
@@ -180,11 +185,17 @@ export class DiscordWorkerRuntime {
       commands: this.commands,
       onboardingContent: this.onboardingContent,
       healthSecret: this.config.healthSecret,
+      productionHealth: this.productionHealth,
     });
 
     try {
       await listen(this.healthServer, this.config.port);
       recordPhase("health_server_listening");
+      try {
+        await this.productionHealth?.start();
+      } catch {
+        logEvent("warn", { event: "production_health_start_failed", outcome: "failed" });
+      }
       const diagnostics = await this.service.start();
       if (diagnostics.status !== "healthy") {
         throw new Error("Discord worker startup completed without healthy diagnostics.");
@@ -249,6 +260,11 @@ export class DiscordWorkerRuntime {
 
   private async performShutdown(): Promise<void> {
     const failures: unknown[] = [];
+    try {
+      await this.productionHealth?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
     try {
       await this.operatorReconciliation?.shutdown();
     } catch (error) {
