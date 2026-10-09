@@ -22,7 +22,7 @@ const snapshot: MarketSnapshot = {
   pairs: {
     ethUsdt: { key: "ethUsdt", label: "ETH/USDT", price: 3200, changePercent: 1, source: "test" },
     btcUsdt: { key: "btcUsdt", label: "BTC/USDT", price: 100000, changePercent: 2, source: "test" },
-    usdtIls: { key: "usdtIls", label: "USDT/ILS", price: 3.6, changePercent: 0, source: "test" },
+    usdtIls: { key: "usdtIls", label: "USDT/ILS", price: 3.6, changePercent: 0, source: "WISE:USDILS", quoteStatus: "live", quotedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString() },
   },
 };
 

@@ -11,6 +11,7 @@ import { verifyBinanceInternalCommissionDeposit } from "@/lib/commission-deposit
 import { listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, encryptCardlessCredential, decryptCardlessCredential } from "@/lib/cardless-credential-crypto";
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
+import { assertListingPriceAtCurrentReference } from "@/lib/listing-price-validation";
 import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
 import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
@@ -9199,6 +9200,7 @@ export async function createMarketplaceListing(input: {
   const now = nowIso();
   const canonicalPrice = normalizeListingPrice(input.price);
   if (!canonicalPrice) throw new Error("Price must be a valid amount with no more than six decimal places.");
+  await assertListingPriceAtCurrentReference({ price: canonicalPrice, currency: input.currency });
   const canonicalAvailableAmount = canonicalizeTradeAmount(input.availableAmount);
   const canonicalMinimumTrade = canonicalizeNonNegativeTradeAmount(input.minimumTrade?.trim() || "0");
   const canonicalMaximumTrade = canonicalizeTradeAmount(input.maximumTrade?.trim() || input.availableAmount);
@@ -9445,6 +9447,13 @@ export async function updateMarketplaceListingForSeller(input: {
     && getSellerPendingCommissionCount(db, input.sellerId) > 0) {
     throw new Error(listingCommissionRequiredMessage());
   }
+  if (input.price !== undefined || input.currency !== undefined || input.status === "active"
+    || shouldResubmitForApproval || extendsExpiry || addsInventory) {
+    await assertListingPriceAtCurrentReference({
+      price: input.price !== undefined ? normalizeListingPrice(input.price) ?? "" : current.price,
+      currency: input.currency?.trim() || current.currency,
+    });
+  }
   let next: MarketplaceListing;
   if (isStatusOnlyRetry && input.status === "paused") {
     next = { ...current, status: "paused", updatedAt };
@@ -9677,6 +9686,7 @@ export async function renewMarketplaceListing(input: {
   if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
     throw new Error("This listing can no longer be renewed.");
   }
+  await assertListingPriceAtCurrentReference(listing);
 
   // If a still-active listing already passed its expiry timestamp, emit the
   // canonical expiration transition first so audit + notifications stay intact.
@@ -9809,6 +9819,9 @@ export async function adminOverrideMarketplaceListing(input: {
   const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
   if (index === -1) throw new Error("Listing not found.");
   const listing = db.marketplaceListings[index];
+  if (input.action === "renew" || input.action === "extend") {
+    await assertListingPriceAtCurrentReference(listing);
+  }
   const now = nowIso();
   const before = {
     status: listing.status,
@@ -10017,6 +10030,7 @@ export async function reviewMarketplaceListingByOwner(input: {
   if ((input.decision === "reject" || input.decision === "request_changes") && !trimmedReason) {
     throw new Error("Reason is required.");
   }
+  if (input.decision === "approve") await assertListingPriceAtCurrentReference(current);
   const now = nowIso();
   const nextStatus: ListingStatus = input.decision === "approve" ? "active" : "draft";
   const nextApprovalStatus: ListingApprovalStatus =

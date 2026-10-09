@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -64,6 +65,15 @@ describe("listing create session boundary", () => {
       status: "draft",
       approvalStatus: "pending",
     });
+  });
+
+  it("returns 503 before creating any listing when the source is stale or unavailable", async () => {
+    mocks.requireApiUser.mockResolvedValue({ user: { id: "seller-1", fullName: "Seller", role: "approved_seller" }, unauthorized: null });
+    mocks.fetchUsdIlsMarketRate.mockRejectedValue(new FxReferenceUnavailableError());
+    const response = await POST(createRequest());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: "MARKET_REFERENCE_UNAVAILABLE" });
+    expect(mocks.createMarketplaceListing).not.toHaveBeenCalled();
   });
 
   it("keeps the create endpoint protected when no server session exists", async () => {

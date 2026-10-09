@@ -167,6 +167,7 @@ export type SellerWorkspaceSectionProps = {
   marketInsightsCard: ReactNode;
   marketPricePerUsdt: number;
   marketSnapshot: MarketSnapshot | null;
+  marketReferenceAvailable: boolean;
   maxAllowedListingPrice: number;
   myListingsById: Map<string, MarketplaceListing>;
   openCommissionPayment: (commissionId: string) => void;
@@ -338,6 +339,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     marketInsightsCard,
     marketPricePerUsdt,
     marketSnapshot,
+    marketReferenceAvailable,
     maxAllowedListingPrice,
     myListingsById,
     openCommissionPayment,
@@ -474,7 +476,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </div>
             <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-xs text-[#D1D5DB]">
               <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-              <p className="mt-1 text-base font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(formatIls(marketPricePerUsdt))}</p>
+              <p className="mt-1 text-base font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")}</p>
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
                 <p>{sellerOverviewStats.activeListings} {isAr ? "عروض نشطة" : "Active listings"}</p>
                 <p>{sellerOverviewStats.pendingRequests} {isAr ? "طلبات شراء" : "Purchase requests"}</p>
@@ -1191,7 +1193,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                   <p className={`text-sm transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                   }`}>
-                    {currencyText(listingCreatePriceInvalid
+                    {currencyText(!marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid
                       ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                       : listingCreatePriceValid
                         ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
@@ -1210,12 +1212,12 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
               <HelpDetails title={isAr ? "سعر السوق وحدود السعر" : "Market price details"} className={listingCreateGuardCardTone}>
                 <p className="text-sm font-semibold text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
-                <p className={`mt-1 text-sm ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
-                  {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "السوق غير متاح مؤقتاً — يتم استخدام آخر سعر معروف." : "Market temporarily unavailable — using last known price.")}
+                <p className={`mt-1 text-sm ${marketReferenceAvailable ? "text-emerald-300" : "text-amber-200"}`}>
+                  {marketReferenceAvailable ? (marketSnapshot?.pairs.usdtIls.quoteStatus === "closed" ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : (isAr ? "مباشر" : "LIVE")) : (isAr ? "بانتظار سعر USD/ILS محدّث. النشر متوقف مؤقتاً." : "Waiting for a fresh USD/ILS quote. Publishing is paused.")}
                 </p>
                 <div className="mt-2 grid gap-1 sm:grid-cols-2">
-                  <p>{currencyText("1 USDT")} = <span className="font-semibold text-white">{currencyText(formatIls(marketPricePerUsdt))}</span></p>
-                  <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(formatIls(maxAllowedListingPrice))}</span></p>
+                  <p>{currencyText("USD / ILS")} = <span className="font-semibold text-white">{currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")}</span></p>
+                  <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{currencyText(marketReferenceAvailable ? formatIls(maxAllowedListingPrice) : "—")}</span></p>
                   {listingCreateAmount > 0 ? <p className="sm:col-span-2">{moneyText(listingCreateForm.availableAmount)} {currencyText("USDT")} ≈ <span className="font-semibold text-white">{currencyText(formatIls(listingCreateAmount * marketPricePerUsdt))}</span></p> : null}
                 </div>
               </HelpDetails>
@@ -1448,7 +1450,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
                     <div className="min-w-0 space-y-2 text-sm">
                       <p className="font-medium">
-                        {currencyText(listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "راجع التفاصيل أدناه قبل الإرسال" : "Check the details below before submitting"))}
+                        {currencyText(!marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "راجع التفاصيل أدناه قبل الإرسال" : "Check the details below before submitting"))}
                       </p>
                       {!listingCreateSelectedMethods.length ? <p className="text-amber-200">{isAr ? "اختر طريقة دفع واحدة على الأقل." : "Choose at least one payment method."}</p> : null}
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">{currencyText(isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT.")}</p> : null}

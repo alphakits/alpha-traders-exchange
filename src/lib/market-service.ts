@@ -1,17 +1,17 @@
+import { fetchFxReference } from "@/lib/fx-reference-provider";
+import { FxReferenceUnavailableError, isFxPairUsable, isFxReferenceUsable } from "@/lib/fx-reference-policy";
 import type { MarketPairKey, MarketSnapshot } from "@/types/market";
 
 const DEFAULT_USD_ILS_RATE = 3.05;
 const DEFAULT_BTC_USDT_RATE = 118200;
 const DEFAULT_ETH_USDT_RATE = 3800;
-const MIN_USD_ILS_RATE = 2;
-const MAX_USD_ILS_RATE = 10;
 const MIN_BTC_USDT_RATE = 1000;
 const MAX_BTC_USDT_RATE = 1_000_000;
 const MIN_ETH_USDT_RATE = 100;
 const MAX_ETH_USDT_RATE = 100_000;
-const MIN_CACHE_TTL_MS = 30_000;
-const MAX_CACHE_TTL_MS = 60_000;
-const DEFAULT_CACHE_TTL_MS = 45_000;
+const MIN_CACHE_TTL_MS = 1_000;
+const MAX_CACHE_TTL_MS = 10_000;
+const DEFAULT_CACHE_TTL_MS = 5_000;
 const MARKET_PROVIDER_TIMEOUT_MS = 3_000;
 
 let cachedSnapshot: MarketSnapshot | null = null;
@@ -36,7 +36,7 @@ function getCacheTtlMs() {
   const configured = toNumber(process.env.ALPHA_MARKET_CACHE_TTL_MS);
   if (configured >= MIN_CACHE_TTL_MS && configured <= MAX_CACHE_TTL_MS) return configured;
   const configuredSeconds = toNumber(process.env.ALPHA_MARKET_CACHE_TTL_SECONDS);
-  if (configuredSeconds >= 30 && configuredSeconds <= 60) return configuredSeconds * 1000;
+  if (configuredSeconds >= 1 && configuredSeconds <= 10) return configuredSeconds * 1000;
   return DEFAULT_CACHE_TTL_MS;
 }
 
@@ -67,40 +67,6 @@ async function fetchMarketProviderJson<T>(url: string): Promise<T> {
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
   }
-}
-
-async function fetchUsdIlsRate() {
-  const configured = toNumber(process.env.ALPHA_EXCHANGE_USD_ILS_RATE);
-  if (configured > 0) {
-    return { value: configured, source: "env:ALPHA_EXCHANGE_USD_ILS_RATE", success: true as const };
-  }
-
-  const endpoints = [
-    {
-      name: "open.er-api",
-      url: "https://open.er-api.com/v6/latest/USD",
-      parse: (payload: { rates?: Record<string, unknown> }) => toNumber(payload.rates?.ILS),
-    },
-    {
-      name: "frankfurter",
-      url: "https://api.frankfurter.app/latest?from=USD&to=ILS",
-      parse: (payload: { rates?: Record<string, unknown> }) => toNumber(payload.rates?.ILS),
-    },
-  ];
-
-  for (const endpoint of endpoints) {
-    try {
-      const payload = await fetchMarketProviderJson<Record<string, unknown>>(endpoint.url);
-      const value = endpoint.parse(payload);
-      if (isInRange(value, MIN_USD_ILS_RATE, MAX_USD_ILS_RATE)) {
-        return { value, source: endpoint.name, success: true as const };
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return { value: DEFAULT_USD_ILS_RATE, source: "fallback:default", success: false as const };
 }
 
 async function fetchBtcUsdtRate() {
@@ -178,21 +144,22 @@ function calculateChangePercent(current: number, previous: number | null) {
 }
 
 async function refreshMarketSnapshot() {
-  const [usdIlsResult, btcUsdtResult, ethUsdtResult] = await Promise.all([fetchUsdIlsRate(), fetchBtcUsdtRate(), fetchEthUsdtRate()]);
+  const [usdIlsResult, btcUsdtResult, ethUsdtResult] = await Promise.all([fetchFxReference(), fetchBtcUsdtRate(), fetchEthUsdtRate()]);
+  // A quote can expire while another provider is still responding.
+  const usableFxResult = usdIlsResult && isFxPairUsable(usdIlsResult) ? usdIlsResult : null;
   const nowIso = new Date().toISOString();
   const unavailablePairs: MarketPairKey[] = [];
+  if (!usableFxResult) unavailablePairs.push("usdtIls");
   if (!btcUsdtResult.success) unavailablePairs.push("btcUsdt");
   if (!ethUsdtResult.success) unavailablePairs.push("ethUsdt");
 
-  const usdIlsPrice = usdIlsResult.value;
-  const usdtIlsPrice = usdIlsPrice;
   const btcUsdtPrice = btcUsdtResult.value;
   const ethUsdtPrice = ethUsdtResult.value;
   const previous = lastLiveSnapshot?.pairs;
   const snapshot: MarketSnapshot = {
-    status: usdIlsResult.success && unavailablePairs.length === 0 ? "live" : "degraded",
+    status: unavailablePairs.length === 0 && usableFxResult?.quoteStatus === "live" ? "live" : "degraded",
     updatedAt: nowIso,
-    stale: !usdIlsResult.success || unavailablePairs.length > 0,
+    stale: unavailablePairs.length > 0,
     unavailablePairs,
     pairs: {
       ethUsdt: {
@@ -209,14 +176,7 @@ async function refreshMarketSnapshot() {
         changePercent: calculateChangePercent(btcUsdtPrice, previous?.btcUsdt?.price ?? null),
         source: btcUsdtResult.source,
       },
-      usdtIls: {
-        key: "usdtIls",
-        label: "USDT / ILS",
-        price: usdtIlsPrice,
-        changePercent: calculateChangePercent(usdtIlsPrice, previous?.usdtIls?.price ?? null),
-        source: "derived",
-        reference: "Marketplace reference",
-      },
+      usdtIls: usableFxResult ?? unavailableFxPair(),
     },
   };
 
@@ -227,49 +187,27 @@ async function refreshMarketSnapshot() {
   return snapshot;
 }
 
-function getFallbackSnapshot() {
-  if (cachedSnapshot) {
-    return {
-      ...cachedSnapshot,
-      status: "degraded" as const,
-      stale: true,
-      unavailablePairs: cachedSnapshot.unavailablePairs.length
-        ? cachedSnapshot.unavailablePairs
-        : ["ethUsdt", "btcUsdt"] as MarketPairKey[],
-    };
-  }
-
-  const nowIso = new Date().toISOString();
+function unavailableFxPair() {
+  const previous = cachedSnapshot?.pairs.usdtIls;
   return {
-    status: "degraded" as const,
-    updatedAt: nowIso,
-    stale: true,
-    unavailablePairs: ["ethUsdt", "btcUsdt"] as MarketPairKey[],
+    key: "usdtIls" as const, label: "USD / ILS", price: previous?.price ?? 0,
+    changePercent: null, source: previous?.source ?? "unavailable",
+    reference: "USD/ILS benchmark for USDT listings",
+    quotedAt: previous?.quotedAt, validUntil: previous?.validUntil,
+    quoteStatus: previous?.price ? "stale" as const : "unavailable" as const,
+  };
+}
+
+function getFallbackSnapshot(): MarketSnapshot {
+  return {
+    status: "degraded", updatedAt: cachedSnapshot?.updatedAt ?? new Date().toISOString(),
+    stale: true, unavailablePairs: ["ethUsdt", "btcUsdt", "usdtIls"],
     pairs: {
-      ethUsdt: {
-        key: "ethUsdt",
-        label: "ETH / USDT",
-        price: DEFAULT_ETH_USDT_RATE,
-        changePercent: null,
-        source: "fallback:default",
-      },
-      btcUsdt: {
-        key: "btcUsdt",
-        label: "BTC / USDT",
-        price: DEFAULT_BTC_USDT_RATE,
-        changePercent: null,
-        source: "fallback:default",
-      },
-      usdtIls: {
-        key: "usdtIls",
-        label: "USDT / ILS",
-        price: DEFAULT_USD_ILS_RATE,
-        changePercent: null,
-        source: "derived",
-        reference: "Marketplace reference",
-      },
+      ethUsdt: cachedSnapshot?.pairs.ethUsdt ?? { key: "ethUsdt", label: "ETH / USDT", price: DEFAULT_ETH_USDT_RATE, changePercent: null, source: "fallback:default" },
+      btcUsdt: cachedSnapshot?.pairs.btcUsdt ?? { key: "btcUsdt", label: "BTC / USDT", price: DEFAULT_BTC_USDT_RATE, changePercent: null, source: "fallback:default" },
+      usdtIls: unavailableFxPair(),
     },
-  } satisfies MarketSnapshot;
+  };
 }
 
 export async function getMarketSnapshot(options?: { forceRefresh?: boolean }): Promise<MarketSnapshot> {
@@ -278,7 +216,7 @@ export async function getMarketSnapshot(options?: { forceRefresh?: boolean }): P
   const ttlMs = getCacheTtlMs();
 
   if (shouldUseCache && cachedSnapshot && now - cachedAt < ttlMs) {
-    return cachedSnapshot;
+    if (isFxReferenceUsable(cachedSnapshot) || cachedSnapshot.unavailablePairs.includes("usdtIls")) return cachedSnapshot;
   }
 
   if (inFlight) return inFlight;
@@ -304,6 +242,7 @@ export async function getMarketSnapshot(options?: { forceRefresh?: boolean }): P
 
 export async function getUsdtIlsReferenceRate() {
   const snapshot = await getMarketSnapshot();
+  if (!isFxReferenceUsable(snapshot)) throw new FxReferenceUnavailableError();
   return snapshot.pairs.usdtIls.price;
 }
 

@@ -1,34 +1,29 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_USD_ILS_MARKET_RATE, fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { describe, expect, it } from "vitest";
+import { getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { maximumIlsListingPrice } from "@/lib/fx-reference-policy";
 
 describe("listing price validation", () => {
-  afterEach(() => {
-    delete process.env.ALPHA_EXCHANGE_USD_ILS_RATE;
-    delete process.env.ALPHA_MARKET_BTC_USDT_RATE;
-    delete process.env.ALPHA_MARKET_ETH_USDT_RATE;
+  it("allows the exact cap and rejects the next cent", () => {
+    expect(getListingPriceValidationError({ price: "3.35", currency: "ILS", marketRate: 3 })).toBeNull();
+    expect(getListingPriceValidationError({ price: "3.36", currency: "ILS", marketRate: 3 })).toContain("3.35");
   });
-
-  it("allows ILS prices at the configured cap", () => {
-    const error = getListingPriceValidationError({ price: "3.35", currency: "ILS", marketRate: 3.0 });
-    expect(error).toBeNull();
+  it("floors fractional ceilings so the displayed maximum is always accepted", () => {
+    for (const rate of [3.05437, 3.05827, 3.068082]) {
+      const cap = maximumIlsListingPrice(rate);
+      expect(getListingPriceValidationError({ price: cap.toFixed(2), marketRate: rate })).toBeNull();
+      expect(getListingPriceValidationError({ price: (cap + .01).toFixed(2), marketRate: rate })).toContain(cap.toFixed(2));
+      expect(cap).toBeLessThanOrEqual(rate + .35);
+    }
+    expect(maximumIlsListingPrice(3.05827)).toBe(3.40);
   });
-
-  it("rejects ILS prices above the configured cap", () => {
-    const error = getListingPriceValidationError({ price: "3.36", currency: "ILS", marketRate: 3.0 });
-    expect(error).toContain("3.35");
+  it.each([undefined, null, 0, NaN, Infinity, -3, 1.5, 11])("rejects missing/invalid reference %s", (marketRate) => {
+    expect(getListingPriceValidationError({ price: "3.20", marketRate })).toContain("out of date");
   });
-
-  it("does not enforce a cap for non-ILS currencies", () => {
-    const error = getListingPriceValidationError({ price: "5000", currency: "USD", marketRate: 3.0 });
-    expect(error).toBeNull();
+  it.each(["-3.2", "1e300", "bad3.2"])("rejects invalid price %s without stripping its sign or junk", (price) => {
+    expect(getListingPriceValidationError({ price, marketRate: 3 })).not.toBeNull();
   });
-
-  it("uses the configured market reference rate when present", async () => {
-    process.env.ALPHA_EXCHANGE_USD_ILS_RATE = "3.12";
-    process.env.ALPHA_MARKET_BTC_USDT_RATE = "118000";
-    process.env.ALPHA_MARKET_ETH_USDT_RATE = "3800";
-    const rate = await fetchUsdIlsMarketRate();
-    expect(rate).toBe(3.12);
-    expect(rate).not.toBe(DEFAULT_USD_ILS_MARKET_RATE);
+  it("preserves unrelated currency and non-price update behavior", () => {
+    expect(getListingPriceValidationError({ price: "5000", currency: "USD", marketRate: 3 })).toBeNull();
+    expect(getListingPriceValidationError({ price: "", currency: "ILS" })).toBeNull();
   });
 });

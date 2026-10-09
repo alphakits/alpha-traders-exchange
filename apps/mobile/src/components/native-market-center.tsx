@@ -1,6 +1,7 @@
 import { BrandedText as Text } from "./branded-text";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
+import { isFxPairUsable } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   getPublicMarketSnapshot,
@@ -10,7 +11,7 @@ import { useLocale } from "../i18n/locale-context";
 import { formatFinancialNumber } from "../finance/financial-display";
 
 function formatPrice(pair: PublicMarketPair) {
-  if (pair.key === "usdtIls") return "$1.00 USD";
+  if (pair.key === "usdtIls") return pair.price > 0 ? `₪${pair.price.toFixed(5)}` : "—";
   return `${formatFinancialNumber(pair.price, {
     maximumFractionDigits: pair.key === "ethUsdt" ? 2 : 0,
   })} USDT`;
@@ -37,8 +38,8 @@ export function NativeMarketCenter() {
   const query = useQuery({
     queryKey: ["public-market-center", locale],
     queryFn: ({ signal }) => getPublicMarketSnapshot(locale, signal),
-    refetchInterval: 45_000,
-    staleTime: 30_000,
+    refetchInterval: 5_000,
+    staleTime: 5_000,
   });
   const snapshot = query.data?.snapshot;
 
@@ -62,8 +63,10 @@ export function NativeMarketCenter() {
   }
 
   const heroPair = snapshot.pairs.usdtIls;
+  const isLive = !query.error && heroPair.quoteStatus === "live"
+    && !snapshot.unavailablePairs.includes("usdtIls") && isFxPairUsable(heroPair);
   const supportingPairs = [snapshot.pairs.btcUsdt, snapshot.pairs.ethUsdt];
-  const updatedAt = new Date(snapshot.updatedAt);
+  const updatedAt = new Date(heroPair.quotedAt ?? "");
   const updatedLabel = Number.isFinite(updatedAt.getTime())
     ? updatedAt.toLocaleTimeString(isAr ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })
     : "";
@@ -79,10 +82,10 @@ export function NativeMarketCenter() {
             {isAr ? "بيانات السوق المباشرة لأسعار Alpha Exchange." : "Live market data powering Alpha Exchange pricing."}
           </Text>
         </View>
-        <View style={[styles.liveBadge, snapshot.status !== "live" && styles.degradedBadge]}>
-          <View style={[styles.liveDot, snapshot.status !== "live" && styles.degradedDot]} />
-          <Text style={[styles.liveText, snapshot.status !== "live" && styles.degradedText]}>
-            {snapshot.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "آخر سعر" : "LAST PRICE")}
+        <View style={[styles.liveBadge, !isLive && styles.degradedBadge]}>
+          <View style={[styles.liveDot, !isLive && styles.degradedDot]} />
+          <Text style={[styles.liveText, !isLive && styles.degradedText]}>
+            {isLive ? (isAr ? "مباشر" : "LIVE") : (isAr ? "آخر سعر" : "LAST PRICE")}
           </Text>
         </View>
       </View>
@@ -94,12 +97,13 @@ export function NativeMarketCenter() {
 
       <View style={styles.anchorCard}>
         <Text style={[styles.eyebrow, isRTL && styles.rtlText]}>{isAr ? "مرساة التسعير" : "PRICING ANCHOR"}</Text>
-        <Text style={[styles.pair, isRTL && styles.rtlText]}>USDT / USD</Text>
+        <Text style={[styles.pair, isRTL && styles.rtlText]}>USD / ILS</Text>
         <View style={[styles.priceRow, isRTL && styles.rowReverse]}>
           <Text style={styles.heroPrice}>{formatPrice(heroPair)}</Text>
-          <Text style={styles.change}>1:1</Text>
+          <Text style={styles.change}>{formatChange(heroPair.changePercent)}</Text>
         </View>
-        <Text style={[styles.source, isRTL && styles.rtlText]}>{isAr ? "مرجع عرض التطبيق" : "App display reference"}</Text>
+        <Text style={[styles.source, isRTL && styles.rtlText]}>{isAr ? "مرجع USD/ILS لعروض USDT" : "USD/ILS benchmark for USDT listings"}</Text>
+        <Text style={[styles.source, isRTL && styles.rtlText]}>{heroPair.source}</Text>
       </View>
 
       <View style={styles.supportingGrid}>

@@ -1,3 +1,4 @@
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 import { derivePublicProfileUsername } from "@/lib/alpha-exchange-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
@@ -9,6 +10,7 @@ vi.mock("@/lib/postgres-runtime", () => ({
 
 import {
   createMarketplaceListing,
+  adminOverrideMarketplaceListing,
   renewMarketplaceListing,
   getSellerListingWorkspaceSummary,
   createPurchaseRequest,
@@ -39,6 +41,9 @@ import { toMobileTradeDetail } from "@/lib/mobile-trades";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 import { realtimeEventForUser } from "@/lib/realtime-event-visibility";
+
+const fxReference = vi.hoisted(() => ({ rate: vi.fn() }));
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: fxReference.rate }));
 
 const OWNER_ID = "owner-1";
 const SELLER_ID = "seller-1";
@@ -156,10 +161,62 @@ function auditLogs(): AuditLogEntry[] {
 
 describe("listing accountability: reason + audit + reliability", () => {
   beforeEach(() => {
+    fxReference.rate.mockReset().mockResolvedValue(4);
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+  });
+
+  it("checks creation at the same cent ceiling shown to sellers, with no writes on rejection", async () => {
+    fxReference.rate.mockResolvedValue(3.05272);
+    await expect(createApprovedListing("1000", "3.40")).resolves.toMatchObject({ price: "3.40" });
+    const before = (globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).marketplaceListings.length;
+    await expect(createApprovedListing("1000", "3.41")).rejects.toThrow("Maximum allowed price: ₪3.40");
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).marketplaceListings).toHaveLength(before);
+    fxReference.rate.mockRejectedValue(new FxReferenceUnavailableError());
+    await expect(createApprovedListing("1000", "3.20")).rejects.toThrow("out of date");
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).marketplaceListings).toHaveLength(before);
+  });
+
+  it.each(["reprice", "resume", "renew", "expiry", "inventory", "approve", "admin-renew", "admin-extend"])(
+    "rechecks %s against the current quote before changing the listing or sending notifications", async (action) => {
+      const listing = await createApprovedListing("1000", "3.60");
+      const db = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      const stored = db.marketplaceListings.find((entry) => entry.id === listing.id)!;
+      if (action === "resume") stored.status = "paused";
+      if (action === "approve") { stored.status = "draft"; stored.approvalStatus = "pending"; }
+      invalidateAlphaExchangeStoreCache();
+      const before = JSON.stringify({ listings: db.marketplaceListings, audit: db.auditLogs, notifications: db.notifications });
+      const identity = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+      const mutate = () => {
+        if (action === "renew") return renewMarketplaceListing(identity);
+        if (action === "approve") return reviewMarketplaceListingByOwner({ listingId: listing.id, ownerUserId: OWNER_ID, decision: "approve" });
+        if (action === "admin-renew" || action === "admin-extend") return adminOverrideMarketplaceListing({ listingId: listing.id, adminUserId: OWNER_ID, action: action === "admin-renew" ? "renew" : "extend", expirationHours: 24 });
+        return updateMarketplaceListingForSeller({
+          ...identity,
+          ...(action === "resume" ? { status: "active" as const } : {}),
+          ...(action === "reprice" ? { price: "3.41" } : {}),
+          ...(action === "inventory" ? { availableAmount: "1100" } : {}),
+          ...(action === "expiry" ? { expiresAt: new Date(Date.now() + 7 * 86400000).toISOString() } : {}),
+        });
+      };
+      fxReference.rate.mockResolvedValue(3.05272);
+      await expect(mutate()).rejects.toThrow("Maximum allowed price: ₪3.40");
+      fxReference.rate.mockRejectedValue(new FxReferenceUnavailableError());
+      await expect(mutate()).rejects.toThrow("out of date");
+      const after = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      expect(JSON.stringify({ listings: after.marketplaceListings, audit: after.auditLogs, notifications: after.notifications })).toBe(before);
+    },
+  );
+
+  it("keeps pausing, inventory reduction and removal available during an FX outage", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+    fxReference.rate.mockRejectedValue(new FxReferenceUnavailableError());
+    const identity = { listingId: listing.id, sellerId: SELLER_ID, actorUserId: SELLER_ID };
+    await expect(updateMarketplaceListingForSeller({ ...identity, status: "paused" })).resolves.toMatchObject({ status: "paused" });
+    await expect(updateMarketplaceListingForSeller({ ...identity, availableAmount: "900", maximumTrade: "900" })).resolves.toMatchObject({ availableAmount: "900" });
+    await expect(deleteMarketplaceListingForSeller(identity)).resolves.toBeUndefined();
   });
 
   it.each([

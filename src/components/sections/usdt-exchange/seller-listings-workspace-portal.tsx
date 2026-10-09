@@ -77,6 +77,7 @@ export type SellerListingsWorkspacePortalProps = {
   listingEditTradeRangeInvalid: boolean;
   locale: "ar" | "en";
   marketPricePerUsdt: number;
+  marketReferenceAvailable: boolean;
   maxAllowedListingPrice: number;
   myListings: MarketplaceListing[];
   scrollToCreateListingSection: () => boolean;
@@ -141,6 +142,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
     listingEditTradeRangeInvalid,
     locale,
     marketPricePerUsdt,
+    marketReferenceAvailable,
     maxAllowedListingPrice,
     myListings,
     scrollToCreateListingSection,
@@ -396,7 +398,7 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                           <p className={`text-xs transition-colors duration-200 ${
                             listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                           }`}>
-                            {currencyText(listingEditPriceInvalid
+                            {currencyText(!marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingEditPriceInvalid
                               ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
                               : listingEditPriceValid
                                 ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
@@ -562,10 +564,10 @@ export function SellerListingsWorkspacePortal(props: SellerListingsWorkspacePort
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
                             <div className="space-y-1">
                               <p className="font-medium">
-                                {currencyText(listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active"))}
+                                {currencyText(!marketReferenceAvailable ? (isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote") : listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active"))}
                               </p>
-                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {currencyText(formatIls(marketPricePerUsdt))} {currencyText(isAr ? "لكل 1 USDT" : "per 1 USDT")}</p>
-                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {currencyText(formatIls(maxAllowedListingPrice))}</p>
+                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")} {currencyText(isAr ? "لكل 1 USDT" : "per 1 USDT")}</p>
+                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {currencyText(marketReferenceAvailable ? formatIls(maxAllowedListingPrice) : "—")}</p>
                               {listingEditTradeRangeInvalid ? <p className="text-amber-200">{currencyText(isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT.")}</p> : null}
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
                               {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}

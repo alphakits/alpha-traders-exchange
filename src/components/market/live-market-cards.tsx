@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } 
 import { currencyText } from "@/components/ui/currency-text";
 import { CandlestickChart } from "@/components/market/candlestick-chart";
 import { createMarketChartStore } from "@/lib/market-chart-client";
+import { isFxReferenceUsable } from "@/lib/fx-reference-policy";
 import { sampleReferenceQuote } from "@/lib/market-candles";
 import type { MarketCandle, MarketChartSymbol } from "@/types/market-chart";
 import type { MarketSnapshot } from "@/types/market";
@@ -53,24 +54,25 @@ function ReferenceMarketCard({ snapshot, locale }: { snapshot: MarketSnapshot | 
   const isAr = locale === "ar";
   const [candles, setCandles] = useState<MarketCandle[]>([]);
   const price = snapshot?.pairs.usdtIls.price;
-  const confirmed = Boolean(snapshot && !snapshot.stale && !snapshot.unavailablePairs.includes("usdtIls"));
-  const timestamp = snapshot?.updatedAt;
+  const confirmed = isFxReferenceUsable(snapshot);
+  const timestamp = snapshot?.pairs.usdtIls.quotedAt;
   useEffect(() => {
     if (!confirmed || !price || !timestamp) return;
     setCandles((previous) => sampleReferenceQuote(previous, price, Date.parse(timestamp)));
   }, [confirmed, price, timestamp]);
-  return <article className={surface} aria-label="USDT / ILS" data-market-chart="USDTILS">
+  return <article className={surface} aria-label="USD / ILS reference" data-market-chart="USDTILS">
     <div className="flex items-center justify-between gap-2">
-      <p className="text-xs font-medium tracking-wide text-[#F4D87A]"><bdi dir="ltr">{currencyText("USDT / ILS")}</bdi></p>
+      <p className="text-xs font-medium tracking-wide text-[#F4D87A]"><bdi dir="ltr">{currencyText("USD / ILS")}</bdi></p>
       <span className="rounded-md bg-white/5 px-2 py-1 text-xs text-[#BFC6CF]">5m</span>
     </div>
-    <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-emerald-300"><bdi dir="ltr">{price ? `₪${price.toFixed(2)}` : "—"}</bdi></p>
+    <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-emerald-300"><bdi dir="ltr">{price ? `₪${price.toFixed(5)}` : "—"}</bdi></p>
     <div className="mt-3 min-h-[112px]">
-      {candles.length ? <CandlestickChart candles={candles} label="USDT / ILS" locale={locale} reference /> : <div className="flex aspect-[356/148] items-center justify-center text-xs text-[#9CA3AF]">{isAr ? "بانتظار سعر مرجعي محدّث" : "Waiting for a fresh reference"}</div>}
+      {candles.length ? <CandlestickChart candles={candles} label="USD / ILS" locale={locale} reference /> : <div className="flex aspect-[356/148] items-center justify-center text-xs text-[#9CA3AF]">{isAr ? "بانتظار سعر مرجعي محدّث" : "Waiting for a fresh reference"}</div>}
     </div>
-    <p className="mt-2 text-xs text-[#9CA3AF]">{currencyText(isAr ? "مرجع Alpha Traders · عينات ٥ دقائق" : "Alpha Traders reference · 5m samples")}</p>
+    <p className="mt-2 text-xs text-[#9CA3AF]">{currencyText(isAr ? "مرجع USD/ILS لعروض USDT · عينات ٥ دقائق" : "USD/ILS benchmark for USDT listings · 5m samples")}</p>
+    <p className="mt-1 text-xs text-[#858D99]">{snapshot?.pairs.usdtIls.source} · {timestamp ? new Date(timestamp).toLocaleTimeString(locale, { hour12: false }) : "—"}</p>
     <p className={`mt-1 text-xs ${confirmed ? "text-[#858D99]" : "text-amber-200"}`}>{confirmed
-      ? (isAr ? "السجل منذ فتح الصفحة" : "History since this page opened")
+      ? (snapshot?.pairs.usdtIls.quoteStatus === "closed" ? (isAr ? "السوق مغلق · آخر إغلاق" : "Market closed · last close") : (isAr ? "السجل منذ فتح الصفحة" : "History since this page opened"))
       : (isAr ? "تحديث المرجع متأخر" : "Reference update delayed")}</p>
   </article>;
 }

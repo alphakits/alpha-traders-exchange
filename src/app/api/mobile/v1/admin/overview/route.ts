@@ -158,6 +158,7 @@ export async function POST(request: NextRequest) {
     }
     return mobileJson(await overviewPayload(auth.user!.id), requestId);
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return mobileError("SERVICE_UNAVAILABLE", requestId, locale, 503);
     logEvent("error", {
       event: "mobile_admin_review",
       outcome: "failed",
@@ -167,3 +168,4 @@ export async function POST(request: NextRequest) {
     return mobileError("INVALID_REQUEST", requestId, locale, 400);
   }
 }
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";

@@ -1,3 +1,6 @@
+// Synthetic quote for lifecycle tests; feed failures and price boundaries have separate coverage.
+vi.mock("@/lib/market-service", () => ({ DEFAULT_USD_ILS_RATE: 3.05, getUsdtIlsReferenceRate: async () => 4 }));
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequestStatus, UserRole } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";

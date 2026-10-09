@@ -35,6 +35,7 @@ import { rankSurfaceTone } from "@/lib/rank-identity";
 import { AccountIdentityLabel } from "@/components/ui/account-identity-label";
 import { publicAccountId } from "@/lib/public-account-identity";
 import { RoleBadge } from "@/components/ui/role-badge";
+import { isFxReferenceUsable, maximumIlsListingPrice } from "@/lib/fx-reference-policy";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import type { DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { canViewOwnerExchangeIdentity } from "@/lib/owner-exchange-access";
@@ -136,8 +137,6 @@ const MOBILE_VIEWPORT_QUERY = "(max-width: 768px)";
 const MOBILE_MARKETPLACE_BATCH_SIZE = 6;
 const MAX_ACTIVITY_ITEMS = 60;
 const MAX_NOTIFICATION_ITEMS = 60;
-const MAX_PRICE_MARKUP_ILS = 0.35;
-const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
 export const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
 
@@ -1253,7 +1252,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             <span className="text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</span>
             <span>{currencyText("USDT / ILS")}</span>
             <span className="seller-live-market-badge">{isAr ? "مباشر" : "Live"}</span>
-            <span className="compact-listing__market-price font-semibold">{moneyText(marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</span>
+            <span className="compact-listing__market-price font-semibold">{marketPricePerUsdt > 0 ? moneyText(marketPricePerUsdt.toFixed(5)) : "—"}</span>
           </div>
         </div>
         <div className="compact-listing__stats grid grid-cols-4 gap-1.5 text-center text-xs">
@@ -1444,7 +1443,7 @@ export function UsdtExchangePage({
     if (typeof window === "undefined") return false;
     return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
   });
-  const marketFeed = useMarketFeed({ refreshMs: 45_000 });
+  const marketFeed = useMarketFeed();
   const marketSnapshot = marketFeed.snapshot;
 
   // Read the same principal as the header in this render. Mirroring it through
@@ -3255,14 +3254,15 @@ export function UsdtExchangePage({
     }
   }, [isSellerWorkspaceUser, router, sessionUser]);
 
-  const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? DEFAULT_MARKET_PRICE_PER_USDT;
-  const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
+  const marketReferenceAvailable = !marketFeed.error && isFxReferenceUsable(marketSnapshot);
+  const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? 0;
+  const maxAllowedListingPrice = marketReferenceAvailable ? maximumIlsListingPrice(marketPricePerUsdt) : 0;
   const listingCreatePrice = toNumber(listingCreateForm.price);
   const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
   const listingCreateMinTrade = toNumber(listingCreateForm.minimumTrade);
   const listingCreateMaxTrade = toNumber(listingCreateForm.maximumTrade || listingCreateForm.availableAmount);
-  const listingCreatePriceInvalid = listingCreatePrice > maxAllowedListingPrice;
-  const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
+  const listingCreatePriceInvalid = marketReferenceAvailable && listingCreatePrice > maxAllowedListingPrice;
+  const listingCreatePriceValid = marketReferenceAvailable && listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
@@ -3299,7 +3299,7 @@ export function UsdtExchangePage({
     !listingBlockedByCommission &&
     !listingBlockedByMarketplaceEnforcement,
   );
-  const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
+  const isListingCreateSubmitDisabled = !marketReferenceAvailable || listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
     : listingCreatePriceValid
@@ -3315,8 +3315,8 @@ export function UsdtExchangePage({
   const listingEditMinTrade = toNumber(listingEditForm.minimumTrade);
   const listingEditMaxTrade = toNumber(listingEditForm.maximumTrade || listingEditForm.availableAmount);
   const listingEditCurrency = listingEditForm.currency.trim().toUpperCase();
-  const listingEditPriceInvalid = listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
-  const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
+  const listingEditPriceInvalid = marketReferenceAvailable && listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
+  const listingEditPriceValid = (listingEditCurrency !== "ILS" || marketReferenceAvailable) && listingEditPrice > 0 && !listingEditPriceInvalid;
   const listingEditTradeRangeInvalid = listingEditMaxTrade <= 0 || listingEditMaxTrade > listingEditAmount || listingEditMaxTrade < listingEditMinTrade;
   const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
   const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
@@ -3334,7 +3334,7 @@ export function UsdtExchangePage({
     || (listingEditRequiresBank && !listingEditSelectedBanks.length)
     || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId)
     || listingEditBankAccountMismatch;
-  const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
+  const isListingEditSubmitDisabled = (listingEditCurrency === "ILS" && !marketReferenceAvailable) || listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditNeedsReason = listingEditOriginal
     ? listingEditRequiresReason(listingEditOriginal, {
         availableAmount: listingEditForm.availableAmount,
@@ -3906,7 +3906,7 @@ export function UsdtExchangePage({
         key: "market",
         title: isAr ? "سوق اليوم" : "Today's Market",
         subtitle: isAr ? "تفاصيل السوق" : "Market Details",
-        stat: formatIls(marketPricePerUsdt),
+        stat: marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—",
           onClick: () => {
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
@@ -4009,7 +4009,7 @@ export function UsdtExchangePage({
         key: "market",
         title: isAr ? "نظرة عامة على السوق" : "Market Overview",
         subtitle: isAr ? "سوق اليوم" : "Today’s Market",
-        stat: formatIls(marketPricePerUsdt),
+        stat: marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—",
           onClick: () => {
             if (desktopBuyerNavigation && !isDashboardWorkspace) {
               focusWorkspaceSection("market-overview");
@@ -5281,7 +5281,7 @@ export function UsdtExchangePage({
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(formatIls(marketPricePerUsdt))}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{currencyText("USDT / ILS")} {currencyText(marketPricePerUsdt > 0 ? `₪${marketPricePerUsdt.toFixed(5)}` : "—")}</p>
                 </div>
               </div>
               )}
@@ -5394,6 +5394,7 @@ export function UsdtExchangePage({
               listingEditTradeRangeInvalid,
               locale,
               marketPricePerUsdt,
+              marketReferenceAvailable,
               maxAllowedListingPrice,
               myListings,
               scrollToCreateListingSection,
@@ -5655,6 +5656,7 @@ export function UsdtExchangePage({
             marketInsightsCard,
             marketPricePerUsdt,
             marketSnapshot,
+            marketReferenceAvailable,
             maxAllowedListingPrice,
             myListingsById,
             openCommissionPayment,
