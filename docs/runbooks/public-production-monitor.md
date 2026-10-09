@@ -72,6 +72,47 @@ locations and an alert for a missing monitor heartbeat. Account/billing failures
 and a blocked chat runtime must not silence every monitoring path. That service,
 its cost, destinations and alert delivery still require activation and validation.
 
+## Continuous backup on the existing Railway worker
+
+The existing Discord worker also runs `scripts/production_health.py` immediately
+on startup and then every five minutes. It uses the same public contracts as
+GitHub, including bilingual pages, JavaScript assets and signed-out API guards.
+There is no new account, paid service, credential, transaction or message sender.
+The container needs Python and curl; the Docker build copies only the monitor
+script, not account configuration or probe artifacts.
+
+`GET /health/public-production` on the worker origin returns a cached, allowlisted
+summary with the latest observation and up to 24 recent observations. HTTP 200
+means the latest complete observation is healthy and at most 15 minutes old.
+Unstarted, failed, stopped and stale monitoring returns 503 with
+`verification_limited`. Confirmed public component failures return 503 with
+`component_degraded`. This route never starts work on demand and does not expose
+Discord readiness details, response bodies, headers or credentials. Existing
+signed readiness and deployment liveness keep their original behavior.
+
+The scheduler allows only one probe at a time. Each subprocess has a four-minute
+deadline; timeout and shutdown stop the whole process group, including curl.
+Artifacts stay in a private temporary directory owned by that worker process.
+Restarting the worker resets the history and continuity claim. A failed/partial
+probe, a gap over 15 minutes or clock reversal resets `continuousSinceUtc`.
+Retained history bounds the advertised coverage window. Monitoring failures
+cannot fail Discord startup or trigger a deployment restart loop.
+
+After deployment, verify two distinct fresh `finishedUtc` values and review the
+entire history since the last observation. A fresh healthy last result cannot
+erase an intervening failure. `continuousSinceUtc` describes observation coverage,
+not uninterrupted website health. An older GitHub check can be labelled a delayed
+primary check only when this independent history actually covers the interval.
+Otherwise retain the monitoring-gap warning. GitHub's own scheduler incident
+remains truthful and is not disabled or given a looser threshold.
+
+The existing Website Health Watch must read this endpoint in addition to GitHub
+and report a stale/missing backup heartbeat. This adds an independent execution
+path, not an independently validated instant alert delivery service. The watch's
+hourly cadence and GitHub notification limitations still apply. Both monitors
+use existing hosting, so this is not a substitute for a separate multi-region
+uptime provider with tested missing-heartbeat alert delivery.
+
 ## Enforce the release gates
 
 On 2026-10-07 the `main` branch API reported protection enabled but no required

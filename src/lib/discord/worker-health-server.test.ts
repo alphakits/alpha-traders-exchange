@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 import type { DiscordDiagnostics } from "@/lib/discord/diagnostics";
 import { createDiscordWorkerAuthHeaders } from "@/lib/discord/worker-health-auth";
 import { createDiscordWorkerHealthServer } from "@/lib/discord/worker-health-server";
+import type { ProductionHealthSnapshot } from "@/lib/production-health-worker";
 
 const healthSecret = "w".repeat(32);
 const now = 1_700_000_000_000;
@@ -55,6 +56,35 @@ afterEach(async () => {
 });
 
 describe("Discord worker health server", () => {
+  it("serves cached public monitoring evidence without changing worker liveness or private readiness", async () => {
+    const snapshot: ProductionHealthSnapshot = {
+      schemaVersion: 1, source: "railway-worker", intervalSeconds: 300, maximumGapSeconds: 900,
+      status: "verification_limited", continuousSinceUtc: null, latest: null, history: [],
+    };
+    const getSnapshot = vi.fn(() => snapshot);
+    const server = createDiscordWorkerHealthServer({
+      service: { getDiagnostics: () => diagnostics }, healthSecret, now: () => now,
+      productionHealth: { getSnapshot },
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const response = await fetch(`${origin}/health/public-production`);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(snapshot);
+    expect(getSnapshot).toHaveBeenCalledOnce();
+    expect((await fetch(`${origin}/health/live`)).status).toBe(200);
+    expect((await fetch(`${origin}/health/ready`)).status).toBe(401);
+    expect((await fetch(`${origin}/health/ready`, {
+      headers: createDiscordWorkerAuthHeaders(healthSecret, () => now, () => nonce),
+    })).status).toBe(200);
+    snapshot.status = "healthy";
+    expect((await fetch(`${origin}/health/public-production`)).status).toBe(200);
+    expect((await fetch(`${origin}/health/public-production`, { method: "POST" })).status).toBe(404);
+    expect(getSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it("exposes generic unauthenticated liveness without Discord data", async () => {
     const baseUrl = await startServer();
     const response = await fetch(`${baseUrl}/health/live`);
