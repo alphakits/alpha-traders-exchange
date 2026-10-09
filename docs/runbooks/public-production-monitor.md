@@ -32,6 +32,15 @@ in the artifact. Only allowlisted response headers and contract results remain.
 The default diagnostic thresholds are 3 seconds for setup, 2 seconds for repeated
 network-inclusive responses after setup, and 1,000 ms for repeated database probes.
 Health and market timestamps allow at most 180 seconds of age or 60 seconds ahead.
+The FX reference also follows the shared USD/ILS policy: identified Wise source,
+matching reference rate, explicit unexpired validity, at most two minutes for
+live rates or the existing bounded validity for a declared market closure.
+A scheduled FX closure with usable reference data, current BTC/ETH data and no
+missing pairs is expected behavior, even though the API labels that aggregate
+snapshot `degraded`. The monitor records `fxQuoteStatus: closed` and does not
+report an outage solely for that label. Missing prices, stale snapshots, unknown
+sources and expired quotes still fail; closure never renews a quote or changes
+the site's pricing policy.
 These are operational thresholds, not promised customer SLAs. A changed threshold
 must be reviewed against collected evidence; never raise it to hide a regression.
 
