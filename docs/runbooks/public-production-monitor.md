@@ -90,6 +90,13 @@ There is no new account, paid service, credential, transaction or message sender
 The container needs Python and curl; the Docker build copies only the monitor
 script, not account configuration or probe artifacts.
 
+Both container stages use the Docker Official Node image on ECR Public, pinned
+to the same digest previously built from Docker Hub. This removes the Docker
+Hub anonymous download dependency that returned HTTP 429 in both Railway and
+GitHub release builds. It changes the registry, not the Node runtime or image
+contents, and needs no account credential. The release gate still builds and
+checks the actual image. See the [official image publishing details](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/).
+
 `GET /health/public-production` on the worker origin returns a cached, allowlisted
 summary with the latest observation and up to 24 recent observations. HTTP 200
 means the latest complete observation is healthy and at most 15 minutes old.
