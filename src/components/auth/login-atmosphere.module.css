@@ -74,7 +74,7 @@
 
 @media (min-width: 64rem) {
   /* These benefits already appear beside the form on desktop. */
-  .benefits { display: none; }
+  .page[data-login-surface="web"] .benefits { display: none; }
 }
 
 @media (max-height: 56.25rem) {
@@ -82,7 +82,7 @@
 }
 
 @media (max-height: 46rem) {
-  .benefits { display: none; }
+  .page[data-login-surface="web"] .benefits { display: none; }
   .page[data-login-surface="web"] .promoFeatures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page[data-login-surface="web"] :is(.panel, .promo) { padding: 1rem; }
   .form { margin-top: .75rem; gap: .5rem; }
