@@ -1,6 +1,8 @@
-/** The provider selected in the owner's TradingView chart. */
-export const USD_ILS_REFERENCE_SYMBOL = "SAXO:USDILS";
-export const FX_MAX_QUOTE_AGE_MS = 60_000;
+/** One identified USD/ILS benchmark for the website, native app and listing limits. */
+export const USD_ILS_REFERENCE_SYMBOL = "WISE:USDILS";
+// Wise publishes the rate timestamp separately from quote creation. Allow two
+// minutes for its minute-scale rate updates; never turn receipt time into a tick.
+export const FX_MAX_QUOTE_AGE_MS = 120_000;
 export const FX_MAX_CLOSED_AGE_MS = 96 * 60 * 60 * 1000;
 export const MAX_ILS_PRICE_OVER_MARKET = 0.35;
 

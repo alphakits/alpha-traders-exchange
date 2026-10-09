@@ -5,7 +5,7 @@ import type { MarketSnapshot } from "@/types/market";
 
 function healthyResponse(url: string) {
   const payload = url.includes("fx.example")
-    ? { base: "USD", quote: "ILS", symbol: "SAXO:USDILS", price: 3.25, quotedAt: new Date().toISOString(), marketState: "open" }
+    ? { base: "USD", quote: "ILS", symbol: "WISE:USDILS", price: 3.25, quotedAt: new Date().toISOString(), marketState: "open" }
     : url.includes("BTC")
       ? { price: "81000", data: { amount: "81000" } }
       : { price: "2700", data: { amount: "2700" } };
@@ -39,9 +39,9 @@ describe("market provider reliability", () => {
   });
 
   it("does not label FX live after it expires while waiting for crypto", async () => {
-    const quotedAt = new Date(Date.now() - 59_000).toISOString();
+    const quotedAt = new Date(Date.now() - 119_000).toISOString();
     vi.stubGlobal("fetch", vi.fn((input: string) => Promise.resolve(input.includes("fx.example")
-      ? { ok: true, json: async () => ({ base: "USD", quote: "ILS", symbol: "SAXO:USDILS", price: 3.05272, quotedAt, marketState: "open" }) } as Response
+      ? { ok: true, json: async () => ({ base: "USD", quote: "ILS", symbol: "WISE:USDILS", price: 3.05272, quotedAt, marketState: "open" }) } as Response
       : { ok: true, json: () => new Promise((resolve) => setTimeout(() => resolve({ price: input.includes("BTC") ? "81000" : "2700" }), 2_000)) } as Response)));
     const { getMarketSnapshot, getUsdtIlsReferenceRate } = await import("@/lib/market-service");
     const pending = getMarketSnapshot();
@@ -55,7 +55,7 @@ describe("market provider reliability", () => {
     vi.useFakeTimers();
     vi.stubEnv("ALPHA_EXCHANGE_USD_ILS_RATE", "");
     vi.stubEnv("ALPHA_FX_REFERENCE_URL", "https://fx.example/quote");
-    vi.stubEnv("ALPHA_FX_REFERENCE_SYMBOL", "SAXO:USDILS");
+    vi.stubEnv("ALPHA_FX_REFERENCE_SYMBOL", "WISE:USDILS");
     vi.stubEnv("ALPHA_MARKET_BTC_USDT_RATE", "");
     vi.stubEnv("ALPHA_MARKET_ETH_USDT_RATE", "");
     vi.stubEnv("ALPHA_MARKET_CACHE_TTL_MS", "");

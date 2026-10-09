@@ -1,81 +1,49 @@
 # USD/ILS reference repair — 9 October 2026
 
-Status: draft implementation; not activated in production. An authorized real-time source is not configured. This change deliberately prevents ILS listing publication, repricing, renewal, resumption, owner approval, expiry extension and added inventory without a usable quote. Do not merge until the source is connected and verified; otherwise those actions will be unavailable. Pause/delete and existing trade amounts are unaffected.
+Status: Wise connection implemented and verified against public provider responses; production release verification pending.
 
-## Confirmed incident
+## Requirement and incident
 
-The production `/api/market/center` response returned `3.068082`, `status: live`, `stale: false`, and a fresh response timestamp. The source was `open.er-api.com/v6/latest/USD`, whose quote timestamp was `2026-10-09T00:02:31Z` and next update was the following day. The UI hid that source under `derived`. This is daily data, not live FX. Fetching it more frequently cannot fix the discrepancy.
+The owner clarified at 11:24 Bucharest time that a current, genuine USD/ILS rate is required; Saxo is not required and Google or another source is acceptable. This supersedes the earlier draft's Saxo-only requirement.
 
-The full screenshot supplied at 10:28 confirms **`SAXO:USDILS`**, displaying `3.05272` at that moment. This is the required provider; another broker or `FX_IDC:USDILS` must not be silently substituted. The screenshot value is historical evidence, not a rate to hardcode. Forex providers can have different quotes. USD and USDT are distinct; this platform intentionally uses USD/ILS as a benchmark for USDT/ILS listings.
+Production used daily `open.er-api.com` data (`3.068082`, source time `2026-10-09T00:02:31Z`) while reporting a fresh fetch timestamp and `live`. The earlier code also used this daily provider. Older TradingView embeds covered BTC/ETH, not a connected USD/ILS pricing backend. Restoring those embeds would not repair seller limits.
 
-## Implemented
+## Connected source
 
-- Remove daily and hardcoded USD/ILS fallbacks from the pricing path.
-- Share a source-identified quote between `/api/market/center` and web/native listing validation.
-- Pin the pair and configured symbol to `SAXO:USDILS`; validate finite price, provider timestamp, freshness, and market state using the same contract on web, native and server.
-- Bound open-market quote age at 60 seconds. Never replace source time with fetch time. A closed market requires the provider's next-open time and has a maximum 96-hour quote lifetime.
-- Poll every five seconds with shared browser requests, bounded server caching and three-second provider timeouts. This is polling, not tick-synchronous streaming.
-- Retain a failed quote only as explicitly stale display data; never authorize a listing write with it.
-- Show five decimal places, source and quote time, and an explicit USD/ILS benchmark label.
-- Use one cent-rounded-down maximum for UI and API: `floor((USDILS + 0.35) * 100) / 100`. At the screenshot rate `3.05272`, the listing ceiling is `3.40`, not `3.41`.
-- Validate mobile listing resumption, which previously skipped the cap.
-- Recheck the actual stored terms inside the listing store for create, price/currency changes, resume, renewal, owner approval, expiry extension, added inventory and resubmission. Concurrency retries recheck the quote. Description-only changes, inventory reductions, pause/delete, rejection and existing trade progression do not depend on FX.
-- Normalize web/native settlement prices before cap comparison. Show the native form its actual ILS price and maximum; preserve an untouched existing ILS price when the reference refreshes.
-- Recheck source expiry after other market providers finish, so a slow crypto response cannot cause an expired FX quote to be labelled live.
-- Return an unavailable response before writes when the FX reference cannot be verified. Do not block ILS quotes solely because BTC/ETH failed.
+The default source is Wise's documented unauthenticated illustrative quote endpoint:
 
-## Feed connection still required
+`POST https://api.wise.com/2026Q4/quotes`
 
-TradingView's widget documentation says it has no data API for this purpose. Its standard market-data terms restrict non-display uses such as price referencing/order verification. The implementation does not scrape its scanner, extract widget data, or claim that widget access is a pricing-feed license.
+Request: `{"sourceCurrency":"USD","targetCurrency":"ILS","sourceAmount":1000}`.
 
-Official references:
-- https://www.exchangerate-api.com/docs/free
-- https://www.tradingview.com/widget-docs/faq/data/
-- https://www.tradingview.com/policies/
-- https://www.developer.saxo/excel/user-guide/enabling-market-data
-- https://www.developer.saxo/openapi/learn/direct-clients-request-for-openapi-application-credentials-for-the-live-environ
-- https://www.developer.saxo/openapi/referencedocs/trade/v1/infoprices/get__trade
-- https://www.developer.saxo/openapi/learn/pricing
+No account, transfer, recipient, payment or credentials are created or supplied. The platform uses `rate` as an indicative USD/ILS benchmark for USDT listing limits. It does not use the fee-adjusted target amount or offer Wise execution/locked prices. USD and USDT remain distinct assets; using USD/ILS as the USDT listing benchmark is the platform's pricing policy.
 
-Connect an authorized Saxo feed/adapter with rights for public website/app display and server-side listing validation. Saxo's published OpenAPI terms restrict standard market data to non-commercial personal use unless Saxo permits other use in writing. No Saxo connection, LIVE application credentials or permission for marketplace distribution were available in the inspected configuration. Provider choice is now confirmed; no account opening, subscription purchase or vendor agreement has been completed.
+Observed live response: `rate: 3.05395`, `rateTimestamp: 2026-10-09T08:28:01Z`, `createdTime: 2026-10-09T08:28:35Z`. These are evidence, never hardcoded rates.
 
-Saxo's authenticated InfoPrices endpoint supplies `LastUpdated`, `Quote` and instrument identity. The adapter must resolve the actual USDILS FxSpot instrument (do not guess its UIC), reject errors/delayed quotes, preserve `LastUpdated`, and confirm the price field against the TradingView chart. Account/amount-dependent bid/ask quotes must not be assumed identical to the public chart. A SIM token or periodically pasted test token is not a production connection. This draft does not implement OAuth or pretend that the normalized endpoint is already available.
+- `rateTimestamp` is preserved as the source quote time. A new `createdTime` cannot refresh an old weekday rate.
+- Open-market rates expire after two minutes, allowing the observed minute-scale publication cadence. Source/fetch timestamps, currency direction, quote status, price range and provider expiry are validated.
+- Browser polling and the bounded server cache use five seconds. This is refreshed indicative pricing, not tick-synchronous TradingView data.
+- Wise's published weekly closure is Friday 17:00 New York through Monday 09:00 Auckland. Both time zones account for daylight saving. During that closure, a rate from the closing period is labelled closed and requires a recent successful Wise response. Validity is bounded by reopening, provider expiry and the two-minute response freshness window. Older weekday rates and unconfirmed outages are not treated as closures. Unexpected holiday/feed gaps fail closed.
+- A failed request never falls back to a daily or invented rate. Last-known values can remain visible only as stale and cannot authorize new listing terms.
+- Optional server-only `ALPHA_FX_REFERENCE_URL`, `ALPHA_FX_REFERENCE_SYMBOL=WISE:USDILS`, and `ALPHA_FX_REFERENCE_TOKEN` support a normalized replacement adapter. None is required for the default Wise connection. The token is never sent to the public Wise endpoint.
 
-Server-only configuration:
+References:
+- https://docs.wise.com/api-reference/quote/quotecreateunauthenticated
+- https://docs.wise.com/guides/product/send-money/quotes/unauthenticated-quote
+- https://wise.com/help/articles/2448203/whats-a-guaranteed-rate
+- https://www.google.com/intl/en/googlefinance/disclaimer/ (Google's currency data lists a three-minute delay)
 
-| Variable | Purpose |
-| --- | --- |
-| `ALPHA_FX_REFERENCE_URL` | HTTPS URL of the authorized normalized quote endpoint |
-| `ALPHA_FX_REFERENCE_SYMBOL` | Required: `SAXO:USDILS`; any other provider fails closed |
-| `ALPHA_FX_REFERENCE_TOKEN` | Optional bearer token, entered directly into deployment secrets |
+## Shared listing rules
 
-No endpoint defaults to TradingView or another vendor. The provider-specific adapter is still to be connected; this schema is Alpha Traders' integration contract, not the native Saxo API schema and not an assertion that TradingView implements this API.
+- Web, native and server share source/freshness validation and the cent ceiling: `floor((USDILS + 0.35) * 100) / 100`.
+- At the observed `3.05395`, the ceiling is `3.40`; `3.41` is rejected. The UI shows the same permitted cent value the server enforces.
+- Creation, price/currency changes, resume, renewal, owner approval, expiry extension, added inventory and resubmission check the actual stored listing terms at the mutation boundary. Concurrency retries recheck the quote.
+- Native create/edit/resume enforce the same normalized settlement price. An untouched existing ILS price does not silently change when FX refreshes.
+- Pause/delete, inventory reduction, rejection and existing trade progression do not require FX. BTC/ETH failures do not invalidate an otherwise usable USD/ILS quote.
+- Display five decimal places, actual source and source time; chart candles are real samples collected since the page opened, not invented historical data.
 
-Illustrative response schema (the example is not a current quote):
+## Verification and release
 
-```json
-{
-  "base": "USD",
-  "quote": "ILS",
-  "symbol": "SAXO:USDILS",
-  "price": 3.05272,
-  "quotedAt": "2026-10-09T07:05:00.000Z",
-  "marketState": "open",
-  "changePercent": -0.35
-}
-```
+The updated implementation passed 436 targeted cases across 20 suites, with an additional default-provider timeout case checked separately (437 cases in total). Web TypeScript and changed-file ESLint pass. The Wise update adds coverage for actual rate timestamps versus fresh quote creation, provider expiration, wrong currencies, unavailable/malformed data, default requests without credentials, no daily fallback and closure/DST boundaries.
 
-For `marketState: closed`, require `nextOpenAt` as an ISO timestamp. Missing, expired, malformed, wrong-source or future-dated quotes fail closed. The provider's timestamps must be actual market timestamps, never synthetic times assigned by the adapter. Redirects are rejected so bearer credentials cannot be forwarded to a different host.
-
-## Release requirements
-
-1. Provider confirmed: `SAXO:USDILS`. Obtain/verify authorized access for website/app display and server-side use.
-2. Connect its adapter and configure the three server-only settings in a preview.
-3. Verify real provider responses, market-open and market-closed behavior, source timestamp latency, rate limits, cache recovery, and same-time comparison against the selected TradingView symbol.
-4. Exercise creating, editing, renewing, resuming, owner approval, extending expiry and adding inventory at/above the ceiling on desktop and phone; confirm a feed outage refuses writes but permits pause/delete and existing trade completion.
-5. Run the full repository release gate and production build before merging. Verify native UI separately and ship its app update as required; server validation covers existing app versions but cannot replace their installed UI.
-6. After production release, confirm the deployed commit, provider symbol, live response, quote timestamp and listing ceiling. No production release or real-feed end-to-end verification has occurred in this draft.
-
-## Local verification
-
-415 targeted tests pass across 20 files, including provider parsing/timeouts, wrong-provider rejection, shared source age/cap rules, web/native create/update/resume routes, store-level publication/renewal/approval/extension boundaries, commission restrictions, partial inventory, concurrent marketplace activity, bank/cardless/face-to-face and negotiated-offer trade flows, browser polling and market rendering. Price rejection/outage checks verify no listing, audit or notification writes occur. Web and native TypeScript validation and changed-file ESLint pass. Tests use explicit synthetic fixtures; they are not evidence of a live provider integration. Full production build/release gate and device/browser end-to-end checks remain for feed activation.
+Release requires passing the updated provider/listing regression checks, web/native types and lint, a successful production build, and verification from the deployed endpoint. Test fixtures are synthetic; live provider probes and deployed observations are recorded separately. Native UI changes need an app release; server validation protects existing app clients after the web/backend deployment.
