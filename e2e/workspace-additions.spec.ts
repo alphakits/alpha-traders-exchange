@@ -12,6 +12,8 @@ for (const locale of ["en", "ar"] as const) {
     await page.goto(`/${locale}/usdt-exchange`);
     const panel = page.getByRole("region", { name: isAr ? "تنبيه سعر USDT" : "USDT price alert" });
     const save = panel.getByRole("button", { name: isAr ? "حفظ التنبيه" : "Save alert" });
+    await expect(save).toBeHidden();
+    await panel.locator("summary").click();
     await expect(save).toBeEnabled();
     await panel.getByLabel(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)").fill("3.65");
     await panel.getByLabel(isAr ? "أقل كمية USDT (اختياري)" : "Minimum USDT (optional)").fill("150");
@@ -26,6 +28,8 @@ for (const locale of ["en", "ar"] as const) {
     const forged = await page.request.patch("/api/alpha-exchange/price-alerts", { headers: { origin: E2E_BASE_URL }, data: { ...payload.preference, userId: "another-buyer" } });
     expect(forged.status()).toBe(400);
     await page.reload();
+    await expect(save).toBeHidden();
+    await panel.locator("summary").click();
     await expect(panel.getByLabel(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)")).toHaveValue("3.65");
     await expect(page.locator("body")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBeTruthy();

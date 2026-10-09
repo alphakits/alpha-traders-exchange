@@ -3,7 +3,7 @@ import { AccountVerificationBadges } from "@/components/profile/account-verifica
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { ArrowRight, BadgeCheck, ChevronDown, Crown, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, Trophy, WalletCards, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, ChevronDown, Crown, HandCoins, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, Trophy, WalletCards, Zap } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { publicAccountId } from "@/lib/public-account-identity";
@@ -377,7 +377,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                       <span className={cn("seller-listing-availability", `seller-listing-availability--${sellerRankKey}`)}>{availabilityLabel}</span>
                       <span className="rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-3 py-1 text-xs font-medium text-[#FCA5A5]">{isAr ? "مسار صفقة منظّم" : "Structured trade flow"}</span>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                    <div className={cn("grid gap-2 lg:grid-cols-1", viewerOwnsProfile && "sm:grid-cols-2")}>
                       {viewerOwnsProfile ? (
                         <>
                           <Link href="/settings" locale={locale} className={cn("seller-marketplace-action seller-marketplace-action--profile", isOwnerSeller ? "owner-cta-premium" : `seller-rank-cta seller-rank-cta--${sellerRankKey}`)}>
@@ -401,13 +401,6 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                             <span className="inline-flex items-center gap-2">
                               <Zap className="h-4 w-4" />
                               {isAr ? "ابدأ الصفقة" : "Start Trade"}
-                            </span>
-                            <ArrowRight className="h-4 w-4" />
-                          </a>
-                          <a href="#seller-public-account" className="seller-marketplace-action seller-marketplace-action--profile border border-white/15 bg-black/25 text-white hover:border-[#C9A227] hover:bg-black/35">
-                            <span className="inline-flex items-center gap-2">
-                              <MessageCircle className="h-4 w-4" />
-                              {isAr ? "راسل البائع" : "Message Seller"}
                             </span>
                             <ArrowRight className="h-4 w-4" />
                           </a>

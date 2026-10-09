@@ -239,6 +239,7 @@ test.describe("Marketplace Pulse", () => {
     const { snapshot } = marketPayload;
     expect(["live", "degraded"]).toContain(snapshot.status);
     const overview = page.locator("#market-overview");
+    await overview.locator("summary").click();
     await expect(overview.getByText(snapshot.status === "live" ? "LIVE" : "Degraded", { exact: true }).first()).toBeVisible({ timeout: 20000 });
     if (snapshot.status === "degraded") await expect(overview.getByText("LIVE", { exact: true })).toHaveCount(0);
     for (const pair of Object.values(snapshot.pairs)) {

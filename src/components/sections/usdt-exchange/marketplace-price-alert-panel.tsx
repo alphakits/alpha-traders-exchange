@@ -8,6 +8,7 @@ import { currencyText } from "@/components/ui/currency-text";
 import { fetchClientJson } from "@/lib/client-request-deadline";
 import { MARKETPLACE_PAYMENT_METHODS } from "@/lib/marketplace-payment-methods";
 import { DEFAULT_PRICE_ALERT, priceAlertSchema, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
+import { MarketplaceToolPanel } from "./marketplace-tool-panel";
 
 type Payload = { ownerId?: string; preference?: unknown };
 
@@ -65,8 +66,7 @@ export function MarketplacePriceAlertPanel({ userId, isAr }: { userId: string; i
   }
 
   const methodLabel = (method: string) => !isAr ? method : method === "Bank Transfer" ? "تحويل بنكي" : method === "Cardless ATM Withdrawal" ? "سحب بلا بطاقة" : "لقاء شخصي";
-  return <section aria-label={isAr ? "تنبيه سعر USDT" : "USDT price alert"} className="mt-4 rounded-2xl border border-[#C9A227]/25 bg-[#0B0B0B]/90 p-4 sm:p-5">
-    <h3 className="flex items-center gap-2 text-base font-semibold"><Bell className="h-4 w-4 text-[#D4AF37]" />{currencyText(isAr ? "تنبيه سعر USDT" : "USDT price alert")}</h3>
+  return <MarketplaceToolPanel title={isAr ? "تنبيه سعر USDT" : "USDT price alert"} isAr={isAr} icon={<Bell aria-hidden="true" className="h-4 w-4 shrink-0 text-[#D4AF37]" />} className="border-[#C9A227]/25">
     <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تنبيهات للعروض المناسبة وانخفاض الأسعار. لا يتم الشراء تلقائيًا." : "Get alerts for matching listings and price drops. No purchase is made automatically."}</p>
     <fieldset disabled={!ready || busy} className="mt-4 grid gap-3 sm:grid-cols-3">
       <label className="space-y-1 text-sm">{currencyText(isAr ? "أعلى سعر (₪ / USDT)" : "Maximum price (₪ / USDT)")}<Input className="currency-money" dir="ltr" inputMode="decimal" value={preference.maxPrice} onChange={e => setPreference(p => ({ ...p, maxPrice: e.target.value }))} /></label>
@@ -76,5 +76,5 @@ export function MarketplacePriceAlertPanel({ userId, isAr }: { userId: string; i
     </fieldset>
     <div className="mt-3 flex flex-wrap items-center gap-3"><Button type="button" disabled={!ready || busy} onClick={() => void save()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{isAr ? "حفظ التنبيه" : "Save alert"}</Button>{!ready && message ? <Button type="button" variant="secondary" onClick={() => void load()}>{isAr ? "إعادة التحميل" : "Reload"}</Button> : null}<p role="status" aria-live="polite" className="text-sm text-[#D1D5DB]">{message || (!ready ? (isAr ? "جارٍ تحميل إعداداتك…" : "Loading your preferences…") : "")}</p></div>
     <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "الإشعارات تتبع إعدادات قنوات الإشعار الحالية. تحقق دائمًا من السعر والكمية المتاحة داخل العرض." : "Delivery follows your existing notification-channel preferences. Always check the listing's current price and available amount."}</p>
-  </section>;
+  </MarketplaceToolPanel>;
 }
