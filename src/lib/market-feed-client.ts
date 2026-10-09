@@ -76,7 +76,15 @@ export function createMarketFeedStore() {
     if (next === active) return;
     active = next;
     if (active) void refresh();
-    else cancel();
+    else {
+      cancel();
+      // Paused data is no longer confirmed live. Keep its values/timestamp,
+      // but only a successful fresh response may restore the live status.
+      if (state.snapshot) notify({
+        ...state,
+        snapshot: { ...state.snapshot, status: "degraded", stale: true },
+      });
+    }
   };
 
   return {

@@ -77,10 +77,13 @@ describe("shared public market connection", () => {
   it("does no hidden or offline polling and resumes with one fresh request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response());
     vi.stubGlobal("fetch", fetchMock);
-    renderHook(() => useMarketFeed());
+    const page = renderHook(() => useMarketFeed());
     renderHook(() => useMarketFeed());
     await settle();
     act(() => visibility("hidden"));
+    expect(page.result.current.snapshot?.pairs.usdtIls.price).toBe(3.6);
+    expect(page.result.current.snapshot?.stale).toBe(true);
+    expect(page.result.current.hasLiveFeed).toBe(false);
     await act(async () => { await vi.advanceTimersByTimeAsync(10 * DEFAULT_MARKET_REFRESH_MS); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     act(() => online(false));
@@ -90,6 +93,7 @@ describe("shared public market connection", () => {
     act(() => online(true));
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(page.result.current.hasLiveFeed).toBe(true);
     act(() => window.dispatchEvent(new Event("online")));
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(2);

@@ -21,6 +21,7 @@ describe("charts stay inside Alpha Traders", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     act(() => { visibility.mockReturnValue("hidden"); document.dispatchEvent(new Event("visibilitychange")); });
+    expect(screen.getByRole("status").textContent).toContain("Delayed update");
     await act(async () => { await vi.advanceTimersByTimeAsync(600_000); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     act(() => { online.mockReturnValue(false); window.dispatchEvent(new Event("offline")); });
@@ -30,6 +31,7 @@ describe("charts stay inside Alpha Traders", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("img", { name: /ETH\/USDT/ })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).not.toContain("Delayed update");
   });
 
   it("ends a stuck body read and allows retry even if transport ignores abort", async () => {

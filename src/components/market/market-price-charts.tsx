@@ -96,6 +96,7 @@ function MarketChart({ title, symbol, locale }: { title: string; symbol: MarketC
       active = next;
       if (active) void load();
       else {
+        setFailed(true);
         clearTimeout(refresh);
         const previous = controller;
         controller = null;
