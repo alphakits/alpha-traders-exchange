@@ -78,8 +78,9 @@ export function PrivateProfileHeader({
             <PublicAccountId value={publicId} audience={sellerRank ? "seller" : "buyer"} rank={sellerRank} />
           </div>
           </>}
-          {children}
+          {!compact ? children : null}
         </div>
+        {compact && children ? <div className="profile-header-meta min-w-0">{children}</div> : null}
       </div>
     </div>
   );

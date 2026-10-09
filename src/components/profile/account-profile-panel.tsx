@@ -8,7 +8,7 @@ import { publicAccountId } from "@/lib/public-account-identity";
 import { brandText, currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Crown, ShieldCheck, Trophy } from "lucide-react";
+import { Crown, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { rankSurfaceTone, rankVisualKey } from "@/lib/rank-identity";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
@@ -922,12 +922,6 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
                 <span aria-hidden="true" className={cn("seller-presence-dot", onlineNow ? "seller-presence-dot--online" : "seller-presence-dot--idle")} />
                 {isAr ? presence.compactLabelAr : presence.compactLabel}
               </span>
-              {isSeller ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-[11px] font-semibold text-[#F4D87A]">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  {isAr ? "بائع موثق" : "Verified Seller"}
-                </span>
-              ) : null}
               {isSeller ? (
                 <RankBadge rank={sellerLevelForUi} locale={locale} audience="seller" />
               ) : null}

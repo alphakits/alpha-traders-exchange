@@ -93,7 +93,7 @@ for (const locale of ["en", "ar"] as const) {
         const actionOffset = await actions.evaluate(element => element.getBoundingClientRect().top - element.closest(".profile-workspace")!.getBoundingClientRect().top);
         expect(actionOffset, `${role} ${locale} actions at ${width}px`).toBeLessThan(430);
         await expectUsableLayout(workspace);
-        if (width === 390 || width === 1440) {
+        if (width === 320 || width === 390 || width === 1440) {
           await page.screenshot({ path: testInfo.outputPath(`profile-${locale}-${role.toLowerCase()}-${width}.png`), animations: "disabled" });
         }
         await workspace.getByRole("tab").nth(1).click();
