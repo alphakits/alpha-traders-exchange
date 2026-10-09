@@ -1,6 +1,7 @@
 import { BrandedText as Text } from "./branded-text";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
+import { isFxPairUsable } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   getPublicMarketSnapshot,
@@ -62,8 +63,8 @@ export function NativeMarketCenter() {
   }
 
   const heroPair = snapshot.pairs.usdtIls;
-  const isLive = !query.error && !snapshot.stale && heroPair.quoteStatus === "live"
-    && !snapshot.unavailablePairs.includes("usdtIls") && Date.parse(heroPair.validUntil ?? "") > Date.now();
+  const isLive = !query.error && heroPair.quoteStatus === "live"
+    && !snapshot.unavailablePairs.includes("usdtIls") && isFxPairUsable(heroPair);
   const supportingPairs = [snapshot.pairs.btcUsdt, snapshot.pairs.ethUsdt];
   const updatedAt = new Date(heroPair.quotedAt ?? "");
   const updatedLabel = Number.isFinite(updatedAt.getTime())
@@ -102,6 +103,7 @@ export function NativeMarketCenter() {
           <Text style={styles.change}>{formatChange(heroPair.changePercent)}</Text>
         </View>
         <Text style={[styles.source, isRTL && styles.rtlText]}>{isAr ? "مرجع USD/ILS لعروض USDT" : "USD/ILS benchmark for USDT listings"}</Text>
+        <Text style={[styles.source, isRTL && styles.rtlText]}>{heroPair.source}</Text>
       </View>
 
       <View style={styles.supportingGrid}>

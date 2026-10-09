@@ -1,5 +1,5 @@
 import { fetchFxReference } from "@/lib/fx-reference-provider";
-import { FxReferenceUnavailableError, isFxReferenceUsable } from "@/lib/fx-reference-policy";
+import { FxReferenceUnavailableError, isFxPairUsable, isFxReferenceUsable } from "@/lib/fx-reference-policy";
 import type { MarketPairKey, MarketSnapshot } from "@/types/market";
 
 const DEFAULT_USD_ILS_RATE = 3.05;
@@ -145,9 +145,11 @@ function calculateChangePercent(current: number, previous: number | null) {
 
 async function refreshMarketSnapshot() {
   const [usdIlsResult, btcUsdtResult, ethUsdtResult] = await Promise.all([fetchFxReference(), fetchBtcUsdtRate(), fetchEthUsdtRate()]);
+  // A quote can expire while another provider is still responding.
+  const usableFxResult = usdIlsResult && isFxPairUsable(usdIlsResult) ? usdIlsResult : null;
   const nowIso = new Date().toISOString();
   const unavailablePairs: MarketPairKey[] = [];
-  if (!usdIlsResult) unavailablePairs.push("usdtIls");
+  if (!usableFxResult) unavailablePairs.push("usdtIls");
   if (!btcUsdtResult.success) unavailablePairs.push("btcUsdt");
   if (!ethUsdtResult.success) unavailablePairs.push("ethUsdt");
 
@@ -155,7 +157,7 @@ async function refreshMarketSnapshot() {
   const ethUsdtPrice = ethUsdtResult.value;
   const previous = lastLiveSnapshot?.pairs;
   const snapshot: MarketSnapshot = {
-    status: unavailablePairs.length === 0 && usdIlsResult?.quoteStatus === "live" ? "live" : "degraded",
+    status: unavailablePairs.length === 0 && usableFxResult?.quoteStatus === "live" ? "live" : "degraded",
     updatedAt: nowIso,
     stale: unavailablePairs.length > 0,
     unavailablePairs,
@@ -174,7 +176,7 @@ async function refreshMarketSnapshot() {
         changePercent: calculateChangePercent(btcUsdtPrice, previous?.btcUsdt?.price ?? null),
         source: btcUsdtResult.source,
       },
-      usdtIls: usdIlsResult ?? unavailableFxPair(),
+      usdtIls: usableFxResult ?? unavailableFxPair(),
     },
   };
 

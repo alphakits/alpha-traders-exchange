@@ -5,7 +5,7 @@ import type { MarketSnapshot } from "@/types/market";
 
 function healthyResponse(url: string) {
   const payload = url.includes("fx.example")
-    ? { base: "USD", quote: "ILS", symbol: "FX_IDC:USDILS", price: 3.25, quotedAt: new Date().toISOString(), marketState: "open" }
+    ? { base: "USD", quote: "ILS", symbol: "SAXO:USDILS", price: 3.25, quotedAt: new Date().toISOString(), marketState: "open" }
     : url.includes("BTC")
       ? { price: "81000", data: { amount: "81000" } }
       : { price: "2700", data: { amount: "2700" } };
@@ -38,12 +38,24 @@ describe("market provider reliability", () => {
     expect(await getUsdtIlsReferenceRate()).toBe(3.25);
   });
 
+  it("does not label FX live after it expires while waiting for crypto", async () => {
+    const quotedAt = new Date(Date.now() - 59_000).toISOString();
+    vi.stubGlobal("fetch", vi.fn((input: string) => Promise.resolve(input.includes("fx.example")
+      ? { ok: true, json: async () => ({ base: "USD", quote: "ILS", symbol: "SAXO:USDILS", price: 3.05272, quotedAt, marketState: "open" }) } as Response
+      : { ok: true, json: () => new Promise((resolve) => setTimeout(() => resolve({ price: input.includes("BTC") ? "81000" : "2700" }), 2_000)) } as Response)));
+    const { getMarketSnapshot, getUsdtIlsReferenceRate } = await import("@/lib/market-service");
+    const pending = getMarketSnapshot();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await pending).toMatchObject({ status: "degraded", unavailablePairs: ["usdtIls"] });
+    await expect(getUsdtIlsReferenceRate()).rejects.toThrow("out of date");
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();
     vi.stubEnv("ALPHA_EXCHANGE_USD_ILS_RATE", "");
     vi.stubEnv("ALPHA_FX_REFERENCE_URL", "https://fx.example/quote");
-    vi.stubEnv("ALPHA_FX_REFERENCE_SYMBOL", "FX_IDC:USDILS");
+    vi.stubEnv("ALPHA_FX_REFERENCE_SYMBOL", "SAXO:USDILS");
     vi.stubEnv("ALPHA_MARKET_BTC_USDT_RATE", "");
     vi.stubEnv("ALPHA_MARKET_ETH_USDT_RATE", "");
     vi.stubEnv("ALPHA_MARKET_CACHE_TTL_MS", "");

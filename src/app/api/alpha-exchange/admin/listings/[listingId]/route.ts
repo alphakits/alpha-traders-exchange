@@ -7,6 +7,7 @@ import {
 } from "@/lib/alpha-exchange-store";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
+import { FxReferenceUnavailableError } from "@/lib/fx-reference-policy";
 
 type RouteContext = {
   params: Promise<{ listingId: string }>;
@@ -58,6 +59,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     return NextResponse.json({ error: "Invalid owner action." }, { status: 400 });
   } catch (error) {
+    if (error instanceof FxReferenceUnavailableError) return NextResponse.json({ error: error.message, code: "MARKET_REFERENCE_UNAVAILABLE" }, { status: 503, headers: { "Retry-After": "5" } });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update listing." }, { status: 400 });
   }
 }

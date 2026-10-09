@@ -4,7 +4,7 @@ import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileSellerListingCreateRequest, MobileSellerListingUpdateRequest, MobileSupportedNetwork } from "@alpha-traders/contracts";
-import { sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { sellerFeeResponsibilityNotice, isFxPairUsable, maximumIlsListingPrice } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileSellerListing,
@@ -24,7 +24,7 @@ import {
   formatFinancialText,
   formatUsd,
   priceForUsdInput,
-  usdAmountToCurrency,
+  currencyPriceFromUsdInput,
 } from "../../src/finance/financial-display";
 import { useUsdDisplayReference } from "../../src/finance/use-usd-display-rate";
 
@@ -73,11 +73,12 @@ export default function NewSellerListingScreen() {
   const queryClient = useQueryClient();
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
-  const { rate: usdIlsRate, available: marketReferenceAvailable } = useUsdDisplayReference();
+  const { rate: usdIlsRate, available: marketReferenceAvailable, quote: marketQuote } = useUsdDisplayReference();
   const isAr = locale === "ar";
   const canSell = canUseSellerTools(user);
   const [availableAmount, setAvailableAmount] = useState("");
   const [price, setPrice] = useState("");
+  const [priceEdited, setPriceEdited] = useState(false);
   const [minimumTrade, setMinimumTrade] = useState("");
   const [maximumTrade, setMaximumTrade] = useState("");
   const [network, setNetwork] = useState<MobileSupportedNetwork>("TRC20");
@@ -112,6 +113,7 @@ export default function NewSellerListingScreen() {
     initializedListingRef.current = listing.id;
     setAvailableAmount(formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 }));
     setPrice(priceForUsdInput(listing.price, listing.currency, usdIlsRate));
+    setPriceEdited(false);
     setMinimumTrade(formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 }));
     setMaximumTrade(formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 }));
     setNetwork(listing.network);
@@ -129,7 +131,10 @@ export default function NewSellerListingScreen() {
 
   const payload = useMemo<MobileSellerListingCreateRequest>(() => ({
     availableAmount: financialNumber(availableAmount).toString(),
-    price: usdAmountToCurrency(price, "ILS", usdIlsRate).toFixed(2),
+    // Refreshing FX must not silently reprice an existing ILS listing.
+    price: isEditing && !priceEdited && listingQuery.data?.listing.currency === "ILS"
+      ? listingQuery.data.listing.price
+      : currencyPriceFromUsdInput(price, "ILS", usdIlsRate),
     currency: "ILS",
     network,
     paymentMethods,
@@ -141,7 +146,8 @@ export default function NewSellerListingScreen() {
     responseTime,
     expirationHours: 24,
     acceptedCommissionPolicy: acceptedCommission,
-  }), [acceptedCommission, availableAmount, bankAccountId, banks, maximumTrade, minimumTrade, network, paymentMethods, price, requiresBankSelection, requiresPayoutAccount, responseTime, sellerDescription, usdIlsRate]);
+  }), [acceptedCommission, availableAmount, bankAccountId, banks, maximumTrade, minimumTrade, network, paymentMethods, price, requiresBankSelection, requiresPayoutAccount, responseTime, sellerDescription, usdIlsRate, isEditing, priceEdited, listingQuery.data?.listing]);
+  const maximumListingPrice = marketReferenceAvailable ? maximumIlsListingPrice(usdIlsRate) : 0;
 
   const mutation = useMutation({
     mutationFn: () => requestWithSession((tokens, requestLocale) => isEditing
@@ -199,7 +205,11 @@ export default function NewSellerListingScreen() {
   }
 
   function validateAndSubmit() {
-    if (!marketReferenceAvailable) { setError(isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote"); return; }
+    if (!marketReferenceAvailable || !isFxPairUsable(marketQuote)) { setError(isAr ? "بانتظار سعر USD/ILS محدّث" : "Waiting for a fresh USD/ILS quote"); return; }
+    if (financialNumber(payload.price) > maximumListingPrice) {
+      setError(isAr ? `أقصى سعر للعرض: ₪${maximumListingPrice.toFixed(2)}` : `Maximum listing price: ₪${maximumListingPrice.toFixed(2)}`);
+      return;
+    }
     const amount = financialNumber(availableAmount);
     const listingPrice = financialNumber(price);
     const minimum = financialNumber(minimumTrade);
@@ -282,7 +292,11 @@ export default function NewSellerListingScreen() {
         </View>
         <View style={styles.field}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "السعر لكل USDT بالدولار *" : "Price per USDT (USD) *"}</Text>
-          <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setPrice(cleanNumber(value)); setError(""); }} placeholder="1.05" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={price} />
+          <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setPrice(cleanNumber(value)); setPriceEdited(true); setError(""); }} placeholder="1.05" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={price} />
+          {marketReferenceAvailable ? <Text style={[styles.helper, isRTL && styles.rtlText]}>
+            {isAr ? "مرجع USD/ILS" : "USD/ILS reference"}: ₪{usdIlsRate.toFixed(5)} · {isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: ₪{maximumListingPrice.toFixed(2)}
+          </Text> : null}
+          {marketReferenceAvailable && price ? <Text style={[styles.helper, isRTL && styles.rtlText]}>{isAr ? "سعر العرض بالشيكل" : "Listing price in ILS"}: ₪{payload.price}</Text> : null}
           {availableAmount && price ? <Text style={[styles.helper, isRTL && styles.rtlText]}>{isAr ? "القيمة الإجمالية" : "Live total"}: {formatUsd(financialNumber(availableAmount) * financialNumber(price))}</Text> : null}
         </View>
         <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "الشبكة *" : "Network *"}</Text>

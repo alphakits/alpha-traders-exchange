@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   getUsdtIlsReferenceRate: vi.fn(),
+  createMarketplaceListing: vi.fn(),
   canPublishListings: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   getMarketplaceListingById: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
+  createMarketplaceListing: mocks.createMarketplaceListing,
   canPublishListings: mocks.canPublishListings,
   getMarketplaceListingById: mocks.getMarketplaceListingById,
   getMyMarketplaceListings: mocks.getMyMarketplaceListings,
@@ -29,7 +31,7 @@ vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMob
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
-import { GET } from "@/app/api/mobile/v1/seller/listings/route";
+import { GET, POST } from "@/app/api/mobile/v1/seller/listings/route";
 import { PATCH as PATCH_LISTING } from "@/app/api/mobile/v1/seller/listings/[listingId]/route";
 import { PATCH as PATCH_AVAILABILITY } from "@/app/api/mobile/v1/seller/availability/route";
 
@@ -90,6 +92,8 @@ function listing(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getUsdtIlsReferenceRate.mockReset().mockResolvedValue(3.05437);
+  mocks.createMarketplaceListing.mockReset().mockResolvedValue(listing());
+  mocks.updateMarketplaceListingForSeller.mockReset().mockResolvedValue(listing());
   mocks.requireMobileApiUser.mockResolvedValue({
     user: {
       id: "seller-1",
@@ -118,6 +122,34 @@ beforeEach(() => {
 });
 
 describe("mobile seller workspace routes", () => {
+  function submitListing(action: "create" | "update", price: string) {
+    const body = {
+      action: "update", availableAmount: "1000", price, currency: "ILS", network: "TRC20",
+      paymentMethods: ["Face-to-Face (Meet in Person)"], minimumTrade: "100", maximumTrade: "1000",
+      acceptedCommissionPolicy: true, expirationHours: 24, changeReason: "Price updated",
+      changeExplanation: "Update the listing price.",
+    };
+    return action === "create"
+      ? POST(new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/seller/listings", { method: "POST", headers, body: JSON.stringify(body) }))
+      : PATCH_LISTING(patchRequest("/api/mobile/v1/seller/listings/listing-own", body), { params: Promise.resolve({ listingId: "listing-own" }) });
+  }
+
+  it.each(["create", "update"] as const)("validates native %s at the same rounded settlement ceiling as web", async (action) => {
+    mocks.getMarketplaceListingById.mockResolvedValue(listing());
+    const mutation = action === "create" ? mocks.createMarketplaceListing : mocks.updateMarketplaceListingForSeller;
+    for (const price of ["3.40", "3.404"]) {
+      const response = await submitListing(action, price);
+      expect(response.status).toBe(action === "create" ? 201 : 200);
+      expect(mutation).toHaveBeenLastCalledWith(expect.objectContaining({ price: "3.40" }));
+    }
+    mutation.mockClear();
+    for (const price of ["3.41", "3.405"]) expect((await submitListing(action, price)).status).toBe(400);
+    expect(mutation).not.toHaveBeenCalled();
+    mocks.getUsdtIlsReferenceRate.mockRejectedValue(new FxReferenceUnavailableError());
+    expect((await submitListing(action, "3.20")).status).toBe(503);
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
   it("refuses resumption without a quote but still permits pausing", async () => {
     mocks.getUsdtIlsReferenceRate.mockRejectedValue(new FxReferenceUnavailableError());
     mocks.getMarketplaceListingById.mockResolvedValue(listing({ status: "paused" }));

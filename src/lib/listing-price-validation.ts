@@ -14,6 +14,15 @@ export async function fetchUsdIlsMarketRate() {
   return getUsdtIlsReferenceRate();
 }
 
+/** Validate the actual stored terms, including owner publication and retry paths. */
+export async function assertListingPriceAtCurrentReference(input: { price: string; currency?: string }) {
+  if (String(input.currency ?? "ILS").trim().toUpperCase() !== "ILS") return;
+  if (!input.price.trim()) throw new Error("Price must be a positive number.");
+  const marketRate = await fetchUsdIlsMarketRate();
+  const error = getListingPriceValidationError({ ...input, marketRate });
+  if (error) throw new Error(error);
+}
+
 export function getListingPriceValidationError(input: { price: string | number; currency?: string; marketRate?: string | number | null }) {
   const currency = String(input.currency ?? "ILS").trim().toUpperCase();
   if (currency !== "ILS") return null;

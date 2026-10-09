@@ -23,6 +23,7 @@ import {
   serializeIsraeliBankSelection,
 } from "@/lib/israeli-banks";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { normalizeListingPrice } from "@/lib/price-offer";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   requiresIsraeliBankSelection,
@@ -136,7 +137,7 @@ export async function POST(request: NextRequest) {
     const body = await readMobileJsonBody(request);
     if (!body) return mobileError("INVALID_REQUEST", requestId, locale, 400);
     const availableAmount = String(body.availableAmount ?? "").trim();
-    const price = String(body.price ?? "").trim();
+    const price = normalizeListingPrice(String(body.price ?? "").trim()) ?? "";
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10).toUpperCase() || "ILS";
     const network = body.network;
     const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods);

@@ -4,7 +4,7 @@ import { parseFxReference, fetchFxReference } from "@/lib/fx-reference-provider"
 import { FX_MAX_QUOTE_AGE_MS, isFxPairUsable } from "@/lib/fx-reference-policy";
 
 const now = Date.parse("2026-10-09T07:05:00Z");
-const symbol = "FX_IDC:USDILS";
+const symbol = "SAXO:USDILS";
 const quote = () => ({ base: "USD", quote: "ILS", symbol, price: 3.05437, quotedAt: new Date(now - 10_000).toISOString(), marketState: "open" });
 
 describe("USD/ILS source and freshness", () => {
@@ -41,6 +41,21 @@ describe("USD/ILS source and freshness", () => {
     const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
     expect(await fetchFxReference()).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a different configured provider even if its quote and timestamp are valid", async () => {
+    vi.stubEnv("ALPHA_FX_REFERENCE_URL", "https://fx.example/quote");
+    vi.stubEnv("ALPHA_FX_REFERENCE_SYMBOL", "FX_IDC:USDILS");
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchFxReference()).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(parseFxReference({ ...quote(), symbol: "FX_IDC:USDILS" }, "FX_IDC:USDILS", now)).toBeNull();
+  });
+
+  it("applies the same provider and expiry rules to consumers, including the native app", () => {
+    const pair = parseFxReference(quote(), symbol, now)!;
+    expect(isFxPairUsable({ ...pair, source: "FX_IDC:USDILS" }, now)).toBe(false);
+    expect(isFxPairUsable({ ...pair, validUntil: new Date(now + 86400000).toISOString() }, now)).toBe(false);
   });
 
   it("bounds a stalled body, cancels it and keeps credentials out of results", async () => {

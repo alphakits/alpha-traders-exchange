@@ -11,3 +11,4 @@ export * from "./trade-chat";
 
 export * from "./marketplace-fees";
 export * from "./interface-access";
+export * from "./usd-ils-reference";

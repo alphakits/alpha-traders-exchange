@@ -21,6 +21,7 @@ import {
   serializeIsraeliBankSelection,
 } from "@/lib/israeli-banks";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { normalizeListingPrice } from "@/lib/price-offer";
 import { validateListingChangeReason } from "@/lib/listing-change-reasons";
 import {
   MAX_LISTING_PAYMENT_METHODS,
@@ -117,7 +118,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     if (action === "update") {
       const availableAmount = String(body?.availableAmount ?? "").trim();
-      const price = String(body?.price ?? "").trim();
+      const price = normalizeListingPrice(String(body?.price ?? "").trim()) ?? "";
       const currency = String(body?.currency ?? "ILS").trim().slice(0, 10).toUpperCase() || "ILS";
       const network = body?.network;
       const resolvedPaymentMethods = resolveListingPaymentMethods(body?.paymentMethods);
@@ -189,7 +190,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return mobileError("LISTING_ACTION_NOT_ALLOWED", requestId, locale, 409);
     }
     if (action === "resume") {
-      const marketRate = (existing.currency ?? "ILS").toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
+      const marketRate = (existing.currency ?? "ILS").trim().toUpperCase() === "ILS" ? await fetchUsdIlsMarketRate() : undefined;
       if (getListingPriceValidationError({ price: existing.price, currency: existing.currency, marketRate })) {
         return mobileError("INVALID_REQUEST", requestId, locale, 400);
       }

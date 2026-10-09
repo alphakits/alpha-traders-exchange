@@ -10,7 +10,7 @@ function snapshot(price = 3.6): MarketSnapshot {
     pairs: {
       ethUsdt: { key: "ethUsdt", label: "ETH/USDT", price: 3200, changePercent: null, source: "test" },
       btcUsdt: { key: "btcUsdt", label: "BTC/USDT", price: 100000, changePercent: null, source: "test" },
-      usdtIls: { key: "usdtIls", label: "USDT/ILS", price, changePercent: null, source: "test", quoteStatus: "live", quotedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString() },
+      usdtIls: { key: "usdtIls", label: "USDT/ILS", price, changePercent: null, source: "SAXO:USDILS", quoteStatus: "live", quotedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString() },
     },
   };
 }

@@ -1,8 +1,9 @@
 import type { MarketPair } from "@/types/market";
-import { FX_MAX_CLOSED_AGE_MS, FX_MAX_QUOTE_AGE_MS, isFxPairUsable } from "@/lib/fx-reference-policy";
+import { FX_MAX_CLOSED_AGE_MS, FX_MAX_QUOTE_AGE_MS, isFxPairUsable, USD_ILS_REFERENCE_SYMBOL } from "@/lib/fx-reference-policy";
 
 /** Adapter contract for an authorized feed; not a TradingView widget/scraper. */
 export function parseFxReference(payload: unknown, symbol: string, now = Date.now()): MarketPair | null {
+  if (symbol !== USD_ILS_REFERENCE_SYMBOL) return null;
   if (!payload || typeof payload !== "object") return null;
   const quote = payload as Record<string, unknown>;
   if (quote.base !== "USD" || quote.quote !== "ILS" || quote.symbol !== symbol) return null;
@@ -29,7 +30,7 @@ export function parseFxReference(payload: unknown, symbol: string, now = Date.no
 export async function fetchFxReference(): Promise<MarketPair | null> {
   const endpoint = process.env.ALPHA_FX_REFERENCE_URL;
   const symbol = process.env.ALPHA_FX_REFERENCE_SYMBOL;
-  if (!endpoint || !symbol) return null;
+  if (!endpoint || symbol !== USD_ILS_REFERENCE_SYMBOL) return null;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const controller = new AbortController();
   try {
