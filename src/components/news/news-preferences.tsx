@@ -47,7 +47,7 @@ export function NewsPreferences({ locale }: { locale: NewsLocale }) {
   }
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label={isAr ? "إشعارات الأخبار" : "News alerts"}>
+    <section id="news-preferences" className="scroll-mt-24 rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label={isAr ? "إشعارات الأخبار" : "News alerts"}>
       <div className="flex items-center gap-2"><BellRing className="h-4 w-4 text-[#D4AF37]" aria-hidden="true" /><h2 className="font-semibold text-white">{isAr ? "إشعارات أخبار الدولار" : "USD news alerts"}</h2></div>
       <p className="mt-2 text-sm leading-relaxed text-[#9CA3AF]">{isAr ? "اختر كيف تصلك النتائج بعد صدورها. هذه التفضيلات مستقلة عن إشعارات الصفقات." : "Choose how to receive results after release. These preferences are separate from trade alerts."}</p>
       {payload?.available ? (
@@ -60,7 +60,7 @@ export function NewsPreferences({ locale }: { locale: NewsLocale }) {
             </label>
           ))}
           {((payload.preferences.email && !payload.channels.email) || (payload.preferences.inApp && !payload.channels.inApp)) ? (
-            <p className="text-sm text-amber-200">{isAr ? "فعّل القناة المطلوبة أيضًا في " : "Also enable that channel in "}<Link href="/profile" locale={locale} className="underline">{isAr ? "تفضيلات إشعارات الحساب" : "Account notification preferences"}</Link>.</p>
+            <p className="text-sm text-amber-200">{isAr ? "فعّل القناة المطلوبة أيضًا في " : "Also enable that channel in "}<Link href="/profile#notification-preferences" locale={locale} className="underline">{isAr ? "تفضيلات إشعارات الحساب" : "Account notification preferences"}</Link>.</p>
           ) : null}
           <div className="flex justify-end"><Button type="submit" size="sm" loading={saving}>{isAr ? "حفظ تفضيلات الأخبار" : "Save news preferences"}</Button></div>
         </form>
