@@ -96,7 +96,7 @@ let chartPng: Buffer;
 
 beforeAll(async () => {
   state.db = new PGlite();
-  await state.db.exec("create role anon; create role authenticated; create schema alpha_exchange; create table alpha_exchange.users(id text primary key); insert into alpha_exchange.users values('buyer'),('seller'),('student'); create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);");
+  await state.db.exec("create role anon; create role authenticated; create schema alpha_exchange; create table alpha_exchange.users(id text primary key); insert into alpha_exchange.users values('buyer'),('seller'),('student'),('owner'); create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);");
   await state.db.exec(await readFile("supabase/migrations/20261008200530_private_trading_journal.sql", "utf8"));
   chartPng = await sharp({ create: { width: 2800, height: 1400, channels: 3, background: "#171717" } })
     .withMetadata({ exif: { IFD0: { Copyright: "Private journal test metadata" } } }).png().toBuffer();
@@ -112,7 +112,7 @@ beforeEach(async () => {
 afterAll(async () => { await state.db?.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe.sequential("journal HTTP and account boundaries", () => {
-  it.each(["buyer", "seller", "student"])("allows a signed-in %s to save and reopen their own journal", async role => {
+  it.each(["buyer", "seller", "student", "owner"])("allows a signed-in %s to save and reopen their own journal", async role => {
     state.account = role;
     const saved = await saveTrade(request("/trades", "POST", { ...trade, notes: `Private ${role} note` }));
     expect(saved?.status).toBe(200);
@@ -122,6 +122,21 @@ describe.sequential("journal HTTP and account boundaries", () => {
     expect((await response!.json()).trades).toMatchObject([{ symbol: "NQ", version: 1, notes: `Private ${role} note` }]);
     state.account = role === "buyer" ? "seller" : "buyer";
     expect((await (await snapshot(request()))!.json()).trades).toEqual([]);
+  });
+  it("gives the platform owner no access to another member's journal or charts", async () => {
+    await saveTrade(request("/trades", "POST", { ...trade, notes: "Buyer secret" }));
+    await saveReview(request("/reviews", "PUT", { ...emptyReview("2026-10-09"), improve: "Private review" }));
+    await saveSettings(request("/settings", "PUT", { ...DEFAULT_SETTINGS, rules: "Private rules" }));
+    const uploaded = await uploadChart(imageRequest(chartPng), context());
+    const file = await uploaded!.json();
+    state.account = "owner";
+    const own = await (await snapshot(request("?userId=buyer")))!.json();
+    expect(own.trades).toEqual([]); expect(own.reviews).toEqual([]); expect(own.settings.rules).toBe("");
+    expect((await readChart(request(`/charts/${file.chart.id}`), context(file.chart.id)))?.status).toBe(404);
+    expect(state.downloads).toBe(0);
+    expect((await removeTrade(request(`/trades/${trade.id}`, "DELETE", { version: 1 }), context()))?.status).toBe(409);
+    state.account = "buyer";
+    expect((await (await snapshot(request()))!.json()).trades[0].notes).toBe("Buyer secret");
   });
   it("denies guests, disabled accounts, and unavailable sessions before returning data", async () => {
     state.account = null; expect((await snapshot(request()))?.status).toBe(401);
