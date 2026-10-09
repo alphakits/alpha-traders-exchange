@@ -233,6 +233,25 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
+def load_previous(path):
+    """A damaged history file must not prevent collecting fresh evidence."""
+    try:
+        value = json.loads(Path(path).read_text(), parse_constant=reject_nonfinite)
+        if not isinstance(value, dict):
+            raise ValueError("Previous report is not an object")
+        incidents = value.get("activeIncidents", {})
+        if not isinstance(incidents, dict) or any(
+                not isinstance(item, dict) or
+                any(not isinstance(item.get(key), str) for key in ("kind", "component", "code"))
+                for item in incidents.values()):
+            raise ValueError("Previous incident state is malformed")
+        return value
+    except (OSError, ValueError):
+        # Keep the history limitation visible even when this invocation does not
+        # configure cadence checking. Never claim that old incidents recovered.
+        return {"previousStateUnavailable": True}
+
+
 class Monitor:
     def __init__(self, output, previous=None, max_observation_gap_seconds=None):
         self.output = Path(output)
@@ -355,6 +374,9 @@ def assess(report, previous=None):
         key = f"{kind}:{component}:{code}"
         incidents[key] = {"kind": kind, "component": component, "code": code}
 
+    if (previous or {}).get("previousStateUnavailable"):
+        incident("monitoring", "scheduler", "previous_observation_unavailable")
+
     expected = APIS + PAGES + AUTH_GUARDS + sorted({url for o in observations for url in o.get("assets", [])})
     for path in expected:
         samples = [o for o in observations if o["path"] == path]
@@ -418,7 +440,7 @@ def main():
     parser.add_argument("--previous")
     parser.add_argument("--max-observation-gap-seconds", type=float)
     arguments = parser.parse_args()
-    previous = json.loads(Path(arguments.previous).read_text()) if arguments.previous else None
+    previous = load_previous(arguments.previous) if arguments.previous else None
     report = Monitor(arguments.output, previous, arguments.max_observation_gap_seconds).run()
     print(json.dumps({key: report[key] for key in ("status", "coverageGaps", "activeIncidents", "notification")}))
     return 0 if report["status"] == "healthy" else 1 if report["status"] == "component_degraded" else 2

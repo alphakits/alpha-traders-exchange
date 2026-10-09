@@ -4,13 +4,14 @@ import copy
 import datetime as dt
 import io
 import json
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from production_health import (APIS, AUTH_GUARDS, BASE, CONTROL, HEALTH, LISTINGS, MARKET,
-                               PAGES, Monitor, Page, assess, validate)
+                               PAGES, Monitor, Page, assess, load_previous, main, validate)
 
 NOW = dt.datetime(2026, 10, 7, 17, 0, tzinfo=dt.timezone.utc)
 
@@ -159,6 +160,47 @@ class ContractTests(unittest.TestCase):
 
 
 class IncidentTests(unittest.TestCase):
+    def test_damaged_previous_file_does_not_stop_fresh_observations(self):
+        with tempfile.TemporaryDirectory() as folder:
+            previous = Path(folder) / "previous.json"
+            previous.write_text('{"activeIncidents":')
+            output = Path(folder) / "report.json"
+
+            def fake_batch(monitor, paths, phase, method="GET"):
+                observations = [sample(path, phase=phase, method=method) for path in paths]
+                for observation in observations:
+                    monitor.record(observation)
+                return observations
+
+            args = ["production_health.py", "--output", str(output), "--previous", str(previous)]
+            with patch.object(sys, "argv", args), patch.object(Monitor, "batch", fake_batch), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(main(), 2)
+            report = json.loads(output.read_text())
+            self.assertTrue(report["complete"])
+            self.assertTrue(report["observations"])
+            self.assertEqual(report["status"], "verification_limited")
+            self.assertEqual(report["notification"]["resolved"], [])
+            self.assertIn("monitoring:scheduler:previous_observation_unavailable", report["activeIncidents"])
+
+    def test_missing_or_invalid_history_is_explicit_not_a_website_outage(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "previous.json"
+            self.assertEqual(load_previous(path), {"previousStateUnavailable": True})
+            for body in ('null', '[]', '"text"', '{"activeIncidents":null}',
+                         '{"activeIncidents":{"bad":{}}}', '{"finishedUtc":NaN}'):
+                path.write_text(body)
+                result = assess(healthy_report(), load_previous(path))
+                self.assertEqual(result["status"], "verification_limited")
+                self.assertFalse(any(i["kind"] == "component" for i in result["activeIncidents"].values()))
+
+    def test_valid_history_preserves_prior_incident_deduplication(self):
+        value = {"finishedUtc": NOW.isoformat(), "activeIncidents": {
+            "component:market:stale": {"kind": "component", "component": MARKET, "code": "stale"}}}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "previous.json"
+            path.write_text(json.dumps(value))
+            self.assertEqual(load_previous(path), value)
+
     def test_late_monitor_detects_the_observation_gap_despite_healthy_site(self):
         report = healthy_report()
         report.update(startedUtc=NOW.isoformat(), maxObservationGapSeconds=900)

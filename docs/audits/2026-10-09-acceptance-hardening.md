@@ -21,6 +21,9 @@ had missed multiple intended observations.
   A gap over 15 minutes, missing evidence or invalid timestamps is a monitoring
   incident even when the new public checks pass. Deduplicate repeated incidents
   and report recovery once timely observations resume.
+- Keep collecting fresh evidence when the previous report file is missing,
+  truncated or malformed. Report the unavailable history as a monitoring
+  limitation rather than aborting before the first production check.
 
 ## Qualifications
 
