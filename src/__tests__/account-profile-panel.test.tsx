@@ -228,7 +228,7 @@ describe("AccountProfilePanel", () => {
   it.each(["guest", "student"] as const)("does not give a %s profile a buyer rank or seller application", async (role) => {
     stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload(role) }));
     render(<AccountProfilePanel locale="en" />);
-    await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("My profile")).toBeTruthy());
     expect(screen.queryByText("Buyer rank")).toBeNull();
     expect(screen.queryByText("Reputation board")).toBeNull();
     expect(screen.queryByRole("link", { name: "Apply as approved seller" })).toBeNull();
@@ -244,7 +244,7 @@ describe("AccountProfilePanel", () => {
 
     render(<AccountProfilePanel locale="en" />);
 
-    await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("My profile")).toBeTruthy());
     expect(screen.getByText("Test User")).toBeTruthy();
     expect(screen.getByText("Your name stays private.")).toBeTruthy();
     expect(screen.queryByText("Administration")).toBeNull();
@@ -263,7 +263,7 @@ describe("AccountProfilePanel", () => {
 
     render(<AccountProfilePanel locale="ar" />);
 
-    await waitFor(() => expect(screen.getByText("هوية التداول العامة")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("ملفي الشخصي")).toBeTruthy());
     expect(screen.getByText("Test User")).toBeTruthy();
     expect(screen.getByText("اسمك يبقى خاصًا بك.")).toBeTruthy();
     expect(screen.queryByText("إدارة مسار حسابك:")).toBeNull();
@@ -278,6 +278,100 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Failed to load identity.")).toBeTruthy());
     expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+  });
+
+  it("keeps a draft across sections and live refresh, then saves through the existing profile API", async () => {
+    const profile = makePayload("buyer");
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => ({
+      ok: true,
+      json: async () => init?.method === "PATCH"
+        ? { ...profile, profile: { ...profile.profile, ...JSON.parse(String(init.body)) } }
+        : profile,
+    }));
+    stubProfileFetch(fetchMock);
+    render(<AccountProfilePanel locale="en" />);
+    await screen.findByRole("tab", { name: "Overview" });
+    expect(document.getElementById("profile-panel-edit")?.hidden).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Edit profile" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Country" }), { target: { value: "Romania" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    await act(async () => { window.dispatchEvent(new Event("alpha-profile-updated")); });
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === "/api/auth/profile").length).toBeGreaterThan(1));
+    fireEvent.click(screen.getByRole("tab", { name: "Edit profile" }));
+    expect((screen.getByRole("textbox", { name: "Country" }) as HTMLInputElement).value).toBe("Romania");
+    fireEvent.submit(document.getElementById("profile-edit-form")!);
+    await screen.findByText("Trading identity saved.");
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/profile", expect.objectContaining({ method: "PATCH", body: expect.stringContaining('"country":"Romania"') }));
+  });
+
+  it("keeps notification controls out of the initial profile and supports keyboard tabs", async () => {
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload("buyer") }));
+    render(<AccountProfilePanel locale="en" />);
+    const overview = await screen.findByRole("tab", { name: "Overview" });
+    expect(screen.queryByText("Notification Preferences")).toBeNull();
+    fireEvent.keyDown(overview, { key: "End" });
+    await screen.findByText("Notification Preferences");
+    expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Alerts" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(document.getElementById("profile-panel-alerts")?.hidden).toBe(true);
+  });
+
+  it("keeps the editor and save confirmation mounted while the canonical account refreshes", async () => {
+    let profile = makePayload("buyer");
+    const user = { ...profile.profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: profile.profile.memberSince };
+    let saved = false;
+    let releaseSession: () => void = () => {};
+    const sessionGate = new Promise<void>(resolve => { releaseSession = resolve; });
+    stubProfileFetch(vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/me") {
+        if (saved) await sessionGate;
+        return Response.json({ user: { ...user, bio: profile.profile.bio } });
+      }
+      if (init?.method === "PATCH") {
+        profile = { ...profile, profile: { ...profile.profile, ...JSON.parse(String(init.body)) } };
+        saved = true;
+      }
+      return Response.json(profile);
+    }));
+    render(<CanonicalSessionProvider initialSessionUser={user}><AccountProfilePanel locale="en" /></CanonicalSessionProvider>);
+    await screen.findByRole("tab", { name: "Edit profile" });
+    fireEvent.click(screen.getByRole("tab", { name: "Edit profile" }));
+    const bio = screen.getByRole("textbox", { name: "Professional bio" });
+    fireEvent.change(bio, { target: { value: "My saved profile" } });
+    fireEvent.submit(document.getElementById("profile-edit-form")!);
+    await screen.findByText("Trading identity saved.");
+    expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Professional bio" })).toBe(bio);
+    await act(async () => { releaseSession(); await sessionGate; });
+    await waitFor(() => expect(screen.getByText("Trading identity saved.")).toBeTruthy());
+    expect(screen.getByRole("textbox", { name: "Professional bio" })).toBe(bio);
+  });
+
+  it("opens contact and notification deep links in the matching section", async () => {
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload("buyer") }));
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, hash: "#contact-details" } });
+    try {
+      render(<AccountProfilePanel locale="en" />);
+      await waitFor(() => expect(screen.getByRole("tab", { name: "Edit profile" }).getAttribute("aria-selected")).toBe("true"));
+      window.location.hash = "#notification-preferences";
+      fireEvent(window, new Event("hashchange"));
+      await waitFor(() => expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true"));
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("puts seller tools near the top and keeps the unreleased journal non-navigable", async () => {
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makeSellerPayload("gold", 8) }));
+    render(<AccountProfilePanel locale="en" />);
+    const nav = await screen.findByRole("navigation", { name: "Quick actions" });
+    expect(nav.querySelector('a[href="/dashboard/seller"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/trades"]')).toBeTruthy();
+    expect(nav.querySelector('a[href="/journal"]')).toBeNull();
+    expect(screen.getByText("Coming soon")).toBeTruthy();
+    expect(nav.compareDocumentPosition(document.getElementById("profile-edit-form")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("never exposes an unexpected English photo API error in Arabic", async () => {
