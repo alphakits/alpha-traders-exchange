@@ -8,9 +8,45 @@ function result(symbol = "ETHUSDT", stale = false) {
     { time: Date.now(), open: 2705, high: 2715, low: 2695, close: 2700 },
   ] } };
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.ReactNativeWebView; });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete window.ReactNativeWebView; });
 
 describe("charts stay inside Alpha Traders", () => {
+  it("pauses hidden and offline chart requests and refreshes once on return", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => result() });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MarketPriceCharts locale="en" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    act(() => { visibility.mockReturnValue("hidden"); document.dispatchEvent(new Event("visibilitychange")); });
+    expect(screen.getByRole("status").textContent).toContain("Delayed update");
+    await act(async () => { await vi.advanceTimersByTimeAsync(600_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    act(() => { online.mockReturnValue(false); window.dispatchEvent(new Event("offline")); });
+    act(() => { visibility.mockReturnValue("visible"); document.dispatchEvent(new Event("visibilitychange")); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    act(() => { online.mockReturnValue(true); window.dispatchEvent(new Event("online")); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("img", { name: /ETH\/USDT/ })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).not.toContain("Delayed update");
+  });
+
+  it("ends a stuck body read and allows retry even if transport ignores abort", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => new Promise(() => {}) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MarketPriceCharts locale="en" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    fetchMock.mockResolvedValue({ ok: true, json: async () => result() });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("img", { name: /ETH\/USDT/ })).toBeTruthy();
+  });
+
   it.each(["en", "ar"] as const)("renders and switches %s charts in browsers and installed shells without external navigation", async (locale) => {
     const fetchMock = vi.fn(async (url: string) => ({ ok: true, json: async () => result(url.includes("BTCUSDT") ? "BTCUSDT" : "ETHUSDT") }));
     vi.stubGlobal("fetch", fetchMock);
