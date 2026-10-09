@@ -6,6 +6,7 @@ import { E2E_BASE_URL } from "./support/base-url";
 import { createE2eSellerApprovalVerification } from "./support/seller-verification";
 import type { MarketSnapshot } from "../src/types/market";
 import type { MarketChartSnapshot } from "../src/types/market-chart";
+import { isFxPairUsable } from "../packages/contracts/src/usd-ils-reference";
 
 const scrypt = promisify(scryptCb);
 const H = { "x-alpha-test-support": "enabled" };
@@ -255,9 +256,13 @@ test.describe("Marketplace Pulse", () => {
     await expect(overview.locator("summary, details, button, a, iframe")).toHaveCount(0);
     const reference = overview.locator('[data-market-chart="USDTILS"]');
     await reference.scrollIntoViewIfNeeded();
-    await expect(reference.getByText(`₪${snapshot.pairs.usdtIls.price.toFixed(2)}`, { exact: true })).toBeVisible();
-    const referenceFresh = !snapshot.stale && !snapshot.unavailablePairs.includes("usdtIls");
-    await expect(reference.getByText(referenceFresh ? "History since this page opened" : "Reference update delayed", { exact: true })).toBeVisible();
+    const fxPair = snapshot.pairs.usdtIls;
+    await expect(reference.getByText(fxPair.price > 0 ? `₪${fxPair.price.toFixed(5)}` : "—", { exact: true })).toBeVisible();
+    const referenceFresh = isFxPairUsable(fxPair) && !snapshot.unavailablePairs.includes("usdtIls");
+    const referenceStatus = referenceFresh
+      ? (fxPair.quoteStatus === "closed" ? "Market closed · last close" : "History since this page opened")
+      : "Reference update delayed";
+    await expect(reference.getByText(referenceStatus, { exact: true })).toBeVisible();
     for (const chart of charts) {
       const tile = overview.locator(`[data-market-chart="${chart.symbol}"]`);
       await tile.scrollIntoViewIfNeeded();

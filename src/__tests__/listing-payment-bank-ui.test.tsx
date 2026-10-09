@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { USD_ILS_REFERENCE_SYMBOL } from "@alpha-traders/contracts";
 
 vi.mock("next/image", () => ({ default: () => <span /> }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
@@ -23,6 +24,7 @@ const savedAccount = { id: "saved-bank", bankName: "Bank Leumi", maskedAccountNu
 let bankAccounts: typeof savedAccount[];
 let submittedListing: Record<string, unknown> | undefined;
 let mobile: boolean;
+let marketAvailable: boolean;
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
@@ -32,6 +34,7 @@ beforeEach(() => {
   bankAccounts = [];
   submittedListing = undefined;
   mobile = false;
+  marketAvailable = true;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn((query: string) => ({
@@ -43,6 +46,15 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.includes("/api/market/center")) return marketAvailable ? json({ snapshot: {
+      status: "live", updatedAt: new Date().toISOString(), stale: false, unavailablePairs: [],
+      pairs: {
+        btcUsdt: { key: "btcUsdt", label: "BTC / USDT", price: 81000, source: "test", changePercent: null },
+        ethUsdt: { key: "ethUsdt", label: "ETH / USDT", price: 2700, source: "test", changePercent: null },
+        usdtIls: { key: "usdtIls", label: "USD / ILS", price: 3.054, source: USD_ILS_REFERENCE_SYMBOL,
+          changePercent: null, quoteStatus: "live", quotedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString() },
+      },
+    } }) : json({}, 503);
     if (url.includes("/seller-settings")) return json({ bankAccounts });
     if (url.includes("/my-listings")) return json({
       listings: [], summary: { activeListingLimit: 3, openListingCount: 0, openTradeCount: 0, pendingCommissionCount: 0, canCreateListing: true, blockedReason: null },
@@ -131,6 +143,18 @@ describe("listing payment-method bank requirements", () => {
 });
 
 describe("create-listing review summary", () => {
+  it("does not submit a listing using a fallback price when the live quote is unavailable", async () => {
+    marketAvailable = false;
+    const form = await openForm(["Face-to-Face (Meet in Person)"]);
+    fireEvent.click(form.getByRole("button", { name: "Continue to payment" }));
+    fireEvent.click(form.getByRole("button", { name: "Review listing" }));
+    fireEvent.click(form.getByRole("checkbox"));
+    const submit = form.getByRole("button", { name: "Submit Listing" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(submit);
+    expect(submittedListing).toBeUndefined();
+  });
+
   it.each(["en", "ar"] as const)("keeps exact amounts and commission consent through submission (%s)", async (locale) => {
     const form = await openForm(["Face-to-Face (Meet in Person)"], locale);
     const available = document.getElementById("create-available") as HTMLInputElement;
