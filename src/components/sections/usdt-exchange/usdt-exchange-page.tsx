@@ -3,6 +3,7 @@ import { AccountVerificationBadges } from "@/components/profile/account-verifica
 import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
+import { MarketplaceToolPanel } from "@/components/sections/usdt-exchange/marketplace-tool-panel";
 import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
@@ -142,6 +143,7 @@ function focusWorkspaceSection(sectionId: string) {
   if (typeof document === "undefined") return false;
   const invocationTarget = document.activeElement;
   let trackedTarget = document.getElementById(sectionId);
+  if (trackedTarget instanceof HTMLDetailsElement) trackedTarget.open = true;
   let hasScrolledToTarget = false;
   let pendingAnimationFrame: number | null = null;
   let stopped = false;
@@ -3928,6 +3930,7 @@ export function UsdtExchangePage({
           onClick: () => {
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
+              if (target instanceof HTMLDetailsElement) target.open = true;
               if (desktopSellerNavigation) focusWorkspaceSection(target.id);
               else target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
@@ -4034,6 +4037,7 @@ export function UsdtExchangePage({
             }
             const target = document.getElementById("market-overview");
             if (!isDashboardWorkspace && target) {
+              if (target instanceof HTMLDetailsElement) target.open = true;
               target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
@@ -5368,17 +5372,7 @@ export function UsdtExchangePage({
         </div>
 
         {/* Professional live market panel */}
-        <div id="market-overview" tabIndex={desktopWorkspaceNavigation ? -1 : undefined} className={cn("mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]", desktopWorkspaceNavigation && "scroll-mt-24")}>
-          <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-5">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{isAr ? "السوق المباشر" : "Live Market"}</p>
-              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "تسعير فوري لثلاثة أزواج مرجعية" : "Real-time pricing across three reference pairs"}</p>
-            </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300">
-              <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-              {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "آخر تحديث" : "Last update")}
-            </span>
-          </div>
+        <MarketplaceToolPanel id="market-overview" tabIndex={desktopWorkspaceNavigation ? -1 : undefined} title={isAr ? "نظرة عامة على السوق" : "Market Overview"} isAr={isAr} icon={<TrendingUp aria-hidden="true" className="h-4 w-4 shrink-0 text-[#D4AF37]" />} className="mt-4" bodyClassName="">
           {(() => {
             const marketCards = [
               marketSnapshot?.pairs.usdtIls ?? { key: "usdtIls" as const, label: "USDT / ILS", price: marketPricePerUsdt, changePercent: null, source: "alpha-reference" },
@@ -5423,7 +5417,7 @@ export function UsdtExchangePage({
             </span>
             <span>{isAr ? "الحالة" : "Status"}: <span className={marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}>{marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "متدهور" : "Degraded")}</span></span>
           </div>
-        </div>
+        </MarketplaceToolPanel>
 
         {isApprovedSeller && showSellerWorkspace ? (
           <SellerListingsWorkspacePortal
@@ -5494,11 +5488,7 @@ export function UsdtExchangePage({
 
         {/* Recent completed trades — visible to all to signal activity */}
         {recentCompletedTrades.length ? (
-          <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
-                {isAr ? "الصفقات المكتملة مؤخرًا" : "Recently Completed Trades"}
-              </p>
+          <MarketplaceToolPanel title={isAr ? "الصفقات المكتملة مؤخرًا" : "Recently Completed Trades"} isAr={isAr} icon={<CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-400" />}>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {visibleRecentCompletedTrades.map((trade) => (
                   <div key={`recent-completed-${trade.id}`} className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
@@ -5525,18 +5515,10 @@ export function UsdtExchangePage({
                     : (isAr ? `عرض ${recentCompletedTrades.length - 1} صفقات إضافية` : `Show ${recentCompletedTrades.length - 1} more`))}
                 </Button>
               ) : null}
-            </CardContent>
-          </Card>
+          </MarketplaceToolPanel>
         ) : null}
 
-        <div className="mt-5 flex items-center justify-end">
-          <Button type="button" variant="secondary" onClick={() => setShowMarketplaceFilters((value) => !value)}>
-            {showMarketplaceFilters ? (isAr ? "إخفاء الفلاتر" : "Hide Advanced Filters") : (isAr ? "فلاتر متقدمة" : "Advanced Filters")}
-          </Button>
-        </div>
-        {showMarketplaceFilters ? (
-          <Card className="mt-3 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-4">
+        <MarketplaceToolPanel title={isAr ? "فلاتر متقدمة" : "Advanced Filters"} isAr={isAr} defaultOpen={showMarketplaceFilters}>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="all">{isAr ? "العملة: الكل" : "Currency: All"}</option>
@@ -5575,9 +5557,7 @@ export function UsdtExchangePage({
                   {onlineOnlyFilter ? (isAr ? "البائعون المتصلون فقط" : "Online Sellers Only") : (isAr ? "إظهار البائعين المتصلين فقط" : "Show Online Sellers Only")}
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        ) : null}
+        </MarketplaceToolPanel>
 
         {sessionUser && hasBuyerRole ? <MarketplacePriceAlertPanel key={sessionUser.id} userId={sessionUser.id} isAr={isAr} /> : null}
         <div id="buyer-marketplace-listings" tabIndex={desktopBuyerNavigation ? -1 : undefined} className={cn("mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3", desktopBuyerNavigation && "scroll-mt-24")}>
