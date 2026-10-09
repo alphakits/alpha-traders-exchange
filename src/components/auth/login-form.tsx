@@ -269,7 +269,7 @@ export function LoginForm({
               {isAr ? "دخول احترافي إلى Alpha Academy و Alpha Exchange." : "Premium access to Alpha Academy and Alpha Exchange."}
             </h2>
             <p className="mt-4 max-w-lg text-sm leading-7 text-[#D1D5DB]">
-              {isAr ? "تجربة تسجيل دخول مصممة لبيئة تداول احترافية: سرعة، وضوح، وثقة في كل خطوة." : "A modern black-and-gold financial login experience built for clarity, trust, and fast access to your trading workspace."}
+              {isAr ? "دوراتك وصفقاتك في حساب واحد." : "Your courses and trades, in one account."}
             </p>
           </div>
           <div className="relative z-10 mt-8 grid gap-3">
@@ -312,17 +312,17 @@ export function LoginForm({
             </div>
             <p className={`${isNativeApp ? appStyles.intro : ""} mt-3 max-w-lg text-sm leading-7 text-[#9CA3AF]`}>
               {brandText(isExchangePage(redirectTo ?? "")
-                ? (isAr ? "سجّل الدخول للوصول إلى Alpha Exchange وتصفّح العروض المتاحة." : "Sign in to access Alpha Exchange and browse available listings.")
+                ? (isAr ? "سجّل الدخول لتصفّح عروض USDT." : "Sign in to browse USDT listings.")
                 : isNativeApp
-                ? (isAr ? "ادخل إلى Alpha Academy و Alpha Exchange باستخدام حسابك في Alpha Traders." : "Access Alpha Academy and Alpha Exchange with your Alpha Traders account.")
-                : (isAr ? "أهلًا بعودتك إلى Alpha Traders. سجّل الدخول لمتابعة صفقاتك ودوراتك." : "Welcome back to Alpha Traders. Sign in to your trades and courses."))}
+                ? (isAr ? "سجّل الدخول لدوراتك وصفقاتك." : "Sign in to your courses and trades.")
+                : (isAr ? "سجّل الدخول للمتابعة." : "Sign in to continue."))}
             </p>
 
             <div className={isNativeApp ? appStyles.benefits : "mt-6 hidden gap-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/8 p-4 text-sm text-[#E5E7EB] sm:grid sm:grid-cols-2"}>
               {(isAr
                 ? ["حفظ تقدّمك في الأكاديمية", "الوصول إلى دوراتك", "شراء وبيع USDT بأمان", "استلام الإشعارات", "بناء ملفك كمتداول", "تتبّع رحلتك في التداول"]
                 : ["Save Academy progress", "Access your courses", "Buy & sell USDT securely", "Receive notifications", "Build your trader profile", "Track your trading journey"]
-              ).map((item, index) => {
+              ).slice(0, 2).map((item, index) => {
                 const Icon = benefitIcons[index];
                 return <div key={item} className={isNativeApp ? appStyles.benefit : "rounded-xl border border-white/10 bg-black/20 px-3 py-2"}>
                   {isNativeApp && Icon ? <Icon size={17} strokeWidth={1.5} aria-hidden="true" /> : null}

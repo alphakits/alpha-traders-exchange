@@ -89,7 +89,7 @@ it.each(["completed", "review_open", "locked"] as const)("keeps a %s notificatio
   refreshed.request.updatedAt = "2026-09-22T00:00:01.000Z";
   await act(async () => { RoomStream.instances[0]!.snapshot(refreshed); });
   await waitFor(() => expect(readTradeRoomCache<ReturnType<typeof room>>("feedback-request", buyer.id)?.request.status).toBe(status));
-  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
   await waitFor(() => expect(document.activeElement?.id).toBe("status-banner"));
 });
 
@@ -242,7 +242,7 @@ it.each([
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   fireEvent.click(await screen.findByRole("button", { name: "Mark Trade as Completed" }));
   expect(window.confirm).toHaveBeenCalled();
-  expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
   const calls = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
   expect(calls).toHaveLength(1);
   expect(JSON.parse(String(calls[0]?.[1]?.body))).toEqual({ action: "complete_trade", usdtSentConfirmed: true });
@@ -282,7 +282,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     // A later counterparty confirmation must replace the earlier success label.
     current = { ...current, request: { ...current.request, status: "review_open", updatedAt: "2026-09-22T00:00:05.000Z" } };
     await act(async () => RoomStream.instances.at(-1)!.snapshot(current));
-    expect(await screen.findByText("🎉 Trade Completed Successfully")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Trade Completed Successfully" })).toBeTruthy();
     expect(screen.queryByTestId("trade-action-feedback")).toBeNull();
   });
 
@@ -661,7 +661,7 @@ it.each([
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   const confirm = await screen.findByRole("button", { name: button });
   expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("ILS 3,232.00");
-  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("Already includes the buyer’s 1% fee");
+  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("Buyer’s 1% fee included.");
   fireEvent.click(confirm);
   expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("I confirm I received the full ILS 3,232.00, including the buyer’s 1% fee"));
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);

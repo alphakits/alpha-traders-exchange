@@ -24,8 +24,8 @@ export default async function SupportPage({ params }: { params: Promise<{ locale
         <div className="mt-4 space-y-4 text-sm leading-7 text-[#D1D5DB]">
           <p>
             {brandText(isAr
-              ? "للمساعدة في الحساب، التسجيل، أو مشاكل التداول، تواصل مع دعم Alpha Traders."
-              : "For account, onboarding, or trade support, contact Alpha Traders support.")}
+              ? "أخبرنا بما تحتاج مساعدة فيه."
+              : "Tell us what you need help with.")}
           </p>
           <p>
             {isAr ? "البريد:" : "Email:"}{" "}
@@ -38,8 +38,8 @@ export default async function SupportPage({ params }: { params: Promise<{ locale
           </p>
           <p>
             {isAr
-              ? "يمكنك أيضًا إرسال تفاصيل المشكلة مباشرة من نموذج الدعم الآمن أدناه. لا ترسل كلمة المرور أو رموز الاسترداد أو المفاتيح الخاصة."
-              : "You can also send the full issue details directly through the secure support form below. Never include a password, recovery code, or private key."}
+              ? "استخدم النموذج أدناه. لا ترسل كلمات المرور أو رموز الاسترداد أو المفاتيح الخاصة."
+              : "Use the form below. Never send passwords, recovery codes, or private keys."}
           </p>
         </div>
       </div>

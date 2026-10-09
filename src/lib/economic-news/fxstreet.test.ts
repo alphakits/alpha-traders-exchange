@@ -77,7 +77,7 @@ describe("server-only FXStreet transport", () => {
     expect(Object.fromEntries(auth.body)).toEqual({ grant_type: "client_credentials", client_id: "example-id", client_secret: "example-secret", scope: "calendar" });
     const [url, request] = fetch.mock.calls[1];
     expect(url.origin).toBe("https://calendar-api.fxstreet.com");
-    expect(url.pathname).toBe("/en/api/v1/eventDates/2026-09-22T00:00:00.000Z/2026-10-06T23:59:59.999Z");
+    expect(url.pathname).toBe("/en/api/v1/eventDates/2026-09-14T00:00:00.000Z/2026-10-14T23:59:59.999Z");
     expect(Object.fromEntries(url.searchParams)).toEqual({ countries: "US", volatilities: "HIGH" });
     expect(request).toMatchObject({ cache: "no-store", redirect: "error", headers: { Authorization: "Bearer example-token" } });
     expect(String(url)).not.toContain("example-secret");

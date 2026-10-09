@@ -236,7 +236,7 @@ describe("seller commission Pay Now", () => {
       expect(section?.textContent).toContain(listingCommissionRequiredMessage(isAr));
       return within(section);
     });
-    expect((createSection.getByRole("button", { name: isAr ? "إرسال العرض" : "Submit Listing" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((createSection.getByRole("button", { name: isAr ? "متابعة إلى الدفع" : "Continue to payment" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(createSection.getByRole("button", { name: /Pay Now|ادفع الآن/ }));
     await waitFor(() => expect(document.getElementById("commission-payment")).not.toBeNull());
     const localized = await readApiErrorMessage(jsonResponse({ error: listingCommissionRequiredMessage() }, 400), isAr ? "تعذر تحديث العرض" : "Unable to update listing");

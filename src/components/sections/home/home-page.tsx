@@ -40,9 +40,9 @@ export async function HomePage({
   };
 
   return (
-    <div className="space-y-16 py-10 md:space-y-20 md:py-14">
+    <div className="alpha-home space-y-16 py-10 md:space-y-20 md:py-14">
       <section className="section-container">
-        <div className="relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
+        <div className="alpha-home-hero relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
           <div className="alpha-reveal-fade absolute inset-0">
             <Image
               src="/images/hero/hero-trading-office.webp"
@@ -119,7 +119,7 @@ export async function HomePage({
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-semibold text-white">{isRtl ? "جديد في Alpha Traders؟" : "New to Alpha Traders?"}</p>
-            <p className="mt-1 text-sm text-[#9CA3AF]">{isRtl ? "اختر بين مسار تعليم التداول المجاني ودليل USDT / ILS من نقطة بداية واحدة." : "Choose between the free trading education path and the USDT / ILS guide from one clear starting point."}</p>
+            <p className="mt-1 text-sm text-[#9CA3AF]">{isRtl ? "تعلّم مجانًا أو استكشف تداول USDT / ILS." : "Learn for free or explore USDT / ILS trading."}</p>
           </div>
           <Link href="/start" className={cn(buttonVariants({ variant: "secondary" }), "shrink-0")}>
             {isRtl ? "ابدأ من هنا" : "Start Here"}
@@ -149,8 +149,8 @@ export async function HomePage({
               </h2>
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
                 {currencyText(isRtl
-                  ? "سواء كنت تريد تعلم التداول باحتراف أو شراء وبيع USDT بأمان، Alpha Traders يقدم لك المسار المناسب."
-                  : "Whether you want to learn trading or use a structured workflow to buy and sell USDT, Alpha Traders gives you a clear path.")}
+                  ? "تعلّم التداول مجانًا. اشترِ وبِع USDT مع بائعين معتمدين."
+                  : "Learn trading for free. Buy and sell USDT with approved sellers.")}
               </p>
             </div>
 
@@ -164,8 +164,8 @@ export async function HomePage({
                   <CardContent className="space-y-4">
                     <p className="text-sm leading-7 text-[#9CA3AF]">
                       {isRtl
-                        ? "أتقن التداول عبر دروس منظمة تغطي السيكولوجية، هيكل السوق، إدارة المخاطر، والتعليم العملي."
-                        : "Master trading through structured lessons, psychology, market structure, risk management, and practical education."}
+                        ? "دروس مجانية في هيكل السوق وعلم النفس وإدارة المخاطر."
+                        : "Free lessons in market structure, psychology, and risk management."}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
                       {(isRtl
@@ -194,8 +194,8 @@ export async function HomePage({
                   <CardContent className="space-y-4">
                     <p className="text-sm leading-7 text-[#9CA3AF]">
                       {currencyText(isRtl
-                        ? "استخدم مسار USDT منظمًا مع بائعين راجعت Alpha Exchange صلاحية وصولهم."
-                        : "Use a structured USDT workflow with sellers whose platform access was reviewed by Alpha Exchange.")}
+                        ? "قارن البائعين المعتمدين وأدِر صفقتك في مكان واحد."
+                        : "Compare approved sellers and manage your trade in one place.")}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
                       {(isRtl
@@ -224,24 +224,24 @@ export async function HomePage({
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "مسار المشتري" : "Buyer Journey"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "تسجيل دخول ← مقارنة البائعين ← درجة الثقة والتقييمات ← طلب الصفقة ← إكمال الصفقة ← تقييم"
-                    : "Register/Login -> Compare sellers -> Trust Score + Reviews -> Submit trade request -> Trade lifecycle -> Leave review"}
+                    ? "قارن البائعين، أرسل طلبًا، ثم اتبع خطوات الصفقة."
+                    : "Compare sellers, send a request, then follow the trade steps."}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "مسار البائع" : "Seller Journey"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "تسجيل ← طلب اعتماد بائع ← موافقة المالك ← إنشاء عرض ← مراجعة المالك ← استقبال الطلبات ← نمو درجة الثقة"
-                    : "Register -> Seller application -> Owner approval -> Create listing -> Owner review -> Receive requests -> Grow trust score"}
+                    ? "احصل على الموافقة، أنشئ عرضًا، ثم ردّ على المشترين."
+                    : "Get approved, create a listing, then respond to buyers."}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "تشغيل المالك" : "Owner Operations"}</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "عمولات التداول" : "Trading fees"}</p>
                 <p className="commission-notice mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "كل صفقة مكتملة تحدّث تلقائيًا: الحجم، العمولة، إحصاءات البائع، درجة الثقة، والتحليلات."
-                    : "Every completed trade automatically updates volume, commission, seller statistics, trust score, and marketplace analytics."}
+                    ? "تستحق العمولة بعد إكمال الصفقة."
+                    : "Commission is due after a completed trade."}
                 </p>
                 <p className="commission-notice mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
                   <Coins className="h-3.5 w-3.5" />
@@ -252,8 +252,8 @@ export async function HomePage({
             <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#C9A227]">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {brandText(isRtl
-                ? "تعلم أو استخدم مسار السوق المنظم: توضح Alpha Traders التجربتين باحترافية."
-                : "Learn or use the structured marketplace workflow: Alpha Traders explains both experiences clearly.")}
+                ? "اختر التعلّم أو منصة التداول."
+                : "Choose learning or the exchange.")}
             </div>
           </CardContent>
         </Card>

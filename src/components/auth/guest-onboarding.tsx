@@ -358,8 +358,8 @@ export function GuestOnboarding({
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#CDD2DD] md:text-base">
                 {isAr
-                  ? "اختر المسار الذي يناسبك الآن. يمكنك ترقية دورك لاحقًا من الإعدادات بدون فقدان بياناتك."
-                  : "Choose the path that fits you now. You can upgrade roles later from settings without losing your progress."}
+                  ? "اختر كيف تبدأ. يمكنك التغيير لاحقًا من الإعدادات."
+                  : "Choose how to start. You can change this later in Settings."}
               </p>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-xs text-[#A8B0BF]">
@@ -435,8 +435,8 @@ export function GuestOnboarding({
                   <p className="flex items-center gap-2 font-medium"><Clock3 className="h-4 w-4" />{isAr ? "سجل التحقق يحتاج إلى مطابقة." : "Verification record reconciliation is required."}</p>
                   <p className="mt-1 text-xs text-amber-100/90">
                     {isAr
-                      ? "يبقى نشر العروض وبدء الصفقات مقفلاً حتى يسجّل مراجع مخوّل اكتمال فحص الهوية والفيديو وملكية وسيلة التواصل وقواعد السوق."
-                      : "Listings and new trades remain locked until an authorized reviewer records the completed ID, live-video, contact-ownership, and marketplace-rules checks."}
+                      ? "موافقة البائع تتطلب التحقق من الهوية والفيديو وملكية الهاتف وقواعد السوق."
+                      : "Seller approval requires ID, video, phone ownership, and marketplace-rules checks."}
                   </p>
                   <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => router.replace("/usdt-exchange")}>
                     {isAr ? "العودة إلى Exchange" : "Return to Exchange"}
@@ -651,8 +651,8 @@ export function GuestOnboarding({
                   </div>
                   <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
                     {isAr
-                      ? "الموافقة على البائعين تتم يدويًا لحماية المشترين والحفاظ على سوق موثوق."
-                      : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace."}
+                      ? "نراجع طلبات البائعين قبل الموافقة."
+                      : "We review seller applications before approval."}
                   </p>
                   <Input
                     aria-label={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}

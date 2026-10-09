@@ -170,7 +170,7 @@ export function SellerApplicationSection({
                 <Textarea placeholder={isAr ? "ملاحظات إضافية (اختياري)" : "Additional notes (optional)"} value={form.additionalNotes} onChange={(event) => onFormChange("additionalNotes", event.target.value)} />
                 <Button type="submit" className="w-full" disabled={!form.firstName || !form.lastName || !form.whatsappNumber || methods.length === 0}>{isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}</Button>
               </form>
-              <p className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-[#9CA3AF]">{isAr ? "تتم الموافقة على البائعين يدويًا لحماية المشترين والحفاظ على سوق موثوق. تُراجَع الطلبات بشكل فردي وقد تُطلب معلومات إضافية." : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace. Applications are reviewed individually and additional information may be requested before approval."}</p>
+              <p className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-[#9CA3AF]">{isAr ? "نراجع كل طلب وقد نطلب معلومات إضافية." : "We review each application and may ask for more information."}</p>
               {shouldCondense ? <Button type="button" variant="secondary" onClick={() => onExpandedChange(false)}>{isAr ? "إخفاء طلب البائع" : "Hide Seller Application"}</Button> : null}
             </>
           )}

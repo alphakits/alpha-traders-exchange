@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils";
 
-export function Progress({ value, className }: { value: number; className?: string }) {
+export function Progress({ value, className, label = "Progress" }: { value: number; className?: string; label?: string }) {
+  const percent = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
   return (
-    <div className={cn("h-2 w-full overflow-hidden rounded-full bg-white/10", className)}>
+    <div role="progressbar" aria-label={label} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} data-complete={percent === 100 ? "true" : undefined} className={cn("alpha-progress h-2 w-full overflow-hidden rounded-full", className)}>
       <div
-        className="h-full rounded-full bg-[#C9A227] transition-all duration-500"
-        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+        className="alpha-progress__fill"
+        style={{ width: `${percent}%` }}
       />
     </div>
   );

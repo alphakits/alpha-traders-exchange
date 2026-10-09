@@ -22,7 +22,7 @@ export function CardlessWithdrawalFields(props: Props) {
     <fieldset id="cardless-withdrawal-details" disabled={disabled} className="scroll-mt-28 space-y-4 rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 p-4">
       <legend className="px-1 font-semibold text-[#FDE68A]">{isAr ? "بيانات السحب دون بطاقة" : "Cardless withdrawal details"}</legend>
       <p id="cardless-details-help" className="text-sm text-[#D1D5DB]">
-        {isAr ? "أدخل رمز السحب، ثم رقم الهوية أو تاريخ الميلاد الذي يطلبه البنك. الخانتان مطلوبتان لإرسال البيانات للبائع." : "Enter the withdrawal code and the ID number or date of birth requested by the bank. Both fields are required to send the details to the seller."}
+        {isAr ? "أدخل الرمز ورقم الهوية أو تاريخ الميلاد الذي يطلبه البنك." : "Enter the code and the ID number or date of birth required by your bank."}
       </p>
       <div className="space-y-2">
         <label htmlFor="cardless-withdrawal-code" className="block text-sm font-medium">{isAr ? "١. رمز السحب" : "1. Withdrawal code"}</label>
@@ -51,7 +51,7 @@ export function CardlessWithdrawalFields(props: Props) {
           {isAr ? "اكتب يوم/شهر/سنة، مثال: 25/08/1995" : "Type day/month/year, for example: 25/08/1995"}
         </p> : null}
       </div>
-      <p className="text-xs text-[#D1D5DB]">{props.phase === "request" ? (isAr ? "جهّز السحب من البنك أولاً. تبقى البيانات مخفية حتى يقبل البائع؛ بعد القبول يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Prepare the withdrawal with your bank first. Details stay hidden until the seller accepts; cash collection then starts and normal cancellation is no longer available.") : isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
+      <p className="text-xs text-[#D1D5DB]">{props.phase === "request" ? (isAr ? "أنشئ الرمز لدى بنكك أولًا. تظهر التفاصيل بعد القبول، ثم يُقفل الإلغاء." : "Create the code with your bank first. Details unlock after acceptance; cancellation then closes.") : isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
     </fieldset>
   );
 }

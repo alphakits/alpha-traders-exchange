@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { arabicEventTitle, type NewsEvent } from "./model";
+import { NEWS_CALENDAR_WINDOW_MS, arabicEventTitle, type NewsEvent } from "./model";
 import { configuredNewsProvider } from "./config";
 import { fetchFxStreetNews } from "./fxstreet";
 
@@ -66,8 +66,8 @@ export async function fetchEconomicNews(now = new Date()): Promise<NewsEvent[]> 
   if (provider === "fxstreet") return fetchFxStreetNews(now, {
     clientId: process.env.FXSTREET_CLIENT_ID!.trim(), clientSecret: process.env.FXSTREET_CLIENT_SECRET!.trim(),
   });
-  const start = new Date(now.getTime() - 7 * 86_400_000).toISOString().slice(0, 10);
-  const end = new Date(now.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const start = new Date(now.getTime() - NEWS_CALENDAR_WINDOW_MS).toISOString().slice(0, 10);
+  const end = new Date(now.getTime() + NEWS_CALENDAR_WINDOW_MS).toISOString().slice(0, 10);
   const url = new URL(`https://api.tradingeconomics.com/calendar/country/united%20states/${start}/${end}`);
   url.searchParams.set("c", process.env.TRADING_ECONOMICS_API_KEY!.trim());
   url.searchParams.set("importance", "3");

@@ -87,8 +87,8 @@ export default function OnboardingScreen() {
             </Text>
             <Text style={[styles.bodyLight, isRTL && styles.rtlText]}>
               {isAr
-                ? "اختر المسار الذي يناسبك الآن. يمكنك ترقية دورك لاحقًا من الإعدادات بدون فقدان بياناتك."
-                : "Choose the path that fits you now. You can upgrade roles later from settings without losing your progress."}
+                ? "اختر كيف تبدأ. يمكنك التغيير لاحقًا من الإعدادات."
+                : "Choose how to start. You can change this later in Settings."}
             </Text>
           </View>
 

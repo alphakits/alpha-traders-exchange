@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { CheckCircle2, CircleDot, Radar, ScanLine, ShieldCheck } from "lucide-react";
+import { CheckCircle2, CircleDot, ScanLine } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { HelpDetails } from "@/components/ui/help-details";
 
 type CommissionScanState = "awaiting" | "confirming" | "review" | "verified" | "unavailable";
 
@@ -44,58 +45,24 @@ export function CommissionAutomationPanel({
   const needsAttention = state === "review" || state === "unavailable";
 
   return (
-    <section
-      aria-label={isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}
-      dir={isAr ? "rtl" : "ltr"}
-      className="commission-surface relative isolate overflow-hidden rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-950/60 via-[#0B1514] to-[#091019] p-4 shadow-[inset_0_1px_0_rgba(110,231,183,0.08)] sm:p-5"
-    >
-      <div aria-hidden="true" className="pointer-events-none absolute -end-10 -top-14 -z-10 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
-      <div className="flex items-start gap-3">
-        <div aria-hidden="true" className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/30 bg-emerald-300/10 text-emerald-200">
-          <Radar className="h-6 w-6" />
-          <span className="absolute -bottom-1 -end-1 h-2.5 w-2.5 rounded-full border-2 border-[#0B1514] bg-emerald-300" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="commission-notice text-[10px] font-semibold tracking-wide text-emerald-300">{isAr ? "تأكيد تلقائي للعمولة" : "AUTOMATIC COMMISSION CONFIRMATION"}</p>
-          <h3 className="mt-1 text-lg font-semibold leading-snug text-white">{isAr ? "فحص ذكي للبلوك تشين" : "Smart Blockchain Scan"}</h3>
-          <p className="mt-1 text-xs leading-5 text-emerald-100/75">{isAr ? "فحص البلوك تشين وإيداعات Binance · كل دقيقة" : "Blockchain & Binance deposit checks · every minute"}</p>
-        </div>
-      </div>
-
-      <Link href={`/${isAr ? "ar" : "en"}/seller/commission-checkout`} className="mt-4 block rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-200">
-        {isAr ? "دفع جميع العمولات تلقائيًا — دون موافقة المالك" : "Pay all commissions automatically — no owner approval"}
-      </Link>
-      <p className="mt-2 text-xs leading-5 text-slate-300">{isAr ? "للتحويلات الجديدة: أنشئ تعليمات الدفع أولًا واختر مبلغًا ضمن فرق 1 USDT. إذا أرسلت دفعتك بالفعل، لا تُعد إرسالها." : "For new transfers: prepare payment instructions first and choose an amount within 1 USDT of the total. If you already sent a payment, do not send it again."}</p>
-      <p className="mt-4 text-sm font-medium text-white">{isAr ? "أرسل الدفعة، واترك التأكيد علينا." : "Send once. We handle confirmation."}</p>
-      <ol aria-label={isAr ? "كيف يعمل التأكيد التلقائي" : "How automatic confirmation works"} className="mt-3 grid grid-cols-3 gap-2">
-        {[
-          isAr ? "أرسل المبلغ الدقيق" : "Send exact amount",
-          isAr ? "نطابق الاستلام" : "We verify receipt",
-          isAr ? "تُسجّل كمدفوعة" : "Marked paid",
-        ].map((label, index) => (
-          <li key={index} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] px-2 py-3 text-center">
-            <span aria-hidden="true" className="mx-auto mb-2 flex h-6 w-6 items-center justify-center rounded-full border border-emerald-300/20 text-[10px] font-bold text-emerald-200">{index + 1}</span>
-            <span className="block text-[11px] font-medium leading-4 text-slate-200">{label}</span>
-          </li>
-        ))}
-      </ol>
-
-      <div role="status" aria-atomic="true" className={cn("mt-3 rounded-xl border p-3", needsAttention ? "border-amber-300/25 bg-amber-300/5" : "border-emerald-300/15 bg-black/15")}>
-        <p className={cn("flex items-center gap-2 text-xs font-semibold", needsAttention ? "text-amber-200" : "text-emerald-200")}>
-          {state === "verified" ? <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" /> : state === "confirming" ? <ScanLine aria-hidden="true" className="h-4 w-4 shrink-0 motion-safe:animate-pulse" /> : <CircleDot aria-hidden="true" className="h-4 w-4 shrink-0" />}
+    <section aria-label={isAr ? "حالة الدفع" : "Payment status"} dir={isAr ? "rtl" : "ltr"}
+      className="commission-surface space-y-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.04] p-4">
+      <div role="status" aria-atomic="true">
+        <h3 className="commission-notice flex items-center gap-2 text-base font-semibold">
+          {state === "verified" ? <CheckCircle2 aria-hidden="true" className="h-5 w-5 shrink-0" /> : state === "confirming" ? <ScanLine aria-hidden="true" className="h-5 w-5 shrink-0" /> : <CircleDot aria-hidden="true" className="h-5 w-5 shrink-0" />}
           {status}
-        </p>
-        <p className="mt-1.5 text-xs leading-5 text-slate-300">{detail}</p>
-        <p className="mt-2 text-xs text-slate-300">{isAr ? "آخر نتيجة فحص" : "Last verification result"}: {lastCheckedAt && Number.isFinite(Date.parse(lastCheckedAt)) ? <time dateTime={lastCheckedAt}>{new Date(lastCheckedAt).toLocaleString(isAr ? "ar" : "en-US")}</time> : (isAr ? "لا توجد نتيجة فحص مسجّلة بعد" : "No recorded verification result yet")}</p>
-        {verificationNotes && state === "review" ? <p className="commission-notice mt-2 rounded-lg bg-amber-300/10 p-2 text-xs text-amber-200">{verificationNotes}</p> : null}
-        {restrictionReason ? <p className="commission-notice mt-2 text-xs text-amber-200">{restrictionReason}</p> : null}
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-[#D1D5DB]">{isAr ? "نتحقق تلقائيًا كل دقيقة. إذا أرسلت الدفعة، لا ترسلها مرة أخرى." : "We check automatically every minute. Already sent? Do not send again."}</p>
+        {verificationNotes && state === "review" ? <p className="commission-notice mt-2 text-sm">{verificationNotes}</p> : null}
+        {restrictionReason ? <p className="commission-notice mt-2 text-sm">{restrictionReason}</p> : null}
       </div>
-
-      <div className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-300">
-        <ShieldCheck aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-        <p>{isAr ? "نتحقق من المبلغ والمستلم والشبكة، ونمنع احتساب الدفعة نفسها مرتين." : "Amount, recipient and network checked. Each payment can be credited only once."}</p>
-      </div>
-      <p className="commission-notice mt-2 text-[11px] leading-5 text-slate-400">{isAr ? "قد يستغرق تأكيد الشبكة وقتًا. تُزال قيود العمولة تلقائيًا بعد تسديد جميع المستحقات." : "Network confirmation can take time. Commission restrictions clear automatically once all dues are settled."}</p>
+      <Link href={`/${isAr ? "ar" : "en"}/seller/commission-checkout`} className="block min-h-11 rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-200">
+        {state === "confirming" ? (isAr ? "متابعة الدفع" : "View payment") : (isAr ? "فتح دفع العمولات" : "Open commission payment")}
+      </Link>
+      <HelpDetails title={isAr ? "تفاصيل التحقق" : "Verification details"}>
+        <p>{detail}</p>
+        <p className={cn(needsAttention && "commission-notice")}>{isAr ? "آخر فحص" : "Last check"}: {lastCheckedAt && Number.isFinite(Date.parse(lastCheckedAt)) ? <time dateTime={lastCheckedAt}>{new Date(lastCheckedAt).toLocaleString(isAr ? "ar" : "en-US")}</time> : (isAr ? "بانتظار الفحص" : "Waiting for a check")}</p>
+      </HelpDetails>
     </section>
   );
 }

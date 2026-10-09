@@ -1,5 +1,91 @@
 # USD News delivery
 
+## Published results correction — 9 October 2026
+
+The three-week UI alone did not fix the missing results: the underlying free
+calendar was still the Sunday 4 October snapshot. The correction adds the
+already-published 6 October trade balance and 8 October initial claims, plus
+sourced English/Arabic summaries for the four retained Fed speeches/minutes.
+All five listed events from 5–11 October now have a numeric result or a verified
+text outcome. Closed numeric cards show the actual; opening shows comparisons.
+Speech/statement cards open a factual “What happened” summary without a numeric
+grid. The next-release banner stays inside the current week, so the 14 October
+CPI is never presented as this week's release.
+
+Next week has verified previous readings for its eight listed releases and
+short explanatory context. Context and previous values are not forecasts.
+Official sources do not publish a market consensus forecast, so no forecast
+number is fabricated. All dates remain in the selected timezone. The same
+components serve desktop, mobile browser and the installed website shell.
+
+`resultsVerifiedAt` records a separate results check; `verifiedAt` remains the
+schedule verification. Midweek result maintenance must not relabel an old
+schedule as newly checked. Optional bilingual `outcome` is allowed only for
+speeches/statements, with an official publication URL and `publishedAt`.
+Results and summaries stay hidden until both schedule and publication time
+have passed. A timestamp without a result or outcome is rejected.
+
+Sunday calendar preparation is supplemented by an hourly weekday Codex result
+check using the same connected GitHub/Vercel publication flow. It changes only
+the JSON, skips publication when nothing changed, preserves all three weeks,
+and honours existing release gates. This is verified periodic publishing, not
+an instantaneous licensed feed; source availability and build/deploy time can
+delay results. Only report publication after the production domain serves the
+commit or a verified newer descendant containing it.
+
+Sources checked for this correction:
+
+- Trade balance: https://www.bea.gov/news/2026/us-international-trade-goods-and-services-august-2026
+- Original previous trade balance: https://www.bea.gov/news/2026/us-international-trade-goods-and-services-july-2026
+- Initial claims: https://www.dol.gov/ui/data.pdf (8 October release).
+- Employment results: https://www.bls.gov/news.release/empsit.nr0.htm (2 October release).
+- CPI comparisons: https://www.bls.gov/news.release/cpi.nr0.htm (11 September release).
+- PPI comparisons: https://www.bls.gov/news.release/ppi.t01.htm (August; core excludes foods and energy, not trade services).
+- Retail comparisons: https://www.census.gov/retail/marts/www/marts_current.pdf (16 September release, table 2).
+- Each Fed summary stores its exact speech/minutes publication URL in the JSON.
+
+The historical review notes below describe earlier releases; this section
+supersedes their Sunday-only result and no-summary behaviour.
+
+## News readability review — 8 October 2026
+
+The News screen groups events by calendar day in the selected timezone. Gold
+event titles, blue dates/times, teal confirmed actuals, neutral previous values,
+and lavender forecasts have explicit text labels. Missing
+values say Pending, Not added, or Not available; they never imply zero. Speeches
+and statements are labelled separately and do not show empty numerical grids.
+Each card is a native disclosure: tap its title/date area to open results,
+forecasts, previous values, revisions, reporting period, and source. Cards
+start closed; a direct event link opens the selected event. Speeches use the
+same interaction without an invented numeric result. Missing consensus values
+are explicitly unavailable in the free weekly calendar.
+
+The weekly notice is concise and still explicitly says results are not live.
+Exactly three views are available in both feed modes: This week (default),
+Next week, and Previous week. Each uses a complete Monday–Sunday range in the
+selected timezone. This week includes both passed and upcoming events; next
+and previous weeks never overlap it or include more distant weeks. Events
+are ordered before grouping; Next release switches to the correct week before
+scrolling and focusing its card. The shortcut appears only in This week.
+Motion respects reduced-motion preferences.
+The screen is shared by the browser and the installed website shell.
+
+Verification for the review branch: 90 focused News model/provider/API/access
+and component tests, TypeScript, and targeted ESLint. The actual before/after
+components were rendered with the existing weekly snapshot in a separate
+preview harness. 163 Chromium assertions covered English/Arabic at 320, 390,
+430, 768, and 1440 CSS pixels, filters, timezone conversion, focus/scrolling,
+disclosures, reduced motion, refresh failure, and session expiration. This
+is component and contract verification; production sessions, physical iPhone
+Safari, and production deployment were not exercised by the preview harness.
+The readability update was released in PR #360. The follow-up replaces its
+four filters with the owner-requested three week views and collapsed cards.
+The follow-up passes 96 focused tests, TypeScript and ESLint. A saved-snapshot
+component harness passes 244 browser assertions across the same five widths
+and both languages, including native click/keyboard disclosures and complete
+previous/next week partitions. These are simulated API checks, not a licensed
+provider activation or physical-device certification.
+
 The Home tab opens the public locale homepage. News replaces the bottom
 Notifications tab; the notification bell and its View all link remain intact.
 News requires an active signed-in account on both the website and the active
@@ -21,9 +107,9 @@ release. Sources remain visible as plain text inside Alpha Traders.
 
 The calendar covers selected major USD releases, rather than promising every
 event or reproducing a supplier's impact ratings. The weekly update checks
-recent results and upcoming dates; values remain the last confirmed snapshot
-through the week. Consensus forecasts and instantaneous result alerts are not
-included. The UI identifies this mode and the last verification time in both
+recent results and upcoming dates; weekday checks add newly verified results
+between Sundays. Consensus forecasts and instantaneous result alerts are not
+included; an expanded card labels unavailable forecasts explicitly. The UI identifies this mode and the last verification time in both
 English and Arabic, polls its private API every five minutes while visible,
 and retains Israel/device timezone selection. Expired sessions still clear
 the data and redirect to sign-in. The existing app displays the same screen.
@@ -31,20 +117,23 @@ the data and redirect to sign-in. The existing app displays the same screen.
 Sunday maintenance is performed by the owner's scheduled Codex automation,
 using official public sources and the connected GitHub repository. Update only
 the JSON on current `main` after reading its file SHA; the existing Git/Vercel
-integration builds the update. Retain seven days of recent events and about
-35 days of verified upcoming dates, with stable IDs and actual UTC instants
+integration builds the update. Retain all events from the Monday of the previous calendar week and about
+four weeks of verified upcoming dates (within the 45-day coverage cap), with stable IDs and actual UTC instants
 converted from `America/New_York` using IANA DST rules. Do not infer dates from
 last month's weekday, fabricate release times, forecasts or actuals, or mark
 old values as newly released. Exclude an unconfirmed exact time or use
 `timing: tentative`; uncertain numeric values stay null. Do not advance
 `verifiedAt` unless the source dates/results were actually checked. Set `weekStart` to the coming Monday calendar date and `weekEnd` to the following Monday (exclusive), as YYYY-MM-DD. These fields record the verified prepared week. The default This week tab uses
 the current Monday–Sunday calendar week in the selected timezone, including
-already-passed events and confirmed results. Upcoming shows later weeks,
-starting the following Monday, so it does not repeat This week's events.
+already-passed events and confirmed results. Next week shows only the following
+Monday–Sunday, and Previous week shows only the preceding Monday–Sunday.
+The server retains a bounded 15-day lookback so earlier days of Previous week
+do not disappear during the current week.
 The displayed date range changes at local Monday without waiting for a new
 snapshot. The Next release shortcut opens whichever tab contains its event.
 
-Each actual needs a confirmed `publishedAt` no later than verification and no
+Each actual or speech outcome needs a confirmed `publishedAt` no later than
+`resultsVerifiedAt` (or `verifiedAt` for older snapshots) and no
 earlier than its release. An unknown actual stays null. Prior/revised values
 must use the same series, units and adjustment as the current value. The
 schema rejects duplicate IDs, non-UTC instants, extra forecast fields,
@@ -118,7 +207,7 @@ News tables when activated. It never changes exchange schemas or trade rows.
 
 ## Licensed-feed timing and behavior
 
-- Cron reads a bounded past/next seven-day window once per minute. Visible News
+- Cron reads a bounded past/next 15-day window once per minute. Visible News
   pages refresh every 30 seconds; hidden pages stop polling. Delivery is not
   advertised as instantaneous: provider delay plus polling/caching applies.
 - Before activation, visible pages check the private News API every five minutes

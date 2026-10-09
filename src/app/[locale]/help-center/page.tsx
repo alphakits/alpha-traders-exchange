@@ -3,6 +3,8 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { buildPageMetadata } from "@/lib/seo";
+import { HelpDetails } from "@/components/ui/help-details";
+import { Coins, ListPlus, MessagesSquare, Wallet } from "lucide-react";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -38,11 +40,20 @@ export default async function HelpCenterPage({ params }: { params: Promise<{ loc
         <h1 className="page-title">{isAr ? "مركز المساعدة" : "Help Center"}</h1>
         <p className="mt-4 text-sm leading-7 text-[#D1D5DB] sm:text-base">
           {isAr
-            ? "اتبع مسار Alpha Exchange الرسمي من فتح الطلب حتى توثيق التحويل وإكمال الصفقة. المنصة تنسق المراحل والأدلة، لكنها لا تحتفظ بأصل أموال الصفقة كإسكرو احتجازي."
-            : "Follow the official Alpha Exchange workflow from request creation through transfer evidence and completion. The platform coordinates stages and records; it does not hold marketplace principal in custodial escrow."}
+            ? "الدفع مباشر بين المشتري والبائع. لا تحتفظ Alpha Traders بأموال صفقتك."
+            : "Payments go directly between buyer and seller. Alpha Traders does not hold your trade funds."}
         </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <nav aria-label={isAr ? "مساعدة حسب المهمة" : "Help by task"} className="mt-6 grid gap-3 sm:grid-cols-2">
+          {[
+            { href: "/usdt-exchange", en: "Buy USDT", ar: "شراء USDT", icon: Wallet },
+            { href: "/dashboard/seller#create-listing", en: "Create a listing", ar: "إنشاء عرض", icon: ListPlus },
+            { href: "/trades", en: "Continue a trade", ar: "متابعة صفقة", icon: MessagesSquare },
+            { href: "/seller/commission-checkout", en: "Pay commission", ar: "دفع العمولة", icon: Coins },
+          ].map(task => <Link key={task.href} href={task.href} locale={locale} className="alpha-task-tile flex min-h-14 items-center gap-3 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 px-4 py-3 text-base font-semibold text-[#F4D87A]"><span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C9A227]/10"><task.icon className="h-5 w-5" /></span>{isAr ? task.ar : task.en}</Link>)}
+        </nav>
+        <HelpDetails title={isAr ? "كيف تتم الصفقة؟" : "How does a trade work?"} className="mt-5">
+        <div className="grid gap-3 sm:grid-cols-2">
           {guides.map((guide, index) => (
             <article key={guide} className="rounded-2xl border border-white/10 bg-black/30 p-4">
               <p className="text-xs font-semibold text-[#D4AF37]">{currencyText(isAr ? `الخطوة ${index + 1}` : `STEP ${index + 1}`)}</p>
@@ -50,22 +61,20 @@ export default async function HelpCenterPage({ params }: { params: Promise<{ loc
             </article>
           ))}
         </div>
+        </HelpDetails>
 
         <div id="faq" className="mt-8 scroll-mt-28 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5">
           <h2 className="text-lg font-semibold text-white">{isAr ? "الأسئلة الشائعة" : "Frequently Asked Questions"}</h2>
           <div className="mt-4 space-y-4 text-sm leading-7 text-[#D1D5DB]">
-            <div>
-              <h3 className="font-semibold text-white">{isAr ? "هل صفقة Alpha Exchange مضمونة؟" : "Is an Alpha Exchange trade guaranteed?"}</h3>
+            <HelpDetails title={isAr ? "هل الصفقة مضمونة؟" : "Is a trade guaranteed?"}>
               <p>{isAr ? "لا. ضوابط المنصة تقلل المخاطر وتُحسن إمكانية مراجعة الصفقة، لكن لا يمكنها إلغاء جميع مخاطر الاحتيال أو الدفع أو الطرف المقابل أو البلوكشين." : "No. Platform controls reduce risk and improve reviewability, but they cannot eliminate every fraud, payment, counterparty, or blockchain risk."}</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-white">{isAr ? "ماذا يعني بائع معتمد؟" : "What does Approved Seller mean?"}</h3>
+            </HelpDetails>
+            <HelpDetails title={isAr ? "ماذا يعني بائع معتمد؟" : "What does Approved Seller mean?"}>
               <p>{isAr ? "يعني أن المالك أو مسؤولًا مخولًا وافق على طلب البائع بالموقع بعد مراجعة الهوية والفيديو عبر واتساب. لا يضمن ذلك السلوك المستقبلي أو نجاح كل صفقة." : "It means the owner or an authorized administrator approved the website application after identity-document and video review through WhatsApp. This does not guarantee future conduct or the outcome of every trade."}</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-white">{isAr ? "ماذا أفعل عند وجود مشكلة؟" : "What should I do when there is a problem?"}</h3>
+            </HelpDetails>
+            <HelpDetails title={isAr ? "تواجه مشكلة؟" : "Having a problem?"}>
               <p>{isAr ? "توقف قبل إرسال أو تحرير القيمة، واحتفظ بالأدلة داخل الصفقة، واستخدم النزاع أو البلاغ، ثم تواصل مع الدعم الرسمي." : "Stop before sending or releasing value, preserve evidence inside the trade, use the dispute or report path, and contact official support."}</p>
-            </div>
+            </HelpDetails>
           </div>
         </div>
 

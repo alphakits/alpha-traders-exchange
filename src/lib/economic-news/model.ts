@@ -19,6 +19,8 @@ export type NewsEvent = {
   timing: "exact" | "tentative";
   kind: "release" | "speech";
   corrected?: boolean;
+  outcome?: { en: string; ar: string };
+  publishedAt?: string | null;
 };
 
 export type NewsFeed = {
@@ -30,11 +32,14 @@ export type NewsFeed = {
   coverageEnd?: string;
   weekStart?: string;
   weekEnd?: string;
+  resultsVerifiedAt?: string;
 };
 
 export type NewsPreferences = { inApp: boolean; email: boolean };
 export const NEWS_STALE_AFTER_MS = 3 * 60_000;
 export const WEEKLY_NEWS_STALE_AFTER_MS = 8 * 86_400_000;
+// Covers the entire previous and next calendar weeks in any selectable timezone.
+export const NEWS_CALENDAR_WINDOW_MS = 15 * 86_400_000;
 export const NEWS_RELEASE_ALERT_WINDOW_MS = 15 * 60_000;
 
 export function newsEventId(raw: unknown): string | undefined {
@@ -106,6 +111,8 @@ export function newsEventTitle(event: NewsEvent, locale: NewsLocale) {
 
 export function newsEventStatus(event: NewsEvent, now: number) {
   if (event.actual !== null && Date.parse(event.scheduledAt) <= now) return "released";
+  if (event.kind === "speech" && event.outcome && event.publishedAt
+    && Date.parse(event.publishedAt) <= now && Date.parse(event.scheduledAt) <= now) return "published";
   if (event.timing === "tentative") return "tentative";
   if (Date.parse(event.scheduledAt) > now) return "scheduled";
   return event.kind === "speech" ? "no_numeric_result" : "awaiting";
@@ -118,10 +125,10 @@ export function newsDayKey(iso: string, timeZone: string) {
   return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value).join("-");
 }
 
-export function newsWeekRange(now: number, timeZone: string) {
+export function newsWeekRange(now: number, timeZone: string, weekOffset = 0) {
   // Work with local calendar dates, so DST never turns a week into 6 or 8 days.
   const date = new Date(`${newsDayKey(new Date(now).toISOString(), timeZone)}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7 + weekOffset * 7);
   const start = date.toISOString().slice(0, 10);
   date.setUTCDate(date.getUTCDate() + 7);
   return { start, end: date.toISOString().slice(0, 10) };

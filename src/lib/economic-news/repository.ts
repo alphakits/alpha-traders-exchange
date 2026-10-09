@@ -1,7 +1,7 @@
 import "server-only";
 import type { Pool, PoolClient } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
-import { NEWS_STALE_AFTER_MS, shouldAlertForRelease, type NewsEvent, type NewsFeed, type NewsPreferences } from "./model";
+import { NEWS_CALENDAR_WINDOW_MS, NEWS_STALE_AFTER_MS, shouldAlertForRelease, type NewsEvent, type NewsFeed, type NewsPreferences } from "./model";
 import { configuredNewsProvider, newsProviderConfigured, newsProviderPrefix } from "./config";
 import { readWeeklyNewsFeed } from "./weekly";
 
@@ -76,7 +76,7 @@ export async function readNewsFeed(now = Date.now(), eventId?: string): Promise<
       pool.query<{ synced_at: Date }>("select synced_at from alpha_exchange.economic_news_provider_sync where provider = $1", [provider]),
       pool.query<{ payload: NewsEvent }>(`select payload from alpha_exchange.economic_news_events
         where ((scheduled_at >= $1 and scheduled_at <= $2) or id=$3) and id like $4 order by scheduled_at limit 500`,
-      [new Date(now - 7 * 86_400_000), new Date(now + 7 * 86_400_000), eventId ?? null, `${newsProviderPrefix(provider)}%`]),
+      [new Date(now - NEWS_CALENDAR_WINDOW_MS), new Date(now + NEWS_CALENDAR_WINDOW_MS), eventId ?? null, `${newsProviderPrefix(provider)}%`]),
     ]);
     const updatedAt = sync.rows[0]?.synced_at.toISOString() ?? null;
     return {

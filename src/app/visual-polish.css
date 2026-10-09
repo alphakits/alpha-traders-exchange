@@ -1,0 +1,220 @@
+/* Shared presentation only. Trading state and permissions remain server-owned. */
+:root {
+  --alpha-gold-light: #f6df9b;
+  --alpha-ease: cubic-bezier(.22, 1, .36, 1);
+  --alpha-speed: 180ms;
+  --alpha-surface-edge: rgba(255, 239, 190, .16);
+}
+
+/* Tailwind's untyped font-[var(...)] resolves to font-weight. These are families. */
+.alpha-interface { font-family: var(--font-inter), Arial, sans-serif; }
+.alpha-interface--ar { font-family: var(--font-plex-arabic), Arial, sans-serif; }
+
+/* A metallic edge and a softly lit surface, without moving form containers. */
+.premium-card {
+  background-image: linear-gradient(145deg, rgba(250, 226, 158, .065), rgba(255, 255, 255, .018) 48%, rgba(255, 255, 255, .008));
+  box-shadow: inset 0 1px 0 rgba(255, 244, 213, .065), 0 12px 32px rgba(0, 0, 0, .24);
+  transition: border-color var(--alpha-speed) ease, box-shadow var(--alpha-speed) ease;
+}
+
+.surface-panel, .modal-panel {
+  box-shadow: inset 0 1px 0 rgba(255, 244, 213, .065), 0 16px 44px rgba(0, 0, 0, .3);
+}
+
+.premium-card:focus-within {
+  box-shadow: inset 0 1px 0 rgba(255, 244, 213, .1), 0 12px 32px rgba(0, 0, 0, .24);
+}
+
+.page-title { text-wrap: balance; }
+main :where(a, summary, button):focus-visible { outline: 2px solid var(--alpha-gold-light); outline-offset: 3px; }
+
+.alpha-button {
+  position: relative;
+  isolation: isolate;
+  max-width: 100%;
+  min-width: 0;
+  touch-action: manipulation;
+  transition-property: color, background-color, border-color, box-shadow, transform;
+  transition-timing-function: var(--alpha-ease);
+}
+
+.alpha-button > span { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-width: 0; }
+.alpha-button svg { flex-shrink: 0; }
+.alpha-button.gold-gradient {
+  background-image: linear-gradient(115deg, #c9a227 0%, #f3d88b 38%, #e6bf59 72%, #c9a227 100%);
+  box-shadow: inset 0 1px 0 #fff2cda8, 0 5px 16px #c9a22724;
+}
+
+/* One sheen on intentional hover/focus; no looping flashes or pointer tracking. */
+.alpha-button.gold-gradient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 20%, rgba(255, 255, 255, .48) 48%, transparent 76%);
+  background-size: 260% 100%;
+  background-position: 130% 0;
+  opacity: 0;
+}
+
+.alpha-button:focus-visible { outline: 2px solid var(--alpha-gold-light); outline-offset: 4px; }
+.alpha-button[aria-busy="true"] { cursor: progress; }
+.alpha-button:disabled::after, .alpha-button[aria-disabled="true"]::after { display: none; }
+
+.alpha-field {
+  transition: border-color var(--alpha-speed) ease, background-color var(--alpha-speed) ease, box-shadow var(--alpha-speed) ease;
+  box-shadow: inset 0 1px 3px #0005;
+  caret-color: var(--alpha-gold-light);
+}
+.alpha-field:focus-visible { border-color: #e5c36c; background-color: #14120d; }
+.alpha-field[aria-invalid="true"] { border-color: #f87171; }
+.alpha-field:disabled { cursor: not-allowed; opacity: .5; }
+
+.alpha-progress { background-color: rgba(255, 255, 255, .075); box-shadow: inset 0 1px 3px #0005; }
+.alpha-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ad7a1e, #e0b951 50%, #f8e6ad);
+  box-shadow: 0 0 12px #dfb54735;
+  transition: width 500ms var(--alpha-ease);
+}
+.alpha-progress[data-complete="true"] .alpha-progress__fill { background: linear-gradient(90deg, #16865a, #64e5aa); }
+[dir="rtl"] .alpha-progress__fill { background: linear-gradient(270deg, #ad7a1e, #e0b951 50%, #f8e6ad); }
+[dir="rtl"] .alpha-progress[data-complete="true"] .alpha-progress__fill { background: linear-gradient(270deg, #16865a, #64e5aa); }
+
+.alpha-site-header { border-bottom-color: rgba(235, 196, 107, .14); }
+.alpha-brand-link img { transition: border-color 200ms ease, box-shadow 200ms ease; }
+.alpha-header-nav a[aria-current="page"]:not(.alpha-exchange-link) {
+  background: linear-gradient(135deg, #d9b8581c, #d9b85805);
+  box-shadow: inset 0 1px 0 #f4d87a1c;
+  color: #f7e2ab;
+}
+[data-mobile-bottom-navigation] { border-top-color: #e8c67724; }
+[data-mobile-bottom-navigation] a { position: relative; }
+[data-mobile-bottom-navigation] a[aria-current="page"]::before {
+  content: ""; position: absolute; inset-inline: 30%; top: 0; height: 2px;
+  border-radius: 0 0 3px 3px; background: var(--alpha-gold-light); box-shadow: 0 1px 8px #f4d87a55;
+}
+[data-mobile-bottom-navigation] a[aria-current="page"] > span:first-child {
+  background: linear-gradient(145deg, #e9c25d2b, #e9c25d0c);
+  box-shadow: inset 0 1px 0 #f4d87a24;
+}
+[data-mobile-bottom-navigation] a > span:last-child { font-size: .75rem; line-height: 1.2; }
+
+.alpha-home-hero {
+  border-color: #e5c06c38;
+  box-shadow: inset 0 1px 0 #f5dfa339, 0 24px 70px #0006;
+}
+.alpha-home-hero::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: radial-gradient(ellipse at 85% 0%, #e9ba4514, transparent 56%);
+}
+.alpha-home-hero h1 { letter-spacing: -.04em; text-wrap: balance; }
+[dir="rtl"] .alpha-home-hero h1 { letter-spacing: normal; }
+.alpha-home-hero h1, .alpha-home-hero p { text-shadow: 0 2px 24px #0008; }
+.alpha-home .premium-card h3 { color: #f8eed6; }
+.alpha-home .premium-card h3 svg { filter: drop-shadow(0 0 6px #d5b24a40); }
+
+.alpha-trade-room { background-image: radial-gradient(ellipse at 50% 0, #c9a22709, transparent 46%); }
+.alpha-trade-room [data-testid="trade-room-summary"] {
+  border-color: #e5c36b45;
+  background: linear-gradient(130deg, #1e1a10, #11110f 50%, #101210);
+  box-shadow: inset 0 1px 0 #f2d58418, 0 12px 30px #0003;
+}
+.alpha-trade-room #action-required {
+  border-color: #e3bd6059;
+  background-image: linear-gradient(125deg, #c9a22712, transparent 60%);
+  box-shadow: inset 3px 0 0 #d4af37, inset 0 1px 0 #f7df9d0d, 0 10px 28px #0004;
+}
+[dir="rtl"] .alpha-trade-room #action-required { box-shadow: inset -3px 0 0 #d4af37, inset 0 1px 0 #f7df9d0d, 0 10px 28px #0004; }
+.alpha-trade-room[data-complete="true"] #action-required {
+  border-color: #55d59966;
+  background-image: radial-gradient(ellipse at 100% 0, #33d69a14, transparent 60%);
+  box-shadow: inset 0 3px 0 #55d599, 0 10px 28px #0004;
+}
+.alpha-success-mark {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center;
+  width: 2.6rem; height: 2.6rem; margin-inline-end: .6rem; vertical-align: middle;
+  border: 1px solid #65e5aa70; border-radius: 50%; color: #90f4c4;
+  background: linear-gradient(140deg, #173e2c, #082418); box-shadow: 0 0 24px #4ade8021, inset 0 1px 0 #b0ffd530;
+}
+.alpha-success-mark svg { width: 1.4rem; height: 1.4rem; }
+
+.alpha-trade-progress { background: linear-gradient(135deg, #d9b85a0c, #0a0a0a); }
+.alpha-trade-progress summary { gap: .75rem; }
+.alpha-trade-progress summary > span:first-child { white-space: normal; overflow: visible; }
+.alpha-trade-progress summary > svg { flex-shrink: 0; transition: transform 200ms var(--alpha-ease); }
+.alpha-trade-progress[open] summary > svg { transform: rotate(180deg); }
+.alpha-trade-step-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
+.alpha-trade-step {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: .55rem;
+  min-height: 6rem; padding: .8rem .4rem; border: 1px solid #ffffff16; border-radius: .9rem;
+  background: #ffffff02; color: #b4bdc9; font-size: .75rem; line-height: 1.5; text-align: center;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.alpha-trade-step__icon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; font-size: 1.15rem; border: 1px solid #ffffff15; border-radius: .7rem; background: #ffffff05; }
+.alpha-trade-step[data-state="current"] { color: #fae4a8; border-color: #e5c26b70; background: linear-gradient(145deg, #d3aa3422, #d3aa3408); }
+.alpha-trade-step[data-state="current"] .alpha-trade-step__icon { border-color: #e5c26b55; background: #e5c26b15; box-shadow: 0 0 14px #d6b44620; }
+.alpha-trade-step[data-state="complete"] { color: #8ce5ba; border-color: #60cf932b; }
+.alpha-trade-step[data-state="complete"] .alpha-trade-step__icon { color: #79e6ae; border-color: #5ce49b33; background: #29ba6e10; }
+.alpha-trade-step[aria-pressed="true"] { outline: 1px solid currentColor; outline-offset: 2px; }
+.alpha-trade-step:focus-visible { outline: 2px solid #f4d87a; outline-offset: 3px; }
+.alpha-trade-room #chat { border-color: #ffffff24; background-image: linear-gradient(140deg, #9cb8ee08, transparent 55%); }
+.alpha-trade-room #chat form { border-color: #e2c16e33; }
+.alpha-trade-room .alpha-chat-bubble { box-shadow: inset 0 1px 0 #ffffff0c, 0 3px 9px #0002; }
+.commission-notice-panel, .commission-surface { box-shadow: inset 0 1px 0 #ffe99b1f, 0 6px 20px #0002; }
+
+/* Color and text remain present with CSS animations disabled or JavaScript off. */
+@media (prefers-reduced-motion: no-preference) {
+  .alpha-home-hero::after { animation: alpha-ambient-in 900ms ease-out both; }
+  [data-action-feedback] { animation: alpha-feedback-in 220ms ease-out both; }
+  .alpha-accordion-content { animation: alpha-feedback-in 200ms ease-out both; }
+  .alpha-trade-progress[open] .alpha-trade-step-grid { animation: alpha-feedback-in 220ms ease-out both; }
+  .alpha-success-mark { animation: alpha-success-in 550ms var(--alpha-ease) both; }
+  .alpha-success-mark svg { animation: alpha-check-in 450ms 120ms var(--alpha-ease) both; }
+  .alpha-trade-step[data-state="current"] .alpha-trade-step__icon { animation: alpha-step-glow 1.6s ease-in-out 2; }
+  [data-mobile-bottom-navigation] a[aria-current="page"] > span:first-child { animation: alpha-nav-in 260ms var(--alpha-ease) both; }
+  .alpha-button.gold-gradient:focus-visible::after { animation: alpha-button-sheen 650ms ease-out; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .alpha-home .premium-card:hover { border-color: var(--alpha-surface-edge); }
+  .alpha-brand-link:hover img { border-color: #f4d87a99; box-shadow: 0 0 18px #c9a22730; }
+  .alpha-trade-step:hover { border-color: #e5c26b80; background-color: #e5c26b0d; }
+  .alpha-field:hover:not(:disabled):not(:focus-visible):not([aria-invalid="true"]) { border-color: #e7c97755; }
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .alpha-button.gold-gradient:hover:not(:disabled):not([aria-disabled="true"])::after { animation: alpha-button-sheen 650ms ease-out; }
+}
+
+@keyframes alpha-button-sheen { 0% { background-position: 130% 0; opacity: 0; } 15% { opacity: .65; } 100% { background-position: -30% 0; opacity: 0; } }
+@keyframes alpha-feedback-in { from { opacity: .35; } to { opacity: 1; } }
+@keyframes alpha-ambient-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes alpha-success-in { from { transform: scale(.82); opacity: .4; } to { transform: scale(1); opacity: 1; } }
+@keyframes alpha-check-in { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes alpha-nav-in { from { transform: scale(.92); } to { transform: scale(1); } }
+@keyframes alpha-step-glow { 0%, 100% { box-shadow: 0 0 8px #d6b44612; } 50% { box-shadow: 0 0 18px #d6b44640; } }
+
+@media (max-width: 768px) {
+  .premium-card { box-shadow: inset 0 1px 0 #fff4d511, 0 6px 18px #0003; }
+  .alpha-home-hero h1 { font-size: clamp(2rem, 8.8vw, 2.75rem); }
+  .alpha-field { font-size: 1rem; }
+}
+@media (hover: none) {
+  /* Hover emulation on phones must not leave controls floating after a tap. */
+  .alpha-button:hover { transform: none; }
+  .alpha-button:active:not(:disabled) { transform: scale(.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alpha-button, .alpha-button:hover, .alpha-button:active { transform: none; }
+  .alpha-button::after { display: none; }
+  .alpha-progress__fill, .alpha-field, .alpha-trade-step, .alpha-trade-progress summary > svg { transition: none; }
+  .alpha-success-mark, .alpha-success-mark svg, .alpha-trade-step__icon { animation: none; }
+}
+@media (forced-colors: active) {
+  .alpha-button, .alpha-field, .alpha-trade-step, .alpha-success-mark { border: 1px solid ButtonText; box-shadow: none; }
+  .alpha-progress__fill { background: Highlight; }
+  .alpha-trade-step[aria-current="step"] { outline: 2px solid Highlight; }
+}

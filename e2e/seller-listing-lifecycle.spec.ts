@@ -429,6 +429,8 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
 
 async function submitListingFromSellerWorkspace(page: Page, expectedListing: { availableAmount: string; price: string }) {
   const beforeSubmission = page.url();
+  const createAnother = page.getByRole("button", { name: "Create another listing" });
+  if (await createAnother.isVisible()) await createAnother.click();
   const submitButton = page.getByRole("button", { name: "Submit Listing" });
   const main = page.getByRole("main");
   await expect(main.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
@@ -436,15 +438,17 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   await main.locator("#create-price").fill(expectedListing.price);
   await main.locator("#create-min-trade").fill("50");
   await main.locator("#create-max-trade").fill(expectedListing.availableAmount);
+  await page.getByRole("button", { name: "Continue to payment" }).click();
   await page.getByRole("button", { name: /Bank Hapoalim/i }).click();
-  const commissionCheckbox = page.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  const sellerAccounts = await readSellerBankAccounts(page.request);
+  expect(sellerAccounts.length).toBeGreaterThan(0);
+  await chooseCreatePayoutBankAccountByLast4(page, sellerAccounts[0].accountLast4);
+  await page.getByRole("button", { name: "Review listing" }).click();
+  const commissionCheckbox = page.getByRole("checkbox", { name: /I agree to pay both shares \(2%\)/i });
   await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }
-  const sellerAccounts = await readSellerBankAccounts(page.request);
-  expect(sellerAccounts.length).toBeGreaterThan(0);
-  await chooseCreatePayoutBankAccountByLast4(page, sellerAccounts[0].accountLast4);
   await expect(submitButton).toBeEnabled({ timeout: 60_000 });
   const [createResponse] = await Promise.all([
     page.waitForResponse(
@@ -461,11 +465,11 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
     throw new Error("Listing create response did not include a listing id.");
   }
   await expect(page.getByRole("heading", { name: "My Listings" })).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
+  await expect(page.locator("#listing-publish-result")).toContainText("Listing submitted for review", { timeout: 30_000 });
   await expect(page).toHaveURL(beforeSubmission);
   await expect(page.locator("#listing-publish-result")).toBeVisible();
   await expect(page.locator("#listing-publish-result")).toBeInViewport();
-  await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
+  await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("Buyers cannot see this listing yet");
   await expect(page.locator(`[id="listing-${payload.listing.id}"]`)).toHaveCount(0);
   expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });
   expect(payload.destination).toBe(`/usdt-exchange#seller-listing-${payload.listing.id}`);
@@ -578,11 +582,13 @@ test("listing publish failures stay visible beside the mobile submit action", as
   await createListing.locator("#create-price").fill("3.20");
   await createListing.locator("#create-min-trade").fill("50");
   await createListing.locator("#create-max-trade").fill("1000");
+  await seller.page.getByRole("button", { name: "Continue to payment" }).click();
   await chooseCreatePayoutBankAccountByLast4(seller.page, payoutAccount.accountLast4);
 
   const payoutBankButton = createListing.getByRole("button", { name: new RegExp(payoutAccount.bankName, "i") });
   await expect(payoutBankButton).toHaveAttribute("aria-pressed", "true");
-  const commissionCheckbox = createListing.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
+  await createListing.getByRole("button", { name: "Review listing" }).click();
+  const commissionCheckbox = createListing.getByRole("checkbox", { name: /I agree to pay both shares \(2%\)/i });
   await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
   if (!(await commissionCheckbox.isChecked())) await commissionCheckbox.check();
 
@@ -628,15 +634,12 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await sellerMain.locator("#create-price").fill("3.20");
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("1000");
+  await seller.page.getByRole("button", { name: "Continue to payment" }).click();
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
-  const commissionCheckbox = seller.page.getByRole("checkbox", { name: /my own fee is 1%.*both shares \(2%\)/i });
-  await expect(commissionCheckbox).toBeVisible({ timeout: 15_000 });
-  if (!(await commissionCheckbox.isChecked())) {
-    await commissionCheckbox.check();
-  }
+  const commissionCheckbox = seller.page.getByRole("checkbox", { name: /I agree to pay both shares \(2%\)/i });
 
   await expect(seller.page.getByText(/No saved bank accounts found/i)).toBeVisible({ timeout: 20_000 });
-  await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
+  await expect(seller.page.getByRole("button", { name: "Review listing" })).toBeDisabled();
   await sellerMain.locator("#create-listing").getByRole("link", { name: "Settings" }).click();
   await expect(seller.page).toHaveURL(/\/en\/settings/);
   await seller.page.getByRole("button", { name: "Profile", exact: true }).click();
@@ -652,12 +655,15 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await sellerMain.locator("#create-price").fill("3.20");
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("1000");
+  await seller.page.getByRole("button", { name: "Continue to payment" }).click();
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
+  const selectedSingleAccountId = await chooseCreatePayoutBankAccountByLast4(seller.page, oneBank[0].accountLast4);
+  await seller.page.getByRole("button", { name: "Review listing" }).click();
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }
 
-  const selectedSingleAccountId = await chooseCreatePayoutBankAccountByLast4(seller.page, oneBank[0].accountLast4);
+
   let capturedSingleBankAccountId: string | undefined;
   const [singleCreateResponse] = await Promise.all([
     seller.page.waitForResponse((response) => {
@@ -685,13 +691,16 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await sellerMain.locator("#create-price").fill("3.18");
   await sellerMain.locator("#create-min-trade").fill("50");
   await sellerMain.locator("#create-max-trade").fill("500");
+  await seller.page.getByRole("button", { name: "Continue to payment" }).click();
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   await seller.page.getByRole("button", { name: /Bank Leumi/i }).click();
+  const selectedSecondAccountId = await chooseCreatePayoutBankAccountByLast4(seller.page, secondBank.accountLast4);
+  await seller.page.getByRole("button", { name: "Review listing" }).click();
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
   }
 
-  const selectedSecondAccountId = await chooseCreatePayoutBankAccountByLast4(seller.page, secondBank.accountLast4);
+
   const [dualCreateResponse] = await Promise.all([
     seller.page.waitForResponse((response) => {
       if (response.request().method() !== "POST") return false;
@@ -1044,7 +1053,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   await ensureSellerBankAccounts(seller.page.request, 1);
   await seller.page.goto("/en/usdt-exchange");
   const sellerMain = seller.page.getByRole("main");
-  await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeVisible({ timeout: 60_000 });
+  await expect(seller.page.getByRole("button", { name: "Continue to payment" })).toBeVisible({ timeout: 60_000 });
   const firstListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "1000", price: "3.20" });
   expect(firstListingCreate.listing?.id).toBeTruthy();
 
@@ -1069,13 +1078,15 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
 
   const secondListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "500", price: "3.18" });
   expect(secondListingCreate.listing?.id).toBeTruthy();
-  await expect(seller.page.getByText("You already have 2 open listings, including listings awaiting review. Close one before creating another.").first()).toBeVisible({ timeout: 30_000 });
+  await expect(seller.page.locator("#listing-publish-result")).toContainText("Listing submitted for review");
 
+  await seller.page.reload();
+  await expect(sellerMain.locator("#create-available")).toBeVisible({ timeout: 60_000 });
   await sellerMain.locator("#create-available").fill("250");
   await sellerMain.locator("#create-price").fill("3.10");
   await sellerMain.locator("#create-min-trade").fill("25");
   await sellerMain.locator("#create-max-trade").fill("250");
-  await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
+  await expect(seller.page.getByRole("button", { name: "Continue to payment" })).toBeDisabled();
   await expect(seller.page.getByText("You already have 2 open listings, including listings awaiting review. Close one before creating another.").first()).toBeVisible({ timeout: 10_000 });
 
   const sellerListingsResponse = await seller.page.request.get("/api/alpha-exchange/my-listings");

@@ -4617,7 +4617,7 @@ export function UsdtExchangePage({
       setListingCommissionAgreement(false);
       setListingCreateResult({
         tone: "success",
-        message: "Listing submitted. It is awaiting Alpha Traders admin approval and is not visible to buyers yet.",
+        message: isAr ? "تم إرسال العرض للمراجعة. سيظهر للمشترين بعد الموافقة." : "Listing submitted for review. Buyers will see it after approval.",
       });
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -6049,7 +6049,6 @@ export function UsdtExchangePage({
           isSubmittingPurchase={isSubmittingPurchase}
           onClose={closeListingModal}
           onSubmit={handlePurchaseSubmit}
-          onQuickBuy={() => void submitPurchaseRequest()}
           onPaymentMethodChange={(method) => {
             setSelectedPurchasePaymentMethod(method);
             setFaceToFaceSafetyAcknowledged(false);

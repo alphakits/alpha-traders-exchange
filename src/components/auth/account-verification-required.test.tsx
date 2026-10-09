@@ -27,7 +27,7 @@ describe("required buyer and seller phone screen", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
     render(<AccountVerificationGate {...props} />);
-    expect(screen.getByText("Verify your email and phone by SMS before using your buyer or seller account.")).toBeTruthy();
+    expect(screen.getByText("Verify your email and phone to use the exchange.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Get help" }).getAttribute("href")).toBe("/support");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Open profile" })).toBeNull();

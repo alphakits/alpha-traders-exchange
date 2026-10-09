@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { arabicEventTitle, type NewsEvent } from "./model";
+import { NEWS_CALENDAR_WINDOW_MS, arabicEventTitle, type NewsEvent } from "./model";
 
 // Contract: https://calendar-api.fxstreet.com/swagger/v1/openapi.json
 // OAuth: https://docs.fxstreet.com/api/authentication/oauth2/v2/
@@ -80,8 +80,8 @@ async function accessToken(credentials: Credentials) {
 
 export async function fetchFxStreetNews(now: Date, credentials: Credentials): Promise<NewsEvent[]> {
   try {
-    const start = new Date(now.getTime() - 7 * 86_400_000).toISOString().slice(0, 10);
-    const end = new Date(now.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+    const start = new Date(now.getTime() - NEWS_CALENDAR_WINDOW_MS).toISOString().slice(0, 10);
+    const end = new Date(now.getTime() + NEWS_CALENDAR_WINDOW_MS).toISOString().slice(0, 10);
     const url = new URL(`https://calendar-api.fxstreet.com/en/api/v1/eventDates/${start}T00:00:00.000Z/${end}T23:59:59.999Z`);
     url.searchParams.set("countries", "US");
     url.searchParams.set("volatilities", "HIGH");

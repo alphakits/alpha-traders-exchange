@@ -2300,6 +2300,52 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 .alpha-delay-3 { animation-delay: 220ms; }
 .alpha-delay-4 { animation-delay: 290ms; }
 
+/* Task feedback: brief movement after an action, without continuous decoration. */
+.alpha-task-tile,
+.alpha-step-tab,
+.alpha-help-details {
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+.alpha-task-tile:focus-visible {
+  outline: 2px solid #F4D87A;
+  outline-offset: 3px;
+}
+.alpha-help-details[open] {
+  border-color: rgba(201, 162, 39, 0.3);
+  background-color: rgba(201, 162, 39, 0.035);
+}
+@media (hover: hover) and (pointer: fine) {
+  .alpha-task-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(201, 162, 39, 0.1);
+  }
+  .alpha-help-details > summary:hover { background-color: rgba(255, 255, 255, 0.035); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .alpha-step-panel:not([hidden]),
+  .alpha-help-details[open] > div { animation: alpha-task-enter 240ms ease-out; }
+  .alpha-step-progress { transition: width 280ms ease-out; }
+  .alpha-success-badge { animation: alpha-success-pop 460ms cubic-bezier(.2,.8,.3,1.2); }
+  .alpha-task-tile:active { transform: scale(0.985); }
+}
+@keyframes alpha-task-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes alpha-success-pop {
+  0% { opacity: 0; transform: scale(.65) rotate(-12deg); }
+  65% { opacity: 1; transform: scale(1.08) rotate(4deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alpha-task-tile,
+  .alpha-button { transform: none !important; }
+  .alpha-step-panel,
+  .alpha-step-progress,
+  .alpha-success-badge,
+  .alpha-help-details > div { animation: none !important; transition: none !important; }
+}
+
 @media (max-width: 1024px) {
   .global-chain-bg__crypto-coin:nth-child(n + 6) {
     display: none;

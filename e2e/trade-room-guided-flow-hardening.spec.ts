@@ -764,7 +764,7 @@ test("trade-room Pay Now opens the canonical commission flow without an external
     ]);
 
     await expect(page).toHaveURL(/\/en\/usdt-exchange#commission-payment$/, { timeout: 20_000 });
-    await expect(page.locator("#commission-payment").getByRole("heading", { name: "Automatic commission checkout", exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#commission-payment").getByRole("heading", { name: "Pay commission", exact: true })).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(100);
     expect(popupUrls).toEqual([]);
   } finally {
@@ -932,8 +932,8 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
     await buyerChatDraft.fill("0532490321 hada rkme");
     await buyerChatForm.getByRole("button", { name: "Send Message" }).click();
     const inlineChatError = buyerChatForm.getByTestId("trade-chat-error");
-    await expect(inlineChatError).toContainText("phone numbers", { timeout: 20_000 });
-    await expect(inlineChatError).toContainText("inside this Trade Room");
+    await expect(inlineChatError).toContainText("Keep contact details private.", { timeout: 20_000 });
+    await expect(inlineChatError).toContainText("Chat inside this trade.");
     await expect(buyerChatDraft).toHaveValue("0532490321 hada rkme");
 
     let forcedChatNetworkFailures = 0;

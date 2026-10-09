@@ -260,8 +260,8 @@ function readTradeRoomChatError(
 ) {
   if (payload?.code === "DIRECT_CONTACT_BLOCKED") {
     return isAr
-      ? "لحمايتك، لا يمكن إرسال رقم هاتف أو بريد إلكتروني أو WhatsApp أو بيانات تواصل خارجية. أبقِ المحادثة داخل غرفة الصفقة."
-      : "For your security, phone numbers, email, WhatsApp, and other external contact details cannot be sent. Keep the conversation inside this Trade Room.";
+      ? "حافظ على خصوصية بيانات التواصل. استخدم دردشة الصفقة."
+      : "Keep contact details private. Chat inside this trade.";
   }
   return readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة. حاول مرة أخرى." : "Message was not sent. Please try again.", isAr);
 }
@@ -385,10 +385,10 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       confirmationMessage: request.feePolicyVersion === "buyer_seller_1pct_v1"
         ? `${isAr ? "أؤكد استلام الدفع وإرسال كامل USDT إلى محفظة المشتري الصحيحة. الإكمال نهائي." : "I confirm payment was received and the full USDT amount was sent to the correct buyer wallet. Completion is final."} ${sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}`
         : request.status !== "usdt_sent"
-        ? (isAr ? "أؤكد أنني استلمت النقد وأرسلت كامل USDT إلى محفظة المشتري على الشبكة الصحيحة. إكمال الصفقة يفتح التقييم ويسجل عمولة 1% ولا يمكن إلغاؤه. هل تريد الإكمال؟" : "I confirm I received the cash and sent the full USDT amount to the buyer wallet on the correct network. Completing opens feedback and records the 1% commission. This cannot be cancelled. Complete trade?")
+        ? (isAr ? "أؤكد استلام النقد وإرسال كامل USDT للمحفظة والشبكة الصحيحتين. الإكمال يسجّل العمولة ولا يمكن التراجع. إكمال؟" : "Confirm cash received and all USDT sent to the correct wallet and network. Completion records the commission and cannot be undone. Complete?")
         : isAr
-        ? "لقد أكدت بالفعل إرسال USDT. سيؤدي هذا الإجراء النهائي إلى إكمال الصفقة وفتح التقييم وتسجيل عمولة 1%. لا يحتاج المشتري إلى تأكيد الاستلام، ولا يمكن التراجع أو الإلغاء بعد ذلك."
-        : "You already confirmed USDT was sent. This final action completes the trade, opens review, and records the 1% commission. Buyer confirmation is not required, and this cannot be undone or cancelled.",
+        ? "إكمال الصفقة وتسجيل عمولتها؟ تم تأكيد إرسال USDT. لا يمكن التراجع."
+        : "Complete this trade and record its commission? USDT is marked sent. This cannot be undone.",
     };
   }
 
@@ -399,8 +399,8 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       mode: "status",
       nextStatus: "usdt_sent",
       confirmationMessage: isAr
-        ? "تحقق من الشبكة وعنوان محفظة المشتري والمبلغ الكامل. أكد فقط بعد إرسال كامل USDT. بعد التأكيد سيظهر زر منفصل لإكمال الصفقة، ولن يكون الإلغاء ممكنًا."
-        : "Verify the network, buyer wallet, and full amount. Confirm only after sending all USDT. A separate completion button appears next, and cancellation remains unavailable.",
+        ? "راجع المحفظة والشبكة والمبلغ. أكّد بعد إرسال كامل USDT فقط. يُقفل الإلغاء."
+        : "Check the wallet, network, and amount. Confirm only after sending all USDT. This locks cancellation.",
     };
   }
 
@@ -637,7 +637,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "✅",
           title: isAr ? "الإجراء النهائي" : "Final Seller Action",
           headline: isAr ? "تم تأكيد إرسال USDT — أكمل الصفقة" : "USDT Sent Confirmed — Complete the Trade",
-          detail: isAr ? "تم حفظ تأكيد إرسال USDT. اضغط الزر أدناه لإكمال الصفقة وفتح التقييم. لا يلزم انتظار المشتري، ولا يمكن الإلغاء." : "Your USDT-sent confirmation is saved. Tap below to complete the trade and open feedback. You do not need to wait for the buyer, and cancellation is unavailable.",
+          detail: isAr ? "تم تأكيد إرسال USDT. أكمل الصفقة للإنهاء." : "USDT is marked sent. Complete the trade to finish.",
           yourAction: primaryAction?.label ?? (isAr ? "تحديد الصفقة كمكتملة" : "Mark Trade as Completed"),
           counterpartyAction: isAr ? "لا يلزم تأكيد المشتري" : "No buyer confirmation required",
           tradeStatus: currentStatus,
@@ -3090,12 +3090,12 @@ function TradeRoomPageSession({
   );
 
   return (
-    <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
+    <main data-complete={showSuccessScreen ? "true" : undefined} className="alpha-trade-room min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <header data-testid="trade-room-summary" className="space-y-2 rounded-2xl border border-[#C9A227]/25 bg-[#0E0E0E] p-3 sm:p-4">
           <div data-testid="inclusive-payment-total" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
             <p>{isSeller ? (isAr ? "الإجمالي المطلوب استلامه من المشتري" : "Full amount to collect from buyer") : (isAr ? "الإجمالي المطلوب دفعه للبائع" : "Full amount to pay the seller")}: <bdi dir="ltr" className="currency-money font-semibold">{currencyText(`${request.currency} ${toNumber(request.fiatAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}</bdi></p>
-            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1% بالفعل — لا تضفها مرة ثانية. ادفع الإجمالي بنفس وسيلة دفع الصفقة. على البائع التحقق من استلامه كاملاً قبل إرسال USDT." : "Already includes the buyer’s 1% fee — do not add it again. Pay the total through this trade’s payment method. The seller must verify full receipt before sending USDT.")}</p> : null}
+            {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <p className="commission-notice">{currencyText(isAr ? "يشمل عمولة المشتري 1%. ادفع هذا الإجمالي مرة واحدة. للبائع: تأكد من استلامه كاملًا قبل إرسال USDT." : "Buyer’s 1% fee included. Pay this total once. Seller: confirm full receipt before sending USDT.")}</p> : null}
           </div>
           <div className="flex items-center justify-between gap-3">
             <h1 className="min-w-0 text-base font-semibold sm:text-lg">{isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{currencyText(formatTradeId(request.displayNumber, request.tradeId ?? request.id))}</bdi></h1>
@@ -3106,8 +3106,8 @@ function TradeRoomPageSession({
             <p className="text-xs text-[#9CA3AF]">{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
           </div>
           <div className="flex items-center gap-2">
-            <div role="progressbar" aria-label={isAr ? "تقدم الصفقة" : "Trade Progress"} aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100} className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+            <div role="progressbar" aria-label={isAr ? "تقدم الصفقة" : "Trade Progress"} aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100} data-complete={showSuccessScreen ? "true" : undefined} className="alpha-progress h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+              <div className="alpha-progress__fill" style={{ width: `${progressPercent}%` }} />
             </div>
             <bdi dir="ltr" className="text-xs text-[#C9A227]">{progressPercent}{isAr ? "٪" : "%"}</bdi>
           </div>
@@ -3120,7 +3120,7 @@ function TradeRoomPageSession({
             >
               <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="border-emerald-500/35 bg-emerald-500/10">
                 <div id="status-banner" ref={statusBannerRef} tabIndex={-1}><CardHeader>
-                  <CardTitle className="text-2xl">{isAr ? "✅ اكتملت الصفقة بنجاح" : "✅ Trade Completed Successfully"}</CardTitle>
+                  <CardTitle className="text-2xl"><span className="alpha-success-mark" aria-hidden="true"><CheckCircle2 /></span>{isAr ? "اكتملت الصفقة بنجاح" : "Trade Completed Successfully"}</CardTitle>
                 </CardHeader></div>
                 <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
                   {actionFeedback}
@@ -3161,7 +3161,7 @@ function TradeRoomPageSession({
           ) : (
           <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="border-emerald-500/35 bg-emerald-500/10">
             <div id="status-banner" ref={statusBannerRef} tabIndex={-1}><CardHeader>
-              <CardTitle className="text-2xl">{isAr ? "🎉 اكتملت الصفقة بنجاح" : "🎉 Trade Completed Successfully"}</CardTitle>
+              <CardTitle className="text-2xl"><span className="alpha-success-mark" aria-hidden="true"><CheckCircle2 /></span>{isAr ? "اكتملت الصفقة بنجاح" : "Trade Completed Successfully"}</CardTitle>
             </CardHeader></div>
             <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
                   {actionFeedback}
@@ -3426,7 +3426,7 @@ function TradeRoomPageSession({
                         ? (isAr ? "يمكن إلغاء الطلب قبل القبول ما دام لم يتم تبادل مال أو نقد أو USDT." : "Cancel this pending request only if no money, cash or USDT has been exchanged.")
                         : canBuyerCancelTrade(request, actor.id) || canSellerCancelTrade(request, actor.id)
                           ? (isAr ? "الإلغاء متاح قبل بدء الدفع. بعد إظهار تفاصيل البنك يمكن للبائع فقط إلغاء الصفقة غير المدفوعة." : "Cancel only before payment starts. After bank details are revealed, only the seller can cancel the unpaid trade.")
-                          : (isAr ? "الإلغاء مقفل بعد بدء الدفع أو مشاركة رمز السحب. أكمل الصفقة أو افتح نزاعاً عند وجود مشكلة." : "Cancellation is locked after payment starts or withdrawal details are shared. Complete the trade or open a dispute if there is a problem."))}
+                          : (isAr ? "بدأ الدفع أو تمت مشاركة تفاصيل السحب، لذا أُقفل الإلغاء. أبلغ عن مشكلة إذا احتجت مساعدة." : "Payment started or withdrawal details were shared. Cancellation is locked; report a problem if needed."))}
                     </p>
                   </div>
                 ) : null}
@@ -3441,7 +3441,7 @@ function TradeRoomPageSession({
                 {request.feePolicyVersion === "buyer_seller_1pct_v1" ? <div className="commission-notice-panel rounded-xl border p-3 text-sm">
                   <p className="commission-notice">{currencyText(isSeller
                     ? sellerFeeResponsibilityNotice(isAr ? "ar" : "en")
-                    : (isAr ? "عمولتك كمشتري 1% مشمولة في إجمالي الدفع الظاهر. تدفعها للبائع بنفس وسيلة دفع الصفقة، وتستلم كامل كمية USDT المتفق عليها." : "Your buyer fee of 1% is included in the displayed payment total. Pay it to the seller using the trade payment method. You receive the full agreed USDT amount."))}</p>
+                    : (isAr ? "ادفع الإجمالي الظاهر للبائع. يشمل عمولتك 1%؛ وتستلم كامل كمية USDT." : "Pay the displayed total to the seller. Your 1% fee is included; you receive the full USDT amount."))}</p>
                 </div> : null}
                 {sellerWalletAddress ? (
                   <div className="rounded-2xl border-2 border-[#C9A227]/65 bg-gradient-to-br from-[#C9A227]/20 via-black/70 to-[#6CAEFF]/10 p-4 shadow-[0_0_28px_rgba(201,162,39,0.18)]">
@@ -3571,7 +3571,7 @@ function TradeRoomPageSession({
                     </div>
                     {showDisputeComposer ? (
                       <div className="mt-2 space-y-2">
-                        <p className="text-xs text-[#D1D5DB]">{isAr ? "اشرح المشكلة وما حصل. الطلب مرتبط تلقائيًا بهذه الصفقة. الإدارة تراجع الرسائل وإثباتات الدفع المرفوعة." : "Describe what happened and what needs review. This case is automatically linked to the current trade. Admin can review its messages and uploaded payment evidence."}</p>
+                        <p className="text-xs text-[#D1D5DB]">{isAr ? "اشرح المشكلة. يمكن للدعم مراجعة رسائل الصفقة وإثباتات الدفع." : "Describe the problem. Support can review this trade’s messages and payment evidence."}</p>
                         {!isCashTrade ? <a href="#evidence" className="inline-flex min-h-11 items-center text-sm text-[#D4AF37]">{isAr ? "عرض الإثباتات المرتبطة بهذه الصفقة" : "View evidence linked to this trade"}</a> : <p className="text-xs text-[#9CA3AF]">{isAr ? "لهذه الطريقة، تابع التفاصيل في محادثة الصفقة؛ الصورة ليست شرطًا لتقديم الطلب." : "For this payment method, include the details in trade chat; a photo is not required to submit a case."}</p>}
                         <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} aria-label={isAr ? "سبب النزاع" : "Dispute reason"} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} maxLength={500} />
                         <Button type="button" size="sm" disabled={disputeBusy || !disputeReason.trim()} onClick={() => void handleOpenDispute()}>
@@ -3586,27 +3586,32 @@ function TradeRoomPageSession({
 
             {tradeDetails}
 
-            <details data-testid="trade-progress-details" className="rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md">
+            <details data-testid="trade-progress-details" className="alpha-trade-progress rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
             <span className="min-w-0 truncate">
               <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
               <span className="font-semibold text-[#FDE68A]">{currencyText(tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer"))}</span>
             </span>
             <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
+            <ChevronDown className="h-4 w-4 text-[#C9A227]" aria-hidden="true" />
           </summary>
           <div className="mt-3 space-y-2">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A]" style={{ width: `${progressPercent}%` }} />
+            <div className="alpha-progress h-1.5 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+              <div className="alpha-progress__fill" style={{ width: `${progressPercent}%` }} />
             </div>
-            <div className="grid grid-cols-3 gap-1.5 text-[10px] text-[#9CA3AF]">
+            <div className="alpha-trade-step-grid">
               {tradeSteps.map((step, index) => (
                 <button
                   key={step.id}
                   type="button"
                   onClick={() => setSelectedStep(step.id)}
-                  className={`min-h-11 rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
+                  className="alpha-trade-step"
+                  data-state={index === currentStepIndex ? "current" : index < currentStepIndex ? "complete" : "upcoming"}
+                  aria-current={index === currentStepIndex ? "step" : undefined}
+                  aria-pressed={selectedStep === step.id}
                 >
-                  {currencyText(tradeStepLabel(step, isAr, request.priceMode === "buyer_offer"))}
+                  <span className="alpha-trade-step__icon" aria-hidden="true">{index < currentStepIndex ? <CheckCircle2 className="h-5 w-5" /> : step.icon}</span>
+                  <span>{currencyText(tradeStepLabel(step, isAr, request.priceMode === "buyer_offer"))}</span>
                 </button>
               ))}
             </div>
@@ -3872,7 +3877,7 @@ function TradeRoomPageSession({
                       return (
                         <div
                           key={message.id}
-                          className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                          className={`alpha-chat-bubble max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
                             message.kind === "system"
                               ? "mx-auto border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#D1D5DB]"
                               : message.senderRole === "owner"

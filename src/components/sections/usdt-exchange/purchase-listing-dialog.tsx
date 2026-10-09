@@ -70,7 +70,6 @@ type PurchaseListingDialogProps = {
   isSubmittingPurchase: boolean;
   onClose: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  onQuickBuy: () => void;
   onPaymentMethodChange: (method: string) => void;
   onBuyerAmountChange: (value: string) => void;
   onBuyerWalletChange: (value: string) => void;
@@ -123,7 +122,6 @@ export function PurchaseListingDialog({
   isSubmittingPurchase,
   onClose,
   onSubmit,
-  onQuickBuy,
   onPaymentMethodChange,
   onBuyerAmountChange,
   onBuyerWalletChange,
@@ -239,7 +237,7 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 <TradePaymentSummary isAr={isAr} amount={buyerTradeAmount} subtotal={estimatedTradeValue} buyerFee={estimatedBuyerFee} total={estimatedTotal} formatFiat={formatIls} paymentMethod={selectedPaymentMethod ? paymentMethodLabel(selectedPaymentMethod, isAr) : undefined} network={buyerInfo.receivingNetwork ?? listing.network} />
-                <p className="commission-notice mt-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "عمولتك 1% ضمن دفعتك للبائع. البائع يدفع 1% من حصته؛ إجمالي عمولة Alpha هو 2%. تستلم كامل كمية USDT المتفق عليها." : "Your 1% fee is included in your payment to the seller. The seller pays their own 1%; Alpha’s total fee is 2%. You receive the full agreed USDT amount.")}</p>
+                <p className="commission-notice mt-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "يشمل عمولتك 1%. تستلم كامل كمية USDT." : "Includes your 1% fee. You receive the full USDT amount.")}</p>
               </div>
 
               <form id="buy-usdt-form" className="grid gap-3" onSubmit={onSubmit}>
@@ -278,8 +276,8 @@ export function PurchaseListingDialog({
                     {cardlessCashUnavailable ? <option value={buyerInfo.cardlessIlsAmount} disabled>{formatIls(Number(buyerInfo.cardlessIlsAmount))} — {isAr ? "غير متاح لهذا العرض" : "Unavailable for this listing"}</option> : null}
                     {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
                   </select>
-                  <p id="cardless-amount-help" className="commission-notice text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ رمز البنك بمضاعفات 100 شيكل حتى 10,000، أو اختر مبلغاً متاحاً. تُحسب كمية USDT تلقائياً مع عمولة المشتري 1%. يجب أن يناسب المبلغ حدود العرض." : "Enter your bank code’s cash amount in steps of ₪100, up to ₪10,000, or select an available amount below. USDT is calculated automatically including the buyer’s 1% fee. The cash must fit the seller’s trade limits.")}</p>
-                  {!cardlessCashOptions.length ? <p role="alert" className="text-xs text-red-300">{currencyText(isAr ? `لا يوجد مبلغ سحب بين 100 و10,000 شيكل يناسب حدود هذا العرض (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) بالسعر الحالي. اختر طريقة دفع أخرى أو عرضاً آخر، أو اطلب من البائع تعديل حدود عرضه.` : `No withdrawal amount from ₪100 to ₪10,000 fits this listing’s limits (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) at the current price. Choose another payment method or listing, or ask the seller to adjust their listing limits.`)}</p> : cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ السحب لا يناسب حدود هذا العرض بالسعر الحالي. اختر عرضاً مناسباً، أو أنشئ رمز سحب جديداً لمبلغ متاح. لا تستخدم رمزاً بمبلغ مختلف." : "This withdrawal does not fit the listing at the current price. Choose a matching listing, or prepare a new bank code for an available amount. Do not use a code for a different amount."}</p> : null}
+                  <p id="cardless-amount-help" className="commission-notice text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ الرمز: بمضاعفات ₪100، حتى ₪10,000 وضمن حدود العرض. تُحسب كمية USDT وعمولتك 1% تلقائيًا." : "Enter the cash amount for your code: ₪100 steps, up to ₪10,000, within this listing’s limits. USDT and your 1% fee are calculated automatically.")}</p>
+                  {!cardlessCashOptions.length ? <p role="alert" className="text-xs text-red-300">{currencyText(isAr ? `لا يوجد مبلغ سحب بين 100 و10,000 شيكل يناسب حدود هذا العرض (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) بالسعر الحالي. اختر طريقة دفع أخرى أو عرضاً آخر، أو اطلب من البائع تعديل حدود عرضه.` : `No withdrawal amount from ₪100 to ₪10,000 fits this listing’s limits (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) at the current price. Choose another payment method or listing, or ask the seller to adjust their listing limits.`)}</p> : cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ الرمز لا يناسب العرض. لا تستخدم رمزًا لمبلغ مختلف. اختر عرضًا آخر أو أنشئ رمزًا بمبلغ متاح." : "This code amount does not fit the listing. Do not use a code for a different amount. Choose another listing or create a code for an available amount."}</p> : null}
                 </div> : null}
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-3">
@@ -361,15 +359,14 @@ export function PurchaseListingDialog({
                   </div>
                 ) : null}
                 {showVerificationCta ? (
-                  <Card className="border-[#C9A227]/50 bg-gradient-to-br from-amber-500/15 via-black/60 to-[#C9A227]/10 shadow-[0_0_26px_rgba(201,162,39,0.22)]"><CardContent className="space-y-3 p-4"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 text-[#FDE68A]" /><div><p className="text-sm font-semibold text-[#FDE68A]">{isAr ? "⚠️ توثيق المشتري مطلوب" : "⚠️ Buyer Verification Required"}</p><p className="mt-1 text-xs text-[#E5E7EB]">{isAr ? "أكمل التوثيق لبدء التداول بأمان على Alpha Exchange. تستغرق العملية أقل من دقيقة." : "Complete your verification to begin trading safely on Alpha Exchange. The verification takes less than one minute."}</p></div></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" className="w-full sm:w-auto" onClick={onGoToVerification} disabled={isRedirectingToVerification}>{isRedirectingToVerification ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isRedirectingToVerification ? (isAr ? "جارٍ الانتقال إلى التوثيق..." : "Redirecting to verification...") : (isAr ? "✅ وثّق الآن" : "✅ Verify Now")}</Button><button type="button" onClick={onGoToVerification} disabled={isRedirectingToVerification} className={`${isAr ? "text-right" : "text-left"} text-xs text-[#FDE68A] underline underline-offset-2 transition hover:text-[#FFE8A3] disabled:cursor-not-allowed disabled:opacity-70`}>{isAr ? "الانتقال إلى التوثيق ←" : "Go to Verification →"}</button></div></CardContent></Card>
+                  <Card className="border-[#C9A227]/50 bg-gradient-to-br from-amber-500/15 via-black/60 to-[#C9A227]/10 shadow-[0_0_26px_rgba(201,162,39,0.22)]"><CardContent className="space-y-3 p-4"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 text-[#FDE68A]" /><div><p className="text-sm font-semibold text-[#FDE68A]">{isAr ? "⚠️ توثيق المشتري مطلوب" : "⚠️ Buyer Verification Required"}</p><p className="mt-1 text-xs text-[#E5E7EB]">{isAr ? "وثّق حسابك لإرسال هذا الطلب." : "Verify your account to send this request."}</p></div></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" className="w-full sm:w-auto" onClick={onGoToVerification} disabled={isRedirectingToVerification}>{isRedirectingToVerification ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isRedirectingToVerification ? (isAr ? "جارٍ الانتقال إلى التوثيق..." : "Redirecting to verification...") : (isAr ? "✅ وثّق الآن" : "✅ Verify Now")}</Button><button type="button" onClick={onGoToVerification} disabled={isRedirectingToVerification} className={`${isAr ? "text-right" : "text-left"} text-xs text-[#FDE68A] underline underline-offset-2 transition hover:text-[#FFE8A3] disabled:cursor-not-allowed disabled:opacity-70`}>{isAr ? "الانتقال إلى التوثيق ←" : "Go to Verification →"}</button></div></CardContent></Card>
                 ) : null}
                 {statusMessage && !showVerificationCta ? <Card className="border-amber-500/30 bg-black/30"><ActionFeedback revealKey={statusMessageFeedbackKey} className="flex items-center gap-2 p-3 text-xs text-[#FDE68A]"><AlertTriangle className="h-3.5 w-3.5" /><span>{currencyText(statusMessage)}</span></ActionFeedback></Card> : null}
               </form>
             </div>
             <div className="shrink-0 border-t border-white/10 bg-[#0B0B0B]/95 px-5 py-3 sm:px-6 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]">
-              <div className={`grid gap-2 ${priceMode === "buyer_offer" ? "" : "md:grid-cols-2"}`}>
+              <div className="grid gap-2">
                 <Button type="submit" form="buy-usdt-form" className="min-h-11 w-full" disabled={purchaseDisabled}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : priceMode === "buyer_offer" ? (isAr ? "إرسال عرض السعر" : "Submit Price Offer") : (isAr ? "بدء الصفقة" : "Start Trade")}</Button>
-                {priceMode !== "buyer_offer" ? <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={purchaseDisabled} onClick={onQuickBuy}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "شراء سريع" : "Quick Buy")}</Button> : null}
               </div>
               <Button type="button" variant="secondary" className="mt-2 min-h-11 w-full" disabled={isSubmittingPurchase} onClick={onClose}>{isAr ? "إلغاء" : "Cancel"}</Button>
             </div>
