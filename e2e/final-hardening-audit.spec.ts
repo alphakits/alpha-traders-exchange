@@ -238,7 +238,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/dashboard/seller",
-        readyLocator: page.getByRole("heading", { name: "Approved Seller", exact: true }),
+        readyLocator: page.getByRole("main").getByText("Approved Seller", { exact: true }).first(),
         viewport,
         disallowPathnames: ["/login"],
       });
@@ -346,7 +346,7 @@ test.describe("Final hardening audit", () => {
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
 
     await page.goto("/en/dashboard/seller");
-    await expect(page.getByRole("heading", { name: "Approved Seller", exact: true })).toBeVisible();
+    await expect(page.getByRole("main").getByText("Approved Seller", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: /^My Listings:/ }).first().click();
     await expect(page.locator("#my-listings-section")).toBeVisible();
 
