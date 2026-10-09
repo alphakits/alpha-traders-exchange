@@ -2,6 +2,7 @@ import { CalendarDays, Check, ChevronDown, Clock3, FileText, Folder } from "luci
 import { newsEventStatus, newsEventTitle, newsResultSummary, type NewsEvent, type NewsLocale } from "@/lib/economic-news/model";
 import styles from "./news-page.module.css";
 import { newsEventContext } from "@/lib/economic-news/event-context";
+import { newsResultMeaning } from "@/lib/economic-news/result-tone";
 
 export function formatNewsDate(iso: string, locale: NewsLocale, timeZone: string, includeTime = true) {
   return new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-GB", {
@@ -17,6 +18,13 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
   const status = newsEventStatus(event, now);
   const released = status === "released";
   const published = status === "published";
+  const meaning = newsResultMeaning(event, locale, now);
+  const resultTone = { positive: styles.resultPositive, negative: styles.resultNegative, neutral: styles.resultNeutral }[meaning.tone];
+  const toneLabel = isAr ? { positive: "إيجابي", negative: "سلبي", neutral: "محايد" }[meaning.tone]
+    : { positive: "Positive", negative: "Negative", neutral: "Neutral" }[meaning.tone];
+  const resultMeaning = <span className={`${styles.resultMeaning} ${resultTone}`} aria-label={`${toneLabel}: ${meaning.label}`}>
+    <span className={styles.resultSign} aria-hidden="true">{meaning.tone === "positive" ? "+" : meaning.tone === "negative" ? "−" : "·"}</span>{meaning.label}
+  </span>;
   const title = newsEventTitle(event, locale);
   const labels = isAr ? {
     released: "نتيجة مؤكدة", scheduled: "قادم", awaiting: weekly ? "النتيجة غير مضافة" : "بانتظار النتيجة",
@@ -26,7 +34,7 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
     tentative: "Time unconfirmed", no_numeric_result: "Summary pending", published: "Summary available",
   };
   const resultItems = [
-    { label: isAr ? "النتيجة الفعلية" : "Actual", value: released ? event.actual : null, tone: released ? styles.actual : styles.missing,
+    { label: isAr ? "النتيجة الفعلية" : "Actual", value: released ? event.actual : null, tone: released ? resultTone : styles.missing, result: true,
       missing: isAr ? (status === "awaiting" ? "غير مضافة" : "لم تصدر بعد") : (status === "awaiting" ? "Not added" : "Pending") },
     { label: isAr ? "المتوقع" : "Forecast", value: event.forecast, tone: styles.forecast, missing: isAr ? "غير متاح" : "Not available" },
     { label: isAr ? "السابق" : "Previous", value: event.previous, tone: styles.previous, missing: isAr ? "غير متاح" : "Not available" },
@@ -55,7 +63,9 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
               ? <time dateTime={event.scheduledAt} className={styles.eventTime}>{new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(event.scheduledAt))}</time>
               : <span>{isAr ? "لم يُحدد الوقت" : "Time to be confirmed"}</span>}</span>
           </div>
-          {released ? <p className={styles.resultPreview}><span>{isAr ? "النتيجة" : "Result"}</span><bdi dir="ltr">{event.actual}</bdi></p> : null}
+          {released ? <div className={`${styles.resultPreview} ${resultTone}`} data-result-tone={meaning.tone}>
+            <span>{isAr ? "النتيجة" : "Result"}</span><bdi dir="ltr">{event.actual}</bdi>{resultMeaning}
+          </div> : null}
           <span className={styles.disclosureHint}><span>{action}</span><ChevronDown size={16} aria-hidden="true" /></span>
         </summary>
         <div className={styles.expandedContent}>
@@ -64,10 +74,11 @@ export function EventCard({ event, locale, timeZone, now, selected = false, week
             <dl className={styles.results} style={{ gridTemplateColumns: `repeat(${resultItems.length}, minmax(0, 1fr))` }}>
               {resultItems.map((item) => <div key={item.label} className={styles.resultCell}>
                 <dt>{item.label}</dt>
-                <dd className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{item.value}</bdi>}</dd>
+                <dd data-result-tone={item.result && released ? meaning.tone : undefined} className={item.value === null ? styles.missing : item.tone}>{item.value === null ? item.missing : <bdi dir="ltr">{item.value}</bdi>}</dd>
               </div>)}
             </dl>
           ) : null}
+          {released ? <p className={styles.expandedMeaning}>{resultMeaning}</p> : null}
           {event.revised !== null || event.corrected ? <p className={styles.revision}>{isAr ? "تتضمن البيانات مراجعة من المصدر." : "Includes a source revision."}</p> : null}
           <div className={styles.detailBody}>
             <p className={styles.context}>{newsEventContext(event, locale)}</p>

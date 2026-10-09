@@ -49,11 +49,11 @@
       "timing": "exact",
       "kind": "release",
       "actual": "0.1%",
-      "previous": null,
+      "previous": "0.3%",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": "2026-10-02T12:30:00Z",
-      "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
+      "sourceUrl": "https://www.bls.gov/news.release/archives/empsit_10022026.htm"
     },
     {
       "id": "official-bls-nfp-20261002",
@@ -68,7 +68,7 @@
       "revised": "133K",
       "reference": "September 2026",
       "publishedAt": "2026-10-02T12:30:00Z",
-      "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
+      "sourceUrl": "https://www.bls.gov/news.release/archives/empsit_10022026.htm"
     },
     {
       "id": "official-bls-unemployment-20261002",
@@ -79,11 +79,11 @@
       "timing": "exact",
       "kind": "release",
       "actual": "4.2%",
-      "previous": null,
+      "previous": "4.1%",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": "2026-10-02T12:30:00Z",
-      "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
+      "sourceUrl": "https://www.bls.gov/news.release/archives/empsit_10022026.htm"
     },
     {
       "id": "official-bea-trade-balance-20261006",
@@ -170,7 +170,7 @@
       "revised": "199K",
       "reference": "Week ending 3 Oct 2026",
       "publishedAt": "2026-10-08T12:30:00Z",
-      "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
+      "sourceUrl": "https://www.dol.gov/ui/data.pdf"
     },
     {
       "id": "official-bls-core-cpi-mom-20261014",
@@ -481,7 +481,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "-105.6B",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": null,
@@ -511,7 +511,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "0.1%",
       "revised": null,
       "reference": "October 2026",
       "publishedAt": null,
@@ -526,7 +526,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "29K",
       "revised": null,
       "reference": "October 2026",
       "publishedAt": null,
@@ -541,12 +541,12 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "4.2%",
       "revised": null,
       "reference": "October 2026",
       "publishedAt": null,
       "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
     }
   ],
-  "resultsVerifiedAt": "2026-10-08T23:47:52Z"
+  "resultsVerifiedAt": "2026-10-09T01:32:58Z"
 }

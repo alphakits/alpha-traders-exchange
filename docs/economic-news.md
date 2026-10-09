@@ -129,6 +129,18 @@ already-passed events and confirmed results. Next week shows only the following
 Monday–Sunday, and Previous week shows only the preceding Monday–Sunday.
 The server retains a bounded 15-day lookback so earlier days of Previous week
 do not disappear during the current week.
+
+Result colors use `newsResultMeaning` in both the closed preview and opened
+actual. Negative numeric values are red and explicit positive values are green;
+source strings are never rewritten. For unsigned jobs/growth/spending releases,
+the comparison uses a compatible forecast, revised previous, then previous.
+Higher unemployment/claims is unfavorable (red), lower is favorable (green).
+Equal values stay neutral. Inflation, wages, policy rates, mixed speeches and
+unknown series remain neutral without an explicit sign; publication alone does
+not mean good news. A short bilingual label and +/− marker explain the basis;
+colors describe a value/comparison and never promise an asset's market direction.
+Upcoming values and dates retain their separate, non-result colors.
+
 The displayed date range changes at local Monday without waiting for a new
 snapshot. The Next release shortcut opens whichever tab contains its event.
 

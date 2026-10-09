@@ -27,6 +27,38 @@ describe("USD News page", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify(feed))));
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.restoreAllMocks(); });
+  it.each(["en", "ar"] as const)("uses consistent result colors in closed and opened cards in %s", locale => {
+    const past = "2026-09-22T12:30:00Z";
+    const events = [
+      { ...event, id: "te-30", scheduledAt: past, title: "Trade balance", actual: "-105.6B" },
+      { ...event, id: "te-31", scheduledAt: past, title: "Initial jobless claims", actual: "197K", forecast: null, previous: "197K", revised: "199K" },
+      { ...event, id: "te-32", scheduledAt: past, title: "Nonfarm payrolls", actual: "29K", forecast: null, previous: "162K", revised: "133K" },
+      { ...event, id: "te-33", scheduledAt: past, actual: "0%", forecast: "0%", previous: "0%" },
+      { ...event, id: "te-34", scheduledAt: past, actual: "+0.2%" },
+      event,
+    ];
+    render(<NewsPage locale={locale} initialFeed={{ ...feed, events }} initialNow={now} />);
+    for (const [id, tone] of [["30", "negative"], ["31", "positive"], ["32", "negative"], ["33", "neutral"], ["34", "positive"]]) {
+      const card = document.getElementById(`event-te-${id}`)!;
+      expect(card.querySelector("summary [data-result-tone]")?.getAttribute("data-result-tone")).toBe(tone);
+      fireEvent.click(card.querySelector("summary")!);
+      expect(card.querySelector("dd")?.getAttribute("data-result-tone")).toBe(tone);
+      expect(card.querySelectorAll("dd[data-result-tone]").length).toBe(1);
+    }
+    expect(document.querySelector("#event-te-1 [data-result-tone]")).toBeNull();
+    expect(document.querySelector("#event-te-31 summary")?.textContent).toContain(locale === "en" ? "Below revised previous" : "أقل من السابق المعدّل");
+  });
+  it("updates a result color without closing the opened card", async () => {
+    session.user = { id: "color-user" };
+    const released = { ...event, title: "Initial jobless claims", scheduledAt: "2026-09-22T12:30:00Z", actual: "197K", forecast: "200K" };
+    render(<NewsPage locale="en" initialFeed={{ ...feed, events: [released] }} initialNow={now} />);
+    fireEvent.click(document.querySelector("article summary")!);
+    expect(document.querySelector("article dd")?.getAttribute("data-result-tone")).toBe("positive");
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ ...feed, events: [{ ...released, actual: "210K" }] })));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh news" })); });
+    expect(document.querySelector<HTMLDetailsElement>("article details")?.open).toBe(true);
+    expect(document.querySelector("article dd")?.getAttribute("data-result-tone")).toBe("negative");
+  });
   it.each(["en", "ar"] as const)("keeps Monday–Wednesday results and summaries visible on Thursday in %s", locale => {
     const thursday = Date.parse("2026-09-24T17:00:00Z");
     vi.setSystemTime(thursday);
