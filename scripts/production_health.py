@@ -37,6 +37,10 @@ SAFE_HEADERS = {"date", "age", "cache-control", "content-type", "location",
 SETUP_SLOW = 3.0
 APPLICATION_SLOW = 2.0  # Network-inclusive time after connection setup, not server CPU.
 DATABASE_SLOW_MS = 1000
+# Match packages/contracts/src/usd-ils-reference.ts. A declared closure is not
+# an outage, but it must never extend the provider's explicit quote validity.
+FX_MAX_QUOTE_AGE_SECONDS = 120
+FX_MAX_CLOSED_AGE_SECONDS = 96 * 60 * 60
 
 
 def utcnow():
@@ -57,6 +61,24 @@ def finite(value, positive=False):
 
 def reject_nonfinite(value):
     raise ValueError(f"Nonstandard JSON number: {value}")
+
+
+def usable_fx_reference(pair, observed_at):
+    if (not isinstance(pair, dict) or pair.get("source") != "WISE:USDILS"
+            or not finite(pair.get("price")) or not 2 <= pair["price"] <= 10):
+        return False
+    limits = {"live": FX_MAX_QUOTE_AGE_SECONDS, "closed": FX_MAX_CLOSED_AGE_SECONDS}
+    status = pair.get("quoteStatus")
+    limit = limits.get(status) if isinstance(status, str) else None
+    if limit is None:
+        return False
+    try:
+        quoted_at, valid_until = timestamp(pair["quotedAt"]), timestamp(pair["validUntil"])
+        return (-5 <= (observed_at - quoted_at).total_seconds() <= limit
+                and observed_at < valid_until
+                and (valid_until - quoted_at).total_seconds() <= limit)
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+        return False
 
 
 class Page(HTMLParser):
@@ -176,9 +198,18 @@ def validate(observation, body):
                     observation["listingsCount"] = len(data["listings"])
             else:
                 market = data["market"]
+                fx = market["pairs"]["usdtIls"]
+                # Evaluate expiry when the response finished, not before TLS
+                # setup or a provider request that may create a newer quote.
+                observed_at = timestamp(observation.get("completedUtc", observation["requestUtc"]))
+                usable_fx = usable_fx_reference(fx, observed_at)
+                if not usable_fx or data.get("rate") != fx.get("price"):
+                    issues.append("invalid_fx_reference")
+                observation["fxQuoteStatus"] = fx.get("quoteStatus") if usable_fx else "invalid"
                 if not finite(data.get("rate"), positive=True):
                     issues.append("invalid_market_rate")
-                if market.get("status") != "live" or market.get("stale") is not False or market.get("unavailablePairs") != []:
+                expected_status = "degraded" if usable_fx and fx.get("quoteStatus") == "closed" else "live"
+                if market.get("status") != expected_status or market.get("stale") is not False or market.get("unavailablePairs") != []:
                     issues.append("market_degraded")
                 age(market["updatedAt"])
                 for pair in ("btcUsdt", "ethUsdt", "usdtIls"):

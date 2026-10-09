@@ -1,4 +1,5 @@
-FROM node:22.18.0-alpine AS build
+# Docker Official Image from ECR Public, pinned to the previously verified image.
+FROM public.ecr.aws/docker/library/node:22.18.0-alpine@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b AS build
 
 WORKDIR /app/discord-worker
 COPY discord-worker/package.json discord-worker/package-lock.json ./
@@ -9,7 +10,7 @@ COPY src/lib /app/src/lib
 COPY packages/contracts/src /app/packages/contracts/src
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22.18.0-alpine AS runtime
+FROM public.ecr.aws/docker/library/node:22.18.0-alpine@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b AS runtime
 
 RUN apk add --no-cache python3 curl
 ENV NODE_ENV=production

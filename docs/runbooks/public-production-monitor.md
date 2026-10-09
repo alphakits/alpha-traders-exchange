@@ -32,6 +32,15 @@ in the artifact. Only allowlisted response headers and contract results remain.
 The default diagnostic thresholds are 3 seconds for setup, 2 seconds for repeated
 network-inclusive responses after setup, and 1,000 ms for repeated database probes.
 Health and market timestamps allow at most 180 seconds of age or 60 seconds ahead.
+The FX reference also follows the shared USD/ILS policy: identified Wise source,
+matching reference rate, explicit unexpired validity, at most two minutes for
+live rates or the existing bounded validity for a declared market closure.
+A scheduled FX closure with usable reference data, current BTC/ETH data and no
+missing pairs is expected behavior, even though the API labels that aggregate
+snapshot `degraded`. The monitor records `fxQuoteStatus: closed` and does not
+report an outage solely for that label. Missing prices, stale snapshots, unknown
+sources and expired quotes still fail; closure never renews a quote or changes
+the site's pricing policy.
 These are operational thresholds, not promised customer SLAs. A changed threshold
 must be reviewed against collected evidence; never raise it to hide a regression.
 
@@ -80,6 +89,13 @@ GitHub, including bilingual pages, JavaScript assets and signed-out API guards.
 There is no new account, paid service, credential, transaction or message sender.
 The container needs Python and curl; the Docker build copies only the monitor
 script, not account configuration or probe artifacts.
+
+Both container stages use the Docker Official Node image on ECR Public, pinned
+to the same digest previously built from Docker Hub. This removes the Docker
+Hub anonymous download dependency that returned HTTP 429 in both Railway and
+GitHub release builds. It changes the registry, not the Node runtime or image
+contents, and needs no account credential. The release gate still builds and
+checks the actual image. See the [official image publishing details](https://aws.amazon.com/blogs/containers/docker-official-images-now-available-on-amazon-elastic-container-registry-public/).
 
 `GET /health/public-production` on the worker origin returns a cached, allowlisted
 summary with the latest observation and up to 24 recent observations. HTTP 200

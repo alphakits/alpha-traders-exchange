@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from production_health import (APIS, AUTH_GUARDS, BASE, CONTROL, HEALTH, LISTINGS, MARKET,
-                               PAGES, Monitor, Page, assess, load_previous, main, validate)
+                               PAGES, FX_MAX_CLOSED_AGE_SECONDS, Monitor, Page, assess, load_previous, main, validate)
 
 NOW = dt.datetime(2026, 10, 7, 17, 0, tzinfo=dt.timezone.utc)
 
@@ -37,6 +37,16 @@ def health(**overrides):
 def healthy_report():
     return {"complete": True, "runnerErrors": [],
             "observations": [sample(p) for p in APIS + PAGES + APIS + AUTH_GUARDS]}
+
+
+def market_payload(closed=False):
+    pairs = {p: {"price": 3} for p in ("btcUsdt", "ethUsdt")}
+    pairs["usdtIls"] = {"price": 3.1, "source": "WISE:USDILS",
+                         "quoteStatus": "closed" if closed else "live",
+                         "quotedAt": NOW.isoformat(),
+                         "validUntil": (NOW + dt.timedelta(seconds=120)).isoformat()}
+    return {"rate": 3.1, "market": {"status": "degraded" if closed else "live", "stale": False,
+            "unavailablePairs": [], "updatedAt": NOW.isoformat(), "pairs": pairs}}
 
 
 class ContractTests(unittest.TestCase):
@@ -125,9 +135,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("missing_listings_array", validate(sample(LISTINGS), '{"listings":{}}'))
 
     def test_market_contract_including_every_pair(self):
-        market = {"rate": 3.1, "market": {"status": "live", "stale": False,
-                  "unavailablePairs": [], "updatedAt": NOW.isoformat(),
-                  "pairs": {p: {"price": 3} for p in ("btcUsdt", "ethUsdt", "usdtIls")}}}
+        market = market_payload()
         self.assertEqual(validate(sample(MARKET), json.dumps(market)), [])
         for key, value in [("status", "degraded"), ("stale", True), ("unavailablePairs", ["btcUsdt"])]:
             broken = copy.deepcopy(market)
@@ -138,6 +146,52 @@ class ContractTests(unittest.TestCase):
                 broken = copy.deepcopy(market)
                 broken["market"]["pairs"][pair]["price"] = price
                 self.assertTrue(validate(sample(MARKET), json.dumps(broken)))
+
+    def test_valid_declared_fx_closure_is_observed_without_a_false_outage(self):
+        payload = market_payload(closed=True)
+        observation = sample(MARKET)
+        self.assertEqual(validate(observation, json.dumps(payload)), [])
+        self.assertEqual(observation["fxQuoteStatus"], "closed")
+        # The source rate can be the closing rate while its explicit quote
+        # validity and the overall snapshot remain current.
+        payload["market"]["pairs"]["usdtIls"]["quotedAt"] = (NOW - dt.timedelta(days=2)).isoformat()
+        self.assertEqual(validate(sample(MARKET), json.dumps(payload)), [])
+
+    def test_closure_never_hides_missing_crypto_or_a_stale_snapshot(self):
+        for key, value in [("stale", True), ("unavailablePairs", ["btcUsdt"]),
+                           ("unavailablePairs", ["ethUsdt"]), ("unavailablePairs", ["usdtIls"]),
+                           ("updatedAt", (NOW - dt.timedelta(seconds=181)).isoformat())]:
+            payload = market_payload(closed=True)
+            payload["market"][key] = value
+            self.assertTrue(validate(sample(MARKET), json.dumps(payload)), (key, value))
+        payload = market_payload(closed=True)
+        payload["market"]["pairs"]["btcUsdt"]["price"] = 0
+        self.assertIn("invalid_market_price", validate(sample(MARKET), json.dumps(payload)))
+
+    def test_live_and_closed_fx_require_the_identified_source_and_unexpired_validity(self):
+        for closed in (False, True):
+            limit = FX_MAX_CLOSED_AGE_SECONDS if closed else 120
+            for key, value in [
+                ("source", "unverified"), ("quoteStatus", "stale"), ("quoteStatus", None),
+                ("quoteStatus", []), ("quoteStatus", {}),
+                ("price", 1), ("price", 11), ("quotedAt", "not a timestamp"),
+                ("quotedAt", (NOW + dt.timedelta(seconds=6)).isoformat()),
+                ("quotedAt", (NOW - dt.timedelta(seconds=limit + 1)).isoformat()),
+                ("validUntil", NOW.isoformat()),
+                ("validUntil", (NOW + dt.timedelta(seconds=limit + 1)).isoformat()),
+            ]:
+                with self.subTest(closed=closed, field=key, value=value):
+                    payload = market_payload(closed)
+                    payload["market"]["pairs"]["usdtIls"][key] = value
+                    self.assertIn("invalid_fx_reference", validate(sample(MARKET), json.dumps(payload)))
+            payload = market_payload(closed)
+            payload["rate"] = 3.2
+            self.assertIn("invalid_fx_reference", validate(sample(MARKET), json.dumps(payload)))
+
+    def test_quote_expiry_is_checked_at_response_completion(self):
+        payload = market_payload()
+        observation = sample(MARKET, completedUtc=(NOW + dt.timedelta(seconds=121)).isoformat())
+        self.assertIn("invalid_fx_reference", validate(observation, json.dumps(payload)))
 
     def test_locales_and_exchange_return_paths(self):
         for locale, direction in [("ar", "rtl"), ("en", "ltr")]:
