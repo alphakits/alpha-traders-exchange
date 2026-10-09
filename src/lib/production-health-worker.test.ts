@@ -115,6 +115,30 @@ describe("continuous public production health", () => {
     expect(worker.getSnapshot().status).toBe("verification_limited");
   });
 
+  it("does not resolve a known component failure when the probe itself stops working", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(epoch);
+    const incident = { kind: "component", component: "/api/health", code: "http_error" };
+    const probe = vi.fn(async (): Promise<ProductionHealthObservation> => ({
+      ...report(), status: "component_degraded",
+      activeIncidents: { "component:/api/health:http_error": incident },
+    }));
+    const worker = new ProductionHealthWorker({ probe });
+    workers.push(worker);
+    await worker.start();
+    await flush();
+    probe.mockRejectedValue(new Error("probe failed"));
+    await vi.advanceTimersByTimeAsync(2 * 300_000);
+    expect(worker.getSnapshot().latest).toMatchObject({
+      complete: false,
+      status: "verification_limited",
+      activeIncidents: { "component:/api/health:http_error": incident },
+    });
+    probe.mockImplementation(async () => report(Date.now()));
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(worker.getSnapshot().latest?.activeIncidents).toEqual({});
+  });
+
   it("keeps bounded history and cannot advertise coverage older than the evidence", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(epoch);

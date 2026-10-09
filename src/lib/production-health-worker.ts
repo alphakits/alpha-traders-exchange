@@ -226,6 +226,7 @@ export class ProductionHealthWorker {
         status: "verification_limited",
         coverageGaps: [],
         activeIncidents: {
+          ...this.history.at(-1)?.activeIncidents,
           "monitoring:coverage:probe_failed": { kind: "monitoring", component: "coverage", code: "probe_failed" },
         },
       };
