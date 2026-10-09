@@ -1,38 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MarketSnapshot } from "@/types/market";
+import { useCallback, useSyncExternalStore } from "react";
+import { createMarketFeedStore, DEFAULT_MARKET_REFRESH_MS } from "@/lib/market-feed-client";
 
-type MarketFeedState = {
-  snapshot: MarketSnapshot | null;
-  isLoading: boolean;
-  error: string | null;
-};
-
-const DEFAULT_REFRESH_MS = 45_000;
+// Public prices only: account, listing and trade responses never enter this store.
+// Effects subscribe in the browser; server rendering always reads the empty state.
+const feed = createMarketFeedStore();
 
 export function useMarketFeed(options?: { refreshMs?: number }) {
-  const refreshMs = options?.refreshMs ?? DEFAULT_REFRESH_MS;
-  const [state, setState] = useState<MarketFeedState>({ snapshot: null, isLoading: true, error: null });
-
-  const loadFeed = useCallback(async () => {
-    try {
-      const response = await fetch("/api/market/center", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load market data");
-      const payload = (await response.json()) as { snapshot?: MarketSnapshot };
-      if (!payload.snapshot) throw new Error("Invalid market response");
-      setState({ snapshot: payload.snapshot, isLoading: false, error: null });
-    } catch {
-      setState((prev) => ({ snapshot: prev.snapshot, isLoading: false, error: "Market feed unavailable" }));
-    }
-  }, []);
-
-  useEffect(() => {
-    loadFeed();
-    const id = window.setInterval(loadFeed, refreshMs);
-    return () => window.clearInterval(id);
-  }, [loadFeed, refreshMs]);
-
-  const hasLiveFeed = useMemo(() => Boolean(state.snapshot && state.snapshot.status === "live"), [state.snapshot]);
-  return { ...state, hasLiveFeed, refresh: loadFeed };
+  const refreshMs = options?.refreshMs ?? DEFAULT_MARKET_REFRESH_MS;
+  const subscribe = useCallback((listener: () => void) => feed.subscribe(listener, refreshMs), [refreshMs]);
+  const state = useSyncExternalStore(subscribe, feed.getSnapshot, feed.getServerSnapshot);
+  const hasLiveFeed = Boolean(state.snapshot?.status === "live" && !state.snapshot.stale && !state.error);
+  return { ...state, hasLiveFeed, refresh: feed.refresh };
 }

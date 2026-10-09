@@ -99,6 +99,9 @@ export function AlphaMarketCenterView({
   }
 
   if (!snapshot) return null;
+  const isLive = snapshot.status === "live" && !snapshot.stale && !error;
+  const statusLabel = isLive ? (isAr ? "مباشر" : "LIVE") : (isAr ? "تحديث متأخر" : "Delayed update");
+  const statusClass = isLive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200";
   const heroPair = snapshot.pairs.usdtIls;
   const supportingPairs = [snapshot.pairs.btcUsdt, snapshot.pairs.ethUsdt];
 
@@ -112,9 +115,9 @@ export function AlphaMarketCenterView({
               {isAr ? "بيانات السوق المباشرة لحركة التداول في Alpha Exchange." : "Live market data powering Alpha Exchange pricing."}
             </CardDescription>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
-            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-            {isAr ? "مباشر" : "LIVE"}
+          <div className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium", statusClass)}>
+            <span className={cn("inline-flex h-2 w-2 rounded-full", isLive ? "bg-emerald-400" : "bg-amber-400")} />
+            {statusLabel}
           </div>
         </div>
         <p className="text-xs text-[#9CA3AF]"><bdi dir="auto">{currencyText(ageLabel(snapshot.updatedAt, now, isAr))}</bdi></p>
@@ -127,9 +130,9 @@ export function AlphaMarketCenterView({
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]">{isAr ? "مرساة التسعير" : "Pricing Anchor"}</p>
                 <p className="mt-2 text-sm text-[#CFCFCF]"><bdi dir="ltr">{currencyText(heroPair.label)}</bdi></p>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
-                <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                {isAr ? "مباشر" : "LIVE"}
+              <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium", statusClass)}>
+                <span className={cn("inline-flex h-1.5 w-1.5 rounded-full", isLive ? "bg-emerald-400" : "bg-amber-400")} />
+                {statusLabel}
               </span>
             </div>
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
@@ -142,7 +145,7 @@ export function AlphaMarketCenterView({
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-right text-xs text-[#9CA3AF]">
-                <p className="uppercase tracking-[0.14em]">{isAr ? "مصدر حي" : "Live Reference"}</p>
+                <p className="uppercase tracking-[0.14em]">{isLive ? (isAr ? "مصدر حي" : "Live Reference") : (isAr ? "آخر مرجع" : "Last Reference")}</p>
                 <p className="mt-1 text-sm text-white"><bdi dir="auto">{currencyText(marketSourceLabel(heroPair.reference ?? heroPair.source, isAr))}</bdi></p>
               </div>
             </div>
@@ -179,7 +182,7 @@ export function AlphaMarketCenterView({
           </p>
         </div>
 
-        {snapshot.status !== "live" || error ? (
+        {!isLive ? (
           <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-200">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
