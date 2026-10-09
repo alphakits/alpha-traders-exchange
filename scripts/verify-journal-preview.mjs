@@ -10,9 +10,28 @@ const server=createServer((_request,response)=>{response.writeHead(200,{"content
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await chromium.launch({headless:true,executablePath:process.env.JOURNAL_BROWSER_EXECUTABLE||undefined,args:["--no-sandbox"]});
 const url=`http://127.0.0.1:${server.address().port}/journal.html`,errors=[],checks=[];let debugPage;
-async function ready(page){await page.getByText("Opening your journal…").waitFor({state:"hidden"});await page.locator('.j-stat').first().waitFor();}
+async function ready(page){await page.locator('#preview-fallback').waitFor({state:'detached'});await page.getByText("Opening your journal…").waitFor({state:"hidden"});await page.locator('.j-stat').first().waitFor();}
 async function overflow(page,label){assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,label);assert.equal(await page.locator('.j-stat-pnl .j-money').evaluateAll(elements=>elements.every(el=>{const value=el.getBoundingClientRect(),card=el.closest('.j-stat').getBoundingClientRect();return value.left>=card.left&&value.right<=card.right;})),true,`${label}: P&L must fit inside its card`);checks.push(`${label}: no horizontal overflow or clipped P&L`);}
 try{
+  const restricted=await browser.newContext({viewport:{width:390,height:844},javaScriptEnabled:false}),restrictedPage=await restricted.newPage();
+  await restrictedPage.goto(url);
+  await restrictedPage.getByRole('heading',{name:'Trading journal',exact:true}).waitFor();
+  assert.ok((await restrictedPage.locator('.j-stat').first().innerText()).includes('Net P&L'));
+  assert.equal(await restrictedPage.getByRole('button',{name:'Add trade',exact:true}).isDisabled(),true);
+  await overflow(restrictedPage,'Scripts-disabled mobile preview');
+  await restrictedPage.setViewportSize({width:320,height:740});await overflow(restrictedPage,'Scripts-disabled small mobile preview');
+  await restrictedPage.setViewportSize({width:390,height:844});
+  await restrictedPage.screenshot({path:path.join(outDir,'Alpha-Journal-Read-Only-Mobile.png'),fullPage:true,animations:'disabled'});
+  checks.push('Restricted file viewers show a labelled sample dashboard without scripts');
+  await restricted.close();
+  const blocked=await browser.newContext({viewport:{width:390,height:844}}),blockedPage=await blocked.newPage();
+  await blockedPage.addInitScript(()=>Object.defineProperty(window,'indexedDB',{get(){throw new DOMException('Storage blocked','SecurityError');}}));
+  await blockedPage.goto(url);
+  await blockedPage.getByText('Interactive mode could not open local storage here.',{exact:false}).waitFor();
+  await blockedPage.getByRole('heading',{name:'Trading journal',exact:true}).waitFor();
+  assert.equal(await blockedPage.locator('#root').isVisible(),false);
+  checks.push('Storage-blocked browsers retain the dashboard and visible recovery instructions');
+  await blocked.close();
   const context=await browser.newContext({viewport:{width:1440,height:1080}}),page=await context.newPage();
   debugPage=page;page.on("pageerror",e=>errors.push(e.message));page.on("dialog",d=>d.accept());
   await page.goto(url);await ready(page);
