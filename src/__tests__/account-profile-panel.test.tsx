@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
+import { PAGE_SECTION_NAVIGATION_EVENT } from "@/lib/page-section-navigation";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
 vi.mock("next/image", () => ({
@@ -315,6 +316,15 @@ describe("AccountProfilePanel", () => {
     expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Alerts" }));
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(document.getElementById("profile-panel-alerts")?.hidden).toBe(true);
+  });
+
+  it.each([["contact-details", "Edit profile"], ["notification-preferences", "Alerts"]])("opens %s on the first shared navigation request", async (section, tab) => {
+    stubProfileFetch(vi.fn().mockResolvedValue({ ok: true, json: async () => makePayload("buyer") }));
+    render(<AccountProfilePanel locale="en" />);
+    await screen.findByRole("tab", { name: "Overview" });
+    act(() => window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: section })));
+    await waitFor(() => expect(screen.getByRole("tab", { name: tab }).getAttribute("aria-selected")).toBe("true"));
+    expect(document.getElementById(section)?.closest("[hidden]")).toBeNull();
   });
 
   it("keeps the editor and save confirmation mounted while the canonical account refreshes", async () => {

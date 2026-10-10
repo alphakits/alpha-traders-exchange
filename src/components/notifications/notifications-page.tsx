@@ -1,4 +1,5 @@
 "use client";
+import { navigateToPageSection } from "@/lib/page-section-navigation";
 import { HelpDetails } from "@/components/ui/help-details";
 
 import { currencyText } from "@/components/ui/currency-text";
@@ -597,7 +598,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
       prefetchTradeRoom(router, requestId, userId);
     }
     if (!notification.isRead) void handleMarkOneRead(notification.id);
-    router.push(destination);
+    navigateToPageSection(router, destination);
   }
 
   async function handleMarkOneRead(notificationId: string) {
