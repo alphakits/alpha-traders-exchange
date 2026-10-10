@@ -697,7 +697,7 @@ describe("desktop buyer workspace", () => {
   it.each(["en", "ar"] as const)("opens the owner's active list directly from the marketplace (%s)", async (locale) => {
     user = { ...buyer, role: "owner", roles: ["owner", "buyer"] };
     render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
-    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades" }));
     expect(push).toHaveBeenCalledWith("/admin/alpha-exchange?section=purchase-requests&status=active");
   });
 });
