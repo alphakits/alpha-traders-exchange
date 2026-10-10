@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import { headers } from "next/headers";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
@@ -110,7 +110,7 @@ export default async function LocaleLayout({
         }`}
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
-          <PageSectionNavigation />
+          <Suspense fallback={null}><PageSectionNavigation /></Suspense>
           <NativeAppBridge locale={appLocale} />
           <UserActivityTracker />
           <TrafficAnalyticsTracker />
