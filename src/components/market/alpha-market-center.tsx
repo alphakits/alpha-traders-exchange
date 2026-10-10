@@ -1,6 +1,6 @@
 "use client";
 
-import { isFxReferenceUsable } from "@/lib/fx-reference-policy";
+import { marketFeedStatus } from "@/lib/market-feed-status";
 import { currencyText } from "@/components/ui/currency-text";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
@@ -100,8 +100,9 @@ export function AlphaMarketCenterView({
   }
 
   if (!snapshot) return null;
-  const isLive = snapshot.pairs.usdtIls.quoteStatus === "live" && isFxReferenceUsable(snapshot, now) && !snapshot.stale && !error;
-  const isClosed = snapshot.pairs.usdtIls.quoteStatus === "closed" && isFxReferenceUsable(snapshot, now) && !snapshot.stale && !error;
+  const feedStatus = marketFeedStatus(snapshot, error, now);
+  const isLive = feedStatus === "live";
+  const isClosed = feedStatus === "closed";
   const statusLabel = isClosed ? (isAr ? "آخر إغلاق" : "LAST CLOSE") : isLive ? (isAr ? "مباشر" : "LIVE") : (isAr ? "تحديث متأخر" : "Delayed update");
   const statusClass = isLive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200";
   const heroPair = snapshot.pairs.usdtIls;
@@ -184,7 +185,13 @@ export function AlphaMarketCenterView({
           </p>
         </div>
 
-        {!isLive ? (
+        {isClosed ? (
+          <p className="text-xs text-amber-200">
+            {isAr
+              ? "سوق USD/ILS مغلق. يظهر آخر سعر إغلاق صالح؛ وتستمر تحديثات BTC وETH."
+              : "USD/ILS market closed. Showing the valid last close; BTC and ETH continue updating."}
+          </p>
+        ) : !isLive ? (
           <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-200">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

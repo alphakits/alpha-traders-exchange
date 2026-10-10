@@ -10,6 +10,7 @@ import { groupOwnTrades, type TradeWorkspaceSide } from "@/lib/trades-workspace"
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 import { getTradeStatusDisplayLabel } from "@/lib/trade-workflow";
 import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
+import { formatTradeId } from "@/lib/format-id";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 export function TradeRequestGroups({ requests, userId, side, locale }: {
@@ -19,13 +20,16 @@ export function TradeRequestGroups({ requests, userId, side, locale }: {
   const groups = groupOwnTrades(requests, userId, side);
   const id = useId();
   function tradeCard(request: PurchaseRequest, completed = false) {
-    const amount = Number(request.usdtAmount);
+    const recordedAmount = String(request.usdtAmount ?? "").trim();
+    const amount = /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(recordedAmount)
+      ? Number(recordedAmount.replace(/,/g, ""))
+      : Number.NaN;
     const date = new Date(completed ? request.completedAt ?? request.updatedAt : request.createdAt);
     return <article key={request.id} className="min-w-0 rounded-2xl border border-white/10 bg-[#111318] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs text-[#9CA3AF]"><bdi dir="ltr">{request.tradeId || (request.displayNumber ? `#${request.displayNumber}` : `#${request.id.slice(-8)}`)}</bdi></p>
-          <p className="mt-1 text-xl font-semibold"><bdi dir="ltr">{currencyText(`${Number.isFinite(amount) ? amount.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"} USDT`)}</bdi></p>
+          <p className="text-xs text-[#9CA3AF]"><bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi></p>
+          <p className="mt-1 text-xl font-semibold"><bdi dir="ltr">{currencyText(`${Number.isFinite(amount) ? amount.toLocaleString("en-US", { maximumFractionDigits: 6 }) : "—"} USDT`)}</bdi></p>
           {side === "seller" && request.buyerName ? <p className="mt-1 break-words text-sm text-[#D1D5DB]"><bdi dir="auto">{currencyText(request.buyerName)}</bdi></p> : null}
         </div>
         <span className={`rounded-full border px-3 py-1 text-xs ${completed ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200" : "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#F4D87A]"}`}>
