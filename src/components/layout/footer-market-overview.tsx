@@ -1,6 +1,6 @@
 "use client";
 
-import { isFxReferenceUsable } from "@/lib/fx-reference-policy";
+import { marketFeedStatus } from "@/lib/market-feed-status";
 import { currencyText } from "@/components/ui/currency-text";
 import type { AppLocale } from "@/i18n/routing";
 import { useMarketFeed } from "@/components/market/use-market-feed";
@@ -41,7 +41,8 @@ function formatIsraelTime(value: string | null | undefined, isAr: boolean) {
 export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
   const isAr = locale === "ar";
   const { snapshot, isLoading, error } = useMarketFeed();
-  const isLive = Boolean(snapshot?.status === "live" && isFxReferenceUsable(snapshot) && !snapshot.stale && !error);
+  const feedStatus = marketFeedStatus(snapshot, error);
+  const isLive = feedStatus === "live";
 
   const pairs = PAIR_ORDER.map(({ key, label }) => {
     const pair: MarketPair | null = snapshot?.pairs[key] ?? null;
@@ -57,7 +58,9 @@ export function FooterMarketOverview({ locale }: { locale: AppLocale }) {
     ? (isAr ? "جارٍ التحديث" : "Updating")
     : isLive
       ? (isAr ? "مباشر" : "LIVE")
-      : (isAr ? "متدهور" : "Degraded");
+      : feedStatus === "closed"
+        ? (isAr ? "إغلاق USD/ILS" : "USD/ILS closed")
+        : (isAr ? "متدهور" : "Degraded");
 
   return (
     <div

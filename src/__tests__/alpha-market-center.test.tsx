@@ -32,6 +32,23 @@ afterEach(() => {
 });
 
 describe("AlphaMarketCenterView", () => {
+  it.each(["en", "ar"] as const)("explains a valid FX closure without an outage warning in %s", (locale) => {
+    const closed: MarketSnapshot = {
+      ...snapshot, status: "degraded",
+      pairs: { ...snapshot.pairs, usdtIls: { ...snapshot.pairs.usdtIls, quoteStatus: "closed" } },
+    };
+    const { rerender } = render(<AlphaMarketCenterView locale={locale} snapshot={closed} isLoading={false} error={null} />);
+    const closure = locale === "ar"
+      ? "سوق USD/ILS مغلق. يظهر آخر سعر إغلاق صالح؛ وتستمر تحديثات BTC وETH."
+      : "USD/ILS market closed. Showing the valid last close; BTC and ETH continue updating.";
+    const outage = locale === "ar" ? "السوق غير متاح مؤقتًا" : "Market temporarily unavailable.";
+    expect(screen.getByText(closure)).toBeTruthy();
+    expect(screen.queryByText(outage)).toBeNull();
+    rerender(<AlphaMarketCenterView locale={locale} snapshot={{ ...closed, unavailablePairs: ["btcUsdt"] }} isLoading={false} error={null} />);
+    expect(screen.queryByText(closure)).toBeNull();
+    expect(screen.getByText(outage)).toBeTruthy();
+  });
+
   it.each(["en", "ar"] as const)("never labels a failed or stale %s feed as live", (locale) => {
     const props = { locale, isLoading: false, error: "Market feed unavailable" };
     const { rerender } = render(<AlphaMarketCenterView {...props} snapshot={snapshot} />);
