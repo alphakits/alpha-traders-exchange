@@ -55,6 +55,7 @@ import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { groupOwnTrades } from "@/lib/trades-workspace";
+import { adminActiveTradesDestination } from "@/lib/action-destinations";
 import { runClientRequest } from "@/lib/client-request-deadline";
 import { getCommissionWorkspaceAction, sortDashboardActivityNewestFirst } from "@/lib/dashboard-workspace";
 import {
@@ -4098,7 +4099,7 @@ export function UsdtExchangePage({
   const heroPrimaryActions = (isAdminSession
     ? [
       { key: "hero-owner-dashboard", label: welcomeRole === "owner" ? (isAr ? "لوحة المالك" : "Owner Dashboard") : (isAr ? "لوحة الإدارة" : "Admin Dashboard"), onClick: () => router.push("/admin/alpha-exchange") },
-      { key: "hero-owner-trades", label: isAr ? "الصفقات النشطة" : "Active Trades", onClick: () => router.push("/trade-room") },
+      { key: "hero-owner-trades", label: isAr ? "الصفقات النشطة" : "Active Trades", onClick: () => router.push(adminActiveTradesDestination()) },
     ]
     : isSellerWorkspaceUser
     ? [

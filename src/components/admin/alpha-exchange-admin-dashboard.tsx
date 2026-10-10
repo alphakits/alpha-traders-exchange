@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
+import { isActiveOwnerTrade } from "@/lib/owner-active-trades";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork, type TradeDisputeCase } from "@/types/alpha-exchange";
@@ -551,7 +552,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
   const [listingsPage, setListingsPage] = useState(1);
 
   const [requestsQuery, setRequestsQuery] = useState("");
-  const [requestsStatus, setRequestsStatus] = useState<"all" | PurchaseRequest["status"]>("all");
+  const [requestsStatus, setRequestsStatus] = useState<"all" | "active" | PurchaseRequest["status"]>("all");
   const [requestsSort, setRequestsSort] = useState<"newest" | "oldest">("newest");
   const [requestsPage, setRequestsPage] = useState(1);
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
@@ -831,7 +832,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     }
     if (adminDestination.section === "purchase-requests") {
       setRequestsQuery(adminDestination.purchaseRequestId ?? "");
-      setRequestsStatus("all");
+      setRequestsStatus(adminDestination.purchaseRequestFilter ?? "all");
       setRequestsPage(1);
     }
     if (adminDestination.section === "commissions") {
@@ -962,7 +963,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
 
   const requestsRows = useMemo(() => {
     const items = (data?.purchaseRequests ?? []).filter((request) => {
-      if (requestsStatus === "completed") {
+      if (requestsStatus === "active") {
+        if (!isActiveOwnerTrade(request)) return false;
+      } else if (requestsStatus === "completed") {
         if (!["completed", "review_open", "locked"].includes(request.status) && !request.completedAt) return false;
       } else if (requestsStatus !== "all" && request.status !== requestsStatus) return false;
       const query = requestsQuery.trim().toLowerCase();
@@ -2888,8 +2891,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                       <CardHeader>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <CardTitle>{t("Purchase Requests", "طلبات الشراء والصفقات")}</CardTitle>
-                            <CardDescription>{t("Monitor request flow and inspect request details.", "تابع الصفقات وافتح تفاصيل كل طلب.")}</CardDescription>
+                            <CardTitle>{requestsStatus === "active" ? t("Active Trades", "الصفقات النشطة") : t("Purchase Requests", "طلبات الشراء والصفقات")}</CardTitle>
+                            <CardDescription>{requestsStatus === "active" ? t("Accepted trades still in progress. Open a trade for details.", "الصفقات المقبولة التي ما زالت قيد التنفيذ. افتح الصفقة للتفاصيل.") : t("Monitor request flow and inspect request details.", "تابع الصفقات وافتح تفاصيل كل طلب.")}</CardDescription>
                           </div>
                           <Button type="button" variant="secondary" onClick={exportTradesCsv}>
                             {t("Export Trades", "تصدير الصفقات")}
@@ -2902,8 +2905,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
                             <Input className="ps-9" placeholder={t("Search buyer, seller, listing...", "ابحث بالمشتري أو البائع أو العرض...")} value={requestsQuery} onChange={(event) => setRequestsQuery(event.target.value)} />
                           </div>
-                          <select value={requestsStatus} onChange={(event) => setRequestsStatus(event.target.value as typeof requestsStatus)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
+                          <select aria-label={t("Filter trades by status", "تصفية الصفقات حسب الحالة")} value={requestsStatus} onChange={(event) => { setRequestsStatus(event.target.value as typeof requestsStatus); setRequestsPage(1); }} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="all">{t("Status: All", "الحالة: الكل")}</option>
+                            <option value="active">{t("Active trades", "الصفقات النشطة")}</option>
                             {(["pending", "accepted", "payment_sent", "usdt_sent", "declined", "completed", "locked", "review_open", "cancelled"] as const).map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
                           </select>
                           <select value={requestsSort} onChange={(event) => setRequestsSort(event.target.value as typeof requestsSort)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
@@ -2967,12 +2971,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                                   </tr>
                                 );
                               })}
-                              {requestsRows.rows.length === 0 ? renderEmptyTableRow(t("No purchase requests match your filters.", "لا توجد طلبات شراء تطابق الفلاتر."), 9) : null}
+                              {requestsRows.rows.length === 0 ? renderEmptyTableRow(requestsStatus === "active" && !requestsQuery.trim() ? t("No active trades right now.", "لا توجد صفقات نشطة الآن.") : t("No purchase requests match your filters.", "لا توجد طلبات شراء تطابق الفلاتر."), 9) : null}
                             </tbody>
                           </table>
                         </div>
                         {renderPagination(requestsRows.safePage, requestsRows.totalPages, setRequestsPage)}
-                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                        {requestsStatus !== "active" ? <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
                           <p className="text-sm font-medium text-white">{t("Timeout History", "سجل انتهاء المهلة")}</p>
                           <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
                             {timeoutHistory.slice(0, 10).map((request) => (
@@ -2984,7 +2988,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
                             ))}
                             {timeoutHistory.length === 0 ? <p className="text-[#9CA3AF]">{t("No timeout events recorded yet.", "لا توجد أحداث انتهاء مهلة مسجّلة بعد.")}</p> : null}
                           </div>
-                        </div>
+                        </div> : null}
                       </CardContent>
                     </Card>
                   ) : null}

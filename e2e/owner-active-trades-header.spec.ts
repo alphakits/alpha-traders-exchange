@@ -46,6 +46,43 @@ test.describe("Owner active trades in the shared website/app header", () => {
   });
 
   for (const locale of ["en", "ar"] as const) {
+    test(`opens the ${locale} owner active list directly on phone and desktop`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await login(page.request, "OWNER");
+      const db = await readFixture(page.request);
+      const template = db.purchaseRequests.find(trade => trade.id === `${fixturePrefix}1`)!;
+      db.purchaseRequests.push({ ...template, id: `${fixturePrefix}completed`, tradeId: `${fixturePrefix}trade-completed`, displayNumber: 9799, status: "completed" });
+      await writeFixture(page.request, db);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/${locale}/usdt-exchange`);
+        await page.getByRole("button", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades", exact: true }).click();
+        await expect(page).toHaveURL(new RegExp(`/${locale}/admin/alpha-exchange\\?section=purchase-requests&status=active$`));
+        await expect(page.getByRole("heading", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades", exact: true })).toBeVisible();
+        const statusFilter = page.getByRole("combobox", { name: locale === "ar" ? "تصفية الصفقات حسب الحالة" : "Filter trades by status" });
+        await expect(statusFilter).toHaveValue("active");
+        for (const index of [1, 2]) await expect(page.locator(`#purchase-request-${fixturePrefix}${index}`)).toBeVisible();
+        await expect(page.locator(`#purchase-request-${fixturePrefix}completed`)).toHaveCount(0);
+        await expect(page.getByText(locale === "ar" ? "سجل انتهاء المهلة" : "Timeout History", { exact: true })).toHaveCount(0);
+        await statusFilter.selectOption("completed");
+        await expect(page.locator(`#purchase-request-${fixturePrefix}completed`)).toBeVisible();
+        await expect(page.locator(`#purchase-request-${fixturePrefix}1`)).toHaveCount(0);
+        await page.locator(`#purchase-request-${fixturePrefix}completed`).getByRole("button", { name: locale === "ar" ? "عرض التفاصيل" : "View Details", exact: true }).click();
+        const details = page.getByRole("dialog", { name: locale === "ar" ? "تفاصيل طلب الشراء" : "Purchase Request Details", exact: true });
+        await expect(details).toBeVisible();
+        // A page-entry transform previously centered this fixed dialog inside
+        // the tall dashboard, placing its controls below the screen.
+        await expect.poll(async () => details.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          return bounds.top >= -1 && bounds.left >= -1
+            && bounds.bottom <= window.innerHeight + 1 && bounds.right <= window.innerWidth + 1;
+        })).toBe(true);
+        await expect(details.getByRole("link", { name: locale === "ar" ? "فتح سجل غرفة الصفقة" : "Open trade room history", exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(details).toHaveCount(0);
+      }
+    });
+
     test(`keeps ${locale} header compact, opens both rooms and refreshes completion`, async ({ page }, testInfo) => {
       test.setTimeout(120_000);
       const errors: string[] = [];

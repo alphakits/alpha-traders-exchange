@@ -221,6 +221,41 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
     expect(screen.getByText("New seller state")).toBeTruthy();
   });
 
+  it.each(["en", "ar"] as const)("shows only in-progress trades from the active destination and keeps history accessible (%s)", async (locale) => {
+    navigationState.search = "section=purchase-requests&status=active";
+    const active = ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"];
+    const inactive = ["pending", "completed", "review_open", "locked", "cancelled", "declined"];
+    const purchaseRequests = [...active, ...inactive].map(status => ({
+      id: `request-${status}`, buyerId: "buyer-1", buyerName: `Buyer ${status}`, sellerId: "seller-1", listingId: listing.id,
+      status, usdtAmount: "100", fiatAmount: "320", currency: "ILS", paymentMethod: "Bank Transfer", network: "TRC20",
+      timeline: [], createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ...adminPayload(), purchaseRequests })));
+    const view = render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    await screen.findByRole("heading", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades" });
+    const rows = within(screen.getByRole("table"));
+    for (const status of active) expect(rows.getByText(`Buyer ${status}`)).toBeTruthy();
+    for (const status of inactive) expect(rows.queryByText(`Buyer ${status}`)).toBeNull();
+    expect(screen.queryByText(locale === "ar" ? "سجل انتهاء المهلة" : "Timeout History")).toBeNull();
+    const filter = screen.getByRole("combobox", { name: locale === "ar" ? "تصفية الصفقات حسب الحالة" : "Filter trades by status" });
+    expect((filter as HTMLSelectElement).value).toBe("active");
+    fireEvent.change(filter, { target: { value: "completed" } });
+    expect(rows.getAllByRole("button", { name: locale === "ar" ? "عرض التفاصيل" : "View Details" })).toHaveLength(3);
+    expect(rows.getByText("Buyer completed")).toBeTruthy();
+    navigationState.search = "section=purchase-requests&status=active&requestId=request-cancelled&details=1";
+    view.rerender(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByRole("dialog", { name: locale === "ar" ? "تفاصيل طلب الشراء" : "Purchase Request Details" })).toBeTruthy();
+    expect((filter as HTMLSelectElement).value).toBe("all");
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it.each(["en", "ar"] as const)("shows a clear empty active list (%s)", async (locale) => {
+    navigationState.search = "section=purchase-requests&status=active";
+    render(<AlphaExchangeAdminDashboard isOwner locale={locale} />);
+    expect(await screen.findByText(locale === "ar" ? "لا توجد صفقات نشطة الآن." : "No active trades right now.")).toBeTruthy();
+    expect(screen.queryByText(locale === "ar" ? "سجل انتهاء المهلة" : "Timeout History")).toBeNull();
+  });
+
   it("includes review-open and locked trades in Completed and links owner details to the read-only room", async () => {
     navigationState.search = "section=purchase-requests";
     const purchaseRequests = ["review_open", "locked", "completed", "pending"].map((status, index) => ({

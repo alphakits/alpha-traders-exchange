@@ -1694,7 +1694,9 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 
 .page-shell {
   @apply py-10 md:py-16;
-  animation: page-fade-up 320ms ease-out both;
+  /* Whole-page transforms trap fixed dialogs inside the scrolled page. Keep
+     the entry fade without retaining a containing block or stacking layer. */
+  animation: page-fade-up 320ms ease-out;
 }
 
 .admin-dashboard-shell {
@@ -1958,11 +1960,9 @@ input[placeholder*="usdt" i]::placeholder { color: #34d399; }
 @keyframes page-fade-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 

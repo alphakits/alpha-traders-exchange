@@ -693,4 +693,11 @@ describe("desktop buyer workspace", () => {
     expect(screen.queryByRole("heading", { name: "Buyer Dashboard" })).toBeNull();
     expect(screen.getByRole("button", { name: role === "owner" ? "Owner Dashboard" : "Admin Dashboard" })).toBeTruthy();
   });
+
+  it.each(["en", "ar"] as const)("opens the owner's active list directly from the marketplace (%s)", async (locale) => {
+    user = { ...buyer, role: "owner", roles: ["owner", "buyer"] };
+    render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    fireEvent.click(screen.getByRole("button", { name: locale === "ar" ? "الصفقات النشطة" : "Active Trades" }));
+    expect(push).toHaveBeenCalledWith("/admin/alpha-exchange?section=purchase-requests&status=active");
+  });
 });

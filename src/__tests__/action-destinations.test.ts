@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminActiveTradesDestination,
   adminCommissionDestination,
   adminMarketplaceEnforcementDestination,
   adminMarketplaceListingsDestination,
@@ -76,6 +77,19 @@ describe("canonical action destinations", () => {
       section: "marketplace-listings",
       listingStatus: "draft",
     });
+  });
+
+  it("opens the active list without hiding an explicitly requested historical trade", () => {
+    const destination = adminActiveTradesDestination();
+    expect(destination).toBe("/admin/alpha-exchange?section=purchase-requests&status=active");
+    expect(parseAdminDashboardDestination(new URL(destination, "https://example.test").searchParams)).toEqual({
+      section: "purchase-requests", purchaseRequestFilter: "active",
+    });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=purchase-requests&status=active&requestId=completed-trade"))).toEqual({
+      section: "purchase-requests", purchaseRequestId: "completed-trade",
+    });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=purchase-requests&status=invalid"))).toEqual({ section: "purchase-requests" });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=overview&status=active"))).toEqual({ section: "overview" });
   });
 
   it("fails malformed or mismatched admin entity queries safely", () => {
