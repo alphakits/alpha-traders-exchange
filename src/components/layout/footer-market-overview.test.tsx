@@ -1,6 +1,6 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FooterMarketOverview } from "@/components/layout/footer-market-overview";
 import type { MarketSnapshot } from "@/types/market";
 
@@ -35,7 +35,40 @@ beforeEach(() => {
   });
 });
 
+afterEach(cleanup);
+
 describe("FooterMarketOverview", () => {
+  it.each(["en", "ar"] as const)("distinguishes normal FX closure from degraded data in %s", (locale) => {
+    const closed: MarketSnapshot = {
+      ...snapshot, status: "degraded",
+      pairs: { ...snapshot.pairs, usdtIls: { ...snapshot.pairs.usdtIls, quoteStatus: "closed" } },
+    };
+    useMarketFeedMock.mockReturnValue({ snapshot: closed, isLoading: false, error: null });
+    render(<FooterMarketOverview locale={locale} />);
+    expect(screen.getAllByText(locale === "ar" ? "إغلاق USD/ILS" : "USD/ILS closed")).toHaveLength(2);
+    expect(screen.queryByText(locale === "ar" ? "متدهور" : "Degraded")).toBeNull();
+    expect(screen.queryByText(locale === "ar" ? "مباشر" : "LIVE")).toBeNull();
+  });
+
+  it.each(["expired", "stale", "missing crypto", "zero crypto", "fetch error"])("keeps the warning during FX closure with %s", (failure) => {
+    const closed: MarketSnapshot = {
+      ...snapshot, status: "degraded", stale: failure === "stale",
+      unavailablePairs: failure === "missing crypto" ? ["ethUsdt"] : [],
+      pairs: {
+        ...snapshot.pairs,
+        btcUsdt: { ...snapshot.pairs.btcUsdt, price: failure === "zero crypto" ? 0 : snapshot.pairs.btcUsdt.price },
+        usdtIls: {
+          ...snapshot.pairs.usdtIls, quoteStatus: "closed",
+          validUntil: new Date(Date.now() + (failure === "expired" ? -1_000 : 60_000)).toISOString(),
+        },
+      },
+    };
+    useMarketFeedMock.mockReturnValue({ snapshot: closed, isLoading: false, error: failure === "fetch error" ? "unavailable" : null });
+    render(<FooterMarketOverview locale="en" />);
+    expect(screen.getAllByText("Degraded")).toHaveLength(2);
+    expect(screen.queryByText("USD/ILS closed")).toBeNull();
+  });
+
   it("renders the current feed values instead of hardcoded footer prices", () => {
     render(<FooterMarketOverview locale="en" />);
 
