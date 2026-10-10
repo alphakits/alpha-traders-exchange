@@ -9,6 +9,7 @@ import { RouteActionFeedback } from "@/components/ui/route-action-feedback";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
+import { PageSectionNavigation } from "@/components/layout/page-section-navigation";
 import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 import { OfflineBanner } from "@/components/pwa/offline-banner";
 import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
@@ -109,6 +110,7 @@ export default async function LocaleLayout({
         }`}
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
+          <PageSectionNavigation />
           <NativeAppBridge locale={appLocale} />
           <UserActivityTracker />
           <TrafficAnalyticsTracker />

@@ -1,10 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { PageSectionNavigation } from "@/components/layout/page-section-navigation";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 
 const push = vi.fn();
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(), usePathname: () => window.location.pathname }));
 vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} {...props}>{children}</a>,
   useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn() }),
@@ -344,13 +345,16 @@ describe("compact Exchange home", () => {
     await screen.findByText("There are no active trades currently.");
   });
 
-  it("honors an immediate Create Listing click while the seller workspace mounts", async () => {
+  it.each([390, 932, 1440])("honors an immediate Create Listing click while the seller workspace mounts at %dpx", async (width) => {
+    viewportWidth = width;
     user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
     const { container } = render(<UsdtExchangePage locale="en" initialSessionUser={user} workspaceMode="seller" />);
     const welcome = within(container.querySelector('[data-account-role="approved_seller"]') as HTMLElement);
-    fireEvent.click(welcome.getByRole("button", { name: "Create Listing" }));
-    await waitFor(() => expect(document.activeElement?.id).toBe("create-listing"));
     const workspace = within(container.querySelector("#workspace-summary") as HTMLElement);
+    fireEvent.click(width >= 1280
+      ? welcome.getByRole("button", { name: "Create Listing" })
+      : workspace.getByRole("button", { name: /^Create Listing:/ }));
+    await waitFor(() => expect(document.activeElement?.id).toBe("create-listing"));
     fireEvent.click(workspace.getByRole("button", { name: /^Today's Market:/ }));
     expect(push).toHaveBeenLastCalledWith("/usdt-exchange#market-overview");
   });
@@ -670,7 +674,7 @@ describe("desktop buyer workspace", () => {
   it("focuses the actual listings after a desktop dashboard deep link", async () => {
     window.history.replaceState({}, "", "/en/usdt-exchange#buyer-marketplace-listings");
     try {
-      render(<UsdtExchangePage locale="en" initialSessionUser={user} />);
+      render(<><PageSectionNavigation /><UsdtExchangePage locale="en" initialSessionUser={user} /></>);
       await waitFor(() => expect(document.activeElement?.id).toBe("buyer-marketplace-listings"));
     } finally {
       window.history.replaceState({}, "", "/");

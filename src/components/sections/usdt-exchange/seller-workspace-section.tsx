@@ -1095,7 +1095,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </section>
           ) : null}
 
-          {!isSuspendedSeller ? <Card id="create-listing" tabIndex={desktopNavigation ? -1 : undefined} className={cn("order-30 border-white/10 bg-[#0B0B0B]/90", desktopNavigation && "scroll-mt-24")}>
+          {!isSuspendedSeller ? <Card id="create-listing" tabIndex={-1} className="order-30 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>

@@ -17,6 +17,7 @@ import { AcademyRoadmap } from "@/components/academy/academy-roadmap";
 import { StudentDashboard } from "@/components/dashboard/student-dashboard";
 import { getCourseById, getLessonBySlug } from "@/lib/content";
 import { getLessonProgressState } from "@/lib/learning-progress";
+import { PAGE_SECTION_NAVIGATION_EVENT } from "@/lib/page-section-navigation";
 import { createClient } from "@/lib/supabase/client";
 
 const lesson = getLessonBySlug("candles-foundation")!;
@@ -45,6 +46,15 @@ afterEach(async () => {
 });
 
 describe("lesson progress hydration", () => {
+  it("opens a requested lesson panel without requiring a second click or a native hashchange", async () => {
+    testLocale.value = "en";
+    container.innerHTML = renderToString(<LessonInterface {...props} />);
+    await act(async () => { root = hydrateRoot(container, <LessonInterface {...props} />); });
+    await act(async () => { window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: "lesson-quiz" })); });
+    expect(container.querySelector('#study-tab-quiz')?.getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector('#study-panel-quiz')?.hasAttribute("hidden")).toBe(false);
+  });
+
   it("opens the quiz when a student follows the dashboard's direct quiz link", async () => {
     testLocale.value = "en";
     window.history.replaceState(null, "", "/en/lessons/candles-foundation#lesson-quiz");

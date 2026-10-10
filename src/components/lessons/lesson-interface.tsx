@@ -1,5 +1,6 @@
 "use client";
 
+import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent } from "@/lib/page-section-navigation";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Bookmark, CheckCircle2, ChevronLeft, ChevronDown, FileText, PlayCircle } from "lucide-react";
@@ -104,13 +105,17 @@ export function LessonInterface({
   }, [activePanel]);
 
   useEffect(() => {
-    const openLinkedSection = () => {
-      const panel = PANEL_FOR_SECTION[window.location.hash.slice(1)];
+    const openLinkedSection = (event?: Event) => {
+      const panel = PANEL_FOR_SECTION[pageSectionFromEvent(event)];
       if (panel) setActivePanel(panel);
     };
     openLinkedSection();
     window.addEventListener("hashchange", openLinkedSection);
-    return () => window.removeEventListener("hashchange", openLinkedSection);
+    window.addEventListener(PAGE_SECTION_NAVIGATION_EVENT, openLinkedSection);
+    return () => {
+      window.removeEventListener("hashchange", openLinkedSection);
+      window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, openLinkedSection);
+    };
   }, []);
 
   useEffect(() => {

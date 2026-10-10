@@ -1,4 +1,5 @@
 "use client";
+import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent } from "@/lib/page-section-navigation";
 import { useLiveUserPresence } from "@/lib/user-presence-client";
 
 import { requiresBuyerContact } from "@/lib/buyer-contact";
@@ -373,8 +374,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
 
   useEffect(() => {
     if (loading) return;
-    const revealHash = () => {
-      const hash = window.location.hash;
+    const revealHash = (event?: Event) => {
+      const hash = `#${pageSectionFromEvent(event)}`;
       if (["#contact-details", "#edit-profile", "#profile-panel-edit"].includes(hash)) {
         pendingSectionTarget.current = hash === "#edit-profile" ? "profile-panel-edit" : hash.slice(1);
         selectSection("edit");
@@ -386,7 +387,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
     };
     revealHash();
     window.addEventListener("hashchange", revealHash);
-    return () => window.removeEventListener("hashchange", revealHash);
+    window.addEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealHash);
+    return () => {
+      window.removeEventListener("hashchange", revealHash);
+      window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealHash);
+    };
   }, [loading, selectSection]);
   useEffect(() => {
     if (loading || !pendingSectionTarget.current) return;

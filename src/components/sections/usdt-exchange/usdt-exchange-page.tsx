@@ -1,5 +1,6 @@
 "use client";
 
+import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
 import { LiveMarketCards } from "@/components/market/live-market-cards";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
@@ -143,94 +144,7 @@ export const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
 
 function focusWorkspaceSection(sectionId: string) {
   if (typeof document === "undefined") return false;
-  const invocationTarget = document.activeElement;
-  let trackedTarget = document.getElementById(sectionId);
-  if (trackedTarget instanceof HTMLDetailsElement) trackedTarget.open = true;
-  let hasScrolledToTarget = false;
-  let pendingAnimationFrame: number | null = null;
-  let stopped = false;
-  let observer: MutationObserver | null = null;
-  const timeoutIds: number[] = [];
-
-  const stopRestoringFocus = () => {
-    if (stopped) return;
-    stopped = true;
-    observer?.disconnect();
-    if (pendingAnimationFrame !== null) window.cancelAnimationFrame(pendingAnimationFrame);
-    for (const timeoutId of timeoutIds) window.clearTimeout(timeoutId);
-    document.removeEventListener("pointerdown", stopRestoringFocus, true);
-    document.removeEventListener("keydown", stopRestoringFocus, true);
-    document.removeEventListener("focusin", restoreUnexpectedFocus, true);
-  };
-
-  const restoreFocusAfterRender = () => {
-    if (stopped) return;
-    const target = document.getElementById(sectionId);
-    if (!target) return;
-    if (!hasScrolledToTarget) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      hasScrolledToTarget = true;
-    }
-    const activeElement = document.activeElement;
-    if (activeElement && target.contains(activeElement)) {
-      trackedTarget = target;
-      return;
-    }
-    const focusCanBeRestored = !activeElement
-      || activeElement === document.body
-      || activeElement === document.documentElement
-      || activeElement === invocationTarget
-      || activeElement === trackedTarget
-      || !activeElement.isConnected;
-    if (!focusCanBeRestored) return;
-    target.focus({ preventScroll: true });
-    trackedTarget = target;
-  };
-
-  const scheduleFocusRestore = () => {
-    if (stopped || pendingAnimationFrame !== null) return;
-    pendingAnimationFrame = window.requestAnimationFrame(() => {
-      pendingAnimationFrame = null;
-      restoreFocusAfterRender();
-    });
-  };
-
-  function restoreUnexpectedFocus(event: FocusEvent) {
-    const target = document.getElementById(sectionId);
-    if (!target || (event.target instanceof Node && target.contains(event.target))) return;
-    scheduleFocusRestore();
-  }
-
-  observer = new MutationObserver(() => {
-    const target = document.getElementById(sectionId);
-    const activeElement = document.activeElement;
-    if (
-      target !== trackedTarget
-      || !trackedTarget?.isConnected
-      || !activeElement
-      || activeElement === document.body
-      || activeElement === document.documentElement
-    ) {
-      scheduleFocusRestore();
-    }
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-  document.addEventListener("focusin", restoreUnexpectedFocus, true);
-  // Register user-intent cancellation after the activation event that invoked
-  // this helper has finished propagating. Otherwise the same Enter key can
-  // cancel focus restoration before an async workspace render completes.
-  timeoutIds.push(window.setTimeout(() => {
-    if (stopped) return;
-    document.addEventListener("pointerdown", stopRestoringFocus, true);
-    document.addEventListener("keydown", stopRestoringFocus, true);
-  }, 100));
-  restoreFocusAfterRender();
-  scheduleFocusRestore();
-  for (const delayMs of [100, 250, 500, 1_000, 2_000, 4_000]) {
-    timeoutIds.push(window.setTimeout(restoreFocusAfterRender, delayMs));
-  }
-  timeoutIds.push(window.setTimeout(stopRestoringFocus, 8_000));
+  revealPageSection(sectionId);
   return true;
 }
 
@@ -2606,13 +2520,8 @@ export function UsdtExchangePage({
   }, [isSessionResolving]);
 
   const scrollToCreateListingSection = useCallback(() => {
-    if (typeof document === "undefined") return false;
-    const target = document.getElementById("create-listing") ?? document.getElementById("create-listing-form");
-    if (desktopSellerNavigation) return focusWorkspaceSection(target?.id ?? "create-listing");
-    if (!target) return false;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    return true;
-  }, [desktopSellerNavigation]);
+    return focusWorkspaceSection("create-listing");
+  }, []);
 
   const scrollToMyListingsSection = useCallback(() => {
     return focusWorkspaceSection("my-listings-section");
@@ -2621,17 +2530,6 @@ export function UsdtExchangePage({
   const scrollToBuyerTradeHistorySection = useCallback(() => {
     return focusWorkspaceSection(BUYER_TRADE_HISTORY_SECTION_ID);
   }, []);
-
-  useEffect(() => {
-    if (!desktopBuyerNavigation || isDashboardWorkspace) return;
-    const focusDesktopDestination = () => {
-      const sectionId = window.location.hash.slice(1);
-      if (sectionId === "buyer-marketplace-listings" || sectionId === "market-overview") focusWorkspaceSection(sectionId);
-    };
-    focusDesktopDestination();
-    window.addEventListener("hashchange", focusDesktopDestination);
-    return () => window.removeEventListener("hashchange", focusDesktopDestination);
-  }, [desktopBuyerNavigation, isDashboardWorkspace]);
 
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
     const requestId = sellerProfileRequestIdRef.current + 1;
@@ -2677,62 +2575,28 @@ export function UsdtExchangePage({
     };
   }, [fetchSellerProfileData, selectedListing]);
 
+  // Reveal the selected listing before the shared navigation helper focuses it.
+  // Data refreshes must never replay an old scroll over the user's latest click.
   useEffect(() => {
-    if (!hasSellerWorkspaceAccess || isWorkspaceWidgetsLoading) return;
-    const revealSellerWorkspace = () => {
-      const anchor = window.location.hash.slice(1);
-      if (anchor !== "my-listings-section" && anchor !== "purchase-requests-section") return;
+    if (!hasSellerWorkspaceAccess) return;
+    const revealSellerWorkspace = (event?: Event) => {
+      const anchor = pageSectionFromEvent(event);
       if (anchor === "my-listings-section") setSellerListingsExpanded(true);
-      window.requestAnimationFrame(() => focusWorkspaceSection(anchor));
+      if (!anchor.startsWith("seller-listing-")) return;
+      const selected = myListings.find((listing) => `seller-listing-${encodeURIComponent(listing.id)}` === anchor);
+      if (selected) {
+        setSellerListingsExpanded(true);
+        setSellerExpandedListingId(selected.id);
+      }
     };
     revealSellerWorkspace();
     window.addEventListener("hashchange", revealSellerWorkspace);
-    return () => window.removeEventListener("hashchange", revealSellerWorkspace);
-  }, [hasSellerWorkspaceAccess, isWorkspaceWidgetsLoading, sellerDashboardListingsTarget]);
-
-  // Scroll to create-listing when navigated with hash, retrying briefly while deferred UI mounts.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash.replace("#", "").trim();
-    if (hash !== "create-listing" && hash !== "create-listing-form") return;
-    if (scrollToCreateListingSection()) return;
-    const startedAt = Date.now();
-    let frame = 0;
-    const tryScroll = () => {
-      if (scrollToCreateListingSection()) return;
-      if (Date.now() - startedAt > 10000) return;
-      frame = window.requestAnimationFrame(tryScroll);
+    window.addEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealSellerWorkspace);
+    return () => {
+      window.removeEventListener("hashchange", revealSellerWorkspace);
+      window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealSellerWorkspace);
     };
-    frame = window.requestAnimationFrame(tryScroll);
-    return () => window.cancelAnimationFrame(frame);
-  }, [isApprovedSellerSession, isLoadingListings, scrollToCreateListingSection]);
-
-  // Notification actions target one seller-owned listing. Retry only while the
-  // deferred seller workspace finishes mounting, then focus the exact status.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const anchor = window.location.hash.replace("#", "").trim();
-    if (!anchor.startsWith("seller-listing-")) return;
-    const selected = myListings.find((listing) => `seller-listing-${encodeURIComponent(listing.id)}` === anchor);
-    if (selected) {
-      setSellerListingsExpanded(true);
-      setSellerExpandedListingId(selected.id);
-    }
-    let frame = 0;
-    let attempts = 0;
-    const reveal = () => {
-      const target = document.getElementById(anchor);
-      if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
-        target.focus({ preventScroll: true });
-        return;
-      }
-      attempts += 1;
-      if (attempts < 24) frame = window.requestAnimationFrame(reveal);
-    };
-    reveal();
-    return () => window.cancelAnimationFrame(frame);
-  }, [isWorkspaceWidgetsLoading, myListings]);
+  }, [hasSellerWorkspaceAccess, myListings]);
 
   useEffect(() => {
     if (isLoadingListings || selectedListing || selectedListingIntentRef.current || !sessionUser) return;
