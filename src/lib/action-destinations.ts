@@ -32,6 +32,7 @@ export type AdminDashboardDestination = {
   listingId?: string;
   listingStatus?: MarketplaceListing["status"];
   purchaseRequestId?: string;
+  purchaseRequestFilter?: "active";
   commissionId?: string;
 };
 
@@ -112,7 +113,11 @@ export function parseAdminDashboardDestination(searchParams: SearchParamsReader)
     };
   }
   if (section === "purchase-requests") {
-    return { section, ...(purchaseRequestId ? { purchaseRequestId } : {}) };
+    return {
+      section,
+      ...(purchaseRequestId ? { purchaseRequestId } : {}),
+      ...(!purchaseRequestId && searchParams.get("status") === "active" ? { purchaseRequestFilter: "active" as const } : {}),
+    };
   }
   if (section === "commissions") {
     return { section, ...(commissionId ? { commissionId } : {}) };
@@ -167,6 +172,10 @@ export function adminPurchaseRequestsDestination(purchaseRequestId?: string) {
     "purchase-requests",
     purchaseRequestId ? { key: "requestId", id: purchaseRequestId } : undefined,
   );
+}
+
+export function adminActiveTradesDestination() {
+  return `${adminPurchaseRequestsDestination()}&status=active`;
 }
 
 export function tradeDestination(request: PurchaseRequest, actorUserId: string) {
