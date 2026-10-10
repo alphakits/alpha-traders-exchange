@@ -1,5 +1,6 @@
 "use client";
 
+import { navigateToPageSection } from "@/lib/page-section-navigation";
 import { brandText } from "@/components/ui/currency-text";
 
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
@@ -503,7 +504,7 @@ function NotificationBellSession({
     if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
     if (!notification.isRead) void handleMarkOneRead(notification.id);
     setIsOpen(false);
-    router.push(destination);
+    navigateToPageSection(router, destination);
   }
 
   function isTradeNotification(notification: AlphaExchangeNotification) {

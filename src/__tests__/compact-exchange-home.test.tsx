@@ -359,6 +359,22 @@ describe("compact Exchange home", () => {
     expect(push).toHaveBeenLastCalledWith("/usdt-exchange#market-overview");
   });
 
+  it.each([["en", 390], ["ar", 390], ["en", 1440], ["ar", 1440]] as const)("every Create Listing button opens the form, including the empty marketplace (%s, %dpx)", async (locale, width) => {
+    viewportWidth = width;
+    user = { ...buyer, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", sellerApprovalVerified: true };
+    render(<UsdtExchangePage locale={locale} initialSessionUser={user} />);
+    const emptyMessage = locale === "ar" ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now.";
+    await screen.findByText((_, element) => element?.tagName === "P" && element.textContent === emptyMessage);
+    await waitFor(() => expect(document.getElementById("create-listing")).toBeTruthy());
+    const buttons = screen.getAllByRole("button", { name: locale === "ar" ? "إنشاء عرض" : "Create Listing" });
+    expect(buttons.length).toBeGreaterThan(1);
+    for (const button of buttons) {
+      fireEvent.click(button);
+      expect(document.activeElement?.id).toBe("create-listing");
+    }
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["en", 390, undefined], ["ar", 390, undefined],
     ["en", 932, undefined], ["ar", 932, undefined],

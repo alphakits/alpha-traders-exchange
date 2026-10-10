@@ -19,6 +19,20 @@ export function pageSectionFromEvent(event?: Event) {
     ? event.detail : pageSectionId(window.location.hash);
 }
 
+/** Next's imperative same-page navigation does not emit a native hashchange. */
+export function navigateToPageSection(router: { push: (href: string) => void }, destination: string) {
+  router.push(destination);
+  if (typeof window === "undefined") return;
+  const target = new URL(destination, window.location.href);
+  const current = new URL(window.location.href);
+  const locale = (path: string) => path.match(/^\/(en|ar)(?:\/|$)/)?.[1];
+  const path = (value: string) => value.replace(/^\/(en|ar)(?=\/|$)/, "") || "/";
+  if (target.origin !== current.origin || path(target.pathname) !== path(current.pathname)
+    || target.search !== current.search || (locale(target.pathname) && locale(target.pathname) !== locale(current.pathname))) return;
+  const id = pageSectionId(target.hash);
+  if (id) revealPageSection(id);
+}
+
 /** Keep one requested section visible while deferred content changes its position. */
 export function revealPageSection(sectionId: string) {
   cancelPageSectionNavigation();

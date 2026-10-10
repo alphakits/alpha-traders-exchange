@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PageSectionNavigation } from "./page-section-navigation";
 import { CreateListingQuickLink } from "./create-listing-quick-link";
-import { cancelPageSectionNavigation, revealPageSection } from "@/lib/page-section-navigation";
+import { cancelPageSectionNavigation, navigateToPageSection, revealPageSection } from "@/lib/page-section-navigation";
 
 const push = vi.fn();
 let pathname = "/en/usdt-exchange";
@@ -117,6 +117,23 @@ describe("first-click section navigation", () => {
     await settle();
     expect(document.activeElement).toBe(next);
     expect(oldScroll).not.toHaveBeenCalled();
+  });
+
+  it("reveals a same-page notification destination after an imperative router push", async () => {
+    navigateToPageSection({ push }, "/usdt-exchange#seller-listing-123");
+    const listing = section("seller-listing-123");
+    await settle();
+    expect(push).toHaveBeenCalledExactlyOnceWith("/usdt-exchange#seller-listing-123");
+    expect(document.activeElement).toBe(listing);
+  });
+
+  it.each(["/profile#create-listing", "/ar/usdt-exchange#create-listing", "/usdt-exchange?mode=sell#create-listing"])("leaves cross-page, locale, or query navigation to the router: %s", async (destination) => {
+    const old = section("create-listing");
+    navigateToPageSection({ push }, destination);
+    await settle();
+    expect(push).toHaveBeenCalledExactlyOnceWith(destination);
+    expect(document.activeElement).not.toBe(old);
+    expect(old.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it.each(["pointerdown", "keydown", "wheel", "touchmove"])("stops restoring a destination after the user takes control with %s", async (event) => {

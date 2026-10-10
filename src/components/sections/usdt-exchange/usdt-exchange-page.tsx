@@ -1,6 +1,6 @@
 "use client";
 
-import { PAGE_SECTION_NAVIGATION_EVENT, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
+import { PAGE_SECTION_NAVIGATION_EVENT, navigateToPageSection, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
 import { LiveMarketCards } from "@/components/market/live-market-cards";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
 import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
@@ -2132,7 +2132,7 @@ export function UsdtExchangePage({
         return;
       }
     }
-    router.push("/usdt-exchange?commission=review#commission-status");
+    navigateToPageSection(router, "/usdt-exchange?commission=review#commission-status");
   }, [router]);
 
   const openMarketplaceCompliancePayment = useCallback(() => {
@@ -2879,7 +2879,7 @@ export function UsdtExchangePage({
       });
       return;
     }
-    router.push(`/usdt-exchange#seller-listing-${encodeURIComponent(listing.id)}`);
+    navigateToPageSection(router, `/usdt-exchange#seller-listing-${encodeURIComponent(listing.id)}`);
     setStatusMessage(isAr ? `أدر عرضك من لوحة البائع (${shortListingRef(listing)}).` : `Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
   }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection, setSellerWorkspaceMessage, setStatusMessage]);
 
@@ -3702,7 +3702,7 @@ export function UsdtExchangePage({
       focusWorkspaceSection("buyer-marketplace-listings");
       return;
     }
-    router.push("/usdt-exchange#buyer-marketplace-listings");
+    navigateToPageSection(router, "/usdt-exchange#buyer-marketplace-listings");
   };
 
   const workspaceCards: ExchangeWorkspaceAction[] = isSellerWorkspaceUser
@@ -3745,7 +3745,7 @@ export function UsdtExchangePage({
         onClick: () => {
           if (desktopSellerNavigation) return openSellerRequests(false);
           if (focusWorkspaceSection("purchase-requests-section")) return;
-          router.push("/usdt-exchange#purchase-requests-section");
+          navigateToPageSection(router, "/usdt-exchange#purchase-requests-section");
         },
         icon: HandCoins,
         tone: "blue",
@@ -3780,7 +3780,7 @@ export function UsdtExchangePage({
               else target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
-            router.push("/usdt-exchange#market-overview");
+            navigateToPageSection(router, "/usdt-exchange#market-overview");
         },
         icon: TrendingUp,
         tone: "amber",
@@ -3817,7 +3817,7 @@ export function UsdtExchangePage({
               target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
           }
-          router.push("/usdt-exchange#marketplace");
+          navigateToPageSection(router, "/usdt-exchange#marketplace");
         },
         icon: Store,
         tone: "gold",
@@ -3830,7 +3830,7 @@ export function UsdtExchangePage({
         onClick: () => {
           if (desktopBuyerNavigation) return openBuyerRequests(false);
           if (scrollToBuyerTradeHistorySection()) return;
-          router.push(`/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+          navigateToPageSection(router, `/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
         icon: HandCoins,
         tone: "blue",
@@ -3886,7 +3886,7 @@ export function UsdtExchangePage({
               target.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
             }
-            router.push("/usdt-exchange#market-overview");
+            navigateToPageSection(router, "/usdt-exchange#market-overview");
         },
         icon: TrendingUp,
         tone: "amber",
@@ -3991,7 +3991,7 @@ export function UsdtExchangePage({
             target.scrollIntoView({ behavior: "smooth", block: "start" });
             return;
           }
-          router.push("/usdt-exchange#marketplace");
+          navigateToPageSection(router, "/usdt-exchange#marketplace");
         },
       },
       {
@@ -4000,7 +4000,7 @@ export function UsdtExchangePage({
         onClick: () => {
           if (desktopBuyerNavigation) return openBuyerRequests(false);
           if (scrollToBuyerTradeHistorySection()) return;
-          router.push(`/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+          navigateToPageSection(router, `/usdt-exchange?section=trade-history#${BUYER_TRADE_HISTORY_SECTION_ID}`);
         },
       },
     ]).filter((action) => action.key === "hero-create-listing" ? canAccessListingCreation
@@ -4175,9 +4175,9 @@ export function UsdtExchangePage({
     const isTradeIntent = isTradeIntentNotification(notification);
     if (isTradeIntent) {
       const routerDestination = destination.replace(/^\/(en|ar)(?=\/)/i, "") || destination;
-      router.push(routerDestination);
+      navigateToPageSection(router, routerDestination);
     } else {
-      router.push(destination);
+      navigateToPageSection(router, destination);
     }
     if (!notification.isRead) {
       void handleNotificationReadState(notification.id, true);
@@ -5408,7 +5408,7 @@ export function UsdtExchangePage({
                 {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
               </p>
               {canAccessListingCreation ? (
-                <Button type="button" className="mt-4" onClick={() => router.push("/usdt-exchange#my-listings-section")}>
+                <Button type="button" className="mt-4" onClick={() => scrollToCreateListingSection()}>
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
               ) : null}
