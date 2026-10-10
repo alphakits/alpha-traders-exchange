@@ -67,6 +67,19 @@ test.describe("Owner active trades in the shared website/app header", () => {
         await statusFilter.selectOption("completed");
         await expect(page.locator(`#purchase-request-${fixturePrefix}completed`)).toBeVisible();
         await expect(page.locator(`#purchase-request-${fixturePrefix}1`)).toHaveCount(0);
+        await page.locator(`#purchase-request-${fixturePrefix}completed`).getByRole("button", { name: locale === "ar" ? "عرض التفاصيل" : "View Details", exact: true }).click();
+        const details = page.getByRole("dialog", { name: locale === "ar" ? "تفاصيل طلب الشراء" : "Purchase Request Details", exact: true });
+        await expect(details).toBeVisible();
+        // A page-entry transform previously centered this fixed dialog inside
+        // the tall dashboard, placing its controls below the screen.
+        await expect.poll(async () => details.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          return bounds.top >= -1 && bounds.left >= -1
+            && bounds.bottom <= window.innerHeight + 1 && bounds.right <= window.innerWidth + 1;
+        })).toBe(true);
+        await expect(details.getByRole("link", { name: locale === "ar" ? "فتح سجل غرفة الصفقة" : "Open trade room history", exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(details).toHaveCount(0);
       }
     });
 
