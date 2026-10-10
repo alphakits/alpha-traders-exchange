@@ -32,7 +32,6 @@ export function revealPageSection(sectionId: string) {
   let frame: number | undefined;
   let stopped = false;
   const timers: number[] = [];
-  let mutations: MutationObserver | undefined;
   let resize: ResizeObserver | undefined;
 
   const stop = () => {
@@ -86,7 +85,7 @@ export function revealPageSection(sectionId: string) {
       reveal();
     });
   };
-  mutations = new MutationObserver(scheduleReveal);
+  const mutations = new MutationObserver(scheduleReveal);
   mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "open"] });
   if (typeof ResizeObserver !== "undefined") {
     resize = new ResizeObserver(scheduleReveal);
