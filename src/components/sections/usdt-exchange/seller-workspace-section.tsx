@@ -12,7 +12,7 @@ import { publicAccountId, isPublicOwnerIdentity } from "@/lib/public-account-ide
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
-import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
+import { SellerTradeRequestCard } from "./seller-trade-request-card";
 import { useState, type Dispatch, type FormEvent, type ReactNode, type RefCallback, type SetStateAction } from "react";
 import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, PartyPopper, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
@@ -30,7 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import type { CommissionWorkspaceAction } from "@/lib/dashboard-workspace";
 import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCashTradePaymentMethod, normalizeMarketplacePaymentMethod, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, type MarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { ensurePayoutBankIsSupported, syncListingBankSelection } from "@/lib/seller-listing-bank-selection";
 import { containsArabicText, localizeActivityCopy } from "@/lib/notification-localization";
 import { normalizeTradeAmountInput } from "@/lib/trade-amount";
@@ -296,15 +296,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     commissionWalletConfiguration,
     commissionWorkspaceAction,
     deferredSellerPanelsReady,
-    evidenceUploading,
     groupedActivityHistory,
     onCommissionSettled,
     handleCommissionPayNow,
-    handleOpenTradeRoom,
-    handlePrefetchTradeRoom,
     handleSellerListingCreateSubmit,
-    handleSellerRequestAction,
-    handleSubmitSellerResponse,
     isAr,
     isListingCreateSubmitDisabled,
     isMobileViewport,
@@ -341,11 +336,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     marketSnapshot,
     marketReferenceAvailable,
     maxAllowedListingPrice,
-    myListingsById,
     openCommissionPayment,
     openMarketplaceCompliancePayment,
     renderNotificationCenterCard,
-    requestActionKey,
     reviewPayableCommissions,
     scrollToMyListingsSection,
     selectedCommissionWallet,
@@ -355,14 +348,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     sellerBankAccountsLoading,
     sellerCommissionStatus,
     sellerDeferredPanelsRef,
-    sellerEvidenceFiles,
-    sellerExpandedTradeId,
     sellerOverviewStats,
     sellerPrimaryRequestsExpanded,
     sellerRequestSections,
     sellerRequests,
-    sellerResponseDrafts,
-    sellerSafetyAcknowledgements,
     sellerTradeQuery,
     sellerTradeStatus,
     sellerWorkspaceMessage,
@@ -380,33 +369,22 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     setListingCreateForm,
     setListingCreateResult,
     setSellerDashboardListingsTarget,
-    setSellerEvidenceFiles,
-    setSellerExpandedTradeId,
     setSellerPrimaryRequestsExpanded,
-    setSellerResponseDrafts,
-    setSellerSafetyAcknowledgements,
     setSellerTradeQuery,
     setSellerTradeStatus,
     setSellerWorkspaceMessage,
     sortedSellerRequests,
-    uploadTradeEvidenceFile,
     ISRAELI_BANKS,
-    CompactTradeTimeline,
-    LocalizedEvidenceFileInput,
     formatIls,
     formatUsdt,
     normalizeDecimalInput,
     renderBankLogo,
-    shortListingRef,
-    shortTradeRef,
-    getTradeQueuePresentation,
     sellerLevelLabel,
     sellerBadgeLabel,
     requiresBankSelection,
     toggleSelection,
     paymentMethodLabel,
     paymentMethodEmoji,
-    paymentMethodTradeInstruction,
     safeText,
     sellerAccountStatusLabel,
     spokenLanguageLabel,
@@ -1626,235 +1604,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               {(sellerPrimaryRequestsExpanded
                 ? sortedSellerRequests
                 : sortedSellerRequests.slice(0, isMobileViewport ? 1 : 2)
-              ).map((request) => {
-                const presentation = getTradeQueuePresentation(request, "seller", isAr);
-                const isExpanded = sellerExpandedTradeId === request.id;
-                const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
-                return (
-                  <div id={`trade-${request.id}`} key={request.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                    <button
-                      type="button"
-                      className="grid w-full gap-3 px-4 py-3 text-start transition hover:bg-white/[0.03] md:grid-cols-[1.1fr_0.9fr_0.9fr_0.9fr_auto] md:items-center"
-                      aria-expanded={isExpanded}
-                      aria-controls={`seller-trade-details-${request.id}`}
-                      onClick={() => setSellerExpandedTradeId((previous) => previous === request.id ? null : request.id)}
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-white">{currencyText(shortTradeRef(request, isAr))}</p>
-                        <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"} {currencyText(safeText(request.buyerName, isAr ? "مشتري" : "Buyer"))}</p>
-                        {request.priceMode === "buyer_offer" ? (
-                          <span className="mt-1.5 inline-flex rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">
-                            {isAr ? "عرض سعر" : "Price Offer"} · {currencyText(`₪${toNumber(request.pricePerUsdt).toFixed(2)}`)}/<span className="currency-usdt">USDT</span>
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="text-xs">
-                        <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{currencyText(presentation.badge)}</span>
-                      </div>
-                      <div className="text-sm text-[#D1D5DB]">
-                        <p>{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</p>
-                        <p className="mt-1 text-xs text-[#9CA3AF]">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</p>
-                      </div>
-                      <p className="text-xs text-[#9CA3AF]">{new Date(request.updatedAt || request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</p>
-                      <p className="text-sm text-[#C9A227] md:text-end">{isExpanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "عرض" : "View")}</p>
-                    </button>
-                    {isExpanded ? (
-                    <div id={`seller-trade-details-${request.id}`} className="border-t border-white/10 bg-black/25 px-4 py-4">
-                    <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>{isAr ? "مرجع الصفقة" : "Trade Ref"}: <span className="text-white">{currencyText(shortTradeRef(request, isAr))}</span></p>
-                      <p>{isAr ? "اسم المشتري" : "Buyer Name"}: <span className="text-white">{currencyText(request.buyerName)}</span></p>
-                      <p>{currencyText(isAr ? "كمية USDT" : "USDT Amount")}: <span className="text-white">{moneyText(Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US"))}</span></p>
-                      <p>{isAr ? "المبلغ بالعملة التقليدية" : "Fiat Amount"}: <span className="text-white">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</span></p>
-                      <p>{currencyText(request.priceMode === "buyer_offer" ? (isAr ? "سعر المشتري المقترح" : "Buyer Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT"))}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>{currencyText(`₪${(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}`)}</span></p>
-                      {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر العرض الأصلي" : "Original Listing Price"}: <span className="text-white">{currencyText(`₪${toNumber(request.listingPriceAtRequest).toFixed(2)}`)}</span></p> : null}
-                      <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
-                      <p>{isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{currencyText(paymentMethodEmoji(request.paymentMethod))} {currencyText(paymentMethodLabel(request.paymentMethod, isAr))}</span></p>
-                      <p>{isAr ? "العرض" : "Listing"}: <span className="text-white">{currencyText(shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber }))}</span></p>
-                      <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
-                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{currencyText(tradeStatusLabel(request.status, isAr))}</span></p>
-                      {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
-                      {request.reviewUnlockedAt ? <p>{isAr ? "تم فتح التقييم" : "Review Unlocked"}: <span className="text-white">{new Date(request.reviewUnlockedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
-                    </div>
-                    <div className="mt-3 rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{currencyText(paymentMethodEmoji(request.paymentMethod))} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
-                      <p className="mt-1">{currencyText(paymentMethodTradeInstruction(request.paymentMethod, "seller", isAr))}</p>
-                    </div>
-                    {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && request.status === "pending" ? (
-                      <div className="mt-3 rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
-                        <p className="font-semibold text-[#FDE68A]">{isAr ? "إرشادات الأمان" : "Safety Guidelines"}</p>
-                        <p className="mt-1 text-[#E5E7EB]">{currencyText(isAr ? "التقيا في أماكن عامة فقط، ويفضل الأماكن المزودة بكاميرات، ولا تشارك معلومات شخصية غير ضرورية، وتأكد من تحويل USDT قبل المغادرة." : "Meet only in public places, prefer camera-covered locations, avoid sharing unnecessary personal details, and confirm USDT transfer before leaving.")}</p>
-                        <label className="mt-2 inline-flex cursor-pointer items-start gap-2 text-[#E5E7EB]">
-                          <input
-                            type="checkbox"
-                            checked={sellerSafetyAcknowledgements[request.id] ?? false}
-                            onChange={(event) => setSellerSafetyAcknowledgements((prev) => ({ ...prev, [request.id]: event.target.checked }))}
-                            className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
-                          />
-                          <span>{isAr ? "قرأت إرشادات الأمان هذه وأوافق عليها." : "I have read and agree to these safety guidelines."}</span>
-                        </label>
-                        <p className="mt-1 text-[#D1D5DB]">{isAr ? <>اقرأ الإرشادات كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
-                      </div>
-                    ) : null}
-                    {request.status === "pending" && request.priceMode === "buyer_offer" ? <TradeTermsPanel key={request.id} request={request} actorId={request.sellerId} isAr={isAr} disabled={Boolean(requestActionKey)} onUpdated={() => handleOpenTradeRoom(request.id)} /> : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={isCashTrade ? "default" : "secondary"}
-                        onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
-                        onFocus={() => handlePrefetchTradeRoom(request.id)}
-                        onClick={() => handleOpenTradeRoom(request.id)}
-                      >
-                        {isCashTrade ? (isAr ? "متابعة الصفقة النقدية" : "Continue Cash Trade") : (isAr ? "فتح غرفة التداول" : "Open Trade Room")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={
-                          request.status !== "pending"
-                          || request.termsProposal?.status === "pending"
-                          || Boolean(sellerWorkspaceSummary?.pendingCommissionCount)
-                          || requestActionKey === `${request.id}:accepted`
-                          || (normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && !(sellerSafetyAcknowledgements[request.id] ?? false))
-                        }
-                        onClick={() => handleSellerRequestAction(request.id, "accepted", { safetyAcknowledged: sellerSafetyAcknowledgements[request.id] ?? false })}
-                      >
-                        {requestActionKey === `${request.id}:accepted` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : request.priceMode === "buyer_offer" ? (isAr ? "قبول عرض السعر" : "Accept Price Offer") : (isAr ? "قبول" : "Accept")}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" || requestActionKey === `${request.id}:declined`} onClick={() => handleSellerRequestAction(request.id, "declined")}>
-                        {requestActionKey === `${request.id}:declined` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض" : "Decline")}
-                      </Button>
-                      {!isCashTrade ? (
-                        <>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
-                            onClick={() => handleSellerRequestAction(request.id, "funds_received")}
-                          >
-                            {requestActionKey === `${request.id}:funds_received` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تأكيد استلام الأموال" : "Confirm Funds Received")}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
-                            onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
-                          >
-                            {currencyText(requestActionKey === `${request.id}:usdt_release_pending` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "بدء إرسال USDT" : "Start USDT Release"))}
-                          </Button>
-                          <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
-                            {currencyText(requestActionKey === `${request.id}:usdt_sent` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تحديد USDT كمُرسل" : "Mark USDT Sent"))}
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
-                    {isCashTrade ? (
-                      <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
-                        <p className="font-medium text-white">{isAr ? "لا يلزم رفع صور" : "No Photo Uploads"}</p>
-                        <p className="mt-1">
-                          {currencyText(isAr
-                            ? "افتح الصفقة للخطوة التالية."
-                            : "Open the trade for your next step.")}
-                        </p>
-                      </div>
-                    ) : (
-                    <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
-                      <div>
-                        <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
-                        {request.buyerEvidence ? (
-                          <a
-                            href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline"
-                          >
-                            {currencyText(request.buyerEvidence.fileName)}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-[#9CA3AF]">{isAr ? "لم يتم الرفع بعد." : "Not uploaded yet."}</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
-                        {request.sellerEvidence ? (
-                          <a
-                            href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline"
-                          >
-                            {currencyText(request.sellerEvidence.fileName)}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-[#9CA3AF]">{currencyText(isAr ? "يجب رفع الإثبات قبل تحديد USDT كمُرسل." : "Upload required before marking USDT sent.")}</p>
-                        )}
-                      </div>
-                      {!request.sellerEvidence ? (
-                        <div className="md:col-span-2">
-                          <p className="text-sm font-semibold text-white">{isAr ? "رفع إثبات البائع" : "Upload seller evidence"}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <LocalizedEvidenceFileInput
-                              id={`seller-evidence-file-${request.id}`}
-                              isAr={isAr}
-                              selectedFile={sellerEvidenceFiles[request.id] ?? null}
-                              onSelect={(file) => {
-                                setSellerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
-                              }}
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={!sellerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:seller`]}
-                              onClick={() => {
-                                const file = sellerEvidenceFiles[request.id];
-                                if (!file) return;
-                                void uploadTradeEvidenceFile(request.id, "seller", file);
-                              }}
-                            >
-                              {evidenceUploading[`${request.id}:seller`] ? (isAr ? "جارٍ الرفع..." : "Uploading...") : (isAr ? "رفع الإثبات" : "Upload Evidence")}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    )}
-                    <div className="mt-4">
-                      <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
-                    </div>
-                    {request.buyerReview ? (
-                      <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                        <p className="font-medium text-white">{isAr ? "تقييم المشتري" : "Buyer Review"}</p>
-                        <p className="mt-1">{currencyText(request.buyerReview.comment)}</p>
-                      </div>
-                    ) : null}
-                    {request.buyerReview && !request.sellerResponse ? (
-                      <form
-                        className="mt-3 grid gap-2"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void handleSubmitSellerResponse(request);
-                        }}
-                      >
-                        <Textarea aria-label={isAr ? "الرد على تقييم المشتري" : "Respond to buyer review"} placeholder={isAr ? "اكتب ردك على تقييم المشتري" : "Respond to buyer review"} value={sellerResponseDrafts[request.id] ?? ""} onChange={(event) => setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
-                        <div>
-                          <Button type="submit" size="sm" variant="secondary">{isAr ? "إرسال رد البائع" : "Submit Seller Response"}</Button>
-                        </div>
-                      </form>
-                    ) : null}
-                    {request.sellerResponse ? (
-                      <div className="mt-3 rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                        <p className="font-medium text-white">{isAr ? "رد البائع" : "Seller Response"}</p>
-                        <p className="mt-1">{currencyText(request.sellerResponse.message)}</p>
-                      </div>
-                    ) : null}
-                    </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+              ).map((request) => (
+                <SellerTradeRequestCard key={request.id} request={request} workspace={props} />
+              ))}
               {sortedSellerRequests.length > (isMobileViewport ? 1 : 2) ? (
                 <div className="flex justify-start">
                   <Button

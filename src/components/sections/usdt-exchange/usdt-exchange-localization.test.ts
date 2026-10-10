@@ -74,7 +74,7 @@ describe("USDT exchange localized mobile copy", () => {
     expect(paymentMethodTradeInstruction("Face-to-Face (Meet in Person)", "buyer", false)).toContain("seller separately confirms USDT sent");
 
     const buyerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/buyer-workspace-section.tsx"), "utf8");
-    const sellerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/seller-workspace-section.tsx"), "utf8");
+    const sellerWorkspace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/seller-trade-request-card.tsx"), "utf8");
     expect(buyerWorkspace).toContain("Continue Cash Trade");
     expect(sellerWorkspace).toContain("Continue Cash Trade");
     expect(buyerWorkspace).not.toContain("Mark Withdrawal Ready");

@@ -873,8 +873,8 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   // One seeded listing update plus exactly one private security notice.
   await expect(main.getByRole("button", { name: /^Notifications:/ })).toContainText("2");
 
-  const latestToggle = main.locator(`#trade-${latestRequestId} > button`);
-  const middleToggle = main.locator(`#trade-${middleRequestId} > button`);
+  const latestToggle = main.locator(`#trade-${latestRequestId}`).getByRole("button", { name: /^(Hide|Details)$/ });
+  const middleToggle = main.locator(`#trade-${middleRequestId}`).getByRole("button", { name: /^(Hide|Details)$/ });
   await expect(latestToggle).toBeVisible();
   await expect(latestToggle).toHaveAttribute("aria-expanded", "true");
   await expect(middleToggle).toHaveAttribute("aria-expanded", "false");
