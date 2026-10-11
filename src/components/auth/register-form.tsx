@@ -19,6 +19,7 @@ type RegistrationErrorCode =
   | "INVALID_EMAIL"
   | "WHATSAPP_REQUIRED"
   | "INVALID_WHATSAPP"
+  | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_REGISTERED"
   | "TERMS_REQUIRED"
   | "PASSWORD_TOO_SHORT"
@@ -59,6 +60,10 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
         ar: "أدخل رقم واتساب صالحًا مثل 05XXXXXXXX أو رقمًا دوليًا يبدأ بـ + ورمز الدولة.",
         en: "Enter a valid WhatsApp number, such as 05XXXXXXXX or an international number starting with + and country code.",
       },
+      PHONE_ALREADY_IN_USE: {
+        ar: "هذا الرقم مرتبط بحساب آخر. استخدم رقمًا مختلفًا أو سجّل الدخول إلى حسابك الحالي.",
+        en: "This phone number is linked to another account. Use a different number or sign in to your existing account.",
+      },
       FIELD_TOO_LONG: {
         ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
         en: "One or more fields exceed the allowed length.",
@@ -92,6 +97,9 @@ export function RegisterForm({ locale, learningIntent = false, mentorshipIntent 
     if (code && copyByCode[code]) return copyByCode[code][locale];
     if (!message) return copyByCode.REGISTRATION_FAILED[locale];
     const normalized = message.toLowerCase();
+    if (normalized.includes("phone number") && normalized.includes("linked to another account")) {
+      return copyByCode.PHONE_ALREADY_IN_USE[locale];
+    }
     if (normalized.includes("temporarily rate-limited") || normalized.includes("too many registration attempts")) {
       return copyByCode.REGISTRATION_RATE_LIMITED[locale];
     }
