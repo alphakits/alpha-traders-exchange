@@ -1,11 +1,86 @@
 {
   "version": 1,
-  "verifiedAt": "2026-10-04T16:56:40Z",
-  "coverageStart": "2026-09-27T00:00:00Z",
+  "verifiedAt": "2026-10-11T16:55:31Z",
+  "coverageStart": "2026-09-27T21:00:00Z",
   "coverageEnd": "2026-11-09T00:00:00Z",
-  "weekStart": "2026-10-05",
-  "weekEnd": "2026-10-12",
+  "weekStart": "2026-10-12",
+  "weekEnd": "2026-10-19",
   "events": [
+    {
+      "id": "official-bea-core-pce-mom-20260930",
+      "agency": "bea",
+      "title": "Core PCE price index (MoM)",
+      "titleAr": "مؤشر أسعار نفقات الاستهلاك الشخصي الأساسي — شهري",
+      "scheduledAt": "2026-09-30T12:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": "0.2%",
+      "previous": "0.2%",
+      "revised": "0.1%",
+      "reference": "August 2026",
+      "publishedAt": "2026-09-30T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-august-2026"
+    },
+    {
+      "id": "official-bea-core-pce-yoy-20260930",
+      "agency": "bea",
+      "title": "Core PCE price index (YoY)",
+      "titleAr": "مؤشر أسعار نفقات الاستهلاك الشخصي الأساسي — سنوي",
+      "scheduledAt": "2026-09-30T12:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": "3.0%",
+      "previous": "3.3%",
+      "revised": null,
+      "reference": "August 2026",
+      "publishedAt": "2026-09-30T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-august-2026"
+    },
+    {
+      "id": "official-bea-gdp-third-20260930",
+      "agency": "bea",
+      "title": "GDP growth (annualized, third estimate)",
+      "titleAr": "نمو الناتج المحلي الإجمالي — سنوي، التقدير الثالث",
+      "scheduledAt": "2026-09-30T12:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": "2.2%",
+      "previous": null,
+      "revised": null,
+      "reference": "Q2 2026",
+      "publishedAt": "2026-09-30T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/gdp-third-estimate-industries-corporate-profits-state-gdp-and-state-personal-income-2nd"
+    },
+    {
+      "id": "official-bea-pce-mom-20260930",
+      "agency": "bea",
+      "title": "PCE price index (MoM)",
+      "titleAr": "مؤشر أسعار نفقات الاستهلاك الشخصي — شهري",
+      "scheduledAt": "2026-09-30T12:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": "0.3%",
+      "previous": "0.2%",
+      "revised": "0.1%",
+      "reference": "August 2026",
+      "publishedAt": "2026-09-30T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-august-2026"
+    },
+    {
+      "id": "official-bea-pce-yoy-20260930",
+      "agency": "bea",
+      "title": "PCE price index (YoY)",
+      "titleAr": "مؤشر أسعار نفقات الاستهلاك الشخصي — سنوي",
+      "scheduledAt": "2026-09-30T12:30:00Z",
+      "timing": "exact",
+      "kind": "release",
+      "actual": "3.4%",
+      "previous": "3.7%",
+      "revised": null,
+      "reference": "August 2026",
+      "publishedAt": "2026-09-30T12:30:00Z",
+      "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-august-2026"
+    },
     {
       "id": "official-dol-initial-claims-20261001",
       "agency": "dol",
@@ -173,6 +248,36 @@
       "sourceUrl": "https://www.dol.gov/ui/data.pdf"
     },
     {
+      "id": "official-fed-waller-ai-discussion-20261013",
+      "agency": "fed",
+      "title": "Fed Governor Waller: Artificial intelligence discussion",
+      "titleAr": "مناقشة محافظ الفيدرالي والر: الذكاء الاصطناعي",
+      "scheduledAt": "2026-10-13T07:45:00Z",
+      "timing": "exact",
+      "kind": "speech",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "Bloomberg New Economy Forum 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+    },
+    {
+      "id": "official-fed-bowman-supervision-regulation-discussion-20261014",
+      "agency": "fed",
+      "title": "Fed Vice Chair Bowman: Supervision and regulation discussion",
+      "titleAr": "مناقشة نائبة رئيس الفيدرالي بومان: الرقابة والتنظيم",
+      "scheduledAt": "2026-10-14T09:40:00Z",
+      "timing": "exact",
+      "kind": "speech",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "IIF Annual Membership Summit 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+    },
+    {
       "id": "official-bls-core-cpi-mom-20261014",
       "agency": "bls",
       "title": "Core CPI (MoM)",
@@ -218,6 +323,36 @@
       "sourceUrl": "https://www.bls.gov/schedule/2026/10_sched_list.htm"
     },
     {
+      "id": "official-fed-beige-book-20261014",
+      "agency": "fed",
+      "title": "Fed Beige Book",
+      "titleAr": "تقرير الكتاب البيج للاحتياطي الفيدرالي",
+      "scheduledAt": "2026-10-14T18:00:00Z",
+      "timing": "exact",
+      "kind": "speech",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "October 2026",
+      "publishedAt": null,
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+    },
+    {
+      "id": "official-fed-bowman-bangkok-speech-20261014",
+      "agency": "fed",
+      "title": "Fed Vice Chair Bowman: Bangkok Economic Festival speech",
+      "titleAr": "خطاب نائبة رئيس الفيدرالي بومان في مهرجان بانكوك الاقتصادي",
+      "scheduledAt": "2026-10-15T02:55:00Z",
+      "timing": "exact",
+      "kind": "speech",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "Bangkok Economic Festival 2026 · Topic to be announced",
+      "publishedAt": null,
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+    },
+    {
       "id": "official-bls-core-ppi-mom-20261015",
       "agency": "bls",
       "title": "Core PPI (MoM)",
@@ -257,10 +392,10 @@
       "kind": "release",
       "actual": null,
       "previous": "1.4%",
-      "revised": null,
+      "revised": "1.3%",
       "reference": "September 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview.html"
+      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview-2026.html"
     },
     {
       "id": "official-census-retail-sales-mom-20261015",
@@ -272,10 +407,10 @@
       "kind": "release",
       "actual": null,
       "previous": "1.2%",
-      "revised": null,
+      "revised": "1.1%",
       "reference": "September 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview.html"
+      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview-2026.html"
     },
     {
       "id": "official-dol-initial-claims-20261015",
@@ -288,9 +423,24 @@
       "actual": null,
       "previous": "197K",
       "revised": null,
-      "reference": null,
+      "reference": "Week ending 10 Oct 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
+      "sourceUrl": "https://www.dol.gov/index.php/newsroom/releases/opa/opa20200701"
+    },
+    {
+      "id": "official-fed-warsh-imf-discussion-20261015",
+      "agency": "fed",
+      "title": "Fed Chair Warsh: Discussion with IMF Managing Director Georgieva",
+      "titleAr": "مناقشة رئيس الفيدرالي وارش مع مديرة صندوق النقد الدولي جورجييفا",
+      "scheduledAt": "2026-10-16T03:30:00Z",
+      "timing": "exact",
+      "kind": "speech",
+      "actual": null,
+      "previous": null,
+      "revised": null,
+      "reference": "IMF fireside chat · Bangkok, Thailand",
+      "publishedAt": null,
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
     },
     {
       "id": "official-dol-initial-claims-20261022",
@@ -303,9 +453,9 @@
       "actual": null,
       "previous": null,
       "revised": null,
-      "reference": null,
+      "reference": "Week ending 17 Oct 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
+      "sourceUrl": "https://www.dol.gov/index.php/newsroom/releases/opa/opa20200701"
     },
     {
       "id": "official-census-core-durable-goods-mom-20261027",
@@ -316,11 +466,11 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
-      "revised": null,
+      "previous": "0.3%",
+      "revised": "0.2%",
       "reference": "September 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview.html"
+      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview-2026.html"
     },
     {
       "id": "official-census-durable-goods-mom-20261027",
@@ -331,11 +481,11 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
-      "revised": null,
+      "previous": "0.0%",
+      "revised": "-0.1%",
       "reference": "September 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview.html"
+      "sourceUrl": "https://www.census.gov/economic-indicators/calendar-listview-2026.html"
     },
     {
       "id": "official-fed-fomc-decision-20261028",
@@ -346,7 +496,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "3.75%–4.00%",
       "revised": null,
       "reference": "Meeting of 27–28 Oct 2026",
       "publishedAt": null,
@@ -376,7 +526,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "0.2%",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": null,
@@ -391,7 +541,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "3.0%",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": null,
@@ -406,7 +556,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "2.2%",
       "revised": null,
       "reference": "Q3 2026",
       "publishedAt": null,
@@ -421,7 +571,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "0.3%",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": null,
@@ -436,7 +586,7 @@
       "timing": "exact",
       "kind": "release",
       "actual": null,
-      "previous": null,
+      "previous": "3.4%",
       "revised": null,
       "reference": "September 2026",
       "publishedAt": null,
@@ -453,9 +603,9 @@
       "actual": null,
       "previous": null,
       "revised": null,
-      "reference": null,
+      "reference": "Week ending 24 Oct 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
+      "sourceUrl": "https://www.dol.gov/index.php/newsroom/releases/opa/opa20200701"
     },
     {
       "id": "official-bls-employment-cost-index-20261030",
@@ -498,9 +648,9 @@
       "actual": null,
       "previous": null,
       "revised": null,
-      "reference": null,
+      "reference": "Week ending 31 Oct 2026",
       "publishedAt": null,
-      "sourceUrl": "https://www.dol.gov/newsroom/releases/opa/opa20200701"
+      "sourceUrl": "https://www.dol.gov/index.php/newsroom/releases/opa/opa20200701"
     },
     {
       "id": "official-bls-hourly-earnings-mom-20261106",
@@ -548,5 +698,5 @@
       "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
     }
   ],
-  "resultsVerifiedAt": "2026-10-09T01:32:58Z"
+  "resultsVerifiedAt": "2026-10-11T16:55:31Z"
 }
