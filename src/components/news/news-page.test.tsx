@@ -231,15 +231,18 @@ describe("USD News page", () => {
     expect(screen.getByRole("button", { name: "This week" }).getAttribute("aria-pressed")).toBe("true");
   });
   it("moves day groups together with the selected timezone across midnight", () => {
-    const options = new Intl.DateTimeFormat().resolvedOptions();
-    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ ...options, timeZone: "America/New_York" });
+    const DateTimeFormat = Intl.DateTimeFormat;
+    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (locales, options) {
+      return new DateTimeFormat(locales, { ...options, timeZone: options?.timeZone ?? "America/New_York" });
+    } as typeof Intl.DateTimeFormat);
     const night = { ...event, scheduledAt: "2026-09-23T22:30:00Z" };
     render(<NewsPage locale="en" initialFeed={{ ...feed, mode: "weekly", events: [night] }} initialNow={now} />);
     expect(document.querySelector("section time")?.getAttribute("datetime")).toBe("2026-09-24");
     const select = screen.getByRole("combobox") as HTMLSelectElement;
-    // The test runtime timezone is the device option; no invented select value.
+    // Exercise a real device option without depending on the runner's timezone.
     const device = [...select.options].find((option) => option.value !== "Asia/Jerusalem");
     if (!device) throw new Error("This test requires a device timezone different from Israel");
+    expect(device.value).toBe("America/New_York");
     fireEvent.change(select, { target: { value: device.value } });
     expect(document.querySelector("section time")?.getAttribute("datetime")).toBe("2026-09-23");
   });

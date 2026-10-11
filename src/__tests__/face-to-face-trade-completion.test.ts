@@ -24,6 +24,7 @@ import {
   getSellerCommissionStatus,
   getMarketplaceListings,
   invalidateAlphaExchangeStoreCache,
+  runAlphaExchangeMaintenance,
   submitBuyerTradeReview,
   submitSellerBuyerReview,
   updatePurchaseRequestStatus,
@@ -267,6 +268,30 @@ describe("guided cash-trade completion", () => {
     expect(currentSnapshot().commissionRecords).toHaveLength(3);
     expect(currentSnapshot().commissionRecords.every(record => record.commissionAmount === 2)).toBe(true);
   });
+
+  it.each([undefined, "missing-request", "completed-request", "other-listing-request"])(
+    "recovers a stale representative pointer %s without expiring another active trade",
+    async (pointer) => {
+      const { requestId, listingId } = seedTrade({ status: "accepted", amount: "100" });
+      const db = currentSnapshot();
+      const activeRequest = db.purchaseRequests.find(request => request.id === requestId)!;
+      const activeListing = db.marketplaceListings.find(listing => listing.id === listingId)!;
+      activeListing.activeTradeRequestId = pointer;
+      activeListing.expiresAt = new Date(Date.now() - 60_000).toISOString();
+      db.purchaseRequests.push(
+        { ...structuredClone(activeRequest), id: "completed-request", status: "review_open", completedAt: new Date().toISOString() },
+        { ...structuredClone(activeRequest), id: "other-listing-request", listingId: "other-listing" },
+      );
+      invalidateAlphaExchangeStoreCache();
+
+      await runAlphaExchangeMaintenance();
+
+      expect(currentSnapshot().marketplaceListings.find(listing => listing.id === listingId)).toMatchObject({
+        status: "matched", activeTradeRequestId: requestId, availableAmount: "1000",
+      });
+      expect(currentSnapshot().purchaseRequests.find(request => request.id === requestId)?.status).toBe("accepted");
+    },
+  );
 
   it.each([FACE_TO_FACE, "Bank Transfer"])("requires buyer approval for an inclusive ILS correction in %s", async paymentMethod => {
     seedTrade({ paymentMethod, status: "accepted" });

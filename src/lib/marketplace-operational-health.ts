@@ -66,6 +66,7 @@ export function buildMarketplaceOperationalSnapshot(
   const nowMs = now.getTime();
   const requestsById = new Map(input.purchaseRequests.map((request) => [request.id, request]));
   const listingsById = new Map(input.marketplaceListings.map((listing) => [listing.id, listing]));
+  const validListingLocks = new Set<string>();
   const incidents: MarketplaceOperationalIncident[] = [];
 
   const activeTrades = input.purchaseRequests.filter((request) => ACTIVE_TRADE_STATUSES.has(request.status)).length;
@@ -137,7 +138,11 @@ export function buildMarketplaceOperationalSnapshot(
     const linkedRequest = listing.activeTradeRequestId
       ? requestsById.get(listing.activeTradeRequestId)
       : undefined;
-    if (linkedRequest && ACTIVE_TRADE_STATUSES.has(linkedRequest.status) && linkedRequest.listingId === listing.id) continue;
+    if (linkedRequest && ACTIVE_TRADE_STATUSES.has(linkedRequest.status)
+      && linkedRequest.listingId === listing.id && linkedRequest.sellerId === listing.sellerId) {
+      if (LOCKED_LISTING_STATUSES.has(listing.status)) validListingLocks.add(listing.id);
+      continue;
+    }
     incidents.push({
       id: `orphaned-listing-lock:${listing.id}`,
       kind: "orphaned_listing_lock",
@@ -153,7 +158,9 @@ export function buildMarketplaceOperationalSnapshot(
   for (const request of input.purchaseRequests) {
     if (!ACTIVE_TRADE_STATUSES.has(request.status)) continue;
     const listing = listingsById.get(request.listingId);
-    if (listing?.activeTradeRequestId === request.id && LOCKED_LISTING_STATUSES.has(listing.status)) continue;
+    // The pointer represents one of up to three active trades. Every active
+    // request for that listing is linked, provided its seller also matches.
+    if (listing && validListingLocks.has(listing.id) && listing.sellerId === request.sellerId) continue;
     incidents.push({
       id: `unlinked-active-trade:${request.id}`,
       kind: "unlinked_active_trade",

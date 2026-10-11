@@ -119,6 +119,49 @@ describe("buildMarketplaceOperationalSnapshot", () => {
     expect(result.incidents[0]).toMatchObject({ kind: "unlinked_active_trade", requestId: "request-1" });
   });
 
+  it.each(["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)(
+    "accepts three trades sharing one representative listing lock at %s",
+    (status) => {
+      const activeRequests = [1, 2, 3].map((index) => request({
+        id: `request-${index}`,
+        buyerId: `buyer-${index}`,
+        status,
+        priceMode: "listing_price",
+      }));
+      const result = buildMarketplaceOperationalSnapshot({
+        marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: "request-2" })],
+        purchaseRequests: activeRequests,
+      }, NOW);
+
+      expect(result).toMatchObject({ status: "healthy", activeTrades: 3, dataIntegrityIssues: 0 });
+      expect(result.incidents).toEqual([]);
+    },
+  );
+
+  it("rejects a representative lock belonging to another listing", () => {
+    const result = buildMarketplaceOperationalSnapshot({
+      marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: "other-request" })],
+      purchaseRequests: [
+        request({ status: "accepted" }),
+        request({ id: "other-request", listingId: "other-listing", status: "accepted" }),
+      ],
+    }, NOW);
+
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "orphaned_listing_lock" }));
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "unlinked_active_trade", requestId: "request-1" }));
+  });
+
+  it("rejects an active request whose seller does not own the linked listing", () => {
+    const result = buildMarketplaceOperationalSnapshot({
+      marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: "request-1" })],
+      purchaseRequests: [request({ status: "accepted", sellerId: "other-seller" })],
+    }, NOW);
+
+    expect(result.status).toBe("critical");
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "orphaned_listing_lock" }));
+    expect(result.incidents).toContainEqual(expect.objectContaining({ kind: "unlinked_active_trade", requestId: "request-1" }));
+  });
+
   it("flags an accepted trade that remains idle after its warning", () => {
     const activeRequest = request({
       status: "accepted",
