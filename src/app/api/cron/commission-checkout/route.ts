@@ -16,8 +16,10 @@ export async function GET(request: NextRequest) {
   try {
     const service = await getCommissionCheckoutRuntime();
     const result = await service.scan(started + 55_000);
-    const ok = result.complete && result.errors === 0;
+    const needsReview = "review" in result && result.review > 0;
+    const ok = result.complete && result.errors === 0 && !needsReview;
     logEvent(ok ? "info" : "warn", { event: "commission_checkout_scan", outcome: ok ? "success" : "failed",
+      reason: needsReview ? "checkout_payment_requires_review" : undefined,
       metadata: { ...result, ownerApprovalRequired: false } });
     return NextResponse.json({ ok, ...result }, { status: ok ? 200 : 503, headers });
   } catch {
