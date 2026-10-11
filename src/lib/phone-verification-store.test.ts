@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
-import { assertRegistrationPhoneAvailable, createUser, upsertUserProfileForAuth, beginProfilePhoneVerification, confirmProfilePhoneVerification, findUserById, invalidateAlphaExchangeStoreCache, updateAccountProfileData } from "@/lib/alpha-exchange-store";
+import { activateBuyerOnboardingWithoutPhone, assertRegistrationPhoneAvailable, createUser, upsertUserProfileForAuth, beginProfilePhoneVerification, confirmProfilePhoneVerification, findUserById, invalidateAlphaExchangeStoreCache, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 
 const phone = "+972521234567";
 const now = "2026-10-01T12:00:00.000Z";
@@ -39,6 +39,38 @@ afterEach(() => {
 });
 
 describe("persisted SMS verification challenges", () => {
+  it("prevents legacy onboarding from granting Buyer before mandatory phone verification", async () => {
+    vi.stubEnv("ALPHA_EXCHANGE_PHONE_VERIFICATION_REQUIRED", "true");
+    Object.assign(globalThis.__alphaExchangeMemorySnapshot!.users[0], { role: "guest", roles: ["guest"] });
+    invalidateAlphaExchangeStoreCache();
+    await expect(activateBuyerOnboardingWithoutPhone({ userId: "test-one", firstName: "Test", lastName: "User" })).rejects.toThrow("Verify your phone number");
+    expect((await findUserById("test-one"))?.roles).toEqual(["guest"]);
+  });
+  it("keeps a new account Guest until a valid SMS code atomically activates Buyer", async () => {
+    const guest = globalThis.__alphaExchangeMemorySnapshot!.users[0];
+    Object.assign(guest, { role: "guest", roles: ["guest"], onboardingSelection: undefined, onboardingCompletedAt: undefined });
+    invalidateAlphaExchangeStoreCache();
+    const challenge = await beginProfilePhoneVerification({ userId: guest.id, phone });
+    expect((await findUserById(guest.id))?.role).toBe("guest");
+    const wrongCode = challenge.code === "000000" ? "111111" : "000000";
+    await expect(confirmProfilePhoneVerification({ userId: guest.id, phone, code: wrongCode })).rejects.toThrow("Invalid verification code");
+    expect((await findUserById(guest.id))?.roles).toEqual(["guest"]);
+    const verified = await confirmProfilePhoneVerification({ userId: guest.id, phone, code: challenge.code });
+    expect(verified).toMatchObject({ role: "buyer", roles: ["buyer"], buyerVerificationStatus: "verified", onboardingSelection: "buyer", onboardingCompletedAt: now });
+    invalidateAlphaExchangeStoreCache();
+    expect(await findUserById(guest.id)).toMatchObject({ role: "buyer", roles: ["buyer"], verifiedPhone: phone, phoneVerifiedAt: now });
+    expect(globalThis.__alphaExchangeMemorySnapshot!.users.find(user => user.id === guest.id)?.role).toBe("buyer");
+  });
+  it.each(["student", "approved_seller", "owner"] as const)("adds buying access after verification without losing the %s role", async role => {
+    const user = globalThis.__alphaExchangeMemorySnapshot!.users[0];
+    Object.assign(user, { role, roles: [role], sellerStatus: role === "approved_seller" ? "approved_seller" : "buyer", onboardingSelection: role === "student" ? "student" : "seller_applicant" });
+    invalidateAlphaExchangeStoreCache();
+    const challenge = await beginProfilePhoneVerification({ userId: user.id, phone });
+    const verified = await confirmProfilePhoneVerification({ userId: user.id, phone, code: challenge.code });
+    expect(verified.roles).toEqual(expect.arrayContaining([role, "buyer"]));
+    expect(verified.roles).not.toContain("guest");
+    expect(verified.role).toBe(role === "student" ? "buyer" : role);
+  });
   it.each(["0521234567", "+972 (52) 123-4567", "00972521234567", "٠٥٢١٢٣٤٥٦٧"])("rejects an existing verified number expressed as %s", async alternative => {
     globalThis.__alphaExchangeMemorySnapshot!.users[1].verifiedPhone = phone;
     globalThis.__alphaExchangeMemorySnapshot!.users[1].phoneVerifiedAt = now;

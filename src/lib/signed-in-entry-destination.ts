@@ -1,8 +1,12 @@
 import { getInterfaceAccess, getInterfacePageDestination, type InterfaceSessionUser } from "@alpha-traders/contracts";
+import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
 type EntryUser = InterfaceSessionUser & { onboardingSelection?: string; onboardingCompletedAt?: string };
 
 export function signedInEntryDestination(locale: "ar" | "en", user: EntryUser, requested?: string) {
+  if (isTradeRoomEntryPath(requested)) {
+    return `/${locale}${requested!.replace(/^\/(?:ar|en)(?=\/)/, "")}`;
+  }
   const access = getInterfaceAccess(user);
   const roles = [user.role, ...(user.roles ?? [])];
   if (!user.onboardingSelection && !user.onboardingCompletedAt && roles.every((role) => role === "guest")) {

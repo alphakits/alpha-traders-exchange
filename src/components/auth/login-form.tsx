@@ -20,6 +20,7 @@ import { requestAppRememberedLogin } from "@/lib/app-remembered-login";
 import { isExchangePage } from "@/lib/protected-page";
 import { isAcademyEntry, isMentorshipEntry } from "@/lib/academy-entry";
 import { getInterfacePageDestination } from "@alpha-traders/contracts";
+import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
 const REMEMBER_ME_PREFERENCE = "alpha.auth.remember-me.v1";
 const benefitIcons = [GraduationCap, BookOpen, ArrowLeftRight, Bell, UserRound, ChartNoAxesCombined];
@@ -41,6 +42,11 @@ function loginDestination(locale: "ar" | "en", rawRedirect: string | undefined, 
     : user?.sellerStatus === "approved_seller" && user.sellerApprovalVerified === true ? "/dashboard/seller" : "/usdt-exchange";
   const candidate = rawRedirect?.startsWith("/") && !rawRedirect.startsWith("//") && !/[\\\u0000-\u0020]/.test(rawRedirect)
     && !/^\/(?:ar\/|en\/)?(?:login|register)(?:[/?#]|$)/.test(rawRedirect) ? rawRedirect : null;
+  // Let the room check actual participation before onboarding/profile guards.
+  // This preserves both restored sessions and freshly completed logins.
+  if (isTradeRoomEntryPath(candidate)) {
+    return `/${locale}${candidate!.replace(/^\/(?:ar|en)(?=\/)/, "")}`;
+  }
   if (needsOnboarding && candidate) {
     try { sessionStorage.setItem("post_onboarding_redirect", candidate.replace(/^\/(ar|en)(?=\/|$)/, "") || "/"); } catch { /* Storage can be unavailable. */ }
   }

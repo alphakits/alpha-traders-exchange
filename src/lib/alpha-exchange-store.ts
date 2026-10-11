@@ -48,7 +48,7 @@ import {
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
-import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
+import { addRole, dedupeRoles, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { scheduleWhatsAppNotificationDelivery } from "@/lib/whatsapp-notifications";
@@ -80,7 +80,7 @@ import { assertNoDirectContactContent, containsDirectContactContent, redactPriva
 import { getSmsTemplate, isTwilioSendEnabled, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeIsraeliPhone, canonicalPhoneNumber } from "@/lib/phone-number-normalization";
 import { assertAccountPhoneAvailable } from "@/lib/account-phone-ownership";
-import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
+import { isMarketplacePhoneVerificationEnabled, needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { accountRoleIdentity } from "@/lib/account-role-identity";
 import { publicAccountId, publicAccountName, accountNameForViewer, isPublicOwnerIdentity, ownerIdentityText, identityTextRedactor } from "@/lib/public-account-identity";
@@ -6415,6 +6415,7 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
     if (index === -1) throw new Error("User not found.");
     const user = snapshot.users[index];
     const expiresAt = Date.parse(user.phoneOtpExpiresAt ?? "");
+    if (user.disabled === true) throw new Error("This account is disabled.");
     const attempts = Math.max(0, Number(user.phoneOtpAttempts ?? 0));
     if (user.phoneOtpChannel !== "sms" || user.phoneOtpPhone !== phone || !user.phoneOtpHash || !user.phoneOtpSalt || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || attempts >= 5) {
       throw new Error("Verification code expired or invalid. Request a new code.");
@@ -6427,8 +6428,15 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
     }
     assertAccountPhoneAvailable(snapshot.users, user, phone);
     phoneChanged = canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== phone;
+    // Successful SMS verification activates buying in the same durable write.
+    // Keep learning, seller and owner roles; guest is only the pre-verification
+    // state. Recompute from the locked snapshot on retries, never stale input.
+    const roles = addRole(removeRole([...(user.roles ?? []), user.role], "guest"), "buyer");
     snapshot.users[index] = {
       ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(), whatsappNumber: phone,
+      roles: dedupeRoles(roles), role: resolvePrimaryRole(roles), buyerVerificationStatus: "verified",
+      onboardingSelection: !user.onboardingSelection || user.onboardingSelection === "guest" ? "buyer" : user.onboardingSelection,
+      onboardingCompletedAt: user.onboardingCompletedAt ?? nowIso(),
       phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpChannel: undefined, phoneOtpAttempts: undefined,
       updatedAt: nowIso(),
     };
@@ -6486,6 +6494,9 @@ export async function activateBuyerOnboardingWithoutPhone(input: {
   const index = db.users.findIndex((user) => user.id === input.userId);
   if (index === -1) throw new Error("User not found.");
   const user = db.users[index];
+  // The legacy function name predates mandatory SMS. All callers, including
+  // native onboarding, must now prove phone verification before granting Buyer.
+  if (needsMarketplacePhoneVerification(user)) throw new Error("Verify your phone number before activating Buyer access.");
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
   if (!firstName || !lastName) {

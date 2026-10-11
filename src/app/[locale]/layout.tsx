@@ -26,6 +26,7 @@ import { logEvent } from "@/lib/structured-logging";
 import { APP_PAGE_PATH_HEADER, getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-page";
 import { isMarketplacePhoneVerificationRequired, marketplacePhoneVerificationDestination } from "@/lib/phone-verification";
 import { getInterfacePageDestination } from "@alpha-traders/contracts";
+import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -92,7 +93,9 @@ export default async function LocaleLayout({
   if (!sessionUser) {
     if (isProtectedPage(pagePath)) redirect(getSignedOutPageDestination(pagePath));
   }
-  if (sessionUser) {
+  // Room routes authorize existing participants even when their profile still
+  // carries a guest/student role. Do not preempt that check in the layout.
+  if (sessionUser && !isTradeRoomEntryPath(pagePath)) {
     const roleDestination = getInterfacePageDestination(sessionUser, pagePath, appLocale);
     if (roleDestination) redirect(roleDestination);
   }
