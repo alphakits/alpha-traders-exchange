@@ -12,4 +12,14 @@ it("unauthenticated caller cannot scan private deposits", async () => { expect((
 it("missing scheduler secret refuses operation", async () => { vi.stubEnv("CRON_SECRET", ""); expect((await GET(request())).status).toBe(503); expect(mocks.scan).not.toHaveBeenCalled(); });
 it("authorized scheduler runs bounded processing with no owner approval", async () => { const response = await GET(request()); expect(response.status).toBe(200); expect(mocks.scan).toHaveBeenCalledOnce(); expect(mocks.log).toHaveBeenCalledWith("info", expect.objectContaining({ metadata: expect.objectContaining({ ownerApprovalRequired: false }) })); });
 it("incomplete provider history stays explicit", async () => { mocks.scan.mockResolvedValue({ complete: false, errors: 0 }); expect((await GET(request())).status).toBe(503); });
+it("a blocked payment is not reported as a successful automation run", async () => {
+  mocks.scan.mockResolvedValue({ complete: true, errors: 0, review: 1, verified: 0,
+    reviewReasons: { payment_reference_conflict: 1 } });
+  const response = await GET(request());
+  expect(response.status).toBe(503);
+  expect(mocks.log).toHaveBeenCalledWith("warn", expect.objectContaining({
+    outcome: "failed", reason: "checkout_payment_requires_review",
+    metadata: expect.objectContaining({ reviewReasons: { payment_reference_conflict: 1 } }),
+  }));
+});
 it("database/provider exceptions do not leak private account information", async () => { mocks.runtime.mockRejectedValue(Error("private api-key value")); const response = await GET(request()); expect(response.status).toBe(503); expect(JSON.stringify(await response.json())).not.toContain("api-key"); });

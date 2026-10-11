@@ -9,16 +9,17 @@ const roundedMigration = readFileSync(resolve(process.cwd(), "supabase/migration
 const toleranceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261004215723_commission_checkout_bidirectional_tolerance.sql"), "utf8");
 const attributionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261006212309_commission_checkout_active_payment_attribution.sql"), "utf8");
 const collisionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011145429_commission_checkout_collision_tolerance.sql"), "utf8");
+const repeatedMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011203949_commission_checkout_repeated_received_amounts.sql"), "utf8");
 let db: PGlite;
 const createdAt = "2026-09-25T16:00:00.000Z";
 const checkout = { id: "checkout-test", sellerId: "seller", network: "BEP20", createdAt,
   expectedMicros: 39_000_000, requestedMicros: 39_000_000, dueMicros: 40_000_000,
   commissions: [{ id: "cm", dueMicros: 40_000_000, createdAt: "2026-09-25T15:00:00.000Z" }] };
 const signature = `0x${"a".repeat(64)}`;
-function issue(value: typeof checkout & { roundedMicros?: number } = checkout) { return insertAudit(`${value.id}:issued`, { kind: "commission_checkout_issued_v1", checkout: value }); }
-async function insertAudit(id: string, newValue: unknown, actor = "seller") {
-  const payload = { id, actorUserId: actor, targetUserId: "seller", createdAt, newValue };
-  await db.query("insert into alpha_exchange.audit_logs(id,actor_user_id,target_user_id,created_at,payload) values($1,$2,'seller',$3,$4)", [id, actor, createdAt, JSON.stringify(payload)]);
+function issue(value: typeof checkout & { roundedMicros?: number } = checkout) { return insertAudit(`${value.id}:issued`, { kind: "commission_checkout_issued_v1", checkout: value }, "seller", value.createdAt); }
+async function insertAudit(id: string, newValue: unknown, actor = "seller", auditAt = createdAt) {
+  const payload = { id, actorUserId: actor, targetUserId: "seller", createdAt: auditAt, newValue };
+  await db.query("insert into alpha_exchange.audit_logs(id,actor_user_id,target_user_id,created_at,payload) values($1,$2,'seller',$3,$4)", [id, actor, auditAt, JSON.stringify(payload)]);
 }
 async function settleAudit() {
   await insertAudit("checkout-test:settled", { kind: "commission_checkout_settled_v1", checkoutId: checkout.id, checkout,
@@ -33,7 +34,7 @@ beforeEach(async () => {
     create table alpha_exchange.users(id text primary key,payload jsonb);
     create table alpha_exchange.commissions(id text primary key,seller_id text,payment_status text,payload jsonb);
     create table alpha_exchange.audit_logs(id text primary key,actor_user_id text,target_user_id text,created_at timestamptz,payload jsonb);`);
-  await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration); await db.exec(collisionMigration);
+  await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration); await db.exec(collisionMigration); await db.exec(repeatedMigration);
   const payload = { id: "cm", sellerId: "seller", commissionAmount: 40, paymentExpectedAmount: 40.000001,
     createdAt: checkout.commissions[0].createdAt, paymentStatus: "pending" };
   await db.query("insert into alpha_exchange.commissions values('cm','seller','pending',$1)", [JSON.stringify(payload)]);
@@ -193,5 +194,77 @@ describe("durable self-service checkout reservations", () => {
   it("tolerance migration is repeatable and never credits a payment itself", async () => {
     await issue(); await db.exec(toleranceMigration);
     expect((await db.query<{ payment_status: string }>("select payment_status from alpha_exchange.commissions")).rows[0].payment_status).toBe("pending");
+  });
+  async function repeatedCheckout(n: number) {
+    const time = new Date(Date.parse(createdAt) + n * 10_000).toISOString();
+    const id = n ? `cm${n}` : "cm";
+    const value = { ...checkout, id: `checkout-repeat-${n}`, createdAt: time,
+      expectedMicros: 3_540_000 + n * 10, requestedMicros: 3_540_000, dueMicros: 3_540_000,
+      commissions: [{ id, dueMicros: 3_540_000, createdAt: time }] };
+    const payload = { id, sellerId: "seller", commissionAmount: 3.54, createdAt: time,
+      paymentExpectedAmount: 3.54 + (n + 1) / 1e6, paymentExpectedAmountMode: "unique_v1" };
+    if (n) await db.query("insert into alpha_exchange.commissions values($1,'seller','pending',$2)", [id, JSON.stringify(payload)]);
+    else await db.query("update alpha_exchange.commissions set payload=$1 where id='cm'", [JSON.stringify(payload)]);
+    await issue(value);
+    return value;
+  }
+  async function settleRepeated(value: Awaited<ReturnType<typeof repeatedCheckout>>, hash: string) {
+    const paidAt = new Date(Date.parse(value.createdAt) + 2000).toISOString();
+    await db.exec("begin");
+    try {
+      await db.query("update alpha_exchange.commissions set payment_status='paid',payload=payload || $1::jsonb where id=$2", [JSON.stringify({
+        paidAt, paymentStatus: "paid", paymentVerificationStatus: "verified", paymentSignature: hash,
+        paymentReservedExpectedAmounts: [value.expectedMicros / 1e6, 3.6],
+        paymentBatchSettlement: { batchId: value.id, groupReceivedMicros: 3_600_000 },
+      }), value.commissions[0].id]);
+      await insertAudit(`${value.id}:settled`, { kind: "commission_checkout_settled_v1", checkoutId: value.id,
+        checkout: value, attribution: "unambiguous_checkout_tolerance_v1",
+        receipt: { signature: hash, network: "BEP20", amountMicros: 3_600_000, timestamp: Date.parse(value.createdAt) + 1000 },
+      }, "seller", paidAt);
+      await db.exec("commit");
+    } catch (error) { await db.exec("rollback"); throw error; }
+  }
+  it("three new transactions can repeat a previously received amount without deleting reservations", async () => {
+    for (let n = 0; n < 3; n++) {
+      await settleRepeated(await repeatedCheckout(n), `0x${String(n + 1).repeat(64)}`);
+    }
+    expect((await db.query("select * from alpha_exchange.commissions where payment_status='paid'")).rows).toHaveLength(3);
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(3);
+    expect((await db.query("select checkout_id from alpha_exchange.commission_checkout_amount_reservations where amount_micros=3600000")).rows)
+      .toEqual([{ checkout_id: "checkout-repeat-0" }]);
+    // The repository replaces audit snapshots; replay in reverse chronological
+    // order must not retroactively make previous payments conflict.
+    const audits = await db.query<{ id: string; payload: { newValue: unknown }; created_at: string }>("select * from alpha_exchange.audit_logs order by created_at desc");
+    await db.exec("delete from alpha_exchange.audit_logs");
+    for (const row of audits.rows) await insertAudit(row.id, row.payload.newValue, "seller", row.created_at);
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(3);
+    const settled = audits.rows.find(row => row.id === "checkout-repeat-0:settled")!;
+    const altered = structuredClone(settled.payload.newValue) as { receipt: { timestamp: number } };
+    altered.receipt.timestamp++;
+    await db.query("delete from alpha_exchange.audit_logs where id=$1", [settled.id]);
+    await expect(insertAudit(settled.id, altered)).rejects.toThrow("Immutable checkout settlement changed");
+    await expect(db.query("insert into alpha_exchange.commissions values('legacy','other','pending',$1)", [JSON.stringify({ paymentExpectedAmount: 3.6 })])).rejects.toThrow();
+  });
+  it.each([null, "invalid", "2026-09-25T16:00:11.000Z", "2026-09-25T16:00:12.000Z"])("repeated amount remains blocked without prior closure before receipt: %s", async (paidAt) => {
+    await settleRepeated(await repeatedCheckout(0), signature);
+    const next = await repeatedCheckout(1);
+    await db.query("update alpha_exchange.commissions set payload=payload || $1::jsonb where id='cm'", [JSON.stringify({ paidAt })]);
+    await expect(settleRepeated(next, `0x${"b".repeat(64)}`)).rejects.toThrow();
+    expect((await db.query<{ payment_status: string }>("select payment_status from alpha_exchange.commissions where id='cm1'")).rows[0].payment_status).toBe("pending");
+  });
+  it("the old transaction cannot settle a new commission even if the amount and timestamp match", async () => {
+    await settleRepeated(await repeatedCheckout(0), signature);
+    const next = await repeatedCheckout(1);
+    await expect(settleRepeated(next, signature.toUpperCase().replace("0X", "0x"))).rejects.toThrow();
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(1);
+  });
+  it("repeated amount migration is idempotent, private, and leaves financial records untouched", async () => {
+    await settleRepeated(await repeatedCheckout(0), signature);
+    const before = (await db.query("select * from alpha_exchange.commissions")).rows;
+    await db.exec(repeatedMigration); await db.exec(repeatedMigration);
+    expect((await db.query("select * from alpha_exchange.commissions")).rows).toEqual(before);
+    const fn = await db.query<{ prosecdef: boolean; proacl: string[] }>("select prosecdef,proacl from pg_proc where oid='alpha_exchange.is_earlier_checkout_received_amount(text,bigint,numeric)'::regprocedure");
+    expect(fn.rows[0].prosecdef).toBe(false);
+    expect(fn.rows[0].proacl.some(grant => grant.startsWith("=X/"))).toBe(false);
   });
 });

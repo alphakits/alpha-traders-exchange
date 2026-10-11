@@ -2,6 +2,8 @@
 
 The protected `/api/cron/commission-payment-verification` job runs every minute in production. It reads persisted exact payment intents, discovers deposits, and passes every match through the existing receipt verifier and atomic commission settlement. Website and native app share this backend. No customer funds are moved by this job.
 
+The separate `/api/cron/commission-checkout` job handles seller-issued checkout tolerance. A received amount added after settlement is not a permanent claim on every later transfer of that amount. A distinct verified transaction can repeat it only after all members of the earlier checkout were paid before the new receipt. Original issued exact/rounded references remain exclusive; transaction IDs remain permanently single-use. Historical amount reservations are retained to prevent assigning them as new exact instructions. Both application and database enforce these checks. Monitor this checkout job as well as the legacy verification job; `review > 0` returns HTTP 503 and includes `reviewReasons` instead of reporting successful automation.
+
 ## Supported discovery
 
 | Payment | Discovery | Receipt verification |

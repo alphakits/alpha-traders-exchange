@@ -212,14 +212,34 @@ function assertToleranceAttribution(snapshot: AlphaExchangeDb, checkout: Commiss
     ))));
   if (otherCheckout) fail("ambiguous_payment_amount");
 }
-function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, amount: number) {
+/** A received amount is not a reusable transaction identifier. Keep it reserved
+ * for instruction allocation, but let a later, independently verified receipt
+ * use the same amount after every member of the earlier checkout was paid. */
+function earlierCheckoutReceipt(snapshot: AlphaExchangeDb, record: CommissionRecord, deposit: CheckoutDeposit) {
+  const settlement = object((record as CommissionRecord & { paymentBatchSettlement?: unknown }).paymentBatchSettlement);
+  const previous = getCommissionCheckouts(snapshot).find((row) => row.id === settlement?.batchId);
+  const key = checkoutReceiptKey(record.paymentSignature ?? "");
+  if (!previous || !key || isIssuedReference(previous, deposit.amountMicros)
+    || !previous.commissions.some((member) => member.id === record.id)) return false;
+  return previous.commissions.every((member) => snapshot.commissionRecords.some((paid) => {
+    const allocation = object((paid as CommissionRecord & { paymentBatchSettlement?: unknown }).paymentBatchSettlement);
+    return paid.id === member.id && paid.sellerId === previous.sellerId && paid.createdAt === member.createdAt
+      && paid.paymentStatus === "paid" && paid.paymentVerificationStatus === "verified"
+      && Number.isFinite(Date.parse(paid.paidAt ?? "")) && Date.parse(paid.paidAt!) < deposit.timestamp
+      && checkoutReceiptKey(paid.paymentSignature ?? "") === key
+      && allocation?.batchId === previous.id && allocation?.groupReceivedMicros === deposit.amountMicros;
+  }));
+}
+function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
+  const amount = deposit.amountMicros;
   const ids = new Set(checkout.commissions.map((row) => row.id));
   return getCommissionCheckouts(snapshot).some((other) => other.id !== checkout.id
     && (other.expectedMicros === amount || other.roundedMicros === amount))
     || snapshot.commissionRecords.some((record) => !ids.has(record.id)
-      && [record.paymentExpectedAmountMode === "legacy_base" || record.paymentExpectedAmount === undefined ? record.commissionAmount : undefined,
-        record.paymentExpectedAmount, ...(record.paymentReservedExpectedAmounts ?? [])]
-        .some((value) => typeof value === "number" && value > 0 && checkoutMicros(value) === amount));
+      && ([record.paymentExpectedAmountMode === "legacy_base" || record.paymentExpectedAmount === undefined ? record.commissionAmount : undefined,
+        record.paymentExpectedAmount].some((value) => typeof value === "number" && value > 0 && checkoutMicros(value) === amount)
+        || ((record.paymentReservedExpectedAmounts ?? []).some((value) => checkoutMicros(value) === amount)
+          && !earlierCheckoutReceipt(snapshot, record, deposit))));
 }
 export function allocateCheckout(checkout: CommissionCheckout, receivedMicros = checkout.expectedMicros) {
   const parts = checkout.commissions.map((row) => {
@@ -299,7 +319,8 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         ...(diagnostic && Number.isFinite(Date.parse(diagnostic.createdAt)) ? { lastVerificationCheckAt: diagnostic.createdAt, verificationCode: String(object(diagnostic.newValue)?.code ?? "") } : {}) };
     },
     async reconcile(input: { deposits: readonly CheckoutDeposit[]; deadline: number; limit?: number }) {
-      const summary = { checked: 0, verified: 0, pending: 0, review: 0, errors: 0, budgetExhausted: false };
+      const summary = { checked: 0, verified: 0, pending: 0, review: 0, errors: 0, budgetExhausted: false,
+        reviewReasons: {} as Record<string, number> };
       const initial = await ports.read();
       const attempts = entries(initial, CHECKOUT_ATTEMPT);
       const lastAttempt = (id: string) => Math.max(0, ...attempts.filter((entry) => object(entry.newValue)?.checkoutId === id).map((entry) => Date.parse(entry.createdAt)));
@@ -321,7 +342,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
           if (first.amountMicros !== checkout.expectedMicros && new Set(deposits.map((row) => checkoutReceiptKey(row.signature))).size !== 1) fail("ambiguous_rounded_receipts");
           if (deposits.some((row) => checkoutReceiptKey(row.signature) !== key && row.amountMicros !== first.amountMicros)) fail("multiple_payment_options_received");
           assertUnchanged(initial, checkout);
-          if (referenceConflict(initial, checkout, first.amountMicros)) fail("payment_reference_conflict");
+          if (referenceConflict(initial, checkout, first)) fail("payment_reference_conflict");
           assertToleranceAttribution(initial, checkout, first);
           const receipt = { ...first, signature: key.startsWith("binance-deposit:") ? key : checkout.network === "BEP20" ? `0x${key}` : key };
           const proof = await ports.verify(receipt, Date.parse(checkout.createdAt));
@@ -335,7 +356,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
               assertUnchanged(snapshot, canonical);
               if (reservedReceipts(snapshot).has(key)) fail("receipt_already_used");
               if (!acceptsDeposit(snapshot, canonical, receipt)) fail("receipt_attribution_changed");
-              if (referenceConflict(snapshot, canonical, receipt.amountMicros)) fail("payment_reference_conflict");
+              if (referenceConflict(snapshot, canonical, receipt)) fail("payment_reference_conflict");
               assertToleranceAttribution(snapshot, canonical, receipt);
               const attribution = receiptAttribution(snapshot, canonical, receipt);
               const paidAt = new Date(now()).toISOString();
@@ -382,6 +403,9 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         } catch (error) {
           if (error instanceof CommissionCheckoutError) { code = error.code; summary.review++; }
           else { code = "verification_unavailable"; summary.errors++; }
+        }
+        if (code !== "receipt_pending" && code !== "verification_unavailable") {
+          summary.reviewReasons[code] = (summary.reviewReasons[code] ?? 0) + 1;
         }
         if (now() < input.deadline) {
           try {
