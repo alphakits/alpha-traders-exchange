@@ -149,7 +149,8 @@ function reserveAmount(snapshot: AlphaExchangeDb, desired: number, due: number, 
   if (Math.abs(desired - due) > CHECKOUT_TOLERANCE) fail("outside_tolerance");
   const used = reservedAmounts(snapshot, currentIds);
   // Keep a requested rounded amount only when it is an unused pre-payment reference.
-  // Collisions receive a visible micro suffix; never silently accept an arbitrary rounded deposit.
+  // Collisions receive a visible micro suffix. Other amounts still require
+  // independent verification and unambiguous attribution at receipt time.
   if (!used.has(desired)) return desired;
   const minimum = Math.max(1, due - CHECKOUT_TOLERANCE);
   const maximum = due + CHECKOUT_TOLERANCE;
@@ -170,13 +171,14 @@ function recoveryEntries(snapshot: AlphaExchangeDb, checkout: CommissionCheckout
   return entries(snapshot, CHECKOUT_RECOVERY).filter((entry) => object(entry.newValue)?.checkoutId === checkout.id);
 }
 /** The tolerance applies to the actual received amount, once for the whole group.
- * Colliding references and explicit recovery grants retain their stricter binding. */
+ * A reserved reference suffix does not revoke tolerance. Explicit recovery
+ * grants retain their binding; competing references are checked separately. */
 function acceptsDeposit(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
   if (isIssuedReference(checkout, deposit.amountMicros)) return true;
   if (!Number.isSafeInteger(deposit.amountMicros) || deposit.amountMicros <= 0
     || Math.abs(deposit.amountMicros - checkout.dueMicros) > CHECKOUT_TOLERANCE) return false;
   const recoveries = recoveryEntries(snapshot, checkout);
-  if (!recoveries.length) return checkout.expectedMicros === checkout.requestedMicros;
+  if (!recoveries.length) return true;
   return recoveries.some((entry) => {
     const grant = object(entry.newValue);
     const owner = snapshot.users.find((user) => user.id === entry.actorUserId);

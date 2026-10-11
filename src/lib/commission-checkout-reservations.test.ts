@@ -8,6 +8,7 @@ const migration = readFileSync(resolve(process.cwd(), "db/migrations/20260925_co
 const roundedMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261003195633_commission_checkout_rounded_receipts.sql"), "utf8");
 const toleranceMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261004215723_commission_checkout_bidirectional_tolerance.sql"), "utf8");
 const attributionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261006212309_commission_checkout_active_payment_attribution.sql"), "utf8");
+const collisionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011145429_commission_checkout_collision_tolerance.sql"), "utf8");
 let db: PGlite;
 const createdAt = "2026-09-25T16:00:00.000Z";
 const checkout = { id: "checkout-test", sellerId: "seller", network: "BEP20", createdAt,
@@ -32,7 +33,7 @@ beforeEach(async () => {
     create table alpha_exchange.users(id text primary key,payload jsonb);
     create table alpha_exchange.commissions(id text primary key,seller_id text,payment_status text,payload jsonb);
     create table alpha_exchange.audit_logs(id text primary key,actor_user_id text,target_user_id text,created_at timestamptz,payload jsonb);`);
-  await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration);
+  await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration); await db.exec(collisionMigration);
   const payload = { id: "cm", sellerId: "seller", commissionAmount: 40, paymentExpectedAmount: 40.000001,
     createdAt: checkout.commissions[0].createdAt, paymentStatus: "pending" };
   await db.query("insert into alpha_exchange.commissions values('cm','seller','pending',$1)", [JSON.stringify(payload)]);
@@ -152,6 +153,36 @@ describe("durable self-service checkout reservations", () => {
     await issue(); await paid();
     await db.query("insert into alpha_exchange.commissions values('other','other','pending',$1)", [JSON.stringify({ commissionAmount: 39.6, paymentExpectedAmount: 39.5, createdAt })]);
     await expect(tolerantSettlement(39_500_000)).rejects.toThrow();
+  });
+  it.each([2_540_000, 3_600_000, 4_540_000])("a suffixed checkout accepts a verified tolerance receipt: %s", async (amountMicros) => {
+    const value = { ...checkout, expectedMicros: 3_542_520, requestedMicros: 3_540_000, dueMicros: 3_540_000,
+      commissions: [{ ...checkout.commissions[0], dueMicros: 3_540_000 }] };
+    await db.query("update alpha_exchange.commissions set payload=payload || $1::jsonb where id='cm'", [JSON.stringify({ commissionAmount: 3.54, paymentExpectedAmount: 3.540002 })]);
+    await db.query("insert into alpha_exchange.commissions values('historical','other','paid',$1)", [JSON.stringify({ commissionAmount: 3.54, paymentExpectedAmount: 3.540001 })]);
+    await issue(value); await paid();
+    await insertAudit(`${value.id}:settled`, { kind: "commission_checkout_settled_v1", checkoutId: value.id, checkout: value,
+      attribution: "unambiguous_checkout_tolerance_v1",
+      receipt: { signature, network: "BEP20", amountMicros, timestamp: Date.parse(createdAt) + 1000 } });
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(1);
+    expect((await db.query("select * from alpha_exchange.commission_checkout_amount_reservations where amount_micros=$1", [amountMicros])).rows).toHaveLength(1);
+    await expect(db.query("insert into alpha_exchange.commissions values('duplicate','other','paid',$1)", [JSON.stringify({ paymentSignature: signature })])).rejects.toThrow();
+  });
+  it("a suffixed competing checkout cannot be ignored when attributing a tolerance receipt", async () => {
+    await issue();
+    await db.query("insert into alpha_exchange.commissions values('other','seller','pending',$1)", [JSON.stringify({ commissionAmount: 39.6, paymentExpectedAmount: 39.600001, createdAt })]);
+    await issue({ ...checkout, id: "checkout-other", expectedMicros: 39_602_520, requestedMicros: 39_600_000, dueMicros: 39_600_000,
+      commissions: [{ id: "other", dueMicros: 39_600_000, createdAt }] });
+    await paid(); await expect(tolerantSettlement(39_500_000)).rejects.toThrow();
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(0);
+  });
+  it("collision migration is repeatable and does not credit payments or expose the matcher", async () => {
+    await issue(); const before = await db.query("select * from alpha_exchange.commissions");
+    await db.exec(collisionMigration); await db.exec(collisionMigration);
+    expect((await db.query("select * from alpha_exchange.commissions")).rows).toEqual(before.rows);
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(0);
+    const result = await db.query<{ prosecdef: boolean; proacl: string[] }>("select prosecdef,proacl from pg_proc where oid='alpha_exchange.commission_checkout_tolerance_matches(jsonb,jsonb)'::regprocedure");
+    expect(result.rows[0].prosecdef).toBe(false);
+    expect(result.rows[0].proacl.some((grant) => grant.startsWith("=X/"))).toBe(false);
   });
   it("attribution migration is repeatable and leaves all financial records untouched", async () => {
     await issue(); const before = await db.query("select * from alpha_exchange.commissions");
