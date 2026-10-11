@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
 import { E2E_BASE_URL } from "./support/base-url";
 
@@ -7,7 +7,7 @@ const createdIds = new Set<string>();
 const displacedUsers: User[] = [];
 type User = Record<string, unknown> & { id: string; email: string };
 type State = Record<string, unknown> & { users: User[] };
-type Role = "buyer" | "approved_seller" | "pending_seller_approval" | "admin" | "owner";
+type Role = "guest" | "buyer" | "approved_seller" | "pending_seller_approval" | "admin" | "owner";
 
 async function state(api: APIRequestContext): Promise<State> {
   const response = await api.get("/api/testing/alpha-exchange-state", { headers: supportHeaders });
@@ -29,7 +29,7 @@ async function provision(api: APIRequestContext, role: Role, verified: boolean, 
     email: (email ?? id + "@example.test").toLowerCase(),
     fullName: "Phone Gate E2E",
     role,
-    roles: role === "buyer" ? ["buyer"] : [role, "buyer"],
+    roles: role === "guest" || role === "buyer" ? [role] : [role, "buyer"],
     sellerStatus: role === "approved_seller" ? "approved_seller"
       : role === "pending_seller_approval" ? "pending_seller_approval" : "buyer",
     whatsappNumber: phone,
@@ -143,6 +143,32 @@ for (const role of ["buyer", "approved_seller"] as const) {
     await expectMarketplaceVisible(page);
   });
 }
+
+test("a Guest becomes Buyer immediately after successful SMS verification", async ({ page }) => {
+  const user = await provision(page.request, "guest", false);
+  const db = await state(page.request);
+  const stored = db.users.find(item => item.id === user.id)!;
+  const phone = "+972500019333";
+  const code = "621903";
+  const salt = "isolated-phone-gate-test";
+  Object.assign(stored, {
+    onboardingSelection: "guest", onboardingCompletedAt: undefined,
+    phoneOtpPhone: phone, phoneOtpChannel: "sms", phoneOtpSalt: salt,
+    phoneOtpHash: createHash("sha256").update(`${phone}:${code}:${salt}`).digest("hex"),
+    phoneOtpExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), phoneOtpAttempts: 0,
+  });
+  expect((await page.request.put("/api/testing/alpha-exchange-state", { headers: supportHeaders, data: db })).ok()).toBeTruthy();
+  await login(page, user);
+  const endpoint = "/api/alpha-exchange/phone/verify-code";
+  expect((await page.request.post(endpoint, { data: { phone, code: "000000" } })).status()).toBe(400);
+  expect((await (await page.request.get("/api/auth/me")).json()).user).toMatchObject({ role: "guest", roles: ["guest"] });
+  expect((await page.request.post(endpoint, { data: { phone, code } })).ok()).toBeTruthy();
+  expect((await (await page.request.get("/api/auth/me")).json()).user).toMatchObject({ role: "buyer", roles: ["buyer"], isPhotoVerified: true });
+  const saved = (await state(page.request)).users.find(item => item.id === user.id);
+  expect(saved).toMatchObject({ role: "buyer", roles: ["buyer"], verifiedPhone: phone, buyerVerificationStatus: "verified", onboardingSelection: "buyer" });
+  await page.goto("/en/dashboard");
+  await expect(page).toHaveURL(/\/en\/dashboard$/);
+});
 
 test("changing a verified number revokes exchange access after refresh", async ({ page }) => {
   const user = await provision(page.request, "buyer", true);

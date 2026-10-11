@@ -591,6 +591,7 @@ export function AccountSettingsPanel({
       const data = await response.json().catch(() => ({}));
       if (response.ok) {
         setPhoneVerified(true);
+        window.dispatchEvent(new Event("alpha-auth-changed"));
         setPhoneVerificationEditing(false);
         setPhoneCode("");
         setPhoneSentTo(null);

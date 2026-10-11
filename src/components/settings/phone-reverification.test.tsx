@@ -36,6 +36,7 @@ describe("phone reverification", () => {
 
   it("closes and clears the code form only after the server confirms the verification", async () => {
     mockAccount(true);
+    const dispatch = vi.spyOn(window, "dispatchEvent");
     render(<AccountSettingsPanel locale="en" phoneVerificationEnabled initialTab="notifications" />);
     fireEvent.click(await screen.findByRole("button", { name: "Reverify phone" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), { target: { value: "+972541234567" } });
@@ -46,5 +47,6 @@ describe("phone reverification", () => {
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Verification code" })).toBeNull());
     expect(screen.getByRole("button", { name: "Reverify phone" })).toBeTruthy();
     expect(screen.getByText("Phone verified. You can now enable available phone notification channels.")).toBeTruthy();
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "alpha-auth-changed" }));
   });
 });
