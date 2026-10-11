@@ -1381,7 +1381,8 @@ function assertSellerTradeCapacity(db: AlphaExchangeDb, listing: MarketplaceList
 /** Keep the legacy pointer as a representative, never as the concurrency limit. */
 function synchronizeListingTradeLock(db: AlphaExchangeDb, listing: MarketplaceListing | undefined) {
   if (!listing) return;
-  const active = db.purchaseRequests.filter(request => request.listingId === listing.id && isRequestStatusLockingListing(request.status));
+  const active = db.purchaseRequests.filter(request => request.listingId === listing.id
+    && request.sellerId === listing.sellerId && isRequestStatusLockingListing(request.status));
   if (active.length) {
     listing.activeTradeRequestId = active[0].id;
     listing.status = active.some(request => request.status !== "accepted") ? "in_trade" : "matched";
@@ -5678,11 +5679,36 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
   }
 
   for (const listing of db.marketplaceListings) {
+    // A listing's single pointer is only a representative of its active
+    // requests. Recover it from all matching trades before considering expiry
+    // or reopening: the former representative may have already finished.
+    if (listing.status === "active" || listing.status === "paused" || isListingLocked(listing.status)) {
+      const previousStatus = listing.status;
+      const previousActiveTradeRequestId = listing.activeTradeRequestId;
+      const previousLockedAt = listing.lockedAt;
+      synchronizeListingTradeLock(db, listing);
+      if (listing.status !== previousStatus || listing.activeTradeRequestId !== previousActiveTradeRequestId
+        || listing.lockedAt !== previousLockedAt) {
+        changed = true;
+        listing.updatedAt = nowIso();
+        await appendAuditLog(db, {
+          action: "listing_matched",
+          actorUserId: SYSTEM_ACTOR_USER_ID,
+          targetUserId: listing.sellerId,
+          listingId: listing.id,
+          details: `Recovered active trade linkage on listing ${listing.id}.`,
+          oldValue: { status: previousStatus, activeTradeRequestId: previousActiveTradeRequestId },
+          newValue: { status: listing.status, activeTradeRequestId: listing.activeTradeRequestId },
+          reason: "Preserve all active trades before stale-lock recovery or listing expiration.",
+        });
+      }
+    }
     if (!isListingLocked(listing.status) && !listing.activeTradeRequestId) continue;
     const linkedRequest = listing.activeTradeRequestId
       ? db.purchaseRequests.find((request) => request.id === listing.activeTradeRequestId)
       : undefined;
-    if (linkedRequest && isRequestStatusLockingListing(linkedRequest.status)) continue;
+    if (linkedRequest && linkedRequest.listingId === listing.id && linkedRequest.sellerId === listing.sellerId
+      && isRequestStatusLockingListing(linkedRequest.status)) continue;
 
     changed = true;
     const now = nowIso();
