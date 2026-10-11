@@ -105,6 +105,37 @@ describe("RegisterForm localization", () => {
     expect(screen.queryByText("Passwords do not match.")).toBeNull();
   });
 
+  it.each([
+    { locale: "en" as const, code: "PHONE_ALREADY_IN_USE" },
+    { locale: "ar" as const, code: "PHONE_ALREADY_IN_USE" },
+    { locale: "en" as const, code: undefined },
+    { locale: "ar" as const, code: undefined },
+  ])("explains a reused phone and preserves the form in $locale (code: $code)", async ({ locale, code }) => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        code,
+        error: "This phone number is linked to another account. Use a different number or sign in to your existing account.",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RegisterForm locale={locale} />);
+    completeRequiredFields();
+    fireEvent.submit(screen.getByLabelText(/رقم واتساب|WhatsApp Number/).closest("form")!);
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(locale === "ar"
+      ? "هذا الرقم مرتبط بحساب آخر. استخدم رقمًا مختلفًا أو سجّل الدخول إلى حسابك الحالي."
+      : "This phone number is linked to another account. Use a different number or sign in to your existing account."));
+    expect((screen.getByLabelText(/البريد الإلكتروني|Email/) as HTMLInputElement).value).toBe("test@example.com");
+    expect((screen.getByLabelText(/رقم واتساب|WhatsApp Number/) as HTMLInputElement).value).toBe("0501234567");
+    expect(screen.getByRole("link", { name: locale === "ar" ? "تسجيل الدخول" : "Login" }).getAttribute("href")).toBe("/login");
+    expect(screen.queryByText(/Registration failed|تعذر إنشاء الحساب/)).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("uses non-enumerating success copy in Arabic", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
