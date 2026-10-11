@@ -56,4 +56,9 @@ describe("locale layout during a session-storage outage", () => {
     mocks.getCurrentSessionUser.mockRejectedValue(redirect);
     await expect(LocaleLayout({ params: Promise.resolve({ locale: "en" }), children: null })).rejects.toBe(redirect);
   });
+  it.each(["guest", "student"])("defers %s trade-room access to the participant-authorizing page", async role => {
+    mocks.pagePath = "/en/trade-room/owned-trade";
+    mocks.getCurrentSessionUser.mockResolvedValue({ id: "participant", role, roles: [role], emailVerified: true, verifiedPhone: "+972500000444", phoneVerifiedAt: "2026-10-01" });
+    await expect(LocaleLayout({ params: Promise.resolve({ locale: "en" }), children: <p>Room</p> })).resolves.toBeTruthy();
+  });
 });

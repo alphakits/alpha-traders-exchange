@@ -30,9 +30,6 @@ export default async function TradeRoomLandingPage({
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/trade-room`);
   }
-  const destination = getInterfacePageDestination(user, "/trade-room", locale);
-  if (destination) redirect(destination);
-
   const requestedNotificationId = typeof notificationId === "string" ? notificationId.trim() : "";
   const includePendingFallback = includePending === "1" || includePending === "true";
   if (requestedNotificationId) {
@@ -59,6 +56,11 @@ export default async function TradeRoomLandingPage({
       redirect(`/${locale}/trade-room/${activeTrade.id}`);
     }
   }
+
+  // Existing participant trades take precedence over profile-role navigation.
+  // Guests without a matching trade retain the ordinary profile destination.
+  const destination = getInterfacePageDestination(user, "/trade-room", locale);
+  if (destination) redirect(destination);
 
   // Redirect directly to the final role destination when no active trade exists.
   // This avoids a visible route bounce (trade-room -> dashboard -> role page).

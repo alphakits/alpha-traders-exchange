@@ -193,7 +193,7 @@ describe("LoginForm", () => {
     ["buyer", "/ar/admin/alpha-exchange", "/ar/dashboard"],
     ["buyer", "/ar/dashboard/seller", "/ar/dashboard"],
     ["student", "/ar/trades", "/ar/profile"],
-    ["guest", "/ar/trade-room/owned-trade", "/ar/profile"],
+    ["guest", "/ar/trade-room/owned-trade", "/ar/trade-room/owned-trade"],
   ])("hides the restored login form and skips a forbidden destination for %s", async (role, redirectTo, expected) => {
     const originalLocation = window.location;
     const replaceSpy = vi.fn();

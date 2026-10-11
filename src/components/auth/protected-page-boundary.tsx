@@ -7,6 +7,7 @@ import { getSignedOutPageDestination, isProtectedPage } from "@/lib/protected-pa
 import { phoneVerificationDestinationForPage } from "@/lib/phone-verification-page";
 import type { AppLocale } from "@/i18n/routing";
 import { getInterfacePageDestination } from "@alpha-traders/contracts";
+import { isTradeRoomEntryPath } from "@/lib/trade-room-entry-path";
 
 export function ProtectedPageBoundary({ children, locale, phoneVerificationRequired = false }: { children: ReactNode; locale: AppLocale; phoneVerificationRequired?: boolean }) {
   const pathname = usePathname();
@@ -14,7 +15,10 @@ export function ProtectedPageBoundary({ children, locale, phoneVerificationRequi
   const protectedPage = isProtectedPage(pathname ?? "/");
   const renderedUserId = useRef(user?.id ?? null);
   const accountChanged = protectedPage && Boolean(user && renderedUserId.current && user.id !== renderedUserId.current);
-  const roleDestination = user ? getInterfacePageDestination(user, pathname ?? "/", locale) : null;
+  // The server room route and APIs authorize the actual participants. A
+  // profile role alone cannot revoke access to an already-created trade.
+  const roleDestination = user && !isTradeRoomEntryPath(pathname)
+    ? getInterfacePageDestination(user, pathname ?? "/", locale) : null;
   const phoneDestination = phoneVerificationRequired && user && user.isPhotoVerified !== true
     ? phoneVerificationDestinationForPage(user, pathname ?? "/", locale)
     : null;

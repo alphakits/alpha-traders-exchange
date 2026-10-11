@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("protected page access", () => {
-  it.each(["/en/trades", "/en/trade-room", "/en/trade-room/owned-trade"])("never mounts %s for a student with a legacy buyer status", async pathname => {
+  it.each(["/en/trades", "/en/dashboard"])("never mounts %s for a student with a legacy buyer status", async pathname => {
     navigation.pathname = pathname;
     const student = { ...user, role: "student" as const, roles: ["student" as const] };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: student })));
@@ -39,6 +39,15 @@ describe("protected page access", () => {
     await act(async () => {});
     expect(privateMount).not.toHaveBeenCalled();
     expect(replace).toHaveBeenCalledWith("/en/profile");
+  });
+  it.each(["guest", "student"] as const)("does not override a server-authorized room for a %s participant", async role => {
+    navigation.pathname = "/en/trade-room/owned-trade";
+    const participant = { ...user, role, roles: [role] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: participant })));
+    renderPage(participant);
+    await act(async () => {});
+    expect(screen.getByText("Private trade history")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
   });
   it("removes a trade workspace immediately when buyer access is revoked", async () => {
     navigation.pathname = "/en/trades";

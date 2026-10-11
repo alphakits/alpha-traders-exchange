@@ -56,4 +56,12 @@ describe("shared interface access", () => {
     expect(signedInEntryDestination("en", { role: "guest", roles: ["guest"] })).toBe("/en/onboarding");
     expect(signedInEntryDestination("en", { role: "guest", roles: ["guest"], onboardingSelection: "guest" })).toBe("/en/profile");
   });
+  it.each(["guest", "student"])("hands %s room links to the participant-authorizing route", role => {
+    const user = { role, roles: [role], sellerStatus: "buyer" };
+    expect(signedInEntryDestination("ar", user, "/en/trade-room/purchase-existing?view=history#messages")).toBe("/ar/trade-room/purchase-existing?view=history#messages");
+    expect(signedInEntryDestination("en", user, "/trade-room?notificationId=own-notice")).toBe("/en/trade-room?notificationId=own-notice");
+    for (const invalid of ["//outside.test/trade-room", "/\\outside.test/trade-room", "/en/trade-room\n/invalid"]) {
+      expect(signedInEntryDestination("en", user, invalid)).toBe(role === "guest" ? "/en/onboarding" : "/en/profile");
+    }
+  });
 });
