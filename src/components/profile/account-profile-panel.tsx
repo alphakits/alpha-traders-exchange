@@ -373,7 +373,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
   }, []);
 
   useEffect(() => {
-    if (loading) return;
+    // Listen during loading too: shared navigation can arrive before the
+    // profile response. Retain the selected tab until its content is ready.
     const revealHash = (event?: Event) => {
       const hash = `#${pageSectionFromEvent(event)}`;
       if (["#contact-details", "#edit-profile", "#profile-panel-edit"].includes(hash)) {
@@ -392,7 +393,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [], journalE
       window.removeEventListener("hashchange", revealHash);
       window.removeEventListener(PAGE_SECTION_NAVIGATION_EVENT, revealHash);
     };
-  }, [loading, selectSection]);
+  }, [selectSection]);
   useEffect(() => {
     if (loading || !pendingSectionTarget.current) return;
     const target = document.getElementById(pendingSectionTarget.current);

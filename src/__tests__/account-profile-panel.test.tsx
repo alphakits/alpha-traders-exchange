@@ -327,6 +327,24 @@ describe("AccountProfilePanel", () => {
     expect(document.getElementById(section)?.closest("[hidden]")).toBeNull();
   });
 
+  it.each([["contact-details", "Edit profile"], ["notification-preferences", "Alerts"]])("preserves a %s navigation request while the profile is loading", async (section, tab) => {
+    let releaseProfile!: (response: { ok: boolean; json: () => Promise<ReturnType<typeof makePayload>> }) => void;
+    const profileResponse = new Promise<{ ok: boolean; json: () => Promise<ReturnType<typeof makePayload>> }>((resolve) => {
+      releaseProfile = resolve;
+    });
+    stubProfileFetch(vi.fn(() => profileResponse));
+    render(<AccountProfilePanel locale="en" />);
+    expect(screen.queryByRole("tab", { name: "Overview" })).toBeNull();
+
+    act(() => window.dispatchEvent(new CustomEvent(PAGE_SECTION_NAVIGATION_EVENT, { detail: section })));
+    await act(async () => {
+      releaseProfile({ ok: true, json: async () => makePayload("buyer") });
+    });
+
+    expect((await screen.findByRole("tab", { name: tab })).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById(section)?.closest("[hidden]")).toBeNull();
+  });
+
   it("keeps the editor and save confirmation mounted while the canonical account refreshes", async () => {
     let profile = makePayload("buyer");
     const user = { ...profile.profile, sellerStatus: "buyer" as const, preferredNetworks: [], languages: ["English"], city: "", createdAt: profile.profile.memberSince };
