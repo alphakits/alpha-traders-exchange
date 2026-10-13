@@ -326,6 +326,30 @@ describe("commission wallet payment routing", () => {
     });
   });
 
+  it("treats an old unsubmitted reset as payable when it becomes overdue", async () => {
+    Object.assign(currentCommission(), {
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+      paymentVerificationStatus: "pending_verification",
+      paymentVerificationNotes: "Commission reset to pending.",
+    });
+    const status = await getSellerCommissionStatus(SELLER_ID);
+    expect(status.status).toBe("overdue");
+    expect(status.payableRecords[0].paymentVerificationStatus).toBeUndefined();
+    expect(status.payableAmountDue).toBeGreaterThan(0);
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).notifications).toContainEqual(expect.objectContaining({
+      userId: SELLER_ID, title: "Commission overdue", actionLabel: "Pay Commission",
+    }));
+  });
+
+  it("preserves a submitted payment marker even while its TxID is unavailable", async () => {
+    Object.assign(currentCommission(), { paymentSubmittedAt: new Date().toISOString(), paymentVerificationStatus: "pending_verification" });
+    const status = await getSellerCommissionStatus(SELLER_ID);
+    expect(status.payableRecords[0].paymentVerificationStatus).toBe("pending_verification");
+    await updateCommissionPaymentStatus({ commissionId: COMMISSION_ID, actorUserId: "owner-1",
+      paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: "Payment still being checked." });
+    expect(currentCommission().paymentVerificationStatus).toBe("pending_verification");
+  });
+
   it("does not tell a seller to pay again while an overdue TxID is awaiting verification", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     db.users[0] = {

@@ -10,6 +10,7 @@ const toleranceMigration = readFileSync(resolve(process.cwd(), "supabase/migrati
 const attributionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261006212309_commission_checkout_active_payment_attribution.sql"), "utf8");
 const collisionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011145429_commission_checkout_collision_tolerance.sql"), "utf8");
 const repeatedMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011203949_commission_checkout_repeated_received_amounts.sql"), "utf8");
+const unsubmittedRepair = readFileSync(resolve(process.cwd(), "scripts/repair-unsubmitted-commission-verification.sql"), "utf8");
 let db: PGlite;
 const createdAt = "2026-09-25T16:00:00.000Z";
 const checkout = { id: "checkout-test", sellerId: "seller", network: "BEP20", createdAt,
@@ -41,6 +42,37 @@ beforeEach(async () => {
 }, 30_000);
 afterEach(async () => { await db?.close(); });
 describe("durable self-service checkout reservations", () => {
+  it("repairs only unsubmitted flags, preserves payment guards, and restores overdue checkout", async () => {
+    await db.exec(`alter table alpha_exchange.commissions add column updated_at timestamptz default now();
+      alter table alpha_exchange.audit_logs add column action text, add column sort_index integer;
+      create table alpha_exchange.runtime_meta(singleton boolean primary key, version bigint, updated_at timestamptz);
+      insert into alpha_exchange.runtime_meta values(true, 1, now());`);
+    await db.query("update alpha_exchange.commissions set payment_status='overdue',payload=payload || $1::jsonb where id='cm'", [JSON.stringify({
+      paymentStatus: "overdue", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: "Commission reset to pending.",
+    })]);
+    await expect(issue()).rejects.toThrow("Checkout commissions changed");
+    for (const [id, fields] of [
+      ["submitted", { paymentSubmittedAt: createdAt }],
+      ["signed", { paymentSignature: signature }],
+      ["verified", { paymentVerificationStatus: "verified" }],
+      ["failed", { paymentVerificationStatus: "failed" }],
+    ] as const) {
+      await db.query("insert into alpha_exchange.commissions(id,seller_id,payment_status,payload) values($1,'seller','overdue',$2)", [id,
+        JSON.stringify({ id, commissionAmount: 2, paymentVerificationStatus: "pending_verification", ...fields })]);
+    }
+    const untouched = await db.query("select id,payload from alpha_exchange.commissions where id<>'cm' order by id");
+    await db.exec(unsubmittedRepair);
+    await issue();
+    expect((await db.query<{ payload: Record<string, unknown>; payment_status: string }>("select payload,payment_status from alpha_exchange.commissions where id='cm'")).rows[0]).toMatchObject({
+      payment_status: "overdue", payload: { commissionAmount: 40, paymentExpectedAmount: 40.000001, paymentVerificationNotes: "Commission reset to pending." },
+    });
+    expect((await db.query<{ payload: Record<string, unknown> }>("select payload from alpha_exchange.commissions where id='cm'")).rows[0].payload.paymentVerificationStatus).toBeUndefined();
+    await db.exec(unsubmittedRepair);
+    expect((await db.query("select id,payload from alpha_exchange.commissions where id<>'cm' order by id")).rows).toEqual(untouched.rows);
+    expect((await db.query("select version from alpha_exchange.runtime_meta")).rows).toEqual([{ version: 2 }]);
+    expect((await db.query("select id from alpha_exchange.audit_logs where payload->'newValue'->>'kind'='commission_unsubmitted_verification_repair_v1'")).rows).toHaveLength(1);
+  });
+
   it("reserves seller-created instructions without inventing an approving owner", async () => { await issue(); const result = await db.query<{ seller_id: string }>("select seller_id from alpha_exchange.commission_checkouts"); expect(result.rows[0].seller_id).toBe("seller"); });
   it("rejects actor and commission ownership spoofing", async () => { await expect(insertAudit("checkout-test:issued", { kind: "commission_checkout_issued_v1", checkout }, "attacker")).rejects.toThrow(); });
   it("refuses a changed immutable checkout on snapshot replacement", async () => { await issue(); await db.exec("delete from alpha_exchange.audit_logs"); await expect(issue({ ...checkout, expectedMicros: 39_100_000 })).rejects.toThrow(); });

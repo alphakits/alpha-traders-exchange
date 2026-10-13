@@ -70,6 +70,22 @@ beforeEach(() => {
 });
 
 describe("mobile seller commission route", () => {
+  it("returns overdue payment instructions and accepts the same payment verification flow", async () => {
+    mocks.getSellerCommissionStatus.mockResolvedValueOnce({ ...commissionStatus(), status: "overdue" });
+    const overdue = await GET(request("GET"));
+    expect(overdue.status).toBe(200);
+    expect(await overdue.json()).toMatchObject({ status: "overdue", pendingCount: 1,
+      payableRecords: [expect.objectContaining({ commissionId: "commission-1", amountDue: 7.000001 })] });
+    mocks.submitSellerCommissionWalletPayment.mockResolvedValue({ verification: { verified: true, pending: false } });
+    mocks.getSellerCommissionStatus.mockResolvedValue({ status: "clear", pendingCount: 0, totalAmountDue: 0, payableRecords: [] });
+    const paid = await POST(request("POST", { commissionId: "commission-1", network: "TRC20", paymentSignature: TX_ID }));
+    expect(paid.status).toBe(200);
+    expect(mocks.submitSellerCommissionWalletPayment).toHaveBeenCalledWith(expect.objectContaining({
+      sellerUserId: "seller-1", commissionId: "commission-1", paymentSignature: TX_ID,
+    }));
+    expect(await paid.json()).toMatchObject({ status: "clear", pendingCount: 0, verification: { verified: true } });
+  });
+
   it("ignores a forged seller ID and returns only the authenticated seller's commission data", async () => {
     const response = await GET(new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/seller/commissions?sellerId=other-seller", { headers }));
     expect(response.status).toBe(200);
