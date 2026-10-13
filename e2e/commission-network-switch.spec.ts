@@ -33,7 +33,7 @@ for (const locale of ["en", "ar"] as const) {
       for (const target of ["BEP20", "TRC20"] as const) {
         await page.getByRole("button", { name: change, exact: true }).click();
         await expect(page.getByRole("button", { name: update, exact: true })).toBeDisabled();
-        await page.getByLabel(networkLabel, { exact: true }).selectOption(target);
+        await page.getByRole("combobox", { name: networkLabel, exact: true }).selectOption(target);
         await expect(page.getByText(CANONICAL_TRC20_COMMISSION_WALLET, { exact: true })).toHaveCount(0);
         await expect(page.getByText(CANONICAL_BEP20_COMMISSION_WALLET, { exact: true })).toHaveCount(0);
         await page.getByRole("checkbox", { name: locale === "en" ? "I have not sent this payment yet." : "لم أرسل هذه الدفعة بعد.", exact: true }).check();
