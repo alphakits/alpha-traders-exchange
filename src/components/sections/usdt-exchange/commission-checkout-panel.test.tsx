@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CommissionCheckoutPanel } from "./commission-checkout-panel";
+import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
 const wallet = "0x7088a120cde7351dbf3e7831a9da3f74058c89a0";
 const ready = { status: "ready", checkout: null, walletAddress: null, pendingCount: 1, totalDueUsdt: 40 };
 const waiting = { ...ready, status: "waiting", walletAddress: wallet, checkout: { id: "checkout", sellerId: "seller", network: "BEP20", expectedMicros: 39_000_000, dueMicros: 40_000_000 } };
+const tronWallet = CANONICAL_TRC20_COMMISSION_WALLET;
 const fetchMock = vi.fn();
 const response = (data: unknown, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => data });
 beforeEach(() => {
@@ -13,6 +15,54 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function flush() { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); }
+it("opens a network change without old wallet controls, permits cancellation, and requires acknowledgement", async () => {
+  fetchMock.mockResolvedValue(response({ ...waiting, canChangeNetwork: true }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Change network" }));
+  expect(screen.queryByText(wallet)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Copy receiving address" })).toBeNull();
+  expect(screen.queryByLabelText("Payment amount (USDT)")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Network"), { target: { value: "TRC20" } });
+  expect((screen.getByRole("button", { name: "Update payment network" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Keep current network" }));
+  expect(screen.getByText(wallet)).toBeTruthy();
+  expect(fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(0);
+});
+it("switches TRC20 to BEP20 using canonical new instructions and clears the acknowledgement", async () => {
+  const initial = { ...waiting, canChangeNetwork: true, walletAddress: tronWallet,
+    checkout: { ...waiting.checkout, id: "checkout-tron", network: "TRC20" } };
+  fetchMock.mockResolvedValue(response(initial));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Change network" }));
+  fireEvent.change(screen.getByLabelText("Network"), { target: { value: "BEP20" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fetchMock.mockResolvedValueOnce(response({ status: "waiting" }, 201)).mockResolvedValue(response({ ...waiting, canChangeNetwork: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Update payment network" }));
+  await screen.findByText(wallet);
+  expect(screen.queryByText(tronWallet)).toBeNull();
+  const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+  expect(JSON.parse(post?.[1].body)).toEqual({ network: "BEP20", currentCheckoutId: "checkout-tron", hasNotPaidYet: true });
+  fireEvent.click(screen.getByRole("button", { name: "Change network" }));
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+});
+it("does not offer a network change after payment detection or settlement", async () => {
+  fetchMock.mockResolvedValue(response({ ...waiting, canChangeNetwork: false, verificationCode: "receipt_pending" }));
+  render(<CommissionCheckoutPanel isAr={false} />); await screen.findByText(wallet);
+  expect(screen.queryByRole("button", { name: "Change network" })).toBeNull();
+});
+it("shows a rejected network change and restores canonical instructions", async () => {
+  fetchMock.mockResolvedValue(response({ ...waiting, canChangeNetwork: true }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Change network" }));
+  fireEvent.change(screen.getByLabelText("Network"), { target: { value: "TRC20" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fetchMock.mockResolvedValueOnce(response({ error: "payment_in_progress" }, 409))
+    .mockResolvedValue(response({ ...waiting, canChangeNetwork: false, verificationCode: "receipt_pending" }));
+  fireEvent.click(screen.getByRole("button", { name: "Update payment network" }));
+  await screen.findByText("A payment is already being checked. Keep the current network and do not send again.");
+  expect(screen.getByText(wallet)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Change network" })).toBeNull();
+});
 it("does not permit payment creation without pre-payment acknowledgement", async () => {
   render(<CommissionCheckoutPanel isAr={false} />);
   const button = await screen.findByRole("button", { name: "Get payment instructions" });

@@ -20,3 +20,14 @@ it("requires pre-payment acknowledgement and same-origin write", async () => { e
 it("rate limits issuance without modifying payment data", async () => { mocks.rate.mockResolvedValue({ allowed: false, retryAfterSeconds: 60 }); const response = await POST(request()); expect(response.status).toBe(429); expect(mocks.issue).not.toHaveBeenCalled(); });
 it("provider/store outage does not pretend that commissions are clear", async () => { mocks.runtime.mockRejectedValue(Error("private DB details")); const response = await GET(); expect(response?.status).toBe(503); expect(JSON.stringify(await response?.json())).not.toContain("private DB"); });
 it("rejects oversized body and unsupported network", async () => { expect((await POST(request({ ...body, desiredAmount: "a".repeat(5000) }))).status).toBe(413); expect((await POST(request({ ...body, network: "ERC20" }))).status).toBe(400); });
+it("switches only the authenticated seller's referenced checkout after acknowledgement", async () => {
+  expect((await POST(request({ network: "BEP20", currentCheckoutId: "checkout-tron", hasNotPaidYet: true }))).status).toBe(201);
+  expect(mocks.issue).toHaveBeenCalledWith({ sellerId: "seller", network: "BEP20", currentCheckoutId: "checkout-tron", desiredAmount: undefined });
+});
+it("rejects malformed switch identifiers and missing acknowledgement", async () => {
+  for (const currentCheckoutId of ["", 7, {}, "x".repeat(101), "checkout/other"]) {
+    expect((await POST(request({ ...body, currentCheckoutId }))).status).toBe(400);
+  }
+  expect((await POST(request({ network: "BEP20", currentCheckoutId: "checkout-tron" }))).status).toBe(400);
+  expect(mocks.issue).not.toHaveBeenCalled();
+});

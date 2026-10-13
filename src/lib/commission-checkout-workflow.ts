@@ -5,6 +5,7 @@ export const CHECKOUT_ISSUED = "commission_checkout_issued_v1";
 export const CHECKOUT_SETTLED = "commission_checkout_settled_v1";
 export const CHECKOUT_ATTEMPT = "commission_checkout_attempt_v1";
 export const CHECKOUT_RECOVERY = "commission_checkout_receipt_recovery_v1";
+export const CHECKOUT_SELECTED = "commission_checkout_network_selected_v1";
 export const CHECKOUT_TOLERANCE = 1_000_000;
 export const CHECKOUT_TOLERANCE_ATTRIBUTION = "unambiguous_checkout_tolerance_v1";
 export type CheckoutNetwork = "TRC20" | "BEP20";
@@ -121,6 +122,38 @@ export function pendingCommissionCheckouts(snapshot: AlphaExchangeDb) {
   // Its old amount remains permanently reserved; no receipt is invented.
   return getCommissionCheckouts(snapshot).filter((checkout) => !settled(snapshot, checkout.id)
     && !paidThroughAnotherFlow(snapshot, checkout));
+}
+function sameCheckoutGroup(a: CommissionCheckout, b: CommissionCheckout) {
+  return a.sellerId === b.sellerId && a.dueMicros === b.dueMicros
+    && JSON.stringify(a.commissions) === JSON.stringify(b.commissions);
+}
+function selectedCheckout(snapshot: AlphaExchangeDb, sellerId: string, pending = pendingCommissionCheckouts(snapshot)) {
+  const selection = entries(snapshot, CHECKOUT_SELECTED).find((entry) =>
+    entry.id === `${sellerId}:checkout-network` && entry.actorUserId === sellerId && entry.targetUserId === sellerId);
+  return pending.find((checkout) => checkout.sellerId === sellerId && checkout.id === object(selection?.newValue)?.checkoutId)
+    ?? pending.find((checkout) => checkout.sellerId === sellerId);
+}
+function canChangeCheckoutNetwork(snapshot: AlphaExchangeDb, checkout: CommissionCheckout) {
+  const group = getCommissionCheckouts(snapshot).filter((candidate) => sameCheckoutGroup(candidate, checkout));
+  try { for (const candidate of group) assertUnchanged(snapshot, candidate); } catch { return false; }
+  const ids = new Set(group.map((candidate) => candidate.id));
+  // An attempt is recorded only after a possible deposit has been discovered.
+  // Once that happens, keep checking it instead of inviting another payment.
+  return !snapshot.auditLogs.some((entry) => {
+    const value = object(entry.newValue);
+    return [CHECKOUT_ATTEMPT, CHECKOUT_RECOVERY, CHECKOUT_SETTLED].includes(String(value?.kind))
+      && ids.has(String(value?.checkoutId));
+  }) && !snapshot.commissionRecords.some((record) => checkout.commissions.some((row) => row.id === record.id)
+    && Boolean(record.paymentSubmittedAt));
+}
+function selectCheckoutNetwork(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, now: number) {
+  const id = `${checkout.sellerId}:checkout-network`;
+  const index = snapshot.auditLogs.findIndex((entry) => entry.id === id);
+  if (index >= 0 && object(snapshot.auditLogs[index].newValue)?.checkoutId === checkout.id) return;
+  const entry = { id, action: "commission_recorded" as const, actorUserId: checkout.sellerId, targetUserId: checkout.sellerId,
+    createdAt: new Date(now).toISOString(), details: "Seller changed the commission network before sending payment.",
+    newValue: { kind: CHECKOUT_SELECTED, checkoutId: checkout.id } };
+  if (index >= 0) snapshot.auditLogs[index] = entry; else snapshot.auditLogs.unshift(entry);
 }
 function reservedReceipts(snapshot: AlphaExchangeDb) {
   const used = new Set(snapshot.commissionRecords.map((record) => checkoutReceiptKey(record.paymentSignature ?? "")).filter(Boolean));
@@ -255,19 +288,37 @@ export function allocateCheckout(checkout: CommissionCheckout, receivedMicros = 
 export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
   const now = ports.now ?? Date.now;
   return {
-    async issue(input: { sellerId: string; network: CheckoutNetwork; desiredAmount?: string }) {
+    async issue(input: { sellerId: string; network: CheckoutNetwork; desiredAmount?: string; currentCheckoutId?: string }) {
       if (input.network !== "TRC20" && input.network !== "BEP20") fail("invalid_network");
       const chosen = input.desiredAmount === undefined ? undefined : parseCheckoutAmount(input.desiredAmount);
       const id = `checkout-${randomUUID()}`;
       const result = await ports.atomic((snapshot) => {
         authorize(snapshot, input.sellerId);
-        const existing = pendingCommissionCheckouts(snapshot).find((checkout) => checkout.sellerId === input.sellerId);
+        const pending = pendingCommissionCheckouts(snapshot);
+        const existing = selectedCheckout(snapshot, input.sellerId, pending);
+        if (input.currentCheckoutId !== undefined) {
+          const original = pending.find((checkout) => checkout.id === input.currentCheckoutId && checkout.sellerId === input.sellerId);
+          if (!original || !existing || !sameCheckoutGroup(original, existing)
+            || (existing.id !== input.currentCheckoutId && existing.network !== input.network)) fail("checkout_changed");
+          if (!canChangeCheckoutNetwork(snapshot, existing)) fail("payment_in_progress");
+          if (chosen !== undefined && chosen !== existing.requestedMicros) fail("checkout_already_issued");
+          const alternative = pending.find((checkout) => sameCheckoutGroup(checkout, existing) && checkout.network === input.network);
+          if (alternative) {
+            selectCheckoutNetwork(snapshot, alternative, now());
+            return alternative;
+          }
+          // Preserve immutable instructions and monitor both networks until the
+          // same commission group settles once. Reuse each network on return.
+        }
         if (existing) {
           assertUnchanged(snapshot, existing);
-          if (existing.network !== input.network || (chosen !== undefined && chosen !== existing.requestedMicros)) fail("checkout_already_issued");
-          return existing;
+          if (input.currentCheckoutId === undefined) {
+            if (existing.network !== input.network || (chosen !== undefined && chosen !== existing.requestedMicros)) fail("checkout_already_issued");
+            return existing;
+          }
         }
         const records = snapshot.commissionRecords.filter((record) => record.sellerId === input.sellerId && record.paymentStatus !== "paid")
+          .filter((record) => !existing || existing.commissions.some((row) => row.id === record.id))
           .sort((a, b) => a.id.localeCompare(b.id));
         if (!records.length) fail("no_commissions_due");
         if (records.length > 100) fail("too_many_commissions");
@@ -280,13 +331,14 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
         const total = commissions.reduce((sum, row) => sum + BigInt(row.dueMicros), BigInt(0));
         if (total > BigInt(Number.MAX_SAFE_INTEGER - CHECKOUT_TOLERANCE)) fail("invalid_amount");
         const dueMicros = Number(total);
-        const expectedMicros = reserveAmount(snapshot, chosen ?? dueMicros, dueMicros, ports.random?.() ?? randomInt(9999), ids);
+        const requestedMicros = chosen ?? existing?.requestedMicros ?? dueMicros;
+        const expectedMicros = reserveAmount(snapshot, requestedMicros, dueMicros, ports.random?.() ?? randomInt(9999), ids);
         const rounded = Math.ceil(expectedMicros / 1e6) * 1e6;
-        const roundedMicros = expectedMicros === (chosen ?? dueMicros) && rounded > expectedMicros
+        const roundedMicros = expectedMicros === requestedMicros && rounded > expectedMicros
           && rounded >= dueMicros && rounded - dueMicros <= CHECKOUT_TOLERANCE
           && !reservedAmounts(snapshot, ids, false).has(rounded) ? rounded : undefined;
         const checkout: CommissionCheckout = { id, sellerId: input.sellerId, network: input.network,
-          createdAt: new Date(now()).toISOString(), dueMicros, expectedMicros, requestedMicros: chosen ?? dueMicros, commissions,
+          createdAt: new Date(now()).toISOString(), dueMicros, expectedMicros, requestedMicros, commissions,
           ...(roundedMicros ? { roundedMicros } : {}) };
         assertUnchanged(snapshot, checkout);
         // The legacy allocator already respects this permanent reservation list.
@@ -298,6 +350,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
           targetUserId: input.sellerId, createdAt: checkout.createdAt,
           details: "Seller created an automatic commission checkout before payment. No payment has been received or credited.",
           newValue: { kind: CHECKOUT_ISSUED, checkout } });
+        if (existing) selectCheckoutNetwork(snapshot, checkout, now());
         return checkout;
       });
       ports.afterCommit?.(); return result;
@@ -305,7 +358,7 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
     async state(sellerId: string) {
       const snapshot = await ports.read(); authorize(snapshot, sellerId);
       const all = getCommissionCheckouts(snapshot).filter((checkout) => checkout.sellerId === sellerId);
-      const active = pendingCommissionCheckouts(snapshot).find((checkout) => checkout.sellerId === sellerId);
+      const active = selectedCheckout(snapshot, sellerId);
       const last = all.find((checkout) => settled(snapshot, checkout.id));
       let status: "ready" | "waiting" | "paid" | "changed" = active ? "waiting" : last || all.some((checkout) => paidThroughAnotherFlow(snapshot, checkout)) ? "paid" : "ready";
       if (active) { try { assertUnchanged(snapshot, active); } catch { status = "changed"; } }
@@ -313,8 +366,10 @@ export function createCommissionCheckoutWorkflow(ports: CheckoutPorts) {
       if (!active && outstanding.length) status = "ready";
       const outstandingMicros = outstanding.reduce((sum, record) => sum + BigInt(checkoutMicros(record.commissionAmount)), BigInt(0));
       if (outstandingMicros > BigInt(Number.MAX_SAFE_INTEGER)) fail("invalid_amount");
-      const diagnostic = active ? entries(snapshot, CHECKOUT_ATTEMPT).filter(entry => object(entry.newValue)?.checkoutId === active.id && entry.targetUserId === sellerId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
+      const groupIds = new Set(active ? all.filter((checkout) => sameCheckoutGroup(checkout, active)).map((checkout) => checkout.id) : []);
+      const diagnostic = active ? entries(snapshot, CHECKOUT_ATTEMPT).filter(entry => groupIds.has(String(object(entry.newValue)?.checkoutId)) && entry.targetUserId === sellerId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
       return { status, checkout: active ?? null, lastPaidCheckout: last ?? null, pendingCount: outstanding.length,
+        canChangeNetwork: status === "waiting" && Boolean(active && canChangeCheckoutNetwork(snapshot, active)),
         totalDueUsdt: Number(outstandingMicros) / 1e6,
         ...(diagnostic && Number.isFinite(Date.parse(diagnostic.createdAt)) ? { lastVerificationCheckAt: diagnostic.createdAt, verificationCode: String(object(diagnostic.newValue)?.code ?? "") } : {}) };
     },
