@@ -8,7 +8,7 @@ vi.mock("@/lib/commission-deposit-discovery", () => ({ verifyBinanceInternalComm
 vi.mock("@/lib/bep20-commission-verifier", () => ({ verifyBep20Commission: mocks.bep20 }));
 vi.mock("@/lib/commission-batch-tron-verifier", () => ({ verifyCommissionBatchTronReceipt: mocks.tron }));
 import { getAlphaExchangeRepository } from "./alpha-exchange-repository";
-import { getSellerCommissionStatus, invalidateAlphaExchangeStoreCache } from "./alpha-exchange-store";
+import { getSellerCommissionStatus, getSellerListingWorkspaceData, invalidateAlphaExchangeStoreCache, updateCommissionPaymentStatus } from "./alpha-exchange-store";
 import { getCommissionCheckoutRuntime } from "./commission-checkout-runtime";
 const signature = "binance-deposit:123456789123456789";
 function seed() {
@@ -38,6 +38,53 @@ async function prepared() {
   const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
   return { service, checkout, payment };
 }
+it.each(["TRC20", "BEP20"] as const)("an unsubmitted overdue reset remains payable and automatically settles on %s", async (network) => {
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  const createdAt = new Date(Date.now() - 10 * 86_400_000).toISOString();
+  snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], createdAt, updatedAt: createdAt,
+    dueAt: new Date(Date.now() - 86_400_000).toISOString(), paymentStatus: "overdue" }];
+  await updateCommissionPaymentStatus({ commissionId: "cm0", actorUserId: "owner",
+    paymentStatus: "overdue", paymentVerificationStatus: "pending_verification",
+    paymentVerificationNotes: "Commission reset to pending." });
+  const before = await getSellerListingWorkspaceData({ sellerId: "seller" });
+  expect(before.commissionStatus).toMatchObject({ status: "overdue", pendingCount: 1 });
+  expect(before.commissionStatus.payableRecords[0].paymentVerificationStatus).toBeUndefined();
+  expect(before.summary.canCreateListing).toBe(false);
+
+  const service = await getCommissionCheckoutRuntime();
+  const checkout = await service.issue({ sellerId: "seller", network });
+  const payment = { signature: network === "TRC20" ? "c".repeat(64) : `0x${"c".repeat(64)}`,
+    network, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
+  const verifier = network === "TRC20" ? mocks.tron : mocks.bep20;
+  const scanner = network === "TRC20" ? mocks.scanTron : mocks.scanBsc;
+  verifier.mockResolvedValue({ verified: false, pending: true });
+  scanner.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  expect(await service.scan(Date.now() + 60_000)).toMatchObject({ pending: 1 });
+  expect((await getSellerCommissionStatus("seller")).status).toBe("overdue");
+  verifier.mockResolvedValue({ verified: true, pending: false });
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(1);
+  expect(await getSellerListingWorkspaceData({ sellerId: "seller" })).toMatchObject({
+    commissionStatus: { status: "clear", pendingCount: 0 },
+    summary: { pendingCommissionCount: 0, canCreateListing: true },
+  });
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
+  expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords[0]).toMatchObject({
+    commissionAmount: 18.3, paymentStatus: "paid", paymentVerificationStatus: "verified", paymentSignature: payment.signature,
+  });
+});
+it.each(["approved_seller", "suspended"] as const)("an existing checkout survives becoming overdue for a %s account", async (sellerStatus) => {
+  const { service, checkout, payment } = await prepared();
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  Object.assign(snapshot.users[0], { sellerStatus, role: sellerStatus === "suspended" ? "buyer" : "approved_seller",
+    roles: [sellerStatus === "suspended" ? "buyer" : "approved_seller"] });
+  for (const record of snapshot.commissionRecords) Object.assign(record, {
+    paymentStatus: "overdue", dueAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  expect(await service.state("seller")).toMatchObject({ status: "waiting", checkout: { id: checkout.id }, pendingCount: 2 });
+  expect((await service.reconcile({ deposits: [payment], deadline: Date.now() + 60_000 })).verified).toBe(1);
+  expect((await getSellerCommissionStatus("seller")).status).toBe("clear");
+  expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).users[0].sellerStatus).toBe(sellerStatus);
+});
 it("reads checkout status and scheduled scans without downloading unrelated platform history", async () => {
   const { service, checkout } = await prepared();
   const repository = await getAlphaExchangeRepository();

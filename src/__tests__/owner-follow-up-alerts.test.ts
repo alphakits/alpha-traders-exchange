@@ -241,11 +241,18 @@ describe("owner follow-up alert lifecycle", () => {
     expect(mocks.scheduleMobilePushDelivery).not.toHaveBeenCalled();
   });
 
-  it("surfaces automatic payment matching that has no submitted transaction yet without claiming a payment was received", async () => {
-    seedCommission({ paymentSubmittedAt: undefined, paymentExpectedAmountAssignedAt: STALE });
+  it.each([undefined, "pending_verification"] as const)("surfaces an overdue unsubmitted payment without depending on verification flag %s", async (paymentVerificationStatus) => {
+    seedCommission({ paymentVerificationStatus, paymentSubmittedAt: undefined, paymentExpectedAmountAssignedAt: STALE });
     expect((await runOwnerFollowUpAlerts({ now: NOW })).created).toBe(1);
     expect(currentSnapshot().notifications[0].message).toContain("awaiting a verified payment match");
     expect(currentSnapshot().commissionRecords[0].paymentStatus).toBe("overdue");
+    expect(currentSnapshot().commissionRecords[0].paymentVerificationStatus).toBeUndefined();
+  });
+
+  it("does not escalate an ordinary unsubmitted commission before its due date", async () => {
+    seedCommission({ paymentStatus: "pending", paymentVerificationStatus: undefined, paymentSubmittedAt: undefined,
+      paymentExpectedAmountAssignedAt: STALE, dueAt: new Date(NOW.getTime() + 86_400_000).toISOString() });
+    expect(await runOwnerFollowUpAlerts({ now: NOW })).toEqual({ created: 0, archived: 0 });
   });
 
   it("uses direct trade links and clears cancelled trades on the next sweep", async () => {

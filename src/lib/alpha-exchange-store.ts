@@ -1294,6 +1294,16 @@ function normalizeCommissionPaymentStatus(value: string | undefined, dueAt?: str
   return "pending" as const;
 }
 
+function normalizeCommissionVerificationStatus(record: Pick<CommissionRecord,
+  "paymentVerificationStatus" | "paymentSignature" | "paymentSubmittedAt">) {
+  // Resetting an unpaid obligation is not a payment submission. Older owner
+  // resets set this flag without a receipt, falsely disabling normal checkout.
+  // Preserve every genuine submission, including one still awaiting its TxID.
+  if (record.paymentVerificationStatus === "pending_verification"
+    && !record.paymentSignature?.trim() && !record.paymentSubmittedAt?.trim()) return undefined;
+  return record.paymentVerificationStatus;
+}
+
 function getUnpaidSellerCommissionRecords(db: AlphaExchangeDb, sellerId: string) {
   return db.commissionRecords
     .filter((record) => record.sellerId === sellerId)
@@ -3126,6 +3136,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         ...record,
         displayNumber: normalizeDisplayNumber((record as { displayNumber?: unknown }).displayNumber),
         paymentStatus: normalizeCommissionPaymentStatus((record as { paymentStatus?: string }).paymentStatus, dueAt),
+        paymentVerificationStatus: normalizeCommissionVerificationStatus(record),
         dueAt,
         paidAt: typeof (record as { paidAt?: string }).paidAt === "string" ? (record as { paidAt: string }).paidAt : undefined,
         overdueNotifiedAt:
@@ -5501,7 +5512,7 @@ async function unlockListingAfterCancelledTrade(db: AlphaExchangeDb, listing: Ma
 
 async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionRecord, actorUserId: string) {
   const now = nowIso();
-  const verificationPending = record.paymentVerificationStatus === "pending_verification";
+  const verificationPending = normalizeCommissionVerificationStatus(record) === "pending_verification";
   record.paymentStatus = "overdue";
   record.overdueNotifiedAt = record.overdueNotifiedAt ?? now;
   record.updatedAt = now;
@@ -10289,7 +10300,7 @@ export async function getSellerCommissionStatus(
       issueReason: record.issueReason,
       amountDue: getCommissionAmountDueUsdt(db, record),
       paymentAmountDue: getCommissionPaymentAmountDueUsdt(record),
-      paymentVerificationStatus: record.paymentVerificationStatus,
+      paymentVerificationStatus: normalizeCommissionVerificationStatus(record),
       paymentLastCheckedAt: record.paymentLastCheckedAt,
       paymentVerificationNotes: record.paymentVerificationNotes,
       paymentSignature: record.paymentSignature,
@@ -16652,8 +16663,11 @@ export async function updateCommissionPaymentStatus(input: {
     if (index === -1) throw new Error("Commission record not found.");
     const current = snapshot.commissionRecords[index];
     const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-    const paymentVerificationStatus = input.paymentVerificationStatus
-      ?? (input.paymentStatus === "paid" ? "verified" : current.paymentVerificationStatus);
+    const paymentVerificationStatus = normalizeCommissionVerificationStatus({
+      ...current,
+      paymentVerificationStatus: input.paymentVerificationStatus
+        ?? (input.paymentStatus === "paid" ? "verified" : current.paymentVerificationStatus),
+    });
     const paymentVerificationNotes = input.paymentVerificationNotes !== undefined
       ? input.paymentVerificationNotes.trim() || undefined
       : input.paymentStatus === "paid" && paymentVerificationStatus === "verified"

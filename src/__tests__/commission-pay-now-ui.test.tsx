@@ -86,6 +86,7 @@ type MockPayableCommission = {
 };
 
 let commissionRecordsOverride: MockPayableCommission[] | null = null;
+let commissionDueStatus: "pending" | "overdue" = "pending";
 let workspaceCanCreateListingOverride: boolean | null = null;
 let commissionPaymentResponse: {
   verification: { verified: boolean; pending?: boolean; notes: string };
@@ -106,6 +107,7 @@ describe("seller commission Pay Now", () => {
     navigationState.search = "";
     commissionRecordVerification = {};
     commissionRecordsOverride = null;
+    commissionDueStatus = "pending";
     workspaceCanCreateListingOverride = null;
     commissionPaymentResponse = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
     commissionPaymentSideEffect = null;
@@ -183,7 +185,7 @@ describe("seller commission Pay Now", () => {
               : null,
           },
           commissionStatus: {
-            status: payableRecords.length > 0 ? "pending" : "clear",
+            status: payableRecords.length > 0 ? commissionDueStatus : "clear",
             pendingCount: payableRecords.length,
             amountDue: totalAmountDue,
             totalAmountDue,
@@ -241,6 +243,19 @@ describe("seller commission Pay Now", () => {
     await waitFor(() => expect(document.getElementById("commission-payment")).not.toBeNull());
     const localized = await readApiErrorMessage(jsonResponse({ error: listingCommissionRequiredMessage() }, 400), isAr ? "تعذر تحديث العرض" : "Unable to update listing");
     expect(localized).toBe(listingCommissionRequiredMessage(isAr));
+  });
+
+  it.each(["en", "ar"] as const)("keeps overdue Pay Now available to suspended sellers in %s", async (locale) => {
+    commissionDueStatus = "overdue";
+    render(<UsdtExchangePage locale={locale} initialSessionUser={suspendedSeller} />);
+    const status = await waitFor(() => {
+      const element = document.getElementById("commission-status");
+      expect(element?.textContent).toContain(locale === "ar" ? "العمولة متأخرة" : "Commission Overdue");
+      return element!;
+    });
+    fireEvent.click(within(status).getByRole("button", { name: locale === "ar" ? "ادفع الآن" : "Pay Now" }));
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("7.000001 USDT"));
+    expect(routerPush).not.toHaveBeenCalled();
   });
 
   it("opens the exact payment panel in place from both mobile buttons", async () => {
