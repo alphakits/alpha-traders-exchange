@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { CANONICAL_BEP20_COMMISSION_WALLET, CANONICAL_TRC20_COMMISSION_WALLET } from "../src/lib/commission-config";
 
-test.use({ reducedMotion: "reduce" });
+test.use({ contextOptions: { reducedMotion: "reduce" } });
 
 for (const locale of ["en", "ar"] as const) {
   for (const device of ["phone", "desktop"] as const) {
