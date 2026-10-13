@@ -47,6 +47,38 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
 afterEach(cleanup);
 
 describe("compact seller trade requests", () => {
+  it.each([
+    ["en", "listing_price", "Bank Leumi", "Withdrawal bank", "Bank Leumi", "Accept"],
+    ["en", "buyer_offer", "Bank Hapoalim", "Withdrawal bank", "Bank Hapoalim", "Accept Price Offer"],
+    ["ar", "listing_price", "Bank Leumi", "بنك السحب", "بنك لئومي", "قبول"],
+    ["ar", "buyer_offer", "Bank Hapoalim", "بنك السحب", "بنك هبوعليم", "قبول عرض السعر"],
+  ] as const)("shows the selected ATM bank before accepting a %s %s request", (locale, priceMode, bankName, label, bank, acceptLabel) => {
+    const request = trade({ status: "pending", completedAt: undefined, paymentMethod: "Cardless ATM Withdrawal", priceMode, bankName });
+    const props = workspace({ locale, isAr: locale === "ar", sellerExpandedTradeId: null });
+    const { rerender } = render(<SellerTradeRequestCard request={request} workspace={props} />);
+    const bankValue = screen.getByText(bank, { exact: true });
+    expect(bankValue.parentElement?.textContent).toContain(label);
+    expect(bankValue.closest("details")).toBeNull();
+    expect(screen.queryByText("Trade details")).toBeNull();
+    expect(props.handleSellerRequestAction).not.toHaveBeenCalled();
+    rerender(<SellerTradeRequestCard request={request} workspace={{ ...props, sellerExpandedTradeId: request.id }} />);
+    const accept = screen.getByRole("button", { name: acceptLabel });
+    expect(screen.getByText(bank, { exact: true }).compareDocumentPosition(accept) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(accept);
+    expect(props.handleSellerRequestAction).toHaveBeenCalledWith(request.id, "accepted", { safetyAcknowledged: false });
+  });
+
+  it("does not invent an issuing bank when an older ATM request has no bank saved", () => {
+    render(<SellerTradeRequestCard request={trade({ status: "pending", completedAt: undefined, paymentMethod: "Cardless ATM Withdrawal" })} workspace={workspace({ sellerExpandedTradeId: null })} />);
+    expect(screen.getByText("Not specified").parentElement?.textContent).toContain("Withdrawal bank");
+    expect(screen.queryByText("Bank transfer", { exact: true })).toBeNull();
+  });
+
+  it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("does not label %s as an ATM withdrawal", (paymentMethod) => {
+    render(<SellerTradeRequestCard request={trade({ paymentMethod, bankName: "Bank Leumi" })} workspace={workspace()} />);
+    expect(screen.queryByText(/Withdrawal bank/)).toBeNull();
+  });
+
   it.each(["completed", "review_open", "cancelled", "declined"] as const)("keeps %s trades read-only with records available on demand", (status) => {
     const request = trade({ status, buyerEvidence: evidence, buyerReview: { reviewerUserId: "buyer-1", rating: 5, comment: "Test review", createdAt: "2026-01-01T12:16:00Z" } });
     const { container } = render(<SellerTradeRequestCard request={request} workspace={workspace()} />);

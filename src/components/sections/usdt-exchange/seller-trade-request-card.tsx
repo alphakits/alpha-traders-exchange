@@ -7,7 +7,8 @@ import { currencyText } from "@/components/ui/currency-text";
 import { HelpDetails } from "@/components/ui/help-details";
 import { Textarea } from "@/components/ui/textarea";
 import { TradeTermsPanel } from "@/components/sections/trade-room/trade-terms-panel";
-import { isCashTradePaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isCardlessAtmPaymentMethod, isCashTradePaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getIsraeliBankDisplayName } from "@/lib/israeli-banks";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import type { SellerWorkspaceSectionProps } from "./seller-workspace-section";
 
@@ -39,6 +40,7 @@ export function SellerTradeRequestCard({ request, workspace }: {
   const presentation = getTradeQueuePresentation(request, "seller", isAr);
   const isExpanded = sellerExpandedTradeId === request.id;
   const isCashTrade = isCashTradePaymentMethod(request.paymentMethod);
+  const isCardlessAtm = isCardlessAtmPaymentMethod(request.paymentMethod);
   const isClosed = presentation.section === "completed" || presentation.section === "cancelled";
   const isPending = request.status === "pending" && !isClosed;
   const isFaceToFace = normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)";
@@ -68,6 +70,13 @@ export function SellerTradeRequestCard({ request, workspace }: {
         </div>
         {request.priceMode === "buyer_offer" ? (
           <p className="text-xs font-medium text-[#F4D87A]">{isAr ? "عرض سعر" : "Price offer"} · {currencyText(`₪${toNumber(request.pricePerUsdt).toFixed(2)}`)}/<span className="currency-usdt">USDT</span></p>
+        ) : null}
+        {isCardlessAtm ? (
+          <p className="break-words text-sm text-[#D1D5DB]">
+            {isAr ? "بنك السحب" : "Withdrawal bank"}: <bdi dir="auto" className="font-semibold text-white">{request.bankName?.trim()
+              ? getIsraeliBankDisplayName(request.bankName, locale)
+              : (isAr ? "غير محدد" : "Not specified")}</bdi>
+          </p>
         ) : null}
         <div className="flex gap-2">
           <Button type="button" size="sm" variant={isClosed ? "secondary" : "default"} className="min-h-11 min-w-0 flex-1 whitespace-normal px-3 text-center"

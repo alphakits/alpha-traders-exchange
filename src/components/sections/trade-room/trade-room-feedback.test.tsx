@@ -52,6 +52,27 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it.each([
+  ["en", "listing_price", "Bank Leumi"],
+  ["en", "buyer_offer", "Bank Leumi"],
+  ["ar", "listing_price", "بنك لئومي"],
+  ["ar", "buyer_offer", "بنك لئومي"],
+] as const)("shows the withdrawal bank in the room summary before accepting a %s %s request", async (locale, priceMode, bank) => {
+  const current = room("Cardless ATM Withdrawal", "pending");
+  Object.assign(current.request, { bankName: "Bank Leumi", priceMode, pricePerUsdt: "3.20", listingPriceAtRequest: "3.40" });
+  const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(current)));
+  vi.stubGlobal("fetch", fetchMock);
+  render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={seller} />);
+  const summary = await screen.findByTestId("trade-room-summary");
+  const bankValue = within(summary).getByText(bank, { exact: true });
+  expect(bankValue.parentElement?.textContent).toContain(locale === "ar" ? "بنك السحب" : "Withdrawal bank");
+  expect(bankValue.closest("details")).toBeNull();
+  const primary = await screen.findByTestId("trade-primary-action");
+  expect(bankValue.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect((within(primary).getAllByRole("button")[0] as HTMLButtonElement).disabled).toBe(false);
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+});
+
 it.each(["en", "ar"] as const)("gates seller acceptance and links payment, then unlocks the saved request after a verified refresh in %s", async (locale) => {
   const current = { ...room("Bank Transfer", "pending"), sellerCommissionDueCount: 1, sellerCommissionDueAmount: 7, sellerPayableCommissionId: "commission-gate", sellerPayableCommissionAmount: 7 };
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
