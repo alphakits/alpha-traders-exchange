@@ -17,6 +17,63 @@ const issue=(x,amount='39')=>x.api.issue({sellerId:'seller',network:'BEP20',desi
 const deposit=(checkout,extra={})=>({signature:'binance-deposit:123456789',network:checkout.network,amountMicros:checkout.expectedMicros,timestamp:NOW+100,...extra});
 const reconcile=(x,ds)=>{x.clock(NOW+2000);return x.api.reconcile({deposits:ds,deadline:NOW+60000});};
 const rejects=async(fn,code)=>assert.rejects(fn,e=>e.code===code);
+test('seller switches networks both ways and reuses protected instructions without changing commissions',async()=>{
+ const x=setup();const bep=await issue(x);const before=structuredClone(bep);
+ const tron=await x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:bep.id});
+ assert.notEqual(tron.expectedMicros,bep.expectedMicros);assert.equal(tron.dueMicros,bep.dueMicros);
+ assert.equal(tron.requestedMicros,bep.requestedMicros);assert.deepEqual(bep,before);
+ assert.equal((await x.api.state('seller')).checkout.id,tron.id);
+ assert.equal((await x.api.state('seller')).canChangeNetwork,true);
+ assert.equal((await x.api.issue({sellerId:'seller',network:'BEP20',currentCheckoutId:tron.id})).id,bep.id);
+ assert.equal((await x.api.state('seller')).checkout.id,bep.id);
+ assert.equal((await x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:bep.id})).id,tron.id);
+ assert.equal(x.db().auditLogs.filter(row=>row.newValue.kind==='commission_checkout_issued_v1').length,2);
+ assert.equal(x.db().commissionRecords[0].commissionAmount,40);assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');
+ for(const c of [bep,tron])assert.ok(x.db().commissionRecords[0].paymentReservedExpectedAmounts.includes(c.expectedMicros/1e6));
+});
+test('concurrent repeated network switches issue only one alternative',async()=>{
+ const x=setup();const c=await issue(x);const change={sellerId:'seller',network:'TRC20',currentCheckoutId:c.id};
+ const [a,b]=await Promise.all([x.api.issue(change),x.api.issue(change)]);assert.equal(a.id,b.id);
+ assert.equal(x.db().auditLogs.filter(row=>row.newValue.kind==='commission_checkout_issued_v1').length,2);
+});
+test('network changes require the current owned checkout and cannot alter its amount',async()=>{
+ const x=setup();const c=await issue(x);
+ await rejects(()=>x.api.issue({sellerId:'seller',network:'TRC20'}),'checkout_already_issued');
+ await rejects(()=>x.api.issue({sellerId:'other',network:'TRC20',currentCheckoutId:c.id}),'checkout_changed');
+ await rejects(()=>x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:'stale'}),'checkout_changed');
+ await rejects(()=>x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:c.id,desiredAmount:'40'}),'checkout_already_issued');
+});
+test('network switch keeps newly accrued dues outside the original payment group',async()=>{
+ const x=setup();const c=await issue(x);
+ x.patch(db=>db.commissionRecords.push({...db.commissionRecords[0],id:'new',commissionAmount:2,paymentExpectedAmount:2.000001,paymentReservedExpectedAmounts:[]}));
+ const next=await x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:c.id});
+ assert.deepEqual(next.commissions,c.commissions);assert.equal(next.dueMicros,c.dueMicros);
+ assert.equal((await x.api.state('seller')).pendingCount,2);
+});
+test('a discovered payment on either network prevents switching and remains visible',async()=>{
+ const x=setup();const bep=await issue(x);const tron=await x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:bep.id});
+ x.proof({verified:false,pending:true});await reconcile(x,[deposit(bep)]);
+ const state=await x.api.state('seller');assert.equal(state.checkout.id,tron.id);
+ assert.equal(state.verificationCode,'receipt_pending');assert.equal(state.canChangeNetwork,false);
+ await rejects(()=>x.api.issue({sellerId:'seller',network:'BEP20',currentCheckoutId:tron.id}),'payment_in_progress');
+});
+test('submitted or paid commission cannot be switched',async()=>{
+ for(const fields of [{paymentSubmittedAt:new Date(NOW).toISOString()},{paymentSignature:'a'.repeat(64)},{paymentVerificationStatus:'pending_verification'}]){
+  const x=setup();const c=await issue(x);x.patch(db=>Object.assign(db.commissionRecords[0],fields));
+  assert.equal((await x.api.state('seller')).canChangeNetwork,false);
+  await rejects(()=>x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:c.id}),'payment_in_progress');
+ }
+ const x=setup();const c=await issue(x);await reconcile(x,[deposit(c)]);
+ await rejects(()=>x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:c.id}),'checkout_changed');
+});
+for(const useOriginal of [true,false])test(`network switching still settles exactly once using ${useOriginal?'earlier':'new'} instructions`,async()=>{
+ const x=setup();const bep=await issue(x);const tron=await x.api.issue({sellerId:'seller',network:'TRC20',currentCheckoutId:bep.id});
+ const receipt=deposit(useOriginal?bep:tron);assert.equal((await reconcile(x,[receipt])).verified,1);
+ assert.equal((await x.api.state('seller')).status,'paid');assert.equal((await x.api.state('seller')).canChangeNetwork,false);
+ const second=deposit(useOriginal?tron:bep,{signature:'binance-deposit:987654321'});
+ assert.equal((await reconcile(x,[receipt,second])).verified,0);assert.equal(x.db().notifications.length,1);
+ assert.equal(x.db().commissionRecords[0].paymentSignature,receipt.signature);
+});
 test('seller issues 39 against 40 without owner approval and independently verified receipt settles',async()=>{const x=setup();const c=await issue(x);assert.equal(c.expectedMicros,39000000);assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');const r=await reconcile(x,[deposit(c)]);assert.equal(r.verified,1);assert.equal(x.calls(),1);assert.equal(x.db().commissionRecords[0].commissionAmount,40);assert.equal(x.db().commissionRecords[0].paymentBatchSettlement.waivedMicros,1000000);});
 test('38 paid against combined 18.3 plus 20 preserves original amounts',async()=>{const x=setup([18.3,20]);const c=await issue(x,'38');const r=await reconcile(x,[deposit(c)]);assert.equal(r.verified,1);assert.deepEqual(x.db().commissionRecords.map(c=>c.commissionAmount),[18.3,20]);assert.equal(x.db().commissionRecords.reduce((s,c)=>s+c.paymentBatchSettlement.waivedMicros,0),300000);});
 for(const amount of ['39','41','40.00001'])test(`boundary allowed ${amount}`,async()=>{const x=setup();const c=await issue(x,amount);assert.ok(Math.abs(c.expectedMicros-c.dueMicros)<=1000000);});

@@ -16,11 +16,13 @@ interface CheckoutState {
   checkedAt?: string;
   lastVerificationCheckAt?: string;
   verificationCode?: string;
+  canChangeNetwork?: boolean;
 }
 const ENDPOINT = "/api/alpha-exchange/commissions/checkout";
 function valid(value: unknown): value is CheckoutState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as CheckoutState;
+  if (state.canChangeNetwork !== undefined && typeof state.canChangeNetwork !== "boolean") return false;
   if (!["ready", "waiting", "paid", "changed"].includes(state.status)
     || !Number.isSafeInteger(state.pendingCount) || state.pendingCount < 0
     || !Number.isFinite(state.totalDueUsdt) || state.totalDueUsdt < 0
@@ -53,6 +55,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
   const [network, setNetwork] = useState<"TRC20" | "BEP20">("TRC20");
   const [amount, setAmount] = useState("");
   const [notSent, setNotSent] = useState(false);
+  const [editingCheckoutId, setEditingCheckoutId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [authorized, setAuthorized] = useState(sessionAvailable);
@@ -82,7 +85,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     const current = mutation.current;
     mutation.current = null;
     current?.abort();
-    setAuthorized(false); setData(null); setAmount(""); setNotSent(false); setCopied(""); setBusy(false);
+    setAuthorized(false); setData(null); setAmount(""); setNotSent(false); setEditingCheckoutId(null); setCopied(""); setBusy(false);
     setError(isAr ? "سجّل الدخول بحساب البائع." : "Sign in with your seller account.");
   }, [cancelRead, isAr]);
   const refresh = useCallback(async () => {
@@ -127,16 +130,20 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       const current = mutation.current; mutation.current = null; current?.abort();
     };
   }, [cancelRead, deny, refresh]);
+  const changingNetwork = Boolean(data?.checkout && editingCheckoutId === data.checkout.id && data.canChangeNetwork === true);
   async function create() {
-    if (mutation.current || !data || !notSent || !authorizedRef.current || data.checkout || navigator.onLine === false) return;
+    if (mutation.current || !data || !notSent || !authorizedRef.current || (data.checkout && !changingNetwork) || navigator.onLine === false) return;
+    if (changingNetwork && network === data.checkout?.network) return;
     cancelRead();
     const current = new AbortController(); mutation.current = current;
     setBusy(true); setError("");
     let reconcile = true;
+    let mutationError = "";
     try {
       const { response, result } = await runClientRequest(current, 20_000, async (signal) => {
         const response = await fetch(ENDPOINT, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ network, desiredAmount: amount, hasNotPaidYet: true }), signal });
+          body: JSON.stringify({ network, hasNotPaidYet: true,
+            ...(changingNetwork ? { currentCheckoutId: data.checkout!.id } : { desiredAmount: amount }) }), signal });
         if (response.status === 401 || response.status === 403) return { response, result: null };
         return { response, result: await response.json() as unknown };
       });
@@ -145,6 +152,11 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       if (!response.ok && result && typeof result === "object" && "error" in result && result.error === "outside_tolerance") {
         reconcile = false;
         setError(isAr ? "المبلغ يجب أن يكون ضمن فرق 1 USDT من مجموع العمولات." : "The amount must be within 1 USDT of the commission total.");
+      } else if (!response.ok) {
+        mutationError = message("The payment instructions could not be changed. Check the current status before sending.", "تعذر تغيير تعليمات الدفع. راجع الحالة الحالية قبل الإرسال.");
+        if (result && typeof result === "object" && "error" in result && result.error === "payment_in_progress") {
+          mutationError = message("A payment is already being checked. Keep the current network and do not send again.", "يجري التحقق من دفعة بالفعل. أبقِ الشبكة الحالية ولا تُعد الإرسال.");
+        }
       }
     } catch {
       // A lost response can still mean the server issued the checkout. Read its
@@ -153,9 +165,10 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       if (mounted.current && mutation.current === current && authorizedRef.current) {
         mutation.current = null;
         if (reconcile) {
-          setData(null); setNotSent(false); setCopied("");
+          setData(null); setNotSent(false); setEditingCheckoutId(null); setCopied("");
           setError(isAr ? "جارٍ التحقق من حالة الدفع. لا ترسل دفعة أخرى." : "Checking the payment status. Do not send another payment.");
           await refresh();
+          if (mounted.current && authorizedRef.current && mutationError) setError(mutationError);
         }
         if (mounted.current && authorizedRef.current) setBusy(false);
       }
@@ -182,21 +195,25 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       {data.verificationCode ? <p role="status" className="commission-notice rounded-xl border border-amber-300/20 p-3 text-sm">{data.verificationCode === "receipt_pending" ? message("Payment found. Waiting for network confirmation. Do not send again.", "وُجدت الدفعة. ننتظر تأكيد الشبكة. لا تُعد الإرسال.") : data.verificationCode === "verification_unavailable" ? message("Verification is delayed. We will keep checking. Do not send again.", "تأخر التحقق. نواصل الفحص. لا تُعد الإرسال.") : message("Payment needs review. Check the original amount, network, and address. Do not pay again.", "تحتاج الدفعة للمراجعة. راجع المبلغ والشبكة والعنوان الأصلي. لا تدفع مجددًا.")}</p> : null}
       {data.status === "paid" && data.pendingCount === 0 ? <p role="status" className="commission-notice">{message("Paid. No commission due. Other account restrictions may still apply.", "تم الدفع. لا توجد عمولة مستحقة. قد تبقى قيود أخرى على الحساب.")}</p> : null}
       {data.status === "changed" ? <p role="alert" className="commission-notice">{message("The amount due changed. Check your original payment. Do not send again.", "تغيّر المبلغ المستحق. راجع دفعتك الأصلية. لا تُعد الإرسال.")}</p> : null}
-      {!checkout && data.pendingCount > 0 ? <>
-        <p className="text-sm text-slate-300">{message("Choose your network, then get payment instructions.", "اختر الشبكة، ثم اعرض تعليمات الدفع.")}</p>
+      {(!checkout || changingNetwork) && data.pendingCount > 0 ? <>
+        <p className="text-sm text-slate-300">{changingNetwork ? message("Choose the correct network before sending. The receiving address and exact payment amount will update.", "اختر الشبكة الصحيحة قبل الإرسال. سيتم تحديث عنوان الاستلام والمبلغ الدقيق.") : message("Choose your network, then get payment instructions.", "اختر الشبكة، ثم اعرض تعليمات الدفع.")}</p>
         <label className="block text-sm">{message("Network", "الشبكة")}<select className={controls + " mt-2"} value={network} disabled={busy} onChange={(event) => setNetwork(event.target.value as "TRC20" | "BEP20")}><option value="TRC20">USDT · TRC20</option><option value="BEP20">USDT · BEP20</option></select></label>
-        <label className="block text-sm">{message("Payment amount (USDT)", "مبلغ الدفع (USDT)")}<input className={controls + " currency-money mt-2"} inputMode="decimal" dir="ltr" value={amount} disabled={busy} onChange={(event) => setAmount(event.target.value)} /></label>
+        {!changingNetwork ? <label className="block text-sm">{message("Payment amount (USDT)", "مبلغ الدفع (USDT)")}<input className={controls + " currency-money mt-2"} inputMode="decimal" dir="ltr" value={amount} disabled={busy} onChange={(event) => setAmount(event.target.value)} /></label> : null}
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm"><input type="checkbox" className="h-5 w-5 shrink-0" checked={notSent} disabled={busy} onChange={(event) => setNotSent(event.target.checked)} />{message("I have not sent this payment yet.", "لم أرسل هذه الدفعة بعد.")}</label>
-        <button type="button" className="min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || !amount} onClick={() => void create()}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : message("Get payment instructions", "عرض تعليمات الدفع")}</button>
+        <button type="button" className="min-h-12 w-full rounded-xl bg-amber-400 px-5 py-3 font-semibold text-black disabled:opacity-40" disabled={busy || !notSent || (changingNetwork ? network === checkout?.network : !amount)} onClick={() => void create()}>{busy ? message("Preparing…", "جارٍ الإنشاء…") : changingNetwork ? message("Update payment network", "تحديث شبكة الدفع") : message("Get payment instructions", "عرض تعليمات الدفع")}</button>
+        {changingNetwork ? <button type="button" className="min-h-11 w-full rounded-xl border border-white/20 px-4 py-3" disabled={busy} onClick={() => { setEditingCheckoutId(null); setNotSent(false); setError(""); }}>{message("Keep current network", "الإبقاء على الشبكة الحالية")}</button> : null}
       </> : null}
     </section> : null}
-    {checkout && data?.status === "waiting" ? <section className="space-y-4 rounded-2xl border border-amber-300/30 p-5">
+    {checkout && data?.status === "waiting" && !changingNetwork ? <section className="space-y-4 rounded-2xl border border-amber-300/30 p-5">
       <h2 className="font-semibold">{message("Send once", "أرسل مرة واحدة")}</h2>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="currency-money text-2xl font-bold" dir="ltr">{formatted} USDT</p>
         <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void copy(formatted, "amount")}>{copied === "amount" ? message("Copied", "تم النسخ") : message("Copy exact amount", "نسخ المبلغ كاملًا")}</button>
       </div>
       <p className="text-sm">{message("Network", "الشبكة")}: <strong>{checkout.network}</strong></p>
+      {data.canChangeNetwork === true ? <button type="button" className="min-h-11 w-full rounded-xl border border-amber-300/50 px-4 py-3 font-semibold text-amber-200 disabled:opacity-40" disabled={busy} onClick={() => {
+        setEditingCheckoutId(checkout.id); setNetwork(checkout.network); setNotSent(false); setCopied(""); setError("");
+      }}>{message("Change network", "تغيير الشبكة")}</button> : null}
       <p className="break-all rounded-xl bg-black/30 p-3 font-mono text-sm" dir="ltr">{data.walletAddress}</p>
       <button type="button" className="min-h-11 w-full rounded-lg border border-white/20 px-4 py-2" onClick={() => void copy(data.walletAddress ?? "", "wallet")}>{copied === "wallet" ? message("Copied", "تم النسخ") : message("Copy receiving address", "نسخ عنوان الاستلام")}</button>
       <p className="commission-notice rounded-xl bg-amber-300/10 p-3 text-sm leading-6">{currencyText(message("Send USDT on this network. Pay network fees separately so the full amount arrives. Do not send again while waiting.", "أرسل USDT على هذه الشبكة. ادفع رسوم الشبكة منفصلة ليصل المبلغ كاملًا. لا تُعد الإرسال أثناء الانتظار."))}</p>

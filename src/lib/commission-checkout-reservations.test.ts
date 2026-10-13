@@ -42,6 +42,22 @@ beforeEach(async () => {
 }, 30_000);
 afterEach(async () => { await db?.close(); });
 describe("durable self-service checkout reservations", () => {
+  it("keeps both network instructions immutable and settles the newly selected network once", async () => {
+    const original = { ...checkout, network: "TRC20" };
+    const alternative = { ...checkout, id: "checkout-bep20", expectedMicros: 39_000_002 };
+    await issue(original); await issue(alternative);
+    await insertAudit("seller:checkout-network", { kind: "commission_checkout_network_selected_v1", checkoutId: alternative.id });
+    expect((await db.query("select checkout_id from alpha_exchange.commission_checkouts")).rows).toHaveLength(2);
+    expect((await db.query("select amount_micros from alpha_exchange.commission_checkout_amount_reservations order by amount_micros")).rows)
+      .toEqual([{ amount_micros: 39_000_000 }, { amount_micros: 39_000_002 }]);
+    await paid();
+    await db.query("update alpha_exchange.commissions set payload=jsonb_set(payload,'{paymentBatchSettlement,batchId}',to_jsonb($1::text)) where id='cm'", [alternative.id]);
+    await insertAudit(`${alternative.id}:settled`, { kind: "commission_checkout_settled_v1", checkoutId: alternative.id, checkout: alternative,
+      receipt: { signature, network: "BEP20", amountMicros: alternative.expectedMicros, timestamp: Date.parse(createdAt) + 1000 } });
+    expect((await db.query("select batch_id from alpha_exchange.commission_batch_receipt_reservations")).rows).toEqual([{ batch_id: alternative.id }]);
+    await expect(insertAudit(`${original.id}:settled`, { kind: "commission_checkout_settled_v1", checkoutId: original.id, checkout: original,
+      receipt: { signature, network: "TRC20", amountMicros: original.expectedMicros, timestamp: Date.parse(createdAt) + 1000 } })).rejects.toThrow();
+  });
   it("repairs only unsubmitted flags, preserves payment guards, and restores overdue checkout", async () => {
     await db.exec(`alter table alpha_exchange.commissions add column updated_at timestamptz default now();
       alter table alpha_exchange.audit_logs add column action text, add column sort_index integer;

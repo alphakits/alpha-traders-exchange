@@ -38,6 +38,23 @@ async function prepared() {
   const payment = { signature, network: "BEP20" as const, amountMicros: checkout.expectedMicros, timestamp: Date.parse(checkout.createdAt) + 1 };
   return { service, checkout, payment };
 }
+it("switches a mistaken TRC20 choice to BEP20, survives reload, and clears restrictions after automatic verification", async () => {
+  const service = await getCommissionCheckoutRuntime();
+  const original = await service.issue({ sellerId: "seller", network: "TRC20", desiredAmount: "38" });
+  const updated = await service.issue({ sellerId: "seller", network: "BEP20", currentCheckoutId: original.id });
+  expect(updated.network).toBe("BEP20"); expect(updated.commissions).toEqual(original.commissions);
+  const reloaded = await getCommissionCheckoutRuntime();
+  expect(await reloaded.state("seller")).toMatchObject({ status: "waiting", canChangeNetwork: true, checkout: { id: updated.id, network: "BEP20" } });
+  mocks.scanBsc.mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [{
+    signature: `0x${"d".repeat(64)}`, network: "BEP20", amountMicros: updated.expectedMicros, timestamp: Date.parse(updated.createdAt) + 1,
+  }] });
+  mocks.bep20.mockResolvedValue({ verified: true });
+  expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(1);
+  expect(await getSellerListingWorkspaceData({ sellerId: "seller" })).toMatchObject({
+    commissionStatus: { status: "clear", pendingCount: 0 }, summary: { canCreateListing: true },
+  });
+  expect((await reloaded.scan(Date.now() + 60_000)).verified).toBe(0);
+});
 it.each(["TRC20", "BEP20"] as const)("an unsubmitted overdue reset remains payable and automatically settles on %s", async (network) => {
   const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
   const createdAt = new Date(Date.now() - 10 * 86_400_000).toISOString();

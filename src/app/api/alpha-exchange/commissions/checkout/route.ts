@@ -42,13 +42,15 @@ export async function POST(request: NextRequest) {
     try { body = JSON.parse(raw); } catch { return NextResponse.json({ error: "INVALID_REQUEST" }, { status: 400, headers }); }
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "INVALID_REQUEST" }, { status: 400, headers });
     const value = body as Record<string, unknown>;
-    if (Object.keys(value).some((key) => !["network", "desiredAmount", "hasNotPaidYet"].includes(key))
+    if (Object.keys(value).some((key) => !["network", "desiredAmount", "hasNotPaidYet", "currentCheckoutId"].includes(key))
       || value.hasNotPaidYet !== true || (value.network !== "TRC20" && value.network !== "BEP20")
+      || (value.currentCheckoutId !== undefined && (typeof value.currentCheckoutId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(value.currentCheckoutId)))
       || (value.desiredAmount !== undefined && (typeof value.desiredAmount !== "string" || value.desiredAmount.length > 32))) {
       return NextResponse.json({ error: "INVALID_REQUEST" }, { status: 400, headers });
     }
     const service = await getCommissionCheckoutRuntime();
-    const checkout = await service.issue({ sellerId: user.id, network: value.network, desiredAmount: value.desiredAmount as string | undefined });
+    const checkout = await service.issue({ sellerId: user.id, network: value.network, desiredAmount: value.desiredAmount as string | undefined,
+      ...(value.currentCheckoutId !== undefined ? { currentCheckoutId: value.currentCheckoutId as string } : {}) });
     const rail = resolveCommissionWalletForNetwork(checkout.network);
     if (!rail.available) throw new Error("Destination unavailable");
     return NextResponse.json({ status: "waiting", checkout, walletAddress: rail.walletAddress,
