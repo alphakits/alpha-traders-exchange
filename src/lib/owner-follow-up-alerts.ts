@@ -58,7 +58,12 @@ export function ownerFollowUpAlerts(
     if (commission.paymentStatus === "paid" || commission.paymentVerificationStatus === "verified") continue;
     const failed = commission.paymentVerificationStatus === "failed";
     const submittedAt = Date.parse(commission.paymentSubmittedAt ?? commission.paymentExpectedAmountAssignedAt ?? commission.createdAt);
-    const delayed = commission.paymentVerificationStatus === "pending_verification"
+    // An overdue obligation still needs follow-up when no payment has been
+    // submitted. Do not depend on the old unsigned pending-verification flag:
+    // that flag is normalized away so the seller can use normal checkout.
+    const awaitingOverduePayment = commission.paymentStatus === "overdue"
+      && !commission.paymentSignature?.trim() && !commission.paymentSubmittedAt?.trim();
+    const delayed = (commission.paymentVerificationStatus === "pending_verification" || awaitingOverduePayment)
       && Number.isFinite(submittedAt) && now.getTime() - submittedAt >= COMMISSION_FOLLOW_UP_DELAY_MS;
     if (!failed && !delayed) continue;
     const reference = formatCommissionId(commission.displayNumber, commission.id);
