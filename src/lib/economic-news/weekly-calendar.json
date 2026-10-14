@@ -333,9 +333,13 @@
       "actual": null,
       "previous": null,
       "revised": null,
-      "reference": "October 2026",
-      "publishedAt": null,
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+      "reference": "October 2026 · Information collected through 5 Oct 2026",
+      "publishedAt": "2026-10-14T18:00:00Z",
+      "sourceUrl": "https://www.federalreserve.gov/monetarypolicy/beigebook202610-summary.htm",
+      "outcome": {
+        "en": "The October Beige Book reported growth in nine of twelve districts and little change in three. Employment changed little overall, while price increases were moderate to robust in most districts. The report reflects business and community contacts, not a new interest-rate decision.",
+        "ar": "أفاد الكتاب البيج لشهر أكتوبر بنمو النشاط في تسع من المناطق الاثنتي عشرة، وباستقراره تقريبًا في ثلاث. لم يتغير التوظيف كثيرًا إجمالًا، بينما كانت زيادات الأسعار معتدلة إلى قوية في معظم المناطق. يعكس التقرير آراء جهات اقتصادية ومجتمعية، ولا يمثل قرارًا جديدًا بشأن الفائدة."
+      }
     },
     {
       "id": "official-fed-bowman-bangkok-speech-20261014",
@@ -698,5 +702,5 @@
       "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
     }
   ],
-  "resultsVerifiedAt": "2026-10-14T12:49:23Z"
+  "resultsVerifiedAt": "2026-10-14T18:29:12Z"
 }
