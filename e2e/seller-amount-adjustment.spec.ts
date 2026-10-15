@@ -33,8 +33,8 @@ async function fixture(api: APIRequestContext, method: string) {
     notificationPreferences: { inApp: true, email: false, sms: false },
   }));
   db.users.push(...users);
-  db.marketplaceListings.push({ id: listingId, sellerId, sellerDisplayName: "Demo Seller", originalAmount: "1500", availableAmount: "1500", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: [method], paymentMethod: method, minimumTrade: "50", maximumTrade: "1500", status: "matched", activeTradeRequestId: id, approvalStatus: "approved", createdAt: now, updatedAt: now });
-  db.purchaseRequests.push({ id, tradeId: `${id}-trade`, listingId, sellerId, buyerId, buyerName: "Demo Buyer", usdtAmount: method === methods[2] ? "618.811881" : "600", fiatAmount: method === methods[2] ? "2000.00" : "1939.20", pricePerUsdt: "3.20", listingPriceAtRequest: "3.20", feePolicyVersion: "buyer_seller_1pct_v1", currency: "ILS", network: "TRC20", paymentMethod: method, bankName: method === methods[2] ? "Bank Leumi" : undefined, buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", status: "accepted", sellerSafetyAcknowledged: true, priceMode: "listing_price", tradeCreatedAt: now, createdAt: now, updatedAt: now, timeline: [], messages: [] });
+  db.marketplaceListings.push({ id: listingId, sellerId, sellerDisplayName: "Demo Seller", originalAmount: "1500", availableAmount: "1500", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: [method], paymentMethod: method, minimumTrade: "50", maximumTrade: "1500", status: "active", approvalStatus: "approved", createdAt: now, updatedAt: now });
+  db.purchaseRequests.push({ id, tradeId: `${id}-trade`, listingId, sellerId, buyerId, buyerName: "Demo Buyer", usdtAmount: method === methods[2] ? "618.811881" : "600", fiatAmount: method === methods[2] ? "2000.00" : "1939.20", pricePerUsdt: "3.20", listingPriceAtRequest: "3.20", feePolicyVersion: "buyer_seller_1pct_v1", currency: "ILS", network: "TRC20", paymentMethod: method, sellerBankAccountId: method === methods[0] ? "demo-bank-account" : undefined, sellerBankAccountSnapshot: method === methods[0] ? { accountHolderName: "Demo Seller", bankName: "Bank Leumi", branchNumber: "123", accountNumber: "12345678", accountLast4: "5678" } : undefined, bankName: method === methods[2] ? "Bank Leumi" : undefined, buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", status: "pending", sellerSafetyAcknowledged: true, priceMode: "listing_price", createdAt: now, updatedAt: now, timeline: [], messages: [] });
   const saved = await api.put("/api/testing/alpha-exchange-state", { headers, data: db });
   expect(saved.ok()).toBeTruthy();
   return { id, sellerId, buyerId, listingId, password };
@@ -92,7 +92,18 @@ for (const method of methods) {
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount, { timeout: 20_000 });
       await sellerPage.reload();
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount);
+      await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
+      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toHaveCount(0);
+      await expect(sellerPage.getByTestId("trade-amount-locked")).toBeVisible();
+      await buyerPage.reload();
       const before = await readDb(request);
+      const locked = before.purchaseRequests.find((r: {id: string}) => r.id === f.id);
+      for (const action of ["propose_amount", "propose_ils_amount", "recalculate_cardless_amount"]) {
+        const denied = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action,value:"100",ilsAmount:"100",expectedUpdatedAt:locked.updatedAt}});
+        expect(denied.ok()).toBe(false);
+      }
+      const staleApproval = await buyer.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action:"accept_amount",proposalId:locked.termsProposal.id}});
+      expect(staleApproval.ok()).toBe(false);
       expect(before.marketplaceListings.find((l: {id: string}) => l.id === f.listingId).availableAmount).toBe("1500");
       expect(before.commissionRecords.filter((c: {purchaseRequestId: string}) => c.purchaseRequestId === f.id)).toHaveLength(0);
       if (method === methods[0]) {
@@ -103,7 +114,7 @@ for (const method of methods) {
         await buyerPage.locator("#cardless-verification-value").fill("123456789");
         await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
       } else await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
-      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled({ timeout: 20_000 });
+      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toHaveCount(0);
       await sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : method === methods[2] ? "I Collected the ATM Cash" : "I Received the Cash", exact: true }).click();
       if (method === methods[0]) {
         await sellerPage.getByRole("button", { name: "Release USDT", exact: true }).click();

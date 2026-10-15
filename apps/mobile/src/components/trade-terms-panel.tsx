@@ -15,11 +15,11 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
   const counter = trade.status === "pending" && trade.priceMode === "buyer_offer";
   const proposal = trade.termsProposal;
   const pending = proposal?.status === "pending";
-  const paymentLocked = !["pending", "accepted"].includes(trade.status) || (seller && !trade.actions.canCancel);
+  const paymentLocked = trade.status !== "pending" || (seller && !trade.actions.canCancel);
   const face = trade.paymentMethod === "Face-to-Face (Meet in Person)";
-  if ((!seller || (!counter && (trade.status !== "accepted" || paymentLocked))) && !pending) return null;
+  if ((!seller || (!counter && (trade.status !== "pending" || paymentLocked))) && !pending) return null;
   async function submit(action: string) {
-    if (disabled || inFlight.current) return;
+    if (disabled || inFlight.current || (paymentLocked && !["withdraw_terms", "decline_terms"].includes(action))) return;
     inFlight.current = true;
     try { await onAction(action, value, safety); } finally { inFlight.current = false; }
   }

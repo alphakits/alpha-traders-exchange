@@ -1,6 +1,6 @@
 "use client";
 
-import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
+import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
 import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useRef, useState } from "react";
@@ -26,8 +26,8 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
   const seller = request.sellerId === actorId;
   const canCounter = request.status === "pending" && request.priceMode === "buyer_offer";
   const counter = canCounter && editorKind === "counter";
-  const paymentLocked = hasIrreversibleRequestProgress(request);
-  const canCorrect = ["pending", "accepted"].includes(request.status) && !paymentLocked;
+  const paymentLocked = areTradeAmountsLocked(request);
+  const canCorrect = !paymentLocked;
   const proposal = request.termsProposal;
   const pending = proposal?.status === "pending";
   const face = request.paymentMethod === "Face-to-Face (Meet in Person)";
@@ -43,9 +43,12 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
   if (!["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)) return null;
   if (![request.sellerId, request.buyerId].includes(actorId)) return null;
   if (!pending && !seller) return null;
+  const lockedMessage = isAr ? "المبلغ مقفل. التعديل متاح فقط قبل قبول الصفقة وبدء مرحلة الدفع." : "The amount is locked. Adjustments are only available before accepting the trade and opening the payment step.";
+  if (paymentLocked && !pending) return <p data-testid="trade-amount-locked" className="text-xs text-[#D1D5DB]">{lockedMessage}</p>;
 
   async function submit(action: string) {
     if (disabled || inFlight.current) return;
+    if (paymentLocked && !["withdraw_terms", "decline_terms"].includes(action)) return;
     if (onBusyChange?.(true) === false) return;
     inFlight.current = true; setBusy(true); setError("");
     try {
@@ -75,9 +78,10 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
       </Button>
       {canCounter ? <Button type="button" variant="secondary" className="min-h-11 w-auto rounded-xl px-4" aria-expanded={editing && counter} aria-controls="trade-amount-editor" disabled={disabled || busy || paymentLocked} onClick={() => { setEditorKind("counter"); setValue(""); setEditing(!editing || !counter); }}>{isAr ? "تقديم عرض مقابل" : "Make a counter-offer"}</Button> : null}
       </div>
-      {paymentLocked ? <p className="max-w-md text-xs text-[#D1D5DB]">{currencyText(isAr ? "بدأ الدفع أو تمت مشاركة رمز السحب، لذلك أصبح المبلغ مقفلاً." : "Payment has started or a withdrawal code was shared. The amount is locked.")}</p> : null}
+      <p className="max-w-md text-xs text-[#D1D5DB]">{isAr ? "عدّل المبلغ قبل قبول الصفقة. يُقفل المبلغ عند القبول وقبل بدء الدفع." : "Adjust before accepting the trade. The amount locks at acceptance, before payment."}</p>
     </>}
     {pending ? <>
+      {paymentLocked ? <p role="status" className="text-sm">{lockedMessage}</p> : null}
       <p dir="ltr" className="break-words">{currencyText(`${proposal.usdtAmount} USDT · ${request.currency} ${proposal.fiatAmount} · ${proposal.pricePerUsdt} ${request.currency} / USDT`)}</p>
       <p className="text-sm">{isAr ? "راجع الكمية والسعر والإجمالي قبل الموافقة." : "Check the amount, price, and total before accepting."}</p>
       <div className="flex flex-wrap gap-2">

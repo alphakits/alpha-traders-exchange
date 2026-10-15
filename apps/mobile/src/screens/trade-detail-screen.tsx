@@ -33,7 +33,6 @@ import type {
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { normalizeCardlessDigits, parseCardlessWithdrawalDetails, tradeChatRoleLabel, tradeChatStatusLabel, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import {
-  recalculateMobileCardlessAmount,
   completeMobileTrade,
   getMobileTrade,
   getMobileTradeBankDetails,
@@ -405,18 +404,6 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     setBusyAction("trade-terms"); setError(null);
     try {
       const response = await requestWithSession((tokens, requestLocale) => updateMobileTradeTerms(tokens, requestLocale, requestId, { action, value, proposalId: current.termsProposal?.id, expectedUpdatedAt: current.updatedAt, safetyAcknowledged }));
-      if (activeTradeScopeRef.current === operationScope) applyTradeMutation(response);
-    } catch (caught) {
-      if (activeTradeScopeRef.current === operationScope) setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
-    } finally { if (activeTradeScopeRef.current === operationScope) setBusyAction(null); }
-  }
-
-  async function recalculateCardlessAmount() {
-    if (busyAction) return;
-    const operationScope = activeTradeScopeRef.current;
-    setBusyAction("adjust-amount"); setError(null);
-    try {
-      const response = await requestWithSession((tokens, requestLocale) => recalculateMobileCardlessAmount(tokens, requestLocale, requestId));
       if (activeTradeScopeRef.current === operationScope) applyTradeMutation(response);
     } catch (caught) {
       if (activeTradeScopeRef.current === operationScope) setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
@@ -939,7 +926,6 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {trade.hasBuyerEvidence ? t("receiptUploaded") : t("uploadPaymentReceipt")}
             </GoldButton>
           ) : null}
-          {trade.side === "seller" && isCardlessAtm && trade.status === "accepted" && trade.actions.canCancel ? <GoldButton disabled={actionsDisabled} loading={busyAction === "adjust-amount"} onPress={() => void recalculateCardlessAmount()}>{locale === "ar" ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount"}</GoldButton> : null}
           {actions.canConfirmFunds ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", cashTradeKind ? (isCardlessAtm ? t("atmCashReceivedConfirmation") : t("cashReceivedConfirmation")) : t("fundsConfirmation"))}>
               {cashTradeKind ? (isCardlessAtm ? t("collectedAtmCash") : t("receivedCash")) : t("confirmFunds")}
