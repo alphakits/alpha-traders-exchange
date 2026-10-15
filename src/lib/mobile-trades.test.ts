@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toMobileTradeActions } from "@/lib/mobile-trades";
+import { toMobileTradeActions, toMobileTradeSummary } from "@/lib/mobile-trades";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 const acceptedBankTrade = {
@@ -11,6 +11,16 @@ const acceptedBankTrade = {
 } as PurchaseRequest;
 
 describe("mobile trade actions", () => {
+  it("exposes the persisted adjustment count to both native participants", () => {
+    for (const userId of ["seller-1", "buyer-1"]) {
+      expect(toMobileTradeSummary({...acceptedBankTrade, amountAdjustmentCount:2}, userId).amountAdjustmentCount).toBe(2);
+    }
+  });
+  it("counts legacy system proposals, without treating user chat as an adjustment", () => {
+    const message = "Seller proposed 150 USDT for ILS 600.00 at 4.00 per USDT. Buyer confirmation required.";
+    const trade = {...acceptedBankTrade, messages:[{kind:"user", message}, {kind:"system", message}]} as PurchaseRequest;
+    expect(toMobileTradeSummary(trade, "seller-1").amountAdjustmentCount).toBe(1);
+  });
   it.each([
     ["Bank Transfer", "usdt_sent", true],
     ["Bank Transfer", "funds_received", false],

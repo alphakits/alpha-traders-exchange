@@ -138,7 +138,7 @@ it.each([
   ["cancel", "fetch"], ["cancel", "body"], ["adjust", "fetch"], ["adjust", "body"], ["poke", "fetch"], ["poke", "body"],
 ] as const)("releases %s after a stalled %s without repeating the action or accepting a late response", async (action, phase) => {
   vi.useFakeTimers();
-  const current = room("Cardless ATM Withdrawal", "accepted");
+  const current = room("Cardless ATM Withdrawal", action === "adjust" ? "pending" : "accepted");
   current.poke.available = true; current.poke.canPoke = true; current.poke.counterpartRole = "seller";
   Object.assign(current.request, { fiatAmount: "400.00", pricePerUsdt: "3.20" });
   let finish!: (value: unknown) => void;
@@ -162,7 +162,7 @@ it.each([
   await act(async () => { finish(phase === "fetch" ? Response.json(payload) : payload); });
   expect(navigation.push).not.toHaveBeenCalled();
   expect(screen.queryByText("Seller notified.")).toBeNull();
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(action === "adjust" ? "0" : "20");
 });
 
 it.each([["dispute", "fetch"], ["dispute", "body"], ["close", "fetch"], ["close", "body"]] as const)("keeps the %s draft and unlocks the room after a stalled %s", async (action, phase) => {
@@ -299,9 +299,9 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(card.contains(action)).toBe(true);
     expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card.compareDocumentPosition(screen.getByTestId("trade-progress-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The amount control stays at the top, disabled once payment has started.
-    expect(card.querySelector("button")).toBe(screen.getByRole("button", { name: "Adjust Amount" }));
-    expect((card.querySelector("button") as HTMLButtonElement).disabled).toBe(true);
+    // Adjustment is disabled once payment becomes available.
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
     expect(card.querySelector("button:not(:disabled)")).toBe(action);
     expect(within(card).getByTestId("trade-action-feedback")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("60");
@@ -581,8 +581,16 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(window.confirm).toHaveBeenCalledOnce();
   });
 
-  it("opens the seller amount editor before payment details after acceptance", async () => {
+  it("disables adjustment as soon as payment becomes available, without waiting for a receipt", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, "accepted")))));
+    render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
+    await screen.findByTestId("trade-details");
+    expect((screen.getByRole("button", {name:"Adjust Amount"}) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
+  });
+
+  it("opens the seller amount editor only before trade acceptance", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, "pending")))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     const adjust = await screen.findByRole("button", { name: "Adjust Amount" });
     expect((adjust as HTMLButtonElement).disabled).toBe(false);
@@ -590,8 +598,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     fireEvent.click(adjust);
     const amount = screen.getByLabelText(method === "Cardless ATM Withdrawal" ? "New withdrawal amount (ILS)" : "Correct USDT amount");
     expect(amount.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByText(/Cancel only before payment starts/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept Trade" })).toBeTruthy();
   });
 
   it.each(["en", "ar"] as const)("lets the accepted seller cancel once before payment in %s", async (locale) => {
@@ -630,6 +637,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     await screen.findByTestId("trade-details");
     expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
     expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Adjust USDT to withdrawal amount" })).toBeNull();
   });
 });
@@ -659,7 +667,7 @@ it.each([
 });
 
 it("proposes a new cardless cash amount once and keeps the old total until buyer approval", async () => {
-  const base = room("Cardless ATM Withdrawal", "accepted");
+  const base = room("Cardless ATM Withdrawal", "pending");
   const current = { ...base, request: { ...base.request, usdtAmount: "125", fiatAmount: "400.00", pricePerUsdt: "3.20" } };
   const response = deferredResponse();
   const fetch = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));

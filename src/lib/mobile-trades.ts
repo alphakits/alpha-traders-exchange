@@ -7,7 +7,7 @@ import type {
   MobileTradeMessage,
   MobileTradeSummary,
 } from "@alpha-traders/contracts";
-import { localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
+import { getTradeAmountAdjustmentCount, localizeCardlessWithdrawalMessage, tradeChatStatus } from "@alpha-traders/contracts";
 import { tradeChatPublicId, tradeChatSender, type TradeChatContext } from "@/lib/trade-chat-presentation";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
@@ -30,6 +30,7 @@ export function toMobileTradeSummary(request: PurchaseRequest, userId: string): 
   const pricePerUsdt = request.pricePerUsdt || request.listingPriceAtRequest || "0";
   return {
     feePolicyVersion: request.feePolicyVersion,
+    amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
     termsProposal: request.termsProposal,
     id: request.id,
     displayNumber: request.displayNumber,

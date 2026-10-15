@@ -13,6 +13,8 @@ import { cardlessCredentialPayloadHash, matchesCardlessCredentialPayloadHash, en
 import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { assertListingPriceAtCurrentReference } from "@/lib/listing-price-validation";
 import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
+import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
+import { getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { buildOwnerActiveTradeSummaries } from "@/lib/owner-active-trades";
@@ -10422,7 +10424,7 @@ export async function updateTradeTerms(input: {
     const seller = request.sellerId === input.actorUserId;
     const proposal = request.termsProposal;
     const creating = input.action === "counter_offer" || input.action === "propose_amount" || input.action === "propose_ils_amount";
-    if ((creating || input.action === "accept_amount") && hasIrreversibleTradeProgress(snapshot, request)) throw new TradeBlockedError("trade-terms-invalid", "Payment has started. Trade amounts and price are locked at this stage.", input.requestId);
+    if ((creating || input.action === "accept_amount") && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(snapshot, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage. Adjustments require buyer approval before trade acceptance and before payment becomes available.", input.requestId);
     if (!creating && proposal && proposal.id === input.proposalId && proposal.status !== "pending") {
       const expected = input.action === "accept_amount" ? "accepted" : input.action === "withdraw_terms" ? "withdrawn" : "declined";
       if (proposal.status === expected && (input.action === "withdraw_terms" ? seller : !seller)) { committed = request; return snapshot; }
@@ -10434,9 +10436,10 @@ export async function updateTradeTerms(input: {
     let message: string;
     if (creating) {
       if (!seller) throw new TradeBlockedError("trade-terms-invalid", "Only the seller can propose new terms.", input.requestId);
+      if (getTradeAmountAdjustmentCount(request) >= MAX_TRADE_AMOUNT_ADJUSTMENTS) throw new TradeBlockedError("trade-terms-invalid", "The two-adjustment limit has been reached. No further amount or price proposals are allowed for this trade.", input.requestId);
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
-      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
+      if (request.status !== "pending" || (counter && request.priceMode !== "buyer_offer")) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
 
       if (!counter && request.status !== "pending" && !isRequestStatusLockingListing(request.status)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
@@ -10469,6 +10472,7 @@ export async function updateTradeTerms(input: {
         }
       }
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
+      request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
       message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
@@ -10513,61 +10517,16 @@ export async function updateTradeTerms(input: {
   return request;
 }
 
-/** Recalculate only from the buyer's cash amount and the locked agreed rate. */
+/** Compatibility for older clients: corrections still require pre-payment buyer approval. */
 export async function recalculateCardlessTradeAmount(input: { requestId: string; actorUserId: string; ilsAmount?: string }) {
-  let committed: PurchaseRequest | undefined;
-  let notificationPublication: DeferredNotificationPublication | null = null;
-  const apply = async (snapshot: AlphaExchangeDb) => {
-    if (notificationPublication && !snapshot.notifications.some((item) => item.id === notificationPublication?.notification.id)) notificationPublication = null;
-    const request = snapshot.purchaseRequests.find((item) => item.id === input.requestId);
-    if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
-    if (request.termsProposal?.status === "pending") throw new Error("Respond to the pending proposal first.");
-    if (!isCardlessAtmPaymentMethod(request.paymentMethod) || request.status !== "accepted" || hasIrreversibleTradeProgress(snapshot, request)) throw new Error("Payment has started or the trade is not accepted. Amounts can only be adjusted before payment.");
-    if (snapshot.disputes.some((item) => item.purchaseRequestId === request.id && item.status === "open")) throw new Error("Resolve the open dispute before adjusting the amount.");
-    let cashAmount = request.fiatAmount;
-    if (input.ilsAmount) {
-      const provided = validateCardlessIlsAmount(input.ilsAmount, input.ilsAmount);
-      if (!provided) throw new Error("Withdrawal must be 100–10,000 ILS in multiples of 100.");
-      const recorded = validateCardlessIlsAmount(cashAmount, cashAmount);
-      if (recorded && provided !== recorded) throw new Error("Use the withdrawal amount supplied by the buyer; the bank code amount cannot be changed by the seller.");
-      cashAmount = provided;
-    }
-    const listing = snapshot.marketplaceListings.find((item) => item.id === request.listingId);
-    const agreedPrice = request.pricePerUsdt || request.listingPriceAtRequest || listing?.price || "";
-    const amount = calculateCardlessUsdtAmount(cashAmount, agreedPrice, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
-    if (!amount) throw new Error("The buyer's withdrawal must be 100–10,000 ILS in multiples of 100.");
-    if (!listing || !isRequestStatusLockingListing(request.status) || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id))
-      || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new Error("The adjusted amount exceeds this listing's available balance or trade limits.");
-    if (request.usdtAmount !== amount || Number(request.fiatAmount) !== Number(cashAmount) || !request.pricePerUsdt) {
-      request.usdtAmount = amount;
-      request.pricePerUsdt = agreedPrice;
-      request.fiatAmount = Number(cashAmount).toFixed(2);
-      request.updatedAt = nowIsoAfter(request.updatedAt);
-      appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message: `USDT amount adjusted to ${amount} for ILS ${request.fiatAmount} at the agreed rate ${request.pricePerUsdt}.`, createdAt: request.updatedAt });
-      notificationPublication = pushNotification(snapshot, {
-        userId: request.buyerId, category: "trade", title: "Trade amount updated",
-        message: "The seller updated the trade amount. Open the Trade Room to review it.",
-        relatedRequestId: request.id, relatedTradeId: request.tradeId,
-        relatedListingId: request.listingId, relatedHref: requestDetailsHref(request.id),
-        whatsappEvent: "trade_update",
-        deferRealtime: true,
-      });
-      await appendAuditLog(snapshot, { action: "admin_override", actorUserId: input.actorUserId, purchaseRequestId: request.id, details: "Seller recalculated cardless USDT from the buyer cash amount at the locked trade price." });
-    }
-    committed = request;
-    return snapshot;
-  };
-  const focused = await commitFocusedTradeMutation(input.requestId, apply);
-  if (!focused) {
-    const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
-    await apply(db);
-    await writeDb(db, { selectedTables: ["purchase_requests", "notifications", "audit_logs"], rebaseOnLatest: apply, rebaseTables: TRADE_STATUS_FAST_READ_TABLES, cacheResult: false });
+  const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_FAST_READ_TABLES);
+  const request = db.purchaseRequests.find(item => item.id === input.requestId);
+  if (!request || request.sellerId !== input.actorUserId) throw new Error("Only this trade's seller can adjust the USDT amount.");
+  if (!isCardlessAtmPaymentMethod(request.paymentMethod) || areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(db, request)) {
+    throw new Error("The amount is locked. Adjustments are only available before trade acceptance and before payment.");
   }
-  if (!committed) throw new Error("Trade adjustment could not be confirmed.");
-  publishNotificationPublication(notificationPublication);
-  const request = committed as PurchaseRequest;
-  publishRealtimeEvent({ type: "trade.status_changed", payload: { requestId: request.id, request, status: request.status, timeline: request.timeline, publishedAtEpochMs: Date.now() } });
-  return request;
+  return updateTradeTerms({ requestId: request.id, actorUserId: input.actorUserId,
+    action: "propose_ils_amount", value: input.ilsAmount || request.fiatAmount, expectedUpdatedAt: request.updatedAt });
 }
 
 export async function createPurchaseRequest(input: {
@@ -11192,6 +11151,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     || (request.sellerId === actorUserId && SELLER_WALLET_VISIBLE_STATUSES.has(request.status));
   const redacted: PurchaseRequest = {
     ...request,
+    amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
     sellerBankAccountSnapshot: undefined,
     buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
@@ -14060,6 +14020,7 @@ async function updatePurchaseRequestStatusAttempt(
   };
 
   if (input.nextStatus === "accepted") {
+    if (acceptingCounter && (areTradeAmountsLocked(request) || hasIrreversibleTradeProgress(db, request))) throw new TradeBlockedError("trade-terms-invalid", "Trade amounts and price are locked at this stage.", request.id);
     if (acceptingCounter && request.termsProposal) {
       next.usdtAmount = request.termsProposal.usdtAmount;
       next.fiatAmount = request.termsProposal.fiatAmount;

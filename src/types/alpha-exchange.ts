@@ -850,6 +850,8 @@ export interface AdminAnnouncementRun {
 
 export interface PurchaseRequest {
   feePolicyVersion?: "buyer_seller_1pct_v1";
+  /** Server-owned count of submitted financial proposals; never refunded. */
+  amountAdjustmentCount?: number;
   termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;

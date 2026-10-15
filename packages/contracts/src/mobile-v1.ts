@@ -959,6 +959,7 @@ export interface TradeTermsProposal {
 
 export interface MobileTradeSummary {
   feePolicyVersion?: "buyer_seller_1pct_v1";
+  amountAdjustmentCount?: number;
   termsProposal?: TradeTermsProposal;
   bankName?: string;
   id: string;

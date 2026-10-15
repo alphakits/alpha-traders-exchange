@@ -2,6 +2,7 @@ import { BrandedText as Text } from "./branded-text";
 import { useRef, useState } from "react";
 import { TextInput, View, Switch } from "react-native";
 import type { MobileTradeDetail } from "@alpha-traders/contracts";
+import { getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import { GoldButton } from "./gold-button";
 
 export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
@@ -15,15 +16,19 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
   const counter = trade.status === "pending" && trade.priceMode === "buyer_offer";
   const proposal = trade.termsProposal;
   const pending = proposal?.status === "pending";
-  const paymentLocked = !["pending", "accepted"].includes(trade.status) || (seller && !trade.actions.canCancel);
+  const paymentLocked = trade.status !== "pending" || (seller && !trade.actions.canCancel);
+  const adjustmentCount = getTradeAmountAdjustmentCount(trade);
+  const limitReached = adjustmentCount >= MAX_TRADE_AMOUNT_ADJUSTMENTS;
   const face = trade.paymentMethod === "Face-to-Face (Meet in Person)";
-  if ((!seller || (!counter && (trade.status !== "accepted" || paymentLocked))) && !pending) return null;
+  if ((!seller || (!counter && (trade.status !== "pending" || paymentLocked))) && !pending) return null;
   async function submit(action: string) {
-    if (disabled || inFlight.current) return;
+    if (disabled || inFlight.current || (paymentLocked && !["withdraw_terms", "decline_terms"].includes(action))) return;
+    if (limitReached && ["counter_offer", "propose_amount", "propose_ils_amount"].includes(action)) return;
     inFlight.current = true;
     try { await onAction(action, value, safety); } finally { inFlight.current = false; }
   }
   return <View style={{ padding: 16, gap: 12, borderWidth: 1, borderColor: "#C9A227", borderRadius: 14 }}>
+    {seller ? <Text style={{ color: "#D1D5DB" }}>{limitReached ? (isAr ? "تم استخدام التعديلين (2/2). لا يمكن تقديم تعديلات أخرى." : "Adjustment limit reached (2/2). No further proposals are available.") : (isAr ? `التعديلات المستخدمة: ${adjustmentCount} / 2` : `${adjustmentCount} / 2 adjustments used`)}</Text> : null}
     <Text style={{ color: "#FDE68A", fontWeight: "700" }}>{pending ? (isAr ? "اقتراح البائع بانتظار موافقة المشتري" : "Seller proposal — awaiting buyer confirmation") : counter ? (isAr ? "عرض مقابل" : "Counter-offer") : (isAr ? "تعديل كمية USDT" : "Adjust USDT amount")}</Text>
     {pending ? <>
       <Text style={{ color: "white", writingDirection: "ltr" }}>{proposal.usdtAmount} USDT · {trade.currency} {proposal.fiatAmount} · {proposal.pricePerUsdt} / USDT</Text>
@@ -34,10 +39,10 @@ export function TradeTermsPanel({ trade, isAr, disabled, onAction }: {
       </>}
     </> : <>
       <Text style={{ color: "white" }}>{counter ? (isAr ? "السعر بالشيكل لكل USDT" : "Price in ILS per USDT") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount")}</Text>
-      <TextInput accessibilityLabel={counter ? "Counter price ILS" : "Correct USDT amount"} keyboardType="decimal-pad" value={value} onChangeText={setValue} editable={!disabled} placeholder={counter ? trade.pricePerUsdt : trade.usdtAmount} placeholderTextColor="#999" style={{ color: "white", borderColor: "#777", borderWidth: 1, borderRadius: 8, padding: 12, textAlign: "left" }} />
+      <TextInput accessibilityLabel={counter ? "Counter price ILS" : "Correct USDT amount"} keyboardType="decimal-pad" value={value} onChangeText={setValue} editable={!disabled && !limitReached} placeholder={counter ? trade.pricePerUsdt : trade.usdtAmount} placeholderTextColor="#999" style={{ color: "white", borderColor: "#777", borderWidth: 1, borderRadius: 8, padding: 12, textAlign: "left" }} />
       <Text style={{ color: "white" }}>{isAr ? "انتظر موافقة المشتري قبل تحويل المال أو USDT." : "Wait for buyer confirmation before transferring money or USDT."}</Text>
       {counter && face ? <View><Text style={{ color: "white" }}>{isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT."}</Text><Switch accessibilityLabel="Accept meeting safety guidelines" value={safety} onValueChange={setSafety} /></View> : null}
-      <GoldButton disabled={disabled || !value.trim() || (counter && face && !safety)} onPress={() => void submit(counter ? "counter_offer" : "propose_amount")}>{counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</GoldButton>
+      <GoldButton disabled={disabled || paymentLocked || limitReached || !value.trim() || (counter && face && !safety)} onPress={() => void submit(counter ? "counter_offer" : "propose_amount")}>{counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</GoldButton>
     </>}
   </View>;
 }
