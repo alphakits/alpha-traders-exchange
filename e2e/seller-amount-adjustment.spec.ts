@@ -64,6 +64,8 @@ for (const method of methods) {
       const adjust = sellerPage.getByRole("button", { name: "Adjust Amount", exact: true });
       await expect(adjust).toBeEnabled();
       await expect(adjust).toBeInViewport();
+      await expect(adjust).toHaveAttribute("aria-expanded", "false");
+      await expect(sellerPage.locator("#trade-amount-editor")).toHaveCount(0);
       expect(await sellerPage.getByTestId("trade-amount-action").evaluate(el => !!(el.compareDocumentPosition(document.getElementById("status-banner")!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
       if (method === methods[1]) {
         for (const [locale, width] of [["en", 390], ["ar", 390], ["en", 1440]] as const) {
@@ -77,6 +79,8 @@ for (const method of methods) {
         await sellerPage.goto(path);
       }
       await adjust.click();
+      await expect(adjust).toHaveAttribute("aria-expanded", "true");
+      await expect(sellerPage.locator("#trade-amount-editor")).toBeVisible();
       await sellerPage.getByLabel(method === methods[2] ? "New withdrawal amount (ILS)" : "Correct USDT amount", { exact: true }).fill(method === methods[2] ? "500" : "150");
       const newAmount = method === methods[2] ? "154.70297" : "150";
       await expect(sellerPage.getByTestId("trade-adjustment-preview")).toContainText(`${newAmount} USDT`);
