@@ -2162,6 +2162,7 @@ export class AlphaExchangeRepository {
           'marketplaceListings', (select coalesce(jsonb_agg(l.payload), '[]'::jsonb) from alpha_exchange.listings l where l.seller_id = r.seller_id),
           'commissionRecords', (select coalesce(jsonb_agg(c.payload), '[]'::jsonb) from alpha_exchange.commissions c where c.seller_id = r.seller_id),
           'trustSnapshots', (select coalesce(jsonb_agg(t.payload), '[]'::jsonb) from alpha_exchange.trust_snapshots t where t.seller_id = r.seller_id),
+          'tradeEvidenceFiles', (select coalesce(jsonb_agg(e.payload), '[]'::jsonb) from alpha_exchange.evidence e where e.purchase_request_id = r.id),
           'disputes', (select coalesce(jsonb_agg(d.payload), '[]'::jsonb) from alpha_exchange.disputes d where d.purchase_request_id = r.id)
         ) as payload
         from alpha_exchange.purchase_requests r where r.id = $1 or r.trade_id = $1 limit 1`, [requestId]);

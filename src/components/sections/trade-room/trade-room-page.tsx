@@ -4,7 +4,6 @@ import { sellerFeeResponsibilityNotice, tradePaymentReceiptConfirmation } from "
 import { AttentionSiren } from "@/components/ui/attention-siren";
 import { publicAccountName } from "@/lib/public-account-identity";
 
-import { formatMoneyNumber } from "@/lib/accent-text";
 import { currencyText } from "@/components/ui/currency-text";
 import { ACTION_FEEDBACK_REVEALED, ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
@@ -15,7 +14,6 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { publishTradeHeaderActivity, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
-import { hasIrreversibleRequestProgress } from "@/lib/trade-cancellation";
 import { TradeTermsPanel } from "./trade-terms-panel";
 import { TradeChatMessageLabel, TradeChatMessageStatus } from "./trade-chat-message-label";
 import { tradeChatPublicId } from "@/lib/trade-chat-presentation";
@@ -43,7 +41,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import { UserSafetyActions } from "@/components/account/user-safety-actions";
 import { CardlessWithdrawalFields } from "./cardless-withdrawal-fields";
-import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { localizeCardlessWithdrawalMessage, parseCardlessWithdrawalDetails, type CardlessVerificationKind } from "@alpha-traders/contracts";
 
 type Locale = "ar" | "en";
 
@@ -2022,24 +2020,6 @@ function TradeRoomPageSession({
   }, [isAr, sellerWalletAddress, setActionError]);
 
   const [adjustingAmount, setAdjustingAmount] = useState(false);
-  const [adjustmentIlsAmount, setAdjustmentIlsAmount] = useState("");
-  useEffect(() => { setAdjustmentIlsAmount(""); }, [requestId, request?.fiatAmount]);
-  const recalculateCashAmount = useCallback(async () => {
-    const mutationKey = `${requestId}:recalculate-amount`;
-    if (adjustingAmount || !roomRef.current || !acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
-    setAdjustingAmount(true);
-    setActionError(null);
-    try {
-      const { response, payload } = await fetchClientJson<{ request?: PurchaseRequest; error?: string }>(`/api/alpha-exchange/purchase-requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recalculate_cardless_amount", ilsAmount: adjustmentIlsAmount || undefined }) }, 15_000);
-      if (!response.ok || payload.request?.id !== requestId) throw new Error(isAr ? "تعذر تعديل المبلغ. تحقق من مبلغ السحب وحدود العرض ثم حدّث الصفقة." : payload.error ?? "Could not adjust the trade amount.");
-      const nextRoom = applyRequestToRoom(roomRef.current!, payload.request);
-      roomRef.current = nextRoom; setRoom(nextRoom); writeTradeRoomCache(requestId, actor.id, nextRoom);
-      setStatusMessage(isAr ? `تم تأكيد المبلغ: ${payload.request.usdtAmount} USDT مقابل ₪${payload.request.fiatAmount}.` : `Amount confirmed: ${payload.request.usdtAmount} USDT for ILS ${payload.request.fiatAmount}.`);
-    } catch (error) {
-      setActionError(localizedCaughtError(error, isAr ? "تعذر تأكيد تعديل المبلغ. حدّث الصفقة." : "Could not confirm the adjustment. Refresh the trade.", isAr));
-    } finally { releaseTradeRoomMutation(actionInFlightRef, mutationKey); setAdjustingAmount(false); void fetchRoom(true); }
-  }, [adjustingAmount, fetchRoom, setActionError, requestId, adjustmentIlsAmount, isAr, actor.id, setStatusMessage]);
-
   const canRevealBankDetails = canRevealTradeRoomBankDetails(request, isSeller);
   const bankDetailsRequestId = request?.id ?? null;
   const bankDetailsAccountId = request?.sellerBankAccountId ?? null;
@@ -3044,26 +3024,8 @@ function TradeRoomPageSession({
   ) : null;
 
   const hasPendingTradeTerms = request.termsProposal?.status === "pending";
-  const recordedCashAmount = parseCardlessCashAmount(request.fiatAmount);
-  const adjustmentPrice = request.pricePerUsdt || request.listingPriceAtRequest || room.listing?.price || "";
-  const adjustmentCashOptions = isCardlessAtmTrade && room.listing
-    ? getCardlessCashAmountOptions(adjustmentPrice, room.listing.minimumTrade, Math.min(Number(room.listing.maximumTrade || room.listing.availableAmount), Number(room.listing.availableAmount)), room.request.feePolicyVersion === "buyer_seller_1pct_v1")
-    : [];
-  const cardlessAmountEditor = isSeller && isCardlessAtmTrade && request.status === "accepted" && !hasIrreversibleRequestProgress(request) ? (
-    <div className="space-y-2 text-sm">
-      <p>{currencyText(isAr ? `مبلغ السحب: ₪${request.fiatAmount} · السعر المتفق عليه: ₪${adjustmentPrice} لكل USDT` : `Withdrawal: ILS ${request.fiatAmount} · Agreed price: ILS ${adjustmentPrice} per USDT`)}</p>
-      <label className="block" htmlFor="adjust-withdrawal-ils">{isAr ? "مبلغ رمز السحب بالشيكل" : "Bank withdrawal amount (ILS)"}</label>
-      {recordedCashAmount ? <Input className="currency-money" id="adjust-withdrawal-ils" dir="ltr" readOnly value={recordedCashAmount} /> : <select id="adjust-withdrawal-ils" value={adjustmentIlsAmount} onChange={(event) => setAdjustmentIlsAmount(event.target.value)} disabled={adjustingAmount || actionBusy || room.hasOpenDispute} className="currency-money min-h-11 w-full rounded-xl border border-white/20 bg-[#111] px-3">
-        <option value="">{isAr ? "اختر مبلغ رمز المشتري" : "Select the buyer's code amount"}</option>
-        {adjustmentCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
-      </select>}
-      <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? "تُطابق كمية USDT مع مبلغ رمز المشتري بالسعر المتفق عليه. لا يمكن للبائع تغيير مبلغ الرمز." : "USDT is matched to the buyer's bank code at the agreed price. The seller cannot change the code amount.")}</p>
-      <p className="font-semibold text-[#FDE68A]">{currencyText(`${calculateCardlessUsdtAmount(recordedCashAmount || adjustmentIlsAmount, adjustmentPrice, room.request.feePolicyVersion === "buyer_seller_1pct_v1") ?? "—"} USDT`)}</p>
-      <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={adjustingAmount || actionBusy || room.hasOpenDispute || (!recordedCashAmount && !adjustmentCashOptions.some((option) => option.ilsAmount === adjustmentIlsAmount))} onClick={() => void recalculateCashAmount()}>{adjustingAmount ? <LoaderCircle className="me-2 h-4 w-4 animate-spin" /> : null}{currencyText(isAr ? "مطابقة USDT مع مبلغ السحب" : "Adjust USDT to withdrawal amount")}</Button>
-    </div>
-  ) : null;
   const tradeTerms = (
-    <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || cancelBusy || Boolean(evidenceBusy) || room.hasOpenDispute} amountEditor={cardlessAmountEditor}
+    <TradeTermsPanel key={request.id} request={request} actorId={actor.id} isAr={isAr} disabled={actionBusy || cancelBusy || Boolean(evidenceBusy) || room.hasOpenDispute}
                   onBusyChange={(busy) => {
                     const mutationKey = `${request.id}:trade-terms`;
                     if (busy && !acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return false;
@@ -3107,7 +3069,7 @@ function TradeRoomPageSession({
             {!showSuccessScreen ? <Button type="button" variant="secondary" size="sm" onClick={() => chatSectionRef.current && revealTradeRoomDeepLinkTarget(chatSectionRef.current)}><MessageCircle className="h-4 w-4" />{isAr ? "الدردشة" : "Chat"}</Button> : null}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
-            <p><bdi dir="ltr" className="font-semibold text-white">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</bdi> · <bdi dir="ltr">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</bdi></p>
+            <p><bdi dir="ltr" className="font-semibold text-white">{currencyText(`${toNumber(request.usdtAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi> · <bdi dir="ltr">{currencyText(`${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency}`)}</bdi></p>
             <p className="text-xs text-[#9CA3AF]">{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
           </div>
           <div className="flex items-center gap-2">
@@ -3272,7 +3234,7 @@ function TradeRoomPageSession({
                 </>
               ) : (
                 <>
-                  <p>{currencyText(isAr ? `اكتمل تحويل ${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT.` : `${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT transfer completed.`)}</p>
+                  <p>{currencyText(isAr ? `اكتمل تحويل ${toNumber(request.usdtAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT.` : `${toNumber(request.usdtAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT transfer completed.`)}</p>
                   <p>{currencyText(isAr ? "أكد البائع استلام الدفع وإرسال USDT. اكتملت الصفقة." : "Seller confirmed payment and USDT delivery. Trade completed.")}</p>
                   <p>{currencyText(isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
                   <p>{currencyText(isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`)}</p>
@@ -3337,13 +3299,13 @@ function TradeRoomPageSession({
         {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
           <div className="space-y-4">
             <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
+              {(isSeller || hasPendingTradeTerms) ? <div className="px-4 pt-4 sm:px-5 sm:pt-5">{tradeTerms}</div> : null}
               <div id="status-banner" ref={statusBannerRef} tabIndex={-1} className={`space-y-2 p-4 pb-3 sm:p-5 sm:pb-3 ${stepPulse ? "ring-1 ring-inset ring-[#C9A227]/30" : ""}`}>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{currencyText(statusBanner?.title ?? (isAr ? "الحالة الحالية" : "Current Status"))}</p>
                 <CardTitle className="text-xl leading-snug">{currencyText(hasPendingTradeTerms ? (isSeller ? (isAr ? "بانتظار موافقة المشتري على الشروط" : "Waiting for the Buyer to Review the Terms") : (isAr ? "راجع شروط الصفقة المقترحة" : "Review the Proposed Trade Terms")) : statusBanner?.headline ?? tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</CardTitle>
                 <p className="text-sm text-[#D1D5DB]">{currencyText(hasPendingTradeTerms ? (isAr ? "يجب تأكيد الشروط قبل متابعة الدفع أو إرسال USDT." : "Confirm the terms before continuing with payment or sending USDT.") : statusBanner?.detail ?? turn?.detail)}</p>
               </div>
               <CardContent className="space-y-3 px-4 pb-4 sm:px-5 sm:pb-5">
-                {hasPendingTradeTerms ? tradeTerms : null}
                 {primaryAction ? (
                   <div data-testid="trade-primary-action" className="space-y-2">
                     <Button
@@ -3435,7 +3397,6 @@ function TradeRoomPageSession({
                     </p>
                   </div>
                 ) : null}
-                {!hasPendingTradeTerms ? tradeTerms : null}
 
                 {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" && !hasPendingTradeTerms ? (
                   <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
@@ -3864,7 +3825,7 @@ function TradeRoomPageSession({
                     <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {currencyText(tradeStatusLabel(request.status, isAr, isOverdueTrade, isCashTrade))}</p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="ltr">{tradeChatPublicId(room, "seller")}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="ltr">{tradeChatPublicId(room, "buyer")}</bdi></p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{currencyText(`${Math.trunc(toNumber(request.usdtAmount)).toLocaleString("en-US")} USDT`)}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{currencyText(`${toNumber(request.usdtAmount).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{currencyText(turn?.detail)}</bdi></p>
                   </div>

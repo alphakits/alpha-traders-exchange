@@ -330,6 +330,47 @@ describe("guided cash-trade completion", () => {
     expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: 5, status: "pending" });
   });
 
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("reduces 600 to 150 and settles only 150 exactly once for %s", async (paymentMethod) => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, amount: "600" });
+    const original = currentSnapshot().purchaseRequests[0];
+    // Legacy ATM totals must still be valid bank denominations: 150 * 4 = 600 ILS.
+    const twoSided = paymentMethod !== "Cardless ATM Withdrawal";
+    Object.assign(original, { pricePerUsdt: "4.00", fiatAmount: twoSided ? "2424.00" : "2400.00",
+      feePolicyVersion: twoSided ? "buyer_seller_1pct_v1" : undefined });
+    const proposed = await propose("propose_amount", "150");
+    expect(proposed.usdtAmount).toBe("600");
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+    const approval = { requestId, actorUserId: BUYER_ID, action: "accept_amount" as const, proposalId: proposed.termsProposal!.id };
+    const accepted = await updateTradeTerms(approval);
+    await updateTradeTerms(approval);
+    expect(accepted).toMatchObject({ usdtAmount: "150", fiatAmount: twoSided ? "606.00" : "600.00", pricePerUsdt: "4.00" });
+    const seller = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    if (paymentMethod === "Bank Transfer") {
+      await uploadTradeEvidence({ purchaseRequestId: requestId, actorUserId: BUYER_ID, actorRole: "buyer", side: "buyer", fileName: "payment.png", mimeType: "image/png", sizeBytes: 68, contentBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=" });
+    } else if (paymentMethod === "Cardless ATM Withdrawal") {
+      await updatePurchaseRequestStatus({ requestId, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+    }
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    if (paymentMethod === "Bank Transfer") await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_release_pending" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    const complete = { ...seller, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await Promise.all([updatePurchaseRequestStatus(complete), updatePurchaseRequestStatus(complete)]);
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe("850");
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 1.5, buyerFeeCollectedAmount: twoSided ? 1.5 : 0, commissionAmount: twoSided ? 3 : 1.5 })]);
+    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+  });
+
+  it("releases the reduced reservation for another trade and prevents a later increase over shared stock", async () => {
+    const { requestId, listingId } = seedTrade({ amount: "600" });
+    const proposal = await propose("propose_amount", "150");
+    await updateTradeTerms({ requestId, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposal.termsProposal!.id });
+    const current = currentSnapshot().purchaseRequests[0];
+    currentSnapshot().purchaseRequests.push({ ...structuredClone(current), id: "second-reservation", buyerId: OUTSIDER_ID, listingId, usdtAmount: "800", termsProposal: undefined });
+    invalidateAlphaExchangeStoreCache();
+    await expect(propose("propose_amount", "250")).rejects.toThrow(/limits/);
+    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+  });
+
   it.each([
     [FACE_TO_FACE, "funds_received"],
     [FACE_TO_FACE, "usdt_release_pending"],
@@ -436,7 +477,7 @@ describe("guided cash-trade completion", () => {
       currentSnapshot().purchaseRequests[0].usdtAmount = "200";
       const proposed = await propose("propose_amount", "250");
       expect(proposed.usdtAmount).toBe("200");
-      expect(proposed.termsProposal).toMatchObject({ status: "pending", usdtAmount: "250", fiatAmount: paymentMethod === "Cardless ATM Withdrawal" ? "800" : "800.00" });
+      expect(proposed.termsProposal).toMatchObject({ status: "pending", usdtAmount: "250", fiatAmount: "800.00" });
       await expect(updateTradeTerms({ requestId: proposed.id, actorUserId: SELLER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id })).rejects.toThrow(/intended participant/);
       const accepted = await updateTradeTerms({ requestId: proposed.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
       expect(accepted).toMatchObject({ usdtAmount: "250", pricePerUsdt: "3.20", termsProposal: { status: "accepted" } });
@@ -599,6 +640,26 @@ describe("guided cash-trade completion", () => {
     currentSnapshot().purchaseRequests = [];
     return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
   }
+
+  it("adjusts a prepared ATM request before acceptance, replaces the old code and settles the new two-sided total", async () => {
+    const { request } = await readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "618.811881", cardlessIlsAmount: "2000" });
+    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "500", expectedUpdatedAt: request.updatedAt });
+    expect(proposed.usdtAmount).toBe("618.811881");
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "154.70297", fiatAmount: "500.00" });
+    await updateTradeTerms({ requestId: request.id, actorUserId: BUYER_ID, action: "accept_amount", proposalId: proposed.termsProposal!.id });
+    expect(currentSnapshot().purchaseRequests[0].messages?.some(message => message.credentialKind === "cardless_code")).toBe(false);
+    const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
+    const accepted = await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
+    expect(accepted.request.status).toBe("accepted");
+    expect(accepted.request.sensitivePaymentSharedAt).toBeUndefined();
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", cardlessWithdrawalCode: "923814", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" });
+    await expect(updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "400", expectedUpdatedAt: currentSnapshot().purchaseRequests[0].updatedAt })).rejects.toThrow(/locked/);
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
+    await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("845.29703");
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 1.55, buyerFeeCollectedAmount: 1.55, commissionAmount: 3.10, grossAmount: 500 })]);
+  });
 
   it("freezes the disclosed buyer fee in a new ATM request and preserves the exact cash through recalculation", async () => {
     const { request } = await readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "154.70297", cardlessIlsAmount: "500" });
