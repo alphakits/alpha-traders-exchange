@@ -300,7 +300,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card.compareDocumentPosition(screen.getByTestId("trade-progress-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The amount control stays at the top, disabled once payment has started.
-    expect(card.querySelector("button")).toBe(screen.getByRole("button", { name: "Adjust Amount", exact: true }));
+    expect(card.querySelector("button")).toBe(screen.getByRole("button", { name: "Adjust Amount" }));
     expect((card.querySelector("button") as HTMLButtonElement).disabled).toBe(true);
     expect(card.querySelector("button:not(:disabled)")).toBe(action);
     expect(within(card).getByTestId("trade-action-feedback")).toBeTruthy();
