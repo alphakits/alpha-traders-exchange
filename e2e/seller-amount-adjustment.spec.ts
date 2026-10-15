@@ -78,6 +78,15 @@ for (const method of methods) {
         await sellerPage.setViewportSize({ width: 390, height: 844 });
         await sellerPage.goto(path);
       }
+      // First increase, then reduce: both directions share the two-turn limit.
+      await adjust.click();
+      await sellerPage.getByLabel(method === methods[2] ? "New withdrawal amount (ILS)" : "Correct USDT amount", {exact:true}).fill(method === methods[2] ? "3000" : "1500");
+      await sellerPage.getByRole("button", {name:"Propose corrected amount", exact:true}).click();
+      await expect(sellerPage.getByRole("button", {name:"Withdraw proposal", exact:true})).toBeVisible();
+      await buyerPage.goto(path);
+      await buyerPage.getByRole("button", {name:"Accept these terms", exact:true}).click();
+      await expect(adjust).toBeEnabled();
+      await expect(sellerPage.getByTestId("trade-adjustment-count")).toContainText("1 / 2");
       await adjust.click();
       await expect(adjust).toHaveAttribute("aria-expanded", "true");
       await expect(sellerPage.locator("#trade-amount-editor")).toBeVisible();
@@ -92,8 +101,17 @@ for (const method of methods) {
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount, { timeout: 20_000 });
       await sellerPage.reload();
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount);
+      await expect(adjust).toBeDisabled();
+      await expect(sellerPage.getByTestId("trade-adjustment-count")).toContainText("2/2");
+      const limitState = await readDb(request);
+      const limited = limitState.purchaseRequests.find((r:{id:string}) => r.id === f.id);
+      expect(limited.amountAdjustmentCount).toBe(2);
+      for (const action of ["propose_amount", "propose_ils_amount", "counter_offer", "recalculate_cardless_amount"]) {
+        const denied = await seller.request.patch(`/api/alpha-exchange/purchase-requests/${f.id}`, {data:{action,value:"100",ilsAmount:"100",amountAdjustmentCount:0,expectedUpdatedAt:limited.updatedAt}});
+        expect(denied.ok()).toBe(false);
+      }
       await sellerPage.getByRole("button", { name: "Accept Trade", exact: true }).click();
-      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toHaveCount(0);
+      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled();
       await expect(sellerPage.getByTestId("trade-amount-locked")).toBeVisible();
       await buyerPage.reload();
       const before = await readDb(request);
@@ -114,7 +132,7 @@ for (const method of methods) {
         await buyerPage.locator("#cardless-verification-value").fill("123456789");
         await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
       } else await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
-      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toHaveCount(0);
+      await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled();
       await sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : method === methods[2] ? "I Collected the ATM Cash" : "I Received the Cash", exact: true }).click();
       if (method === methods[0]) {
         await sellerPage.getByRole("button", { name: "Release USDT", exact: true }).click();

@@ -332,20 +332,20 @@ describe("guided cash-trade completion", () => {
     expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: 5, status: "pending" });
   });
 
-  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"])("reduces 600 to 150 and settles only 150 exactly once for %s", async (paymentMethod) => {
-    const { requestId, listingId } = seedTrade({ paymentMethod, status: "pending", amount: "600" });
+  it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"].flatMap(method => [[method, "600", "150"], [method, "150", "600"]]))("settles %s adjusted from %s to %s exactly once", async (paymentMethod, originalAmount, finalAmount) => {
+    const { requestId, listingId } = seedTrade({ paymentMethod, status: "pending", amount: originalAmount });
     const original = currentSnapshot().purchaseRequests[0];
     // Legacy ATM totals must still be valid bank denominations: 150 * 4 = 600 ILS.
     const twoSided = paymentMethod !== "Cardless ATM Withdrawal";
-    Object.assign(original, { pricePerUsdt: "4.00", fiatAmount: twoSided ? "2424.00" : "2400.00",
+    Object.assign(original, { pricePerUsdt: "4.00", fiatAmount: (Number(originalAmount) * (twoSided ? 4.04 : 4)).toFixed(2),
       feePolicyVersion: twoSided ? "buyer_seller_1pct_v1" : undefined });
-    const proposed = await propose("propose_amount", "150");
-    expect(proposed.usdtAmount).toBe("600");
+    const proposed = await propose("propose_amount", finalAmount);
+    expect(proposed.usdtAmount).toBe(originalAmount);
     expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
     const approval = { requestId, actorUserId: BUYER_ID, action: "accept_amount" as const, proposalId: proposed.termsProposal!.id };
     const accepted = await updateTradeTerms(approval);
     await updateTradeTerms(approval);
-    expect(accepted).toMatchObject({ usdtAmount: "150", fiatAmount: twoSided ? "606.00" : "600.00", pricePerUsdt: "4.00" });
+    expect(accepted).toMatchObject({ usdtAmount: finalAmount, fiatAmount: (Number(finalAmount) * (twoSided ? 4.04 : 4)).toFixed(2), pricePerUsdt: "4.00" });
     const seller = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
     if (paymentMethod === "Bank Transfer") {
@@ -358,9 +358,9 @@ describe("guided cash-trade completion", () => {
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
     const complete = { ...seller, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
     await Promise.all([updatePurchaseRequestStatus(complete), updatePurchaseRequestStatus(complete)]);
-    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe("850");
-    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 1.5, buyerFeeCollectedAmount: twoSided ? 1.5 : 0, commissionAmount: twoSided ? 3 : 1.5 })]);
-    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+    expect(currentSnapshot().marketplaceListings.find(item => item.id === listingId)?.availableAmount).toBe(String(1000 - Number(finalAmount)));
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: Number(finalAmount) * 0.01, buyerFeeCollectedAmount: twoSided ? Number(finalAmount) * 0.01 : 0, commissionAmount: Number(finalAmount) * (twoSided ? 0.02 : 0.01) })]);
+    expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe(finalAmount);
   });
 
   it("releases the reduced reservation for another trade and prevents a later increase over shared stock", async () => {
@@ -480,6 +480,79 @@ describe("guided cash-trade completion", () => {
     const request = currentSnapshot().purchaseRequests[0];
     return updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action, value, expectedUpdatedAt: request.updatedAt, safetyAcknowledged: true });
   }
+
+  describe.each(["Bank Transfer", "Cardless ATM Withdrawal", FACE_TO_FACE])("%s adjustment limits", paymentMethod => {
+    it("allows an increase to the exact available listing balance, but rejects larger and below-minimum totals without consuming a turn", async () => {
+      const {requestId} = seedTrade({paymentMethod, status:"pending", amount:"150"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"600.00"});
+      await expect(propose("propose_amount", "1100")).rejects.toThrow(/limits/);
+      await expect(propose("propose_amount", "25")).rejects.toThrow(/limits/);
+      expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBeUndefined();
+      const proposal = await propose("propose_amount", "1000");
+      expect(proposal).toMatchObject({usdtAmount:"150", amountAdjustmentCount:1});
+      const approved = await updateTradeTerms({requestId, actorUserId:BUYER_ID, action:"accept_amount", proposalId:proposal.termsProposal!.id});
+      expect(approved).toMatchObject({usdtAmount:"1000", fiatAmount:"4000.00", amountAdjustmentCount:1});
+      expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+    });
+
+    it.each(["accept_amount", "decline_terms", "withdraw_terms"] as const)("allows two submitted adjustments and never refunds them after %s", async resolution => {
+      const {requestId} = seedTrade({paymentMethod, status:"pending", amount:"600"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"2400.00", priceMode:"buyer_offer"});
+      for (const [index, value] of ["800", "150"].entries()) {
+        const proposal = await propose("propose_amount", value);
+        expect(proposal.amountAdjustmentCount).toBe(index + 1);
+        const response = {requestId, actorUserId:resolution === "withdraw_terms" ? SELLER_ID : BUYER_ID, action:resolution, proposalId:proposal.termsProposal!.id};
+        await updateTradeTerms(response);
+        await updateTradeTerms(response); // Response retries never consume another turn.
+      }
+      invalidateAlphaExchangeStoreCache();
+      const before = structuredClone(currentSnapshot());
+      for (const action of ["propose_amount", "propose_ils_amount", "counter_offer"] as const) {
+        await expect(updateTradeTerms({requestId, actorUserId:SELLER_ID, action, value:"100", expectedUpdatedAt:currentSnapshot().purchaseRequests[0].updatedAt})).rejects.toThrow(/two-adjustment limit/);
+      }
+      if (paymentMethod === "Cardless ATM Withdrawal") await expect(recalculateCardlessTradeAmount({requestId, actorUserId:SELLER_ID, ilsAmount:"400"})).rejects.toThrow(/two-adjustment limit/);
+      expect(currentSnapshot().purchaseRequests).toEqual(before.purchaseRequests);
+      expect(currentSnapshot().marketplaceListings).toEqual(before.marketplaceListings);
+      expect(currentSnapshot().commissionRecords).toEqual(before.commissionRecords);
+      expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe(resolution === "accept_amount" ? "150" : "600");
+      await updatePurchaseRequestStatus({requestId, actorUserId:SELLER_ID, actorRole:"approved_seller", nextStatus:"accepted"});
+      expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBe(2);
+    });
+
+    it("allows only one concurrent submission for the final adjustment turn", async () => {
+      const {requestId} = seedTrade({paymentMethod, status:"pending"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", amountAdjustmentCount:1});
+      const expectedUpdatedAt = currentSnapshot().purchaseRequests[0].updatedAt;
+      const results = await Promise.allSettled(["150", "200"].map(value => updateTradeTerms({requestId, actorUserId:SELLER_ID, action:"propose_amount", value, expectedUpdatedAt})));
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBe(2);
+      expect(currentSnapshot().purchaseRequests[0].messages?.filter(entry => entry.message.startsWith("Seller proposed "))).toHaveLength(1);
+    });
+
+    it("rechecks inventory on approval and does not consume reserved stock", async () => {
+      const {requestId, listingId} = seedTrade({paymentMethod, status:"pending", amount:"150"});
+      Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"600.00"});
+      const proposed = await propose("propose_amount", "1000");
+      currentSnapshot().purchaseRequests.push({...structuredClone(currentSnapshot().purchaseRequests[0]), id:"other-reserved", listingId, buyerId:OUTSIDER_ID, status:"accepted", usdtAmount:"200", termsProposal:undefined});
+      invalidateAlphaExchangeStoreCache();
+      await expect(updateTradeTerms({requestId, actorUserId:BUYER_ID, action:"accept_amount", proposalId:proposed.termsProposal!.id})).rejects.toThrow(/no longer available/);
+      expect(currentSnapshot().purchaseRequests[0].usdtAmount).toBe("150");
+      expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("1000");
+      expect(currentSnapshot().commissionRecords).toHaveLength(0);
+    });
+  });
+
+  it("preserves the two-turn limit for legacy trades whose count field is missing", async () => {
+    const {requestId} = seedTrade({status:"pending"});
+    for (const value of ["200", "150"]) {
+      const proposal = await propose("propose_amount", value);
+      await updateTradeTerms({requestId, actorUserId:SELLER_ID, action:"withdraw_terms", proposalId:proposal.termsProposal!.id});
+    }
+    delete currentSnapshot().purchaseRequests[0].amountAdjustmentCount;
+    invalidateAlphaExchangeStoreCache();
+    await expect(propose("propose_amount", "100")).rejects.toThrow(/two-adjustment limit/);
+    expect(sanitizePurchaseRequestForActor(currentSnapshot().purchaseRequests[0], SELLER_ID, "approved_seller").amountAdjustmentCount).toBe(2);
+  });
 
   describe.each(["Bank Transfer", "Cardless ATM Withdrawal", FACE_TO_FACE])("%s seller cancellation", (paymentMethod) => {
     it.each(["pending", "accepted"] as const)("cancels %s exactly once, releases the listing and names the seller", async (status) => {

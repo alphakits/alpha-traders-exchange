@@ -299,8 +299,8 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(card.contains(action)).toBe(true);
     expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card.compareDocumentPosition(screen.getByTestId("trade-progress-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Adjustment is removed once payment becomes available.
-    expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
+    // Adjustment is disabled once payment becomes available.
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
     expect(card.querySelector("button:not(:disabled)")).toBe(action);
     expect(within(card).getByTestId("trade-action-feedback")).toBeTruthy();
@@ -581,11 +581,11 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(window.confirm).toHaveBeenCalledOnce();
   });
 
-  it("removes adjustment as soon as payment becomes available, without waiting for a receipt", async () => {
+  it("disables adjustment as soon as payment becomes available, without waiting for a receipt", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(room(method, "accepted")))));
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     await screen.findByTestId("trade-details");
-    expect(screen.queryByRole("button", {name:"Adjust Amount"})).toBeNull();
+    expect((screen.getByRole("button", {name:"Adjust Amount"}) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
   });
 
@@ -636,7 +636,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     await screen.findByTestId("trade-details");
     expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Adjust USDT to withdrawal amount" })).toBeNull();
   });

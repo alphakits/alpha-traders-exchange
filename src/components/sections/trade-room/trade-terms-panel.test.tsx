@@ -45,7 +45,7 @@ describe("trade proposal controls", () => {
   });
   it.each(["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("explains why amount adjustment is locked at %s", (status) => {
     render(<TradeTermsPanel request={{ ...base, status }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/amount is locked/)).toBeTruthy();
   });
 });
@@ -97,7 +97,7 @@ it("closes an open editor when acceptance makes payment available", () => {
   fireEvent.change(screen.getByLabelText("Correct USDT amount"), {target:{value:"150"}});
   rerender(<TradeTermsPanel request={{...base,status:"accepted"}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
   expect(screen.queryByLabelText("Correct USDT amount")).toBeNull();
-  expect(screen.queryByRole("button", {name:"Adjust Amount"})).toBeNull();
+  expect((screen.getByRole("button", {name:"Adjust Amount"}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByTestId("trade-amount-locked")).toBeTruthy();
 });
 
@@ -110,4 +110,37 @@ it("prevents the buyer accepting a legacy proposal once payment is available", (
   fireEvent.click(accept);
   expect(fetch).not.toHaveBeenCalled();
   expect(screen.getByRole("status").textContent).toContain("amount is locked");
+});
+
+it.each([false, true])("disables both proposal buttons after two adjustments, Arabic=%s", isAr => {
+  const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+  render(<TradeTermsPanel request={{...base, amountAdjustmentCount: 2}} actorId="seller" isAr={isAr} onUpdated={vi.fn()} />);
+  const adjust = screen.getByRole("button", {name:isAr ? "تعديل المبلغ" : "Adjust Amount"});
+  const counter = screen.getByRole("button", {name:isAr ? "تقديم عرض مقابل" : "Make a counter-offer"});
+  expect((adjust as HTMLButtonElement).disabled).toBe(true);
+  expect((counter as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(adjust); fireEvent.click(counter);
+  expect(document.getElementById("trade-amount-editor")).toBeNull();
+  expect(screen.getByTestId("trade-adjustment-count").textContent).toContain("2/2");
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("closes an open editor if the other seller tab uses the second adjustment", () => {
+  const {rerender} = render(<TradeTermsPanel request={{...base, amountAdjustmentCount: 1}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", {name:"Adjust Amount"}));
+  expect(screen.getByLabelText("Correct USDT amount")).toBeTruthy();
+  rerender(<TradeTermsPanel request={{...base, amountAdjustmentCount: 2}} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  expect(screen.queryByLabelText("Correct USDT amount")).toBeNull();
+  expect(screen.getByRole("button", {name:"Adjust Amount"}).getAttribute("aria-expanded")).toBe("false");
+});
+
+it("still lets the buyer approve the second proposal before acceptance", async () => {
+  const request = {...base, amountAdjustmentCount: 2, termsProposal:{id:"second",kind:"amount_correction" as const,status:"pending" as const,usdtAmount:"150",fiatAmount:"450",pricePerUsdt:"3",createdAt:base.updatedAt}};
+  const fetch = vi.fn().mockResolvedValue(Response.json({request})); vi.stubGlobal("fetch", fetch);
+  render(<TradeTermsPanel request={request} actorId="buyer" isAr={false} onUpdated={vi.fn()} />);
+  const accept=screen.getByRole("button", {name:"Accept these terms"});
+  expect((accept as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(accept);
+  await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({action:"accept_amount",proposalId:"second"});
 });

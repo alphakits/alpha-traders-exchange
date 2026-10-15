@@ -14,6 +14,7 @@ import { listingMaximumForAvailableAmount } from "@/lib/listing-trade-limits";
 import { assertListingPriceAtCurrentReference } from "@/lib/listing-price-validation";
 import { hasIrreversibleRequestProgress, hasRevealedBankDetails } from "@/lib/trade-cancellation";
 import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
+import { getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import { isFinishedTrade } from "@/lib/admin-trade-actions";
 import { getTradeHeaderReminderKind, toTradeHeaderActivity } from "@/lib/trade-header-activity";
 import { buildOwnerActiveTradeSummaries } from "@/lib/owner-active-trades";
@@ -10435,6 +10436,7 @@ export async function updateTradeTerms(input: {
     let message: string;
     if (creating) {
       if (!seller) throw new TradeBlockedError("trade-terms-invalid", "Only the seller can propose new terms.", input.requestId);
+      if (getTradeAmountAdjustmentCount(request) >= MAX_TRADE_AMOUNT_ADJUSTMENTS) throw new TradeBlockedError("trade-terms-invalid", "The two-adjustment limit has been reached. No further amount or price proposals are allowed for this trade.", input.requestId);
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
       if (request.status !== "pending" || (counter && request.priceMode !== "buyer_offer")) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
@@ -10470,6 +10472,7 @@ export async function updateTradeTerms(input: {
         }
       }
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
+      request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
       message = `Seller proposed ${amount} USDT for ${request.currency} ${fiat} at ${price} per USDT. Buyer confirmation required.`;
@@ -11148,6 +11151,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
     || (request.sellerId === actorUserId && SELLER_WALLET_VISIBLE_STATUSES.has(request.status));
   const redacted: PurchaseRequest = {
     ...request,
+    amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
     sellerBankAccountSnapshot: undefined,
     buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
