@@ -148,8 +148,11 @@ it.each([
     : Promise.resolve(Response.json(current)));
   vi.stubGlobal("fetch", fetchMock);
   await act(async () => { render(<TradeRoomPage locale="en" requestId="feedback-request" actor={action === "poke" ? buyer : seller} />); });
-  if (action === "adjust") fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
-  const label = action === "cancel" ? "Cancel Trade" : action === "adjust" ? "Adjust USDT to withdrawal amount" : "Poke Seller";
+  if (action === "adjust") {
+    fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
+    fireEvent.change(screen.getByLabelText("New withdrawal amount (ILS)"), { target: { value: "200" } });
+  }
+  const label = action === "cancel" ? "Cancel Trade" : action === "adjust" ? "Propose corrected amount" : "Poke Seller";
   const button = screen.getByRole("button", { name: label });
   fireEvent.click(button); fireEvent.click(button);
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
@@ -296,7 +299,10 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     expect(card.contains(action)).toBe(true);
     expect(card.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card.compareDocumentPosition(screen.getByTestId("trade-progress-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(card.querySelector("button")).toBe(action);
+    // The amount control stays at the top, disabled once payment has started.
+    expect(card.querySelector("button")).toBe(screen.getByRole("button", { name: "Adjust Amount" }));
+    expect((card.querySelector("button") as HTMLButtonElement).disabled).toBe(true);
+    expect(card.querySelector("button:not(:disabled)")).toBe(action);
     expect(within(card).getByTestId("trade-action-feedback")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("60");
     expect(navigation.push).not.toHaveBeenCalled();
@@ -485,7 +491,8 @@ it.each(["en", "ar"] as const)("puts pending terms decisions first in %s", async
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(Response.json(current))));
   render(<TradeRoomPage locale={locale} requestId="feedback-request" actor={buyer} />);
   const accept = await screen.findByRole("button", { name: locale === "ar" ? "موافقة على الشروط" : "Accept these terms" });
-  expect(document.getElementById("action-required")!.querySelector("button")).toBe(accept);
+  expect(screen.getByTestId("trade-amount-action").querySelector("button")).toBe(accept);
+  expect(accept.compareDocumentPosition(document.getElementById("status-banner")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.queryByTestId("trade-primary-action")).toBeNull();
   expect(screen.queryByText("No required action at this moment.")).toBeNull();
 });
@@ -579,8 +586,9 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     const adjust = await screen.findByRole("button", { name: "Adjust Amount" });
     expect((adjust as HTMLButtonElement).disabled).toBe(false);
+    expect(adjust.compareDocumentPosition(document.getElementById("status-banner")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(adjust);
-    const amount = screen.getByLabelText(method === "Cardless ATM Withdrawal" ? "Bank withdrawal amount (ILS)" : "Correct USDT amount");
+    const amount = screen.getByLabelText(method === "Cardless ATM Withdrawal" ? "New withdrawal amount (ILS)" : "Correct USDT amount");
     expect(amount.compareDocumentPosition(screen.getByTestId("trade-details")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect((screen.getByRole("button", { name: "Cancel Trade" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByText(/Cancel only before payment starts/)).toBeTruthy();
@@ -621,7 +629,7 @@ describe.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet i
     render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
     await screen.findByTestId("trade-details");
     expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Adjust USDT to withdrawal amount" })).toBeNull();
   });
 });
@@ -650,23 +658,24 @@ it.each([
   else expect(screen.queryByRole("button", { name: "Cancel Trade" })).toBeNull();
 });
 
-it("keeps the recorded cardless cash fixed and recalculates only once before payment", async () => {
+it("proposes a new cardless cash amount once and keeps the old total until buyer approval", async () => {
   const base = room("Cardless ATM Withdrawal", "accepted");
-  const current = { ...base, request: { ...base.request, fiatAmount: "400.00", pricePerUsdt: "3.20" } };
+  const current = { ...base, request: { ...base.request, usdtAmount: "125", fiatAmount: "400.00", pricePerUsdt: "3.20" } };
   const response = deferredResponse();
   const fetch = vi.fn((_url: string, init?: RequestInit) => init?.method === "PATCH" ? response.promise : Promise.resolve(Response.json(current)));
   vi.stubGlobal("fetch", fetch);
   render(<TradeRoomPage locale="en" requestId="feedback-request" actor={seller} />);
   fireEvent.click(await screen.findByRole("button", { name: "Adjust Amount" }));
-  const cash = screen.getByLabelText("Bank withdrawal amount (ILS)") as HTMLInputElement;
-  expect(cash.value).toBe("400.00");
-  expect(cash.readOnly).toBe(true);
-  const adjust = screen.getByRole("button", { name: "Adjust USDT to withdrawal amount" });
-  fireEvent.click(adjust);
-  fireEvent.click(adjust);
-  expect(fetch.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
-  await act(async () => response.resolve(Response.json({ request: { ...current.request, usdtAmount: "125" } })));
-  expect(await screen.findByText((_, element) => element?.textContent === "Amount confirmed: 125 USDT for ILS 400.00." && !Array.from(element.children).some(child => child.textContent === "Amount confirmed: 125 USDT for ILS 400.00."))).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("New withdrawal amount (ILS)"), { target: { value: "200" } });
+  expect(screen.getByTestId("trade-adjustment-preview").textContent).toContain("62.5 USDT");
+  const adjust = screen.getByRole("button", { name: "Propose corrected amount" });
+  fireEvent.click(adjust); fireEvent.click(adjust);
+  const patches = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(patches).toHaveLength(1);
+  expect(JSON.parse(String(patches[0][1]?.body))).toMatchObject({ action: "propose_ils_amount", value: "200" });
+  await act(async () => response.resolve(Response.json({ request: { ...current.request, termsProposal: { id: "new-cash", kind: "amount_correction", status: "pending", usdtAmount: "62.5", fiatAmount: "200.00", pricePerUsdt: "3.20", createdAt: current.request.updatedAt } } })));
+  expect(screen.getByTestId("inclusive-payment-total").textContent).toContain("400.00");
+  expect(await screen.findByRole("button", { name: "Withdraw proposal" })).toBeTruthy();
 });
 
 it.each([

@@ -10436,9 +10436,9 @@ export async function updateTradeTerms(input: {
       if (!seller) throw new TradeBlockedError("trade-terms-invalid", "Only the seller can propose new terms.", input.requestId);
       if (proposal?.status === "pending") throw new TradeBlockedError("trade-terms-invalid", "Wait for the buyer or withdraw the current proposal first.", input.requestId);
       const counter = input.action === "counter_offer";
-      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : request.status !== "accepted") throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
+      if (counter ? request.status !== "pending" || request.priceMode !== "buyer_offer" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms cannot be changed at this stage.", input.requestId);
 
-      if (!counter && !isRequestStatusLockingListing(request.status)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
+      if (!counter && request.status !== "pending" && !isRequestStatusLockingListing(request.status)) throw new TradeBlockedError("trade-terms-invalid", "This trade no longer owns the listing.", input.requestId);
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
       const raw = canonicalizeTradeAmount(input.value) || "";
       if (!(counter ? /^\d{1,7}(?:\.\d{1,2})?$/ : /^\d{1,9}(?:\.\d{1,6})?$/).test(raw) || Number(raw) <= 0) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid positive amount.", input.requestId);
@@ -10459,9 +10459,13 @@ export async function updateTradeTerms(input: {
         if (!amount) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid ILS total with at most two decimal places.", input.requestId);
         fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
         if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
-          const canonical = calculateCardlessUsdtAmount(request.fiatAmount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
-          if (!canonical || Number(amount) !== Number(canonical)) throw new TradeBlockedError("trade-terms-invalid", "USDT must match the buyer's bank withdrawal at the agreed price. Use Match withdrawal amount.", input.requestId);
-          fiat = request.fiatAmount;
+          // Before a code/payment is shared, both participants can agree a new
+          // withdrawal total. The old cash amount must not pin this correction.
+          const cash = input.action === "propose_ils_amount" ? raw : fiat;
+          const canonical = calculateCardlessUsdtAmount(cash, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
+          if (!canonical || (input.action === "propose_amount" && Number(amount) !== Number(canonical))) throw new TradeBlockedError("trade-terms-invalid", "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code.", input.requestId);
+          amount = canonical;
+          fiat = Number(cash).toFixed(2);
         }
       }
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
@@ -10471,16 +10475,23 @@ export async function updateTradeTerms(input: {
     } else {
       if (!proposal || proposal.id !== input.proposalId || proposal.status !== "pending") throw new TradeBlockedError("trade-terms-invalid", "This proposal is no longer current. Refresh the trade.", input.requestId);
       if (input.action === "withdraw_terms" ? !seller : seller) throw new TradeBlockedError("trade-terms-invalid", "Only the intended participant can respond to this proposal.", input.requestId);
-      if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["accepted", "payment_sent", "funds_received"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
+      if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
       if (input.action === "accept_amount") {
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
-        if (!isRequestStatusLockingListing(request.status) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < Number(listing.minimumTrade) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
+        if ((request.status !== "pending" && !isRequestStatusLockingListing(request.status)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < Number(listing.minimumTrade) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
+        if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
+          // Prepared credentials are still private before acceptance. They
+          // cannot be reused for a different cash amount; request a fresh code.
+          request.messages = request.messages?.filter((entry) => entry.credentialKind !== "cardless_code");
+        }
         request.usdtAmount = proposal.usdtAmount;
         request.fiatAmount = proposal.fiatAmount;
+        request.pricePerUsdt = proposal.pricePerUsdt;
         proposal.status = "accepted";
       } else proposal.status = input.action === "withdraw_terms" ? "withdrawn" : "declined";
       proposal.resolvedAt = now;
       message = `Trade terms ${proposal.status}: ${proposal.usdtAmount} USDT for ${request.currency} ${proposal.fiatAmount}.`;
+      if (input.action === "accept_amount" && isCardlessAtmPaymentMethod(request.paymentMethod)) message += " Buyer must send a withdrawal code matching the confirmed cash total before collection.";
     }
     request.updatedAt = now;
     appendSystemTradeMessage(snapshot, request, { senderUserId: input.actorUserId, senderRole: resolveActorRole(snapshot, input.actorUserId), message, createdAt: now });

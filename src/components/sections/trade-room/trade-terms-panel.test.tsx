@@ -43,9 +43,10 @@ describe("trade proposal controls", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "accept_counter_offer", proposalId: "offer-2" });
   });
-  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("hides unavailable amount controls at %s", (status) => {
+  it.each(["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const)("explains why amount adjustment is locked at %s", (status) => {
     render(<TradeTermsPanel request={{ ...base, status }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: "Adjust Amount" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Adjust Amount" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/amount is locked/)).toBeTruthy();
   });
 });
 
@@ -58,10 +59,10 @@ it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Pers
   const updated = vi.fn();
   const { rerender } = render(<TradeTermsPanel request={request} actorId="seller" isAr={false} onUpdated={updated} />);
   fireEvent.click(screen.getByRole("button", { name: "Adjust Amount" }));
-  fireEvent.change(screen.getByLabelText("Correct USDT amount"), { target: { value: "300" } });
+  fireEvent.change(screen.getByLabelText(paymentMethod === "Cardless ATM Withdrawal" ? "New withdrawal amount (ILS)" : "Correct USDT amount"), { target: { value: paymentMethod === "Cardless ATM Withdrawal" ? "900" : "300" } });
   fireEvent.click(screen.getByRole("button", { name: "Propose corrected amount" }));
   await waitFor(() => expect(updated).toHaveBeenCalledWith(proposed));
-  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: "propose_amount", value: "300", expectedUpdatedAt: request.updatedAt });
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ action: paymentMethod === "Cardless ATM Withdrawal" ? "propose_ils_amount" : "propose_amount", value: paymentMethod === "Cardless ATM Withdrawal" ? "900" : "300", expectedUpdatedAt: request.updatedAt });
   rerender(<TradeTermsPanel request={proposed} actorId="buyer" isAr={false} onUpdated={updated} />);
   fireEvent.click(screen.getByRole("button", { name: "Accept these terms" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
