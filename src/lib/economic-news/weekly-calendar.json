@@ -352,9 +352,13 @@
       "actual": null,
       "previous": null,
       "revised": null,
-      "reference": "Bangkok Economic Festival 2026 · Topic to be announced",
-      "publishedAt": null,
-      "sourceUrl": "https://www.federalreserve.gov/newsevents/2026-october.htm"
+      "reference": "Bangkok Economic Festival 2026 · Supervisory modernization after SVB",
+      "publishedAt": "2026-10-15T02:55:00Z",
+      "sourceUrl": "https://www.federalreserve.gov/newsevents/speech/bowman20261014a.htm",
+      "outcome": {
+        "en": "Bowman called for earlier action on banks' material financial risks and clearer supervisory authority and accountability, drawing on an independent review of Silicon Valley Bank's failure. This was a bank-supervision speech, not a new interest-rate decision.",
+        "ar": "دعت بومان إلى التحرك المبكر لمعالجة المخاطر المالية الجوهرية لدى البنوك، وتوضيح صلاحيات الرقابة والمساءلة، مستندةً إلى مراجعة مستقلة لانهيار بنك سيليكون فالي. كان هذا خطابًا بشأن الرقابة المصرفية، وليس قرارًا جديدًا بشأن الفائدة."
+      }
     },
     {
       "id": "official-bls-core-ppi-mom-20261015",
@@ -702,5 +706,5 @@
       "sourceUrl": "https://www.bls.gov/news.release/empsit.nr0.htm"
     }
   ],
-  "resultsVerifiedAt": "2026-10-14T18:29:12Z"
+  "resultsVerifiedAt": "2026-10-15T04:17:32Z"
 }
