@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { build } from "esbuild";
@@ -28,6 +28,8 @@ let peakActiveConnections = 0;
 function startWorker(index) {
   const child = fork(workerFile, [], { env: { PATH: process.env.PATH, NODE_ENV: "production",
     ALPHA_AUDIT_DATABASE_URL: connectionString, ALPHA_AUDIT_WORKER_ID: String(index),
+    DATABASE_URL: connectionString, NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:59999",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "isolated-ci-placeholder", SUPABASE_SERVICE_ROLE_KEY: "isolated-ci-placeholder-no-provider-access",
     ALPHA_EXCHANGE_CARDLESS_CREDENTIAL_SECRET: "isolated-ci-synthetic-cardless-key-0001",
     NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:3000" }, stdio: ["ignore", "inherit", "inherit", "ipc"] });
   const pending = new Map();
@@ -99,7 +101,19 @@ let monitor;
 try {
   // Initialize schema before starting the remaining independent processes.
   workers.push(startWorker(0)); const runtime = requireOk(await workers[0].call("ready"));
+  const baselineMigration = await readFile("supabase/migrations/20261017003000_runtime_table_baseline.sql", "utf8");
+  await pool.query(baselineMigration);
   requireOk(await workers[0].call("seed", fixture));
+  await pool.query(baselineMigration);
+  const expectedSchema = JSON.parse(await readFile("scripts/integration/runtime-table-baseline.json", "utf8"));
+  const observedSchema = await pool.query(`select c.relname as table_name, c.relrowsecurity as rls, c.relforcerowsecurity as force_rls,
+    (select jsonb_agg(jsonb_build_object('name',a.attname,'type',format_type(a.atttypid,a.atttypmod),'not_null',a.attnotnull,'default',pg_get_expr(d.adbin,d.adrelid),'identity',a.attidentity) order by a.attnum)
+     from pg_attribute a left join pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum where a.attrelid=c.oid and a.attnum>0 and not a.attisdropped) as columns,
+    (select jsonb_agg(jsonb_build_object('name',co.conname,'definition',pg_get_constraintdef(co.oid)) order by co.conname) from pg_constraint co where co.conrelid=c.oid) as constraints
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='alpha_exchange' and c.relkind='r' and c.relname=any($1::text[]) order by c.relname`, [expectedSchema.map(row => row.table_name)]);
+  assert.deepEqual(observedSchema.rows, expectedSchema.map(({ table_name, rls, force_rls, columns, constraints }) => ({ table_name, rls, force_rls, columns, constraints })));
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.users")).rows[0].n, 75);
+  passed("Runtime/legacy baseline recreates 11 observed table definitions and replays without deleting seeded accounts", { tables: 11, users: 75 });
   for (let index = 1; index < 4; index++) workers.push(startWorker(index));
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
   monitor = setInterval(() => { pool.query("select count(*)::int as n from pg_stat_activity where datname=current_database() and application_name like 'alpha-audit-worker-%' and state='active'")
