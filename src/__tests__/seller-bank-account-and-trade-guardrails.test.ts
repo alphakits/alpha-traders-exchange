@@ -30,7 +30,7 @@ const SELLER_ID = "seller-1";
 const BUYER_ID = "buyer-1";
 const OUTSIDER_ID = "outsider-1";
 
-function createUser(id: string, role: "approved_seller" | "buyer" | "admin") {
+function createUser(id: string, role: "approved_seller" | "buyer" | "admin" | "owner") {
   const now = new Date().toISOString();
   return {
     id,
@@ -39,7 +39,7 @@ function createUser(id: string, role: "approved_seller" | "buyer" | "admin") {
     passwordHash: "hash",
     whatsappNumber: "+972500000000",
     role,
-    roles: role === "admin" ? ["admin", "buyer"] : [role],
+    roles: role === "admin" || role === "owner" ? [role, "buyer"] : [role],
     sellerStatus: role === "approved_seller" ? "approved_seller" : "buyer",
     availabilityStatus: "available",
     onlineStatus: "online",
@@ -685,6 +685,25 @@ describe("seller bank accounts and trade guardrails", () => {
         }),
       ).rejects.toThrow("cannot be closed manually after seller acceptance");
     }
+  });
+
+  it.each([
+    [SELLER_ID, "approved_seller"],
+    ["admin-1", "admin"],
+    ["owner-1", "owner"],
+  ] as const)("keeps buyer cancellation available when only %s inspects bank details", async (actorUserId, actorRole) => {
+    seedAcceptedBankTransferTrade();
+    if (actorRole === "admin" || actorRole === "owner") {
+      currentSnapshot().users.push(createUser(actorUserId, actorRole) as AlphaExchangeDb["users"][number]);
+    }
+    await getTradeRoomBankDetails({ purchaseRequestId: "req-1", actorUserId, actorRole });
+    expect(currentSnapshot().purchaseRequests[0].sensitivePaymentSharedAt).toBeUndefined();
+    expect(currentSnapshot().purchaseRequests[0].timeline).toContainEqual(expect.objectContaining({
+      type: "bank_details_revealed", actorUserId,
+    }));
+    await expect(updatePurchaseRequestStatus({
+      requestId: "req-1", actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "cancelled",
+    })).resolves.toMatchObject({ request: { status: "cancelled" } });
   });
 
   it("allows cancellation after acceptance but rejects it after the payment stage starts", async () => {

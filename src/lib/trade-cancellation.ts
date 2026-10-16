@@ -21,8 +21,11 @@ export function hasIrreversibleRequestProgress(request: PurchaseRequest) {
   );
 }
 
-/** Bank disclosure locks buyer cancellation, but does not prove payment. */
+/** Only disclosure to the buyer locks their cancellation; it does not prove payment. */
 export function hasRevealedBankDetails(request: PurchaseRequest) {
   return Boolean((request.sensitivePaymentKind === "bank_details" && request.sensitivePaymentSharedAt)
-    || request.timeline?.some(event => event.type === "bank_details_revealed"));
+    || request.timeline?.some(event => event.type === "bank_details_revealed"
+      // Preserve conservative handling of older disclosure events with no actor.
+      // Seller/owner inspection must not masquerade as buyer disclosure.
+      && (!event.actorUserId || event.actorUserId === request.buyerId)));
 }
