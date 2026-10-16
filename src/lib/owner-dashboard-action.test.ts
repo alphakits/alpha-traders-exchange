@@ -5,6 +5,22 @@ import { finishOwnerPendingOperation, readOwnerPendingOperations } from "./owner
 const request = prepareOwnerDashboardAction("/api/alpha-exchange/admin/listings/listing-1", { method: "PATCH", body: JSON.stringify({ action: "approve" }) });
 describe("owner dashboard single-attempt actions", () => {
   beforeEach(() => sessionStorage.clear());
+  it("binds manual commission creation to the persisted owner operation before sending", async () => {
+    const manual = prepareOwnerDashboardAction("/api/alpha-exchange/admin/commissions", {
+      method: "POST", body: JSON.stringify({ sellerId: "seller-1", commissionAmount: 7.25, reason: "Adjustment" }),
+    });
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.clientOperationId).toBe(readOwnerPendingOperations()[0].id);
+      expect(body.sellerId).toBe("seller-1");
+      throw new Error("Response lost after commit");
+    });
+    const result = await executeOwnerDashboardAction(manual, fetcher);
+    expect(result.outcome).toBe("unknown");
+    expect((await executeOwnerDashboardAction(manual, fetcher)).outcome).toBe("blocked");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(readOwnerPendingOperations()[0].id).toBe(result.operation?.id);
+  });
   it("persists before sending, blocks a duplicate, and retains the acknowledgment for readback", async () => {
     let resolve!: (response: Response) => void;
     const fetcher = vi.fn(() => {

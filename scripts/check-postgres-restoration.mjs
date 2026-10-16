@@ -32,7 +32,8 @@ try {
   assert.deepEqual((await restored.query(shape)).rows, constraints);
   report.checks.push({ name: "Primary, foreign-key, unique and check constraints survive restoration", status: "PASS", constraints: constraints.length });
   await restored.query("begin");
-  await restored.query("update alpha_exchange.marketplace_listings set payload=jsonb_set(payload, '{availableAmount}', '\"0\"') where id='audit-listing-0'");
+  const changed = await restored.query("update alpha_exchange.listings set payload=jsonb_set(payload, '{availableAmount}', '\"0\"') where id='audit-listing-0'");
+  assert.equal(changed.rowCount, 1);
   assert.notDeepEqual(await fingerprints(restored), expected, "Induced corruption must be detected");
   await restored.query("rollback");
   assert.deepEqual(await fingerprints(restored), expected);

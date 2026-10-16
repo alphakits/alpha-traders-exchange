@@ -50,7 +50,15 @@ export async function executeOwnerDashboardAction(request: OwnerDashboardRequest
       timer = setTimeout(() => { reject(new Error("timeout")); controller.abort(); }, timeoutMs);
     });
     const response = await Promise.race([(async () => {
-      const result = await fetcher(request.path, { ...request.init, credentials: "same-origin", cache: "no-store", signal: controller.signal });
+      const init = { ...request.init };
+      if (request.path === "/api/alpha-exchange/admin/commissions" && init.method === "POST") {
+        const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : null;
+        if (!object(body)) throw new Error("Invalid manual commission request");
+        // Persisted before the send. Network retries of this request retain the
+        // same identity; a deliberately new owner action receives a new one.
+        init.body = JSON.stringify({ ...body, clientOperationId: operation.id });
+      }
+      const result = await fetcher(request.path, { ...init, credentials: "same-origin", cache: "no-store", signal: controller.signal });
       if ([401, 403, 429].includes(result.status)) return { ok: false, status: result.status, payload: null };
       const payload: unknown = await result.json();
       return { ok: result.ok, status: result.status, payload };

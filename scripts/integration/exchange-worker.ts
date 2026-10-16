@@ -1,6 +1,6 @@
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getRuntimePostgresPool } from "./postgres-runtime";
-import { getTradeRoomData, invalidateAlphaExchangeStoreCache, updatePurchaseRequestStatus, updateTradeTerms, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, updatePurchaseRequestStatus, updateTradeTerms, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
@@ -28,12 +28,14 @@ async function execute(operation: string, input: unknown) {
     return { request: result.request, statusChanged: result.statusChanged, metrics: result.metrics };
   }
   if (operation === "terms") return updateTradeTerms(input as Parameters<typeof updateTradeTerms>[0]);
+  if (operation === "manual-commission") return issueSellerCommissionByAdmin(input as Parameters<typeof issueSellerCommissionByAdmin>[0]);
   if (operation === "evidence") return uploadTradeEvidence(input as Parameters<typeof uploadTradeEvidence>[0]);
   if (operation === "room") return getTradeRoomData(input as Parameters<typeof getTradeRoomData>[0]);
   if (operation === "hold-uncommitted-write") {
     const client = await getRuntimePostgresPool().connect();
     await client.query("begin");
-    await client.query("update alpha_exchange.marketplace_listings set payload = jsonb_set(payload, '{availableAmount}', '\"1\"') where id = $1", [input]);
+    const changed = await client.query("update alpha_exchange.listings set payload = jsonb_set(payload, '{availableAmount}', '\"1\"') where id = $1", [input]);
+    if (changed.rowCount !== 1) throw new Error("Controlled rollback listing was not found");
     // Intentionally retain the connection. The controller kills this process
     // and verifies that PostgreSQL rolls the unfinished transaction back.
     return { holding: true, pid: process.pid };

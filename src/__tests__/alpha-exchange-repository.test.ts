@@ -1320,6 +1320,22 @@ describe("AlphaExchangeRepository", () => {
       commissionAmount: 0.002, sellerFeeAmount: 0.001, buyerFeeCollectedAmount: 0.001 });
   });
 
+  it("preserves manual assignment identity against stale maintenance", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const canonical = { id: "manual-once", sellerId: "seller-1", source: "admin_manual", issuedByUserId: "owner-1",
+      issueOperationId: "124b41aa-e9e6-4581-b26e-7ad5a64606f0", issueRequestHash: "original-fingerprint", issueReason: "Approved adjustment",
+      rate: 0, grossAmount: 0, commissionAmount: 7.25, paymentStatus: "pending",
+      createdAt: "2026-10-17T00:00:00.000Z", updatedAt: "2026-10-17T00:01:00.000Z" };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, commissionRecords: [canonical], __runtimeVersion: 2 } as never;
+    await repository.saveSnapshot({ ...baseline, commissionRecords: [{ ...canonical, issueOperationId: undefined, issueRequestHash: undefined,
+      issuedByUserId: undefined, source: undefined, issueReason: undefined, paymentStatus: "overdue", updatedAt: "2026-10-17T00:02:00.000Z" }],
+      __runtimeVersion: 1 } as unknown as AlphaExchangeDb, { selectedTables: ["commissions"] });
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.commissionRecords[0]).toMatchObject({ paymentStatus: "overdue", source: "admin_manual", issuedByUserId: "owner-1",
+      issueOperationId: canonical.issueOperationId, issueRequestHash: canonical.issueRequestHash, issueReason: canonical.issueReason });
+  });
+
   it("never lets stale overdue maintenance roll a paid commission back", async () => {
     const repository = new AlphaExchangeRepository(null);
     const baseline = await repository.loadSnapshot();

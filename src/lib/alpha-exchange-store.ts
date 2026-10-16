@@ -1,4 +1,5 @@
 import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
+import { requireManualCommissionOperationId } from "@/lib/manual-commission-operation";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
 import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
@@ -15081,7 +15082,9 @@ export async function issueSellerCommissionByAdmin(input: {
   commissionAmount: number;
   reason: string;
   dueAt?: string;
+  clientOperationId: string;
 }) {
+  const operationId = requireManualCommissionOperationId(input.clientOperationId);
   const sellerId = input.sellerId.trim();
   const reason = input.reason.trim();
   const amountInput = Number(input.commissionAmount);
@@ -15101,13 +15104,12 @@ export async function issueSellerCommissionByAdmin(input: {
   if (input.dueAt?.trim()) {
     const parsedDueAt = new Date(input.dueAt);
     if (!Number.isFinite(parsedDueAt.getTime())) throw new Error("Commission due date is invalid.");
-    if (parsedDueAt.getTime() <= new Date(createdAt).getTime()) {
-      throw new Error("Commission due date must be in the future.");
-    }
     dueAt = parsedDueAt.toISOString();
   }
 
-  const commissionId = `commission-${randomUUID()}`;
+  const commissionId = `commission-${createHash("sha256").update(JSON.stringify([input.actorUserId, operationId])).digest("hex")}`;
+  const requestHash = createHash("sha256").update(JSON.stringify({ sellerId, commissionAmount, reason,
+    requestedDueAt: input.dueAt?.trim() ? dueAt : null })).digest("hex");
   type AssignmentResult = {
     commission: CommissionRecord;
     notificationPublications: DeferredNotificationPublication[];
@@ -15128,14 +15130,21 @@ export async function issueSellerCommissionByAdmin(input: {
 
     const existing = snapshot.commissionRecords.find((record) => record.id === commissionId);
     if (existing) {
+      if (existing.source !== "admin_manual" || existing.issuedByUserId !== input.actorUserId
+        || existing.issueOperationId !== operationId || existing.issueRequestHash !== requestHash) {
+        throw new TradeBlockedError("manual-commission-operation-conflict", "This operation already issued a different commission. Refresh the owner dashboard before continuing.");
+      }
       // A repository retry may replay this closure after the record and its
       // notification were already built. Keep the deferred publication so a
       // successful commit still wakes the seller's open workspace.
       const notificationPublications = committed?.commission.id === existing.id
-        ? committed.notificationPublications
+        ? committed.notificationPublications.filter(publication => snapshot.notifications.some(row => row.id === publication.notification.id))
         : [];
       committed = { commission: existing, notificationPublications };
       return snapshot;
+    }
+    if (new Date(dueAt).getTime() <= new Date(createdAt).getTime()) {
+      throw new Error("Commission due date must be in the future.");
     }
 
     const commission: CommissionRecord = {
@@ -15143,6 +15152,8 @@ export async function issueSellerCommissionByAdmin(input: {
       source: "admin_manual",
       sellerId,
       issuedByUserId: input.actorUserId,
+      issueOperationId: operationId,
+      issueRequestHash: requestHash,
       issueReason: reason,
       rate: 0,
       grossAmount: 0,

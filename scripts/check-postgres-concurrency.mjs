@@ -93,6 +93,7 @@ for (let sellerIndex = 0; sellerIndex < 15; sellerIndex++) {
   }
 }
 const sellerCommand = (request, nextStatus) => ({ operation: "status", input: { requestId: request.id, actorUserId: request.sellerId, actorRole: "approved_seller", nextStatus, safetyAcknowledged: true } });
+fixture.users.push({ ...user("audit-owner", false, 900), role: "owner", roles: ["owner", "admin"] });
 const buyerCommand = (request, nextStatus) => ({ operation: "status", input: { requestId: request.id, actorUserId: request.buyerId, actorRole: "buyer", nextStatus } });
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZwAAAABJRU5ErkJggg==";
 function evidence(request, side) { return { operation: "evidence", input: { purchaseRequestId: request.id, actorUserId: side === "buyer" ? request.buyerId : request.sellerId,
@@ -112,8 +113,8 @@ try {
     (select jsonb_agg(jsonb_build_object('name',co.conname,'definition',pg_get_constraintdef(co.oid)) order by co.conname) from pg_constraint co where co.conrelid=c.oid) as constraints
     from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='alpha_exchange' and c.relkind='r' and c.relname=any($1::text[]) order by c.relname`, [expectedSchema.map(row => row.table_name)]);
   assert.deepEqual(observedSchema.rows, expectedSchema.map(({ table_name, rls, force_rls, columns, constraints }) => ({ table_name, rls, force_rls, columns, constraints })));
-  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.users")).rows[0].n, 75);
-  passed("Runtime/legacy baseline recreates 11 observed table definitions and replays without deleting seeded accounts", { tables: 11, users: 75 });
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.users")).rows[0].n, 76);
+  passed("Runtime/legacy baseline recreates 11 observed table definitions and replays without deleting seeded accounts", { tables: 11, users: 76 });
   for (let index = 1; index < 4; index++) workers.push(startWorker(index));
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
   monitor = setInterval(() => { pool.query("select count(*)::int as n from pg_stat_activity where datname=current_database() and application_name like 'alpha-audit-worker-%' and state='active'")
@@ -171,6 +172,7 @@ try {
   const locked = await batch(active.map(request => ({ operation: "terms", input: { requestId: request.id, actorUserId: request.sellerId, action: "propose_amount", value: "100", expectedUpdatedAt: request.updatedAt } })));
   assert(locked.every(result => !result.ok));
   passed("All payment methods reach cash/funds receipt; late adjustments rejected", { trades: 45 });
+  (await batch(active.filter(request => request.paymentMethod === "Bank Transfer").map(request => sellerCommand(request, "usdt_release_pending")))).forEach(requireOk);
   (await batch(active.map(request => request.paymentMethod === "Bank Transfer" ? evidence(request, "seller") : sellerCommand(request, "usdt_sent")))).forEach(requireOk);
   const completion = active.flatMap(request => Array.from({ length: 2 }, () => ({ operation: "status", input: { ...sellerCommand(request, "completed").input, completionMode: "seller", usdtSentConfirmed: true } })));
   (await batch(completion)).forEach(requireOk);
@@ -191,10 +193,23 @@ try {
   }
   passed("Duplicate completion settles and deducts inventory exactly once", { submissions: 90, trades: 45, commissions: 45 });
 
+  const manualCommand = { sellerId: "audit-seller-0", actorUserId: "audit-owner", commissionAmount: 7.25,
+    reason: "Synthetic owner assignment", clientOperationId: randomUUID() };
+  const assignments = await batch(Array.from({ length: 8 }, () => ({ operation: "manual-commission", input: manualCommand })));
+  const assigned = assignments.map(requireOk);
+  assert.equal(new Set(assigned.map(row => row.id)).size, 1);
+  const conflict = await workers[0].call("manual-commission", { ...manualCommand, commissionAmount: 8 });
+  assert(!conflict.ok && conflict.code === "manual-commission-operation-conflict");
+  snapshot = requireOk(await workers[0].call("snapshot"));
+  assert.equal(snapshot.commissionRecords.filter(row => row.source === "admin_manual").length, 1);
+  assert.equal(snapshot.auditLogs.filter(row => row.action === "commission_recorded" && row.newValue?.commissionId === assigned[0].id).length, 1);
+  passed("Concurrent owner commission retries create one obligation and reject changed terms", { submissions: 8, obligations: 1 });
+
   const before = snapshot.marketplaceListings[0];
   requireOk(await workers[0].call("hold-uncommitted-write", before.id));
   workers[0].child.kill("SIGKILL"); workers[0] = startWorker(8);
   requireOk(await workers[0].call("ready"));
+  assert.equal(requireOk(await workers[0].call("manual-commission", manualCommand)).id, assigned[0].id);
   const recovered = requireOk(await workers[0].call("snapshot"));
   assert.equal(recovered.marketplaceListings.find(row => row.id === before.id).availableAmount, before.availableAmount);
   passed("Killed process rolls back its unfinished database transaction", { listing: before.id, availableAmount: before.availableAmount });

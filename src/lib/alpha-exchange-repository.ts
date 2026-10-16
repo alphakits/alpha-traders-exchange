@@ -1673,6 +1673,9 @@ function mergeCommissionRecords(latest: CommissionRecord[], incoming: Commission
       commissionAmount: canonical.commissionAmount,
       sellerFeeAmount: canonical.sellerFeeAmount,
       buyerFeeCollectedAmount: canonical.buyerFeeCollectedAmount,
+      issueOperationId: canonical.issueOperationId,
+      issueRequestHash: canonical.issueRequestHash,
+      ...(canonical.issueOperationId ? { source: canonical.source, issuedByUserId: canonical.issuedByUserId, issueReason: canonical.issueReason } : {}),
       ...(issuedIntent
         ? {
             paymentExpectedAmount: issuedIntent.paymentExpectedAmount,

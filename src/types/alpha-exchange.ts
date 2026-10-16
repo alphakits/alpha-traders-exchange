@@ -950,6 +950,9 @@ export interface CommissionRecord {
   buyerId?: string;
   source?: "trade" | "admin_manual";
   issuedByUserId?: string;
+  /** Immutable identity/fingerprint for safe manual-assignment retries. */
+  issueOperationId?: string;
+  issueRequestHash?: string;
   /** Seller-visible explanation supplied by the admin who issued it. */
   issueReason?: string;
   rate: number;
