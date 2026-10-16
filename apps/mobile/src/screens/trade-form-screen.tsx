@@ -165,7 +165,7 @@ export function TradeFormScreen({
     const available = numericValue(listing.availableAmount);
     const configuredMaximum = numericValue(listing.maximumTrade) || available;
     const maximum = Math.min(configuredMaximum, available);
-    if (value <= 0 || value < minimum || value > maximum) return false;
+    if (value <= 0 || value < minimum || value > maximum || Number(buyerTotal) <= 0) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
     if (isCardless && (!isCardlessWithdrawalBank(withdrawalBank) || !parseCardlessWithdrawalDetails({ withdrawalCode, verificationKind, verificationValue }).ok
       || !validateCardlessIlsAmount(cashAmount, calculateTradePaymentTotal(String(value), mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price), true) ?? ""))) return false;
@@ -175,7 +175,7 @@ export function TradeFormScreen({
       if (listing.currency !== "ILS" || offerCents <= 0 || offerCents >= priceCents || offerCents < priceCents - 35) return false;
     }
     return true;
-  }, [withdrawalBank, cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
+  }, [buyerTotal, withdrawalBank, cashAmount, withdrawalCode, verificationKind, verificationValue, isCardless, amount, canonicalOfferPrice, isFaceToFace, listing, mode, paymentMethod, safetyAcknowledged, user, walletValidationError]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
@@ -442,6 +442,7 @@ export function TradeFormScreen({
         <View style={styles.totalCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("estimatedTotal")}</Text>
           <Text style={[styles.total, isRTL && styles.rtlText]}>{formatFinancialNumber(buyerTotal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {listing?.currency}</Text>
+          {numericValue(amount) > 0 && Number(buyerTotal) <= 0 ? <Text style={styles.error}>{isRTL ? "زد الكمية حتى يبلغ إجمالي الدفع 0.01 على الأقل بعملة العرض." : "Increase the amount until the payment total is at least 0.01 in the listing currency."}</Text> : null}
           <Text style={[styles.fee, isRTL && styles.rtlText]}>
             {isRTL ? `قيمة الصفقة: ${formatFinancialNumber(tradeValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency} · عمولتك كمشتري (1٪): ${formatFinancialNumber(buyerFee, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency}` : `Trade value: ${formatFinancialNumber(tradeValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency} · Your buyer fee (1%): ${formatFinancialNumber(buyerFee, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${listing?.currency}`}
           </Text>

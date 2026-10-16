@@ -5,7 +5,7 @@ import { currencyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
 import { useRef, useState } from "react";
 import { ChevronDown, PencilLine } from "lucide-react";
-import { calculateCardlessUsdtAmount, calculateTradePaymentTotal, calculateUsdtForPaymentTotal, canonicalizeTradeAmount, getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote, getTradeAmountAdjustmentCount, MAX_TRADE_AMOUNT_ADJUSTMENTS } from "@alpha-traders/contracts";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,13 +35,11 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
   const face = request.paymentMethod === "Face-to-Face (Meet in Person)";
   const cardless = request.paymentMethod === "Cardless ATM Withdrawal";
   const unit = cardless && !counter ? "ILS" : amountUnit;
-  const price = request.pricePerUsdt || request.listingPriceAtRequest || "";
   const includesBuyerFee = request.feePolicyVersion === "buyer_seller_1pct_v1";
-  const normalizedValue = canonicalizeTradeAmount(value);
-  const correctedAmount = counter || !normalizedValue ? null : cardless
-    ? calculateCardlessUsdtAmount(normalizedValue, price, includesBuyerFee)
-    : unit === "ILS" ? calculateUsdtForPaymentTotal(normalizedValue, price, includesBuyerFee) : normalizedValue;
-  const correctedTotal = correctedAmount ? calculateTradePaymentTotal(correctedAmount, price, includesBuyerFee) : null;
+  const calculationAction = counter ? "counter_offer" : unit === "ILS" ? "propose_ils_amount" : "propose_amount";
+  const quote = calculateTradeTermsQuote(request, calculationAction, value);
+  const correctedAmount = quote?.usdtAmount;
+  const correctedTotal = quote?.fiatAmount;
   if (!["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)) return null;
   if (![request.sellerId, request.buyerId].includes(actorId)) return null;
   if (!pending && !seller) return null;
@@ -92,6 +90,7 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
     {pending ? <>
       {paymentLocked ? <p role="status" className="text-sm">{lockedMessage}</p> : null}
       <p dir="ltr" className="break-words">{currencyText(`${proposal.usdtAmount} USDT · ${request.currency} ${proposal.fiatAmount} · ${proposal.pricePerUsdt} ${request.currency} / USDT`)}</p>
+      {includesBuyerFee ? <p className="commission-notice text-sm">{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</p> : null}
       <p className="text-sm">{isAr ? "راجع الكمية والسعر والإجمالي قبل الموافقة." : "Check the amount, price, and total before accepting."}</p>
       <div className="flex flex-wrap gap-2">
         {seller ? <Button disabled={disabled || busy} variant="secondary" onClick={() => void submit("withdraw_terms")}>{isAr ? "سحب الاقتراح" : "Withdraw proposal"}</Button> : <>
@@ -104,16 +103,17 @@ export function TradeTermsPanel({ request, actorId, isAr, disabled, onUpdated, o
       <label className="commission-notice block text-sm">{currencyText(counter ? (isAr ? "السعر المقابل بالشيكل لكل USDT" : "Counter price in ILS per USDT") : cardless ? (isAr ? "مبلغ السحب الجديد بالشيكل" : "New withdrawal amount (ILS)") : unit === "ILS" ? (isAr ? "إجمالي الدفع الصحيح بالشيكل (يشمل حصة المشتري إن وجدت)" : "Correct total ILS payment (including buyer fee if applicable)") : (isAr ? "كمية USDT الصحيحة" : "Correct USDT amount"))}
         <Input dir="ltr" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled || busy} placeholder={counter ? request.pricePerUsdt : unit === "ILS" ? request.fiatAmount : request.usdtAmount} className="currency-money mt-2 text-left" />
       </label>
-      {!counter && cardless ? <p className="text-sm">{isAr ? "من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT بالسعر المتفق عليه. بعد موافقة المشتري، يرسل رمزًا مطابقًا للمبلغ الجديد." : "100–10,000 ILS in steps of 100. USDT is calculated at the agreed price. After accepting, the buyer sends a code matching the new total."}</p> : null}
-      {!counter && correctedAmount && correctedTotal ? <div data-testid="trade-adjustment-preview" className="space-y-1 rounded-lg border border-emerald-500/30 bg-black/30 p-3 text-sm" aria-live="polite">
+      {!counter && cardless ? <p className="text-sm">{isAr ? "من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT بالسعر المتفق عليه مع احتساب عمولة المشتري إن وجدت. بعد موافقة المشتري، يرسل رمزًا مطابقًا للمبلغ الجديد." : "100–10,000 ILS in steps of 100. USDT is calculated at the agreed price with the buyer fee included when applicable. After accepting, the buyer sends a code matching the new total."}</p> : null}
+      {correctedAmount && correctedTotal ? <div data-testid="trade-adjustment-preview" className="space-y-1 rounded-lg border border-emerald-500/30 bg-black/30 p-3 text-sm" aria-live="polite">
         <p className="currency-money font-semibold" dir="ltr">{currencyText(`${request.usdtAmount} → ${correctedAmount} USDT`)}</p>
         <p className="currency-money" dir="ltr">{currencyText(`${request.currency} ${correctedTotal}`)}</p>
+        {includesBuyerFee ? <p className="commission-notice">{isAr ? "الإجمالي يشمل عمولة المشتري 1%. لا تُضف العمولة مرة أخرى." : "Total includes the buyer’s 1% fee. Do not add it again."}</p> : null}
         <p className="text-xs text-[#D1D5DB]">{currencyText(isAr ? `العمولة والخصم من العرض على ${correctedAmount} USDT عند الإكمال.` : `Commission and listing deduction use ${correctedAmount} USDT on completion.`)}</p>
       </div> : null}
       <p className="text-sm">{currencyText(isAr ? "انتظر موافقة المشتري قبل إرسال المال أو USDT." : "Wait for buyer approval before sending money or USDT.")}</p>
       <p className="text-xs text-[#D1D5DB]">{isAr ? "يمكن زيادة المبلغ أو تخفيضه ضمن رصيد العرض وحدوده. يُسمح باقتراحين فقط، حتى إذا رُفض الاقتراح أو سُحب." : "Increase or decrease within the listing's available balance and trade limits. Submitted proposals count toward the limit, even if declined or withdrawn."}</p>
       {counter && face && !request.sellerSafetyAcknowledged ? <label className="flex gap-2 text-sm"><input type="checkbox" checked={safety} onChange={(event) => setSafety(event.target.checked)} />{currencyText(isAr ? "أوافق على اللقاء في مكان عام آمن والتحقق من النقد قبل إرسال USDT." : "I agree to meet in a safe public place and verify cash before sending USDT.")}</label> : null}
-      <Button disabled={disabled || busy || !value.trim() || (!counter && (!correctedAmount || !correctedTotal)) || (counter && face && !request.sellerSafetyAcknowledged && !safety)} onClick={() => void submit(counter ? "counter_offer" : unit === "ILS" ? "propose_ils_amount" : "propose_amount")}>{busy ? (isAr ? "جارٍ الإرسال…" : "Sending…") : counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</Button>
+      <Button disabled={disabled || busy || !value.trim() || (!correctedAmount || !correctedTotal) || (counter && face && !request.sellerSafetyAcknowledged && !safety)} onClick={() => void submit(calculationAction)}>{busy ? (isAr ? "جارٍ الإرسال…" : "Sending…") : counter ? (isAr ? "إرسال عرض مقابل" : "Send counter-offer") : (isAr ? "إرسال التصحيح للموافقة" : "Propose corrected amount")}</Button>
     </div> : null}
     {error ? <ActionFeedback revealKey={errorFeedbackKey} as="p" role="alert" className="text-sm text-red-300">{currencyText(error)}</ActionFeedback> : null}
   </section>;

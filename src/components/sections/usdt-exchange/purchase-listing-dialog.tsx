@@ -157,7 +157,8 @@ export function PurchaseListingDialog({
     || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
     || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
   );
-  const purchaseDisabled = cardlessInvalid || isSubmittingPurchase
+  const paymentTotalInvalid = !Number.isFinite(estimatedTotal) || estimatedTotal <= 0;
+  const purchaseDisabled = cardlessInvalid || paymentTotalInvalid || isSubmittingPurchase
     || !selectedPaymentMethodIsAvailable
     || buyerTradeAmountInvalid
     || buyerWalletInvalid
@@ -237,6 +238,7 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 <TradePaymentSummary isAr={isAr} amount={buyerTradeAmount} subtotal={estimatedTradeValue} buyerFee={estimatedBuyerFee} total={estimatedTotal} formatFiat={formatIls} paymentMethod={selectedPaymentMethod ? paymentMethodLabel(selectedPaymentMethod, isAr) : undefined} network={buyerInfo.receivingNetwork ?? listing.network} />
+                {buyerTradeAmount > 0 && paymentTotalInvalid ? <p role="alert" className="mt-2 text-sm text-red-300">{isAr ? "زد الكمية حتى يبلغ إجمالي الدفع 0.01 على الأقل بعملة العرض." : "Increase the amount until the payment total is at least 0.01 in the listing currency."}</p> : null}
                 <p className="commission-notice mt-2 text-xs text-[#D1D5DB]">{currencyText(isAr ? "يشمل عمولتك 1%. تستلم كامل كمية USDT." : "Includes your 1% fee. You receive the full USDT amount.")}</p>
               </div>
 
