@@ -1,4 +1,6 @@
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
+import { getTradeRoomSnapshotAction } from "@/lib/trade-room-destination";
+import { isTradeRoomConversationNotification } from "@/lib/trade-room-notification-destination";
 
 const OWNER_ACTION_CATEGORIES = new Set<AlphaExchangeNotification["category"]>([
   "application",
@@ -15,6 +17,14 @@ const OWNER_ACTION_CATEGORIES = new Set<AlphaExchangeNotification["category"]>([
  */
 export function isNotificationActionRequired(notification: AlphaExchangeNotification) {
   if (notification.state === "archived") return false;
+
+  const snapshot = notification.tradeSnapshot;
+  if (notification.category === "trade" && snapshot
+    && !isTradeRoomConversationNotification(notification)
+    && (notification.userId === snapshot.buyerId || notification.userId === snapshot.sellerId)) {
+    const action = getTradeRoomSnapshotAction(snapshot, notification.userId);
+    if (action) return action !== "open-trade";
+  }
 
   const text = `${notification.title} ${notification.message} ${notification.actionLabel ?? ""}`.toLowerCase();
   if (
