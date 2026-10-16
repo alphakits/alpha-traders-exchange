@@ -1,5 +1,6 @@
 import { after, NextRequest } from "next/server";
-import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
+import { cardlessPaymentAmountNotice } from "@alpha-traders/contracts";
+import { TradeBlockedError, createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -168,7 +169,11 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     const code = mobileTradeErrorCode(error);
-    if (code) return mobileError(code, requestId, locale, mobileTradeErrorStatus(code));
+    if (code) {
+      const message = error instanceof TradeBlockedError && error.code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH" && typeof error.details?.requiredTotal === "string"
+        ? cardlessPaymentAmountNotice(error.details.enteredAmount, error.details.requiredTotal, locale) ?? undefined : undefined;
+      return mobileError(code, requestId, locale, mobileTradeErrorStatus(code), { message });
+    }
     logEvent("error", {
       event: "mobile_trade_create",
       outcome: "failed",

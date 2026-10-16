@@ -320,6 +320,55 @@ test.describe("Direct Buy USDT modal", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
+  for (const locale of ["en", "ar"] as const) {
+    test(`requires the full ATM code total including the buyer fee in ${locale}`, async ({ page }, info) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      const initial = await readRuntimeDb(page.request);
+      const listing = (initial.marketplaceListings as Array<Record<string, unknown>>).find(item => item.id === listingId)!;
+      Object.assign(listing, { originalAmount: "420", availableAmount: "420", minimumTrade: "420", maximumTrade: "420", price: "3.10",
+        paymentMethod: "Cardless ATM Withdrawal", paymentMethods: ["Cardless ATM Withdrawal"] });
+      await writeRuntimeDb(page.request, initial);
+      await page.goto(`/${locale}/usdt-exchange`);
+      const publicListings = await (await page.request.get("/api/alpha-exchange/listings")).json() as { listings: Array<{ id: string; sellerDisplayName: string }> };
+      const displayName = publicListings.listings.find(item => item.id === listingId)!.sellerDisplayName;
+      const buy = page.getByRole("button", { name: locale === "en" ? `Buy USDT from ${displayName}` : `شراء USDT من ${displayName}`, exact: true });
+      await buy.click();
+      const dialog = page.getByRole("dialog");
+      const cash = dialog.locator("#cardless-cash-input");
+      const amount = dialog.locator("#buyer-usdt-amount");
+      const submit = dialog.getByRole("button", { name: locale === "en" ? "Start Trade" : "بدء الصفقة", exact: true });
+      await expect(amount).toHaveValue("420");
+      await expect(dialog.getByTestId("cardless-required-total")).toContainText("1,315.02");
+      await dialog.locator("#buyer-receiving-wallet").fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
+      await dialog.locator("#cardless-bank").selectOption("Bank Hapoalim");
+      await dialog.locator("#cardless-withdrawal-code").fill("482913");
+      await dialog.locator("#cardless-verification-kind").selectOption("date_of_birth");
+      await dialog.locator("#cardless-verification-value").fill("25/08/1995");
+      await cash.fill("1300");
+      await expect(submit).toBeDisabled();
+      await expect(dialog.locator("#cardless-amount-feedback")).toContainText("15.02");
+      await expect(amount).toHaveValue("420");
+      const denied = await page.request.post("/api/alpha-exchange/purchase-requests", { data: {
+        listingId, usdtAmount: "420", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", receivingNetwork: "TRC20",
+        paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", feePolicyVersion: "buyer_seller_1pct_v1",
+        cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "1300",
+      } });
+      expect(denied.status()).toBe(400);
+      expect(await denied.json()).toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02" } });
+      await cash.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: info.outputPath(`atm-shortfall-${locale}.png`) });
+      await cash.fill(locale === "ar" ? "١٣١٥٫٠٢" : "1315.02");
+      await expect(cash).toHaveValue("1315.02");
+      await expect(submit).toBeEnabled();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+      await Promise.all([page.waitForURL(new RegExp(`/${locale}/trade-room/`)), submit.click()]);
+      const saved = await readRuntimeDb(page.request);
+      expect((saved.purchaseRequests as Array<Record<string, unknown>>).find(item => item.listingId === listingId)).toMatchObject({
+        usdtAmount: "420", fiatAmount: "1315.02", pricePerUsdt: "3.10", feePolicyVersion: "buyer_seller_1pct_v1", status: "pending",
+      });
+    });
+  }
+
   test("blocks a buyer with missing private contact before creating a trade", async ({ page }) => {
     await makeBuyerEmailVerifiedWithoutPhone(page.request);
     await page.setViewportSize({ width: 390, height: 844 });

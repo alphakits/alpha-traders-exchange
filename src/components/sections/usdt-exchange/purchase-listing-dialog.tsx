@@ -4,7 +4,7 @@ import { formatMoneyNumber } from "@/lib/accent-text";
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradePaymentSummary } from "@/components/sections/usdt-exchange/trade-payment-summary";
-import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getCardlessCashAmountOptions, calculateCardlessUsdtAmount, normalizeCardlessDigits, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateTradePaymentTotal, cardlessPaymentAmountNotice, normalizeLocalizedDecimalInput, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import type { FormEventHandler } from "react";
@@ -144,18 +144,12 @@ export function PurchaseListingDialog({
   const receivingNetwork = buyerInfo.receivingNetwork ?? listing.network;
   const isCardless = isCardlessAtmPaymentMethod(selectedPaymentMethod);
   const cardlessPrice = (priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2);
-  const cashBeforeFeeUsdt = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, cardlessPrice);
-  const cardlessCashOptions = isCardless
-    ? getCardlessCashAmountOptions((priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2), selectedMinTrade, selectedMaxTrade, true)
-    : [];
-  const selectedCashOption = cardlessCashOptions.find((option) => Number(option.ilsAmount) === Number(buyerInfo.cardlessIlsAmount));
-  const cardlessCashUnavailable = isCardless && Boolean(buyerInfo.cardlessIlsAmount) && !selectedCashOption;
+  const requiredCardlessTotal = calculateTradePaymentTotal(buyerInfo.usdtAmount, cardlessPrice, true) ?? "0.00";
+  const cardlessAmountNotice = isCardless ? cardlessPaymentAmountNotice(buyerInfo.cardlessIlsAmount, requiredCardlessTotal, locale) : null;
   const cardlessInvalid = isCardless && (
-    !selectedCashOption
-    || Number(selectedCashOption.usdtAmount) !== buyerTradeAmount
-    || !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
+    !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
     || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
-    || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, estimatedTotal.toFixed(2))
+    || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, requiredCardlessTotal)
   );
   const purchaseDisabled = cardlessInvalid || isSubmittingPurchase
     || !selectedPaymentMethodIsAvailable
@@ -261,32 +255,23 @@ export function PurchaseListingDialog({
                   ) : null}
                 </div>
                 {isCardless ? <div className="space-y-2 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/5 p-3">
-                  <label htmlFor="cardless-cash-input" className="block text-sm font-medium">{isAr ? "أدخل مبلغ السحب بالشيكل" : "Enter withdrawal amount in ILS"}</label>
-                  <Input id="cardless-cash-input" dir="ltr" inputMode="numeric" disabled={isSubmittingPurchase} placeholder="100 – 10,000" value={formatMoneyNumber(buyerInfo.cardlessIlsAmount ?? "")} onChange={(event) => {
-                    const cash = normalizeCardlessDigits(event.target.value).replace(/[,٬\s]/g, "");
-                    if (!/^\d*$/.test(cash)) return;
-                    onBuyerDetailsChange?.({ cardlessIlsAmount: cash, usdtAmount: calculateCardlessUsdtAmount(cash, cardlessPrice, true) ?? "" });
-                  }} className="currency-money" aria-invalid={cardlessCashUnavailable || undefined} aria-describedby="cardless-amount-help" />
-                  <label htmlFor="cardless-ils-amount" className="text-sm font-medium">{isAr ? "مبلغ رمز السحب بالشيكل" : "Withdrawal code amount in ILS"}</label>
-                  <select id="cardless-ils-amount" required disabled={isSubmittingPurchase} dir="ltr" className="currency-money min-h-11 w-full rounded-lg border border-white/20 bg-[#111] px-3 text-white" value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
-                    const option = cardlessCashOptions.find((item) => item.ilsAmount === event.target.value);
-                    onBuyerDetailsChange?.({ cardlessIlsAmount: event.target.value, usdtAmount: option?.usdtAmount ?? "" });
-                  }} aria-invalid={cardlessCashUnavailable || undefined} aria-describedby="cardless-amount-help">
-                    <option value="">{isAr ? "اختر مبلغ السحب من البنك" : "Select the bank withdrawal amount"}</option>
-                    {cardlessCashUnavailable ? <option value={buyerInfo.cardlessIlsAmount} disabled>{formatIls(Number(buyerInfo.cardlessIlsAmount))} — {isAr ? "غير متاح لهذا العرض" : "Unavailable for this listing"}</option> : null}
-                    {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
-                  </select>
-                  <p id="cardless-amount-help" className="commission-notice text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ الرمز: بمضاعفات ₪100، حتى ₪10,000 وضمن حدود العرض. تُحسب كمية USDT وعمولتك 1% تلقائيًا." : "Enter the cash amount for your code: ₪100 steps, up to ₪10,000, within this listing’s limits. USDT and your 1% fee are calculated automatically.")}</p>
-                  {!cardlessCashOptions.length ? <p role="alert" className="text-xs text-red-300">{currencyText(isAr ? `لا يوجد مبلغ سحب بين 100 و10,000 شيكل يناسب حدود هذا العرض (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) بالسعر الحالي. اختر طريقة دفع أخرى أو عرضاً آخر، أو اطلب من البائع تعديل حدود عرضه.` : `No withdrawal amount from ₪100 to ₪10,000 fits this listing’s limits (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) at the current price. Choose another payment method or listing, or ask the seller to adjust their listing limits.`)}</p> : cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ الرمز لا يناسب العرض. لا تستخدم رمزًا لمبلغ مختلف. اختر عرضًا آخر أو أنشئ رمزًا بمبلغ متاح." : "This code amount does not fit the listing. Do not use a code for a different amount. Choose another listing or create a code for an available amount."}</p> : null}
+                  <p className="commission-notice text-sm font-semibold" data-testid="cardless-required-total">{currencyText(isAr
+                    ? `مبلغ رمز السحب المطلوب: ₪${formatMoneyNumber(requiredCardlessTotal)} — يشمل عمولتك 1%.`
+                    : `Required ATM code amount: ₪${formatMoneyNumber(requiredCardlessTotal)} — includes your 1% buyer fee.`)}</p>
+                  <label htmlFor="cardless-cash-input" className="block text-sm font-medium">{isAr ? "المبلغ الفعلي لرمز السحب بالشيكل، شاملاً عمولتك 1%" : "Actual ATM code amount in ILS, including your 1% fee"}</label>
+                  <Input id="cardless-cash-input" dir="ltr" inputMode="decimal" disabled={isSubmittingPurchase} placeholder={requiredCardlessTotal} value={buyerInfo.cardlessIlsAmount ?? ""} onChange={(event) => {
+                    const cash = normalizeLocalizedDecimalInput(event.target.value, { maximumFractionDigits: 2, maximumWholeDigits: 6 });
+                    onBuyerDetailsChange?.({ cardlessIlsAmount: cash });
+                  }} className="currency-money" aria-invalid={Boolean(buyerInfo.cardlessIlsAmount && cardlessAmountNotice) || undefined} aria-describedby="cardless-amount-help cardless-amount-feedback" />
+                  <p id="cardless-amount-help" className="text-xs text-[#D1D5DB]">{isAr
+                    ? "أدخل المبلغ الذي يمكن سحبه فعليًا بهذا الرمز. يجب أن يطابق الإجمالي بالضبط. إذا لم يسمح البنك بهذا المبلغ، اختر وسيلة دفع أخرى أو اتفق مع البائع على كمية أخرى قبل الدفع."
+                    : "Enter the amount actually withdrawable with this code. It must match the total exactly. If your bank cannot issue this amount, choose another payment method or agree a different quantity with the seller before paying."}</p>
+                  {cardlessAmountNotice ? <p id="cardless-amount-feedback" role={buyerInfo.cardlessIlsAmount ? "alert" : "status"} className="text-xs text-red-300">{currencyText(cardlessAmountNotice)}</p> : <p id="cardless-amount-feedback" role="status" className="text-xs text-emerald-300">{isAr ? "المبلغ المُدخل يطابق الإجمالي المطلوب، شاملاً عمولتك 1%." : "The entered amount matches the full total, including your 1% fee."}</p>}
                 </div> : null}
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">{currencyText(isAr ? "كمية USDT" : "USDT Amount")} <span className="text-red-300">*</span></label>
-                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isCardless ? (isAr ? "تُحسب من مبلغ السحب أعلاه" : "Calculated from cash amount above") : (isAr ? "أدخل الكمية" : "Enter amount")} readOnly={isCardless} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`currency-money ${`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
-                    {isCardless && cashBeforeFeeUsdt ? <div className="space-y-1 text-xs text-[#D1D5DB]" aria-live="polite">
-                      <p className="commission-notice">{currencyText(isAr ? `قبل العمولة: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT` : `Before fee: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT`)}</p>
-                      <p className="commission-notice">{currencyText(isAr ? `تستلم ${buyerInfo.usdtAmount} USDT. مبلغ السحب يشمل عمولة المشتري 1%.` : `You receive ${buyerInfo.usdtAmount} USDT. Your withdrawal amount includes the buyer’s 1% fee.`)}</p>
-                    </div> : null}
+                    <Input id="buyer-usdt-amount" dir="ltr" inputMode="decimal" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(event.target.value)} className={`currency-money ${`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
                     <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {currencyText(`${selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} - ${selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
                   </div>
                   {priceMode === "buyer_offer" ? (

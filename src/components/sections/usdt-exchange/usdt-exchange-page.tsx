@@ -13,7 +13,7 @@ import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentT
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
@@ -681,7 +681,8 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
   return map[context];
 }
 
-function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
+function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string, details?: Record<string, unknown>) {
+  if (code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH" && typeof details?.requiredTotal === "string") return cardlessPaymentAmountNotice(details.enteredAmount, details.requiredTotal, isAr ? "ar" : "en") ?? englishMessage;
   if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
   if (!isAr) return englishMessage;
   if (code === "PENDING_BUYER_FEEDBACK") return "أكمل تقييم صفقتك السابقة قبل بدء طلب جديد. افتح صفقاتك لإضافة التقييم.";
@@ -2954,10 +2955,14 @@ export function UsdtExchangePage({
       setStatusMessage(localizeWalletValidationError(walletValidationError, buyerInfo.receivingNetwork, isAr));
       return;
     }
+    if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod)) {
+      const requiredTotal = calculateTradePaymentTotal(tradeAmount, (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price)).toFixed(2), true) ?? "0.00";
+      const notice = cardlessPaymentAmountNotice(buyerInfo.cardlessIlsAmount, requiredTotal, isAr ? "ar" : "en");
+      if (notice) { setStatusMessage(notice); return; }
+    }
     if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
       !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
       || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
-      || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, calculateTradePaymentTotal(String(requestedAmount), (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price)).toFixed(2), true) ?? "")
     )) {
       setStatusMessage(isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Choose the withdrawal bank and complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
       return;
@@ -3027,7 +3032,7 @@ export function UsdtExchangePage({
         const blockingDestination = purchaseBlockDestination(errorCode, errorDetails);
         if (blockingDestination) {
           closeListingModal();
-          navigateAfterSuccess(router, blockingDestination, purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
+          navigateAfterSuccess(router, blockingDestination, purchaseRequestErrorMessage(errorCode, isAr, errorMessage, errorDetails));
           return;
         }
         const commissionActionHref = typeof errorDetails.actionHref === "string" && errorDetails.actionHref.startsWith("/")
@@ -3038,7 +3043,7 @@ export function UsdtExchangePage({
           router.push(commissionActionHref);
           return;
         }
-        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
+        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage, errorDetails));
         return;
       }
       const data = payload as { purchase?: PurchaseRequest; destination?: string };
@@ -5841,18 +5846,12 @@ export function UsdtExchangePage({
           onPaymentMethodChange={(method) => {
             setSelectedPurchasePaymentMethod(method);
             setFaceToFaceSafetyAcknowledged(false);
-            if (isCardlessAtmPaymentMethod(method)) {
-              const price = purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : selectedListing.price;
-              setBuyerInfo((prev) => ({ ...prev, usdtAmount: calculateCardlessUsdtAmount(prev.cardlessIlsAmount, price, true) ?? "" }));
-            }
           }}
           onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
           onOfferedPriceChange={(value) => {
             const price = normalizePriceOfferInput(value);
             setBuyerOfferedPrice(price);
-            const amount = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, price, true);
-            if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && amount) setBuyerInfo((prev) => ({ ...prev, usdtAmount: amount }));
           }}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
           onGoToVerification={goToVerificationGate}

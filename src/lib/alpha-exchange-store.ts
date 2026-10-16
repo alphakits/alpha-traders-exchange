@@ -24,7 +24,7 @@ import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { hasVerifiedPhone } from "@/lib/verification-bypass";
-import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+import { formatCardlessWithdrawalPayload, cardlessPaymentAmountNotice, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "crypto";
@@ -10466,7 +10466,7 @@ export async function updateTradeTerms(input: {
           // withdrawal total. The old cash amount must not pin this correction.
           const cash = input.action === "propose_ils_amount" ? raw : fiat;
           const canonical = calculateCardlessUsdtAmount(cash, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
-          if (!canonical || (input.action === "propose_amount" && Number(amount) !== Number(canonical))) throw new TradeBlockedError("trade-terms-invalid", "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code.", input.requestId);
+          if (!canonical || (input.action === "propose_amount" && Number(amount) !== Number(canonical))) throw new TradeBlockedError("trade-terms-invalid", "ATM withdrawal must be 100–10,000 ILS with at most two decimal places. Adjust the ILS withdrawal amount before sharing a new code.", input.requestId);
           amount = canonical;
           fiat = Number(cash).toFixed(2);
         }
@@ -10755,7 +10755,12 @@ export async function createPurchaseRequest(input: {
     verificationValue: input.cardlessVerificationValue,
   }) : null;
   const cardlessIlsAmount = validateCardlessIlsAmount(input.cardlessIlsAmount, fiatAmount);
-  if (preparedCardless && (!preparedCardless.ok || listing.currency !== "ILS" || !cardlessIlsAmount)) {
+  if (preparedCardless && !cardlessIlsAmount) {
+    throw new TradeBlockedError("CARDLESS_PAYMENT_AMOUNT_MISMATCH", cardlessPaymentAmountNotice(input.cardlessIlsAmount, fiatAmount) ?? "ATM code amount must match the full payment total.", undefined, {
+      requiredTotal: fiatAmount, enteredAmount: typeof input.cardlessIlsAmount === "string" ? input.cardlessIlsAmount : "",
+    });
+  }
+  if (preparedCardless && (!preparedCardless.ok || listing.currency !== "ILS")) {
     throw new TradeBlockedError("CARDLESS_DETAILS_REQUIRED", "Enter the withdrawal code, ID number or birth date, and the exact ILS withdrawal amount matching this trade before submitting.");
   }
   const tradeId = `trade-${randomUUID()}`;

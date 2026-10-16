@@ -10,11 +10,31 @@ export type CardlessWithdrawalDetails = {
   ilsAmount?: string;
 };
 
+/** The code must cover the exact payment total, including cents and the buyer fee. */
 export function parseCardlessCashAmount(value: unknown) {
-  const normalized = typeof value === "string" ? normalizeCardlessDigits(value).trim() : "";
-  if (!/^\d{3,5}(?:\.00)?$/.test(normalized)) return null;
-  const amount = Number(normalized);
-  return amount >= 100 && amount <= 10000 && amount % 100 === 0 ? amount.toFixed(2) : null;
+  const normalized = typeof value === "string" ? canonicalizeTradeAmount(normalizeCardlessDigits(value).trim()) : null;
+  if (!normalized || !/^\d{1,5}(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const [whole, fraction = ""] = normalized.split(".");
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  return cents >= 10000 && cents <= 1000000
+    ? `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}` : null;
+}
+
+/** Explain a mismatch without changing the agreed USDT or treating a short code as full payment. */
+export function cardlessPaymentAmountNotice(value: unknown, expectedTotal: string, locale = "en") {
+  const required = parseCardlessCashAmount(expectedTotal);
+  const format = (amount: string) => Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const isAr = locale === "ar";
+  if (!required) return isAr
+    ? "يجب أن يكون إجمالي رمز السحب، شاملاً عمولة المشتري 1%، بين 100 و10,000 شيكل. عدّل كمية USDT ضمن حدود العرض أو اختر وسيلة دفع أخرى."
+    : "The full ATM code amount, including the 1% buyer fee, must be between ₪100 and ₪10,000. Choose a USDT amount within the listing limits or another payment method.";
+  const provided = parseCardlessCashAmount(value);
+  if (provided === required) return null;
+  const shortfall = provided ? Number(required.replace(".", "")) - Number(provided.replace(".", "")) : 0;
+  const shortText = shortfall > 0 ? (isAr ? `ينقص رمز السحب ₪${format((shortfall / 100).toFixed(2))}. ` : `Your ATM code is ₪${format((shortfall / 100).toFixed(2))} short. `) : "";
+  return shortText + (isAr
+    ? `يجب أن يغطي رمز السحب مبلغ ₪${format(required)} بالضبط، شاملاً عمولتك 1%. كمية USDT لا تتغير عند إدخال مبلغ ناقص.`
+    : `Your ATM code must cover exactly ₪${format(required)}, including your 1% buyer fee. Entering a lower amount does not reduce your USDT.`);
 }
 
 /** Divide the bank's cash amount by the agreed price using integer arithmetic. */
@@ -56,11 +76,9 @@ export function getCardlessCashAmountOptions(price: string, minimumUsdt: string 
 
 /** Cash must match the locked trade total exactly, to the agora. */
 export function validateCardlessIlsAmount(value: unknown, expectedTotal: string) {
-  const normalized = typeof value === "string" ? normalizeCardlessDigits(value).trim().replace("٫", ".") : "";
-  if (!parseCardlessCashAmount(normalized)) return null;
-  const cents = Math.round(Number(normalized) * 100);
-  return cents > 0 && Number.isSafeInteger(cents) && cents === Math.round(Number(expectedTotal) * 100)
-    ? (cents / 100).toFixed(2) : null;
+  const amount = parseCardlessCashAmount(value);
+  const expected = parseCardlessCashAmount(expectedTotal);
+  return amount && expected && amount === expected ? amount : null;
 }
 
 export function normalizeCardlessDigits(value: string) {

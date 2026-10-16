@@ -203,7 +203,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
     : "";
   const isTradeBlocked = error instanceof Error && error.name === "TradeBlockedError";
   if (isTradeBlocked) {
-    if (code === "cardless-verification-required" || code === "CARDLESS_DETAILS_REQUIRED") return "CARDLESS_DETAILS_REQUIRED";
+    if (code === "cardless-verification-required" || code === "CARDLESS_DETAILS_REQUIRED" || code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH") return "CARDLESS_DETAILS_REQUIRED";
     if (code === "AWAITING_BUYER_CONFIRMATION") return "AWAITING_BUYER_CONFIRMATION";
     if (code === "ACTIVE_TRADE_EXISTS") return "ACTIVE_TRADE_EXISTS";
     if (code === "PURCHASE_REQUEST_ALREADY_SUBMITTED") return "PURCHASE_REQUEST_ALREADY_SUBMITTED";
