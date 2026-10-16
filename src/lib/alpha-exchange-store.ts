@@ -18753,80 +18753,96 @@ export async function unlockTradeReviewByAdmin(input: { requestId: string; reaso
   return updateFinishedTradeByAdmin(input, "unlock-review");
 }
 
-export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
-  const db = await readDb();
-  const actor = db.users.find((candidate) => candidate.id === input.actorUserId);
-  if (!actor || !hasRole(actor, "owner")) {
-    throw new Error("Owner access is required to change account roles.");
+function assertAccountAdministrationActor(db: AlphaExchangeDb, actorUserId: string, ownerOnly: boolean) {
+  const actor = db.users.find(user => user.id === actorUserId);
+  if (!actor || actor.disabled || !(hasRole(actor, "owner") || (!ownerOnly && hasRole(actor, "admin")))) {
+    throw new Error(ownerOnly ? "Owner access is required." : "Admin access is required.");
   }
+}
+
+/** Reapply only the requested account delta after a concurrent security update. */
+async function commitAccountAdministrationMutation(
+  actorUserId: string,
+  ownerOnly: boolean,
+  mutation: (snapshot: AlphaExchangeDb) => Promise<void>,
+) {
+  const tables = [...SELLER_PROFILE_STATE_TABLES, "seller_applications"] as const;
+  const db = await readDbForSelectedTables(tables);
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    assertAccountAdministrationActor(snapshot, actorUserId, ownerOnly);
+    await mutation(snapshot);
+    return snapshot;
+  };
+  await apply(db);
+  await writeDb(db, {
+    selectedTables: SELLER_PROFILE_STATE_TABLES,
+    rebaseTables: tables,
+    rebaseOnLatest: apply,
+    cacheResult: false,
+  });
+}
+
+export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
   const reason = input.reason.trim();
   if (!reason) throw new Error("A role-change reason is required.");
-  const index = db.users.findIndex((u) => u.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
-  if (input.role === "owner") {
-    throw new Error("Owner access cannot be assigned through generic role management.");
-  }
-  if (input.role === "approved_seller" || input.role === "pending_seller_approval") {
-    throw new Error("Seller access must be managed through the verified seller application workflow.");
-  }
-  if (["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus)) {
-    throw new Error("Seller accounts must be managed through dedicated seller controls.");
-  }
-  const oldRole = user.role;
-  const oldRoles = user.roles ?? [user.role];
-  const nextRoles = [input.role];
-  db.users[index] = {
-    ...user,
-    role: input.role,
-    roles: nextRoles,
-    updatedAt: nowIso(),
-  };
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    targetUserId: input.userId,
-    details: `User role changed from ${oldRole} to ${input.role}`,
-    oldValue: { role: oldRole, roles: oldRoles },
-    newValue: { role: input.role, roles: nextRoles },
-    reason,
+  await commitAccountAdministrationMutation(input.actorUserId, true, async db => {
+    const index = db.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
+    if (input.role === "owner") throw new Error("Owner access cannot be assigned through generic role management.");
+    if (input.role === "approved_seller" || input.role === "pending_seller_approval") {
+      throw new Error("Seller access must be managed through the verified seller application workflow.");
+    }
+    if (["approved_seller", "pending_seller_approval", "suspended"].includes(user.sellerStatus)) {
+      throw new Error("Seller accounts must be managed through dedicated seller controls.");
+    }
+    const oldRole = user.role;
+    const oldRoles = user.roles ?? [user.role];
+    const nextRoles = [input.role];
+    db.users[index] = { ...user, role: input.role, roles: nextRoles, updatedAt: nowIsoAfter(user.updatedAt) };
+    await appendAuditLog(db, {
+      action: "admin_override", actorUserId: input.actorUserId, targetUserId: input.userId,
+      details: `User role changed from ${oldRole} to ${input.role}`,
+      oldValue: { role: oldRole, roles: oldRoles }, newValue: { role: input.role, roles: nextRoles }, reason,
+    });
   });
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
 export async function disableUserAccountByAdmin(input: { userId: string; disabled: boolean; reason: string; actorUserId: string }) {
-  const db = await readDb();
-  const index = db.users.findIndex((u) => u.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  if (hasRole(user, "owner")) throw new Error("Owner account cannot be disabled.");
-  db.users[index] = { ...user, disabled: input.disabled, updatedAt: nowIso() };
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    targetUserId: input.userId,
-    details: `User account ${input.disabled ? "disabled" : "enabled"}`,
-    reason: input.reason,
+  if (typeof input.disabled !== "boolean") throw new Error("Disabled must be a boolean.");
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("Reason is required.");
+  await commitAccountAdministrationMutation(input.actorUserId, true, async db => {
+    const index = db.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (hasRole(user, "owner")) throw new Error("Owner account cannot be disabled.");
+    db.users[index] = { ...user, disabled: input.disabled, updatedAt: nowIsoAfter(user.updatedAt) };
+    await appendAuditLog(db, {
+      action: "admin_override", actorUserId: input.actorUserId, targetUserId: input.userId,
+      details: `User account ${input.disabled ? "disabled" : "enabled"}`,
+      oldValue: { disabled: user.disabled === true }, newValue: { disabled: input.disabled }, reason,
+    });
   });
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
 export async function setSellerVacationModeByAdmin(input: { userId: string; enabled: boolean; actorUserId: string; reason?: string }) {
-  const db = await readDb();
-  const index = db.users.findIndex((u) => u.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const nextStatus: SellerAvailabilityStatus = input.enabled ? "vacation" : "available";
-  db.users[index] = { ...user, availabilityStatus: nextStatus, updatedAt: nowIso() };
-  await appendAuditLog(db, {
-    action: input.enabled ? "seller_vacation_enabled" : "seller_vacation_disabled",
-    actorUserId: input.actorUserId,
-    targetUserId: input.userId,
-    details: `Admin ${input.enabled ? "enabled" : "disabled"} vacation mode for seller`,
-    reason: input.reason?.trim() || undefined,
+  if (typeof input.enabled !== "boolean") throw new Error("enabled must be a boolean.");
+  await commitAccountAdministrationMutation(input.actorUserId, false, async db => {
+    const index = db.users.findIndex(user => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    const nextStatus: SellerAvailabilityStatus = input.enabled ? "vacation" : "available";
+    db.users[index] = { ...user, availabilityStatus: nextStatus, updatedAt: nowIsoAfter(user.updatedAt) };
+    await appendAuditLog(db, {
+      action: input.enabled ? "seller_vacation_enabled" : "seller_vacation_disabled",
+      actorUserId: input.actorUserId, targetUserId: input.userId,
+      details: `Admin ${input.enabled ? "enabled" : "disabled"} vacation mode for seller`,
+      oldValue: { availabilityStatus: user.availabilityStatus }, newValue: { availabilityStatus: nextStatus },
+      reason: input.reason?.trim() || undefined,
+    });
   });
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
 export async function broadcastNotificationByAdmin(input: {
@@ -18852,28 +18868,41 @@ export async function broadcastNotificationByAdmin(input: {
     throw new Error("Broadcast messages must be 2000 characters or fewer.");
   }
 
-  const db = await readDb();
-  for (const user of db.users) {
-    const userLocale = normalizePreferredLocale(user.preferredLocale);
-    pushNotification(db, {
-      userId: user.id,
-      category: "system",
-      title: userLocale === "ar" ? titleAr : titleEn,
-      message: userLocale === "ar" ? bodyAr : bodyEn,
-      titleEn,
-      messageEn: bodyEn,
-      titleAr,
-      messageAr: bodyAr,
-      priority: input.type === "warning" ? "high" : "normal",
+  const reason = input.reason?.trim();
+  if (!reason) throw new Error("Reason is required.");
+  const tables = ["users", "seller_applications", "notifications", "audit_logs"] as const;
+  const db = await readDbForSelectedTables(tables);
+  let publications: DeferredNotificationPublication[] = [];
+  const apply = async (snapshot: AlphaExchangeDb) => {
+    publications = [];
+    assertAccountAdministrationActor(snapshot, input.actorUserId, true);
+    for (const user of snapshot.users) {
+      const userLocale = normalizePreferredLocale(user.preferredLocale);
+      const publication = pushNotification(snapshot, {
+        userId: user.id,
+        category: "system",
+        title: userLocale === "ar" ? titleAr : titleEn,
+        message: userLocale === "ar" ? bodyAr : bodyEn,
+        titleEn, messageEn: bodyEn, titleAr, messageAr: bodyAr,
+        priority: input.type === "warning" ? "high" : "normal",
+        deferRealtime: true,
+      });
+      if (publication) publications.push(publication);
+    }
+    await appendAuditLog(snapshot, {
+      action: "admin_override", actorUserId: input.actorUserId,
+      details: `Broadcast notification sent: ${titleEn}`, reason,
     });
-  }
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    details: `Broadcast notification sent: ${titleEn}`,
-    reason: input.reason?.trim() || undefined,
+    return snapshot;
+  };
+  await apply(db);
+  await writeDb(db, {
+    selectedTables: ["notifications", "audit_logs"],
+    rebaseTables: tables,
+    rebaseOnLatest: apply,
+    cacheResult: false,
   });
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+  for (const publication of publications) publishNotificationPublication(publication);
 }
 
 export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string; reason?: string }) {

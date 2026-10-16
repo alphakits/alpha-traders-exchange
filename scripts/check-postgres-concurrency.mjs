@@ -132,6 +132,43 @@ try {
   const authSnapshot = requireOk(await workers[0].call("snapshot"));
   authAccounts.forEach((userId, index) => assert.equal(authSnapshot.users.find(user => user.id === userId).passwordHash, `synthetic-updated-hash-${index}`));
   passed("Concurrent password updates preserve both accounts", { accounts: 2 });
+  const administration = { actorUserId: "audit-owner", userId: authAccounts[0], reason: "Controlled concurrent account check" };
+  (await batch([
+    { operation: "admin-role", input: { ...administration, role: "admin" } },
+    { operation: "admin-disable", input: { ...administration, disabled: true } },
+    { operation: "admin-vacation", input: { ...administration, enabled: true } },
+    { operation: "auth-password", input: { userId: authAccounts[0], passwordHash: "synthetic-concurrent-password" } },
+  ])).forEach(requireOk);
+  const administrated = requireOk(await workers[0].call("snapshot"));
+  const administratedAccount = administrated.users.find(user => user.id === authAccounts[0]);
+  assert.equal(administratedAccount.role, "admin");
+  assert.equal(administratedAccount.disabled, true);
+  assert.equal(administratedAccount.availabilityStatus, "vacation");
+  assert.equal(administratedAccount.passwordHash, "synthetic-concurrent-password");
+  assert.equal(administrated.auditLogs.filter(log => log.targetUserId === authAccounts[0]).length, 3);
+  (await batch([
+    { operation: "admin-role", input: { ...administration, role: "buyer" } },
+    { operation: "admin-disable", input: { ...administration, disabled: false } },
+    { operation: "admin-vacation", input: { ...administration, enabled: false } },
+  ])).forEach(requireOk);
+  passed("Concurrent account controls preserve password, role, restriction and availability changes", { independentProcesses: 4, committedAuditRecords: 3, fixtureRestored: true });
+
+  const broadcast = { actorUserId: "audit-owner", reason: "Controlled durable audit check", type: "warning",
+    titleEn: "Synthetic audit broadcast", bodyEn: "Controlled database only", titleAr: "إشعار تجريبي", bodyAr: "اختبار قاعدة البيانات فقط" };
+  await pool.query(`create function alpha_exchange.audit_test_reject_broadcast() returns trigger language plpgsql as $$
+    begin if new.payload->>'details' = 'Broadcast notification sent: Synthetic audit broadcast' then
+      raise exception 'Synthetic broadcast audit failure'; end if; return new; end $$`);
+  await pool.query("create trigger audit_test_reject_broadcast before insert on alpha_exchange.audit_logs for each row execute function alpha_exchange.audit_test_reject_broadcast()");
+  const failedBroadcast = await workers[0].call("admin-broadcast", broadcast);
+  assert.equal(failedBroadcast.ok, false);
+  assert.match(failedBroadcast.error, /Synthetic broadcast audit failure/);
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.notifications where payload->>'titleEn'=$1", [broadcast.titleEn])).rows[0].n, 0);
+  await pool.query("drop trigger audit_test_reject_broadcast on alpha_exchange.audit_logs");
+  await pool.query("drop function alpha_exchange.audit_test_reject_broadcast()");
+  requireOk(await workers[1].call("admin-broadcast", broadcast));
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.notifications where payload->>'titleEn'=$1", [broadcast.titleEn])).rows[0].n, 76);
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.audit_logs where payload->>'details'=$1", [`Broadcast notification sent: ${broadcast.titleEn}`])).rows[0].n, 1);
+  passed("Broadcast audit failure rolls back all recipients and another process safely retries", { recipients: 76, auditRecords: 1, externalDelivery: "disabled" });
   const verification = requireOk(await workers[0].call("auth-email-issue", authAccounts[0]));
   const verifications = (await Promise.all(workers.map(worker => worker.call("auth-email-consume", verification.token)))).map(requireOk);
   assert.equal(verifications.filter(result => result.status === "verified").length, 1);

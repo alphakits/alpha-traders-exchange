@@ -1,6 +1,6 @@
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
-import { consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, updatePurchaseRequestStatus, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
@@ -36,6 +36,10 @@ async function execute(operation: string, input: unknown) {
     return createPasswordResetToken(action.userId, action.token);
   }
   if (operation === "auth-reset-consume") return consumePasswordResetToken(input as string);
+  if (operation === "admin-role") return changeUserRoleByAdmin(input as Parameters<typeof changeUserRoleByAdmin>[0]);
+  if (operation === "admin-disable") return disableUserAccountByAdmin(input as Parameters<typeof disableUserAccountByAdmin>[0]);
+  if (operation === "admin-vacation") return setSellerVacationModeByAdmin(input as Parameters<typeof setSellerVacationModeByAdmin>[0]);
+  if (operation === "admin-broadcast") return broadcastNotificationByAdmin(input as Parameters<typeof broadcastNotificationByAdmin>[0]);
   if (operation === "status" || operation === "status-with-lost-follow-up") {
     const actionStarted = performance.now();
     const result = await updatePurchaseRequestStatus(input as Parameters<typeof updatePurchaseRequestStatus>[0]);
