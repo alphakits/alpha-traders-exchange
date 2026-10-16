@@ -51,6 +51,8 @@ import { adminMarketplaceListingsDestination, listingDestination, sellerApplicat
 import { toMobileNotification } from "@/lib/mobile-notifications";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
 import { COMPLETE_SELLER_APPROVAL_CHECKLIST } from "@/lib/seller-approval-verification";
+import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 
 const OWNER_ID = "owner-1";
 const LISTING_CREATOR_ID = "seller-creator";
@@ -203,8 +205,35 @@ describe("marketplace listing publication broadcasts", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("publishes no listing or trust notification when the listing transaction fails", async () => {
+    const events: RealtimeEvent[] = [];
+    const unsubscribe = subscribeRealtimeEvents(event => events.push(event));
+    vi.spyOn(AlphaExchangeRepository.prototype, "saveListingCreationSnapshotTargeted").mockRejectedValue(new Error("listing transaction rejected"));
+    try {
+      await expect(createMarketplaceListing({ sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20", paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID })).rejects.toThrow("listing transaction rejected");
+      expect(events.filter(event => ["notification.created", "notification.updated", "listing.created", "reputation.updated"].includes(event.type))).toEqual([]);
+      expect(sendMarketplaceEmailMock).not.toHaveBeenCalled();
+      const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+      expect(persisted.marketplaceListings).toHaveLength(0);
+      expect(persisted.notifications).toHaveLength(0);
+    } finally { unsubscribe(); }
+  });
+
+  it("retains distinct seller and owner submission notices for two listings created within the deduplication window", async () => {
+    const input = { sellerId: LISTING_CREATOR_ID, sellerDisplayName: "Listing Creator", availableAmount: "700", price: "3.20", currency: "ILS", network: "TRC20" as const, paymentMethods: ["Bank Transfer"], bankName: "Bank Hapoalim", minimumTrade: "50", maximumTrade: "700", responseTime: "5 min", acceptedCommissionPolicy: true, actorUserId: LISTING_CREATOR_ID };
+    const first = await createMarketplaceListing(input);
+    const second = await createMarketplaceListing({ ...input, price: "3.21" });
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    for (const userId of [OWNER_ID, LISTING_CREATOR_ID]) {
+      const submitted = persisted.notifications.filter(notification => notification.userId === userId && ["New Listing Pending Review", "Listing submitted"].includes(notification.title));
+      expect(submitted.map(notification => notification.relatedListingId).sort()).toEqual([first.id, second.id].sort());
+      expect(new Set(submitted.map(notification => notification.id)).size).toBe(2);
+    }
   });
 
   it("filters opted-in publication alerts without changing generic alerts or creating purchases", async () => {

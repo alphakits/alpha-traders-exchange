@@ -2104,6 +2104,18 @@ function isTransientReadError(error: unknown) {
   return /query read timeout|timeout exceeded when trying to connect|connection terminated|connection closed|ECONNRESET|EPIPE|ETIMEDOUT/i.test(message);
 }
 
+/** A timed-out or broken socket may still have a query in flight. Never queue
+ * another command on it or return an uncertain transaction to the pool. */
+async function rollbackFailedTransaction(client: PoolClient, error: unknown): Promise<boolean> {
+  if (isTransientReadError(error)) return true;
+  try {
+    await client.query("rollback");
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 async function queryReadWithRetry<T extends QueryResultRow>(
   target: Queryable,
   queryText: string,
@@ -2307,8 +2319,7 @@ export class AlphaExchangeRepository {
       await client.query("commit");
       return next;
     } catch (error) {
-      destroy = isTransientReadError(error);
-      try { await client.query("rollback"); } catch { destroy = true; }
+      destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
       client.release(destroy);
@@ -4191,9 +4202,8 @@ export class AlphaExchangeRepository {
   }
 
   // Targeted write — applies only the delta produced by createMarketplaceListing.
-  // The listing INSERT + trust_snapshot UPSERTs run in a single transaction.
-  // Append-only writes (audit_logs, notifications, activity_log, trust_score_history)
-  // run as independent parallel INSERTs — they require no atomicity with the listing.
+  // Listing, trust, audit and notification intents commit together. A failed
+  // required event must not leave a successful listing with missing history.
   async saveListingCreationSnapshotTargeted(delta: {
     newListing: MarketplaceListing;
     newAuditLogs: AuditLogEntry[];
@@ -4236,8 +4246,8 @@ export class AlphaExchangeRepository {
       return;
     }
 
-    // ── Step 1: transactional — INSERT listing + UPSERT trust_snapshots ──────
     let client: PoolClient | null = null;
+    let destroy = false;
     let nextVersion = 0;
     const perf = createRepoPerf(`saveListingCreationSnapshotTargeted[trustSnapshots=${delta.updatedTrustSnapshots.length}]`);
     try {
@@ -4253,9 +4263,9 @@ export class AlphaExchangeRepository {
       // commits first allows it.
       try {
         await client.query("select pg_advisory_xact_lock(61422917)");
-      } catch {
-        // pg-mem does not implement advisory locks; local tests are
-        // single-process and use the memory branch above.
+      } catch (error) {
+        if (isProductionSecurityRuntime() || !(error instanceof Error)
+          || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
       }
       const blockingCommission = await client.query<{ id: string }>(
         `select id
@@ -4306,6 +4316,42 @@ export class AlphaExchangeRepository {
         perf?.step(`trust_snapshot_upsert_${snap.sellerId.slice(-8)}`);
       }
 
+      for (const entry of delta.newAuditLogs) {
+        await client.query(
+          `insert into alpha_exchange.audit_logs
+             (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.audit_logs), $8::jsonb)`,
+          [entry.id, entry.action, entry.actorUserId, entry.targetUserId ?? null,
+            entry.listingId ?? null, entry.purchaseRequestId ?? null, entry.createdAt, json(entry)],
+        );
+      }
+      for (const notification of delta.newNotifications) {
+        await client.query(
+          `insert into alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.notifications), $6::jsonb)`,
+          [notification.id, notification.userId, notification.category, notification.isRead, notification.createdAt, json(notification)],
+        );
+      }
+      for (const entry of delta.newActivityLogs) {
+        await client.query(
+          `insert into alpha_exchange.activity_logs (id, user_id, category, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.activity_logs), $5::jsonb)`,
+          [entry.id, entry.userId, entry.category, entry.createdAt, json(entry)],
+        );
+      }
+      for (const entry of delta.newTrustHistoryEntries) {
+        await client.query(
+          `insert into alpha_exchange.trust_score_history (id, seller_id, created_at, sort_index, payload)
+           values ($1,$2,$3,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.trust_score_history), $4::jsonb)`,
+          [entry.id, entry.sellerId, entry.createdAt, json(entry)],
+        );
+      }
+      perf?.step("transactional_events");
+
       const versionResult = await client.query<{ version: string }>(
         "update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true returning version::text as version",
       );
@@ -4315,102 +4361,11 @@ export class AlphaExchangeRepository {
       await client.query("commit");
       perf?.step("commit");
     } catch (error) {
-      if (client) {
-        try { await client.query("rollback"); } catch { /* ignore rollback failure */ }
-      }
+      if (client) destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
-      if (client) { client.release(); client = null; }
+      if (client) { client.release(destroy); client = null; }
     }
-
-    // ── Step 2: independent parallel INSERTs for append-only collections ─────
-    // sort_index uses a subquery so new entries sort before (lower index) existing ones.
-    const appendTasks: Array<Promise<void>> = [];
-
-    if (delta.newAuditLogs.length) {
-      appendTasks.push((async () => {
-        for (const entry of delta.newAuditLogs) {
-          await pool.query(
-            `insert into alpha_exchange.audit_logs
-               (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,$6,$7,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.audit_logs),
-               $8::jsonb)`,
-            [
-              entry.id, entry.action, entry.actorUserId, entry.targetUserId ?? null,
-              entry.listingId ?? null, entry.purchaseRequestId ?? null, entry.createdAt, json(entry),
-            ],
-          );
-        }
-      })());
-    }
-
-    if (delta.newNotifications.length) {
-      appendTasks.push((async () => {
-        for (const notif of delta.newNotifications) {
-          await pool.query(
-            `insert into alpha_exchange.notifications
-               (id, user_id, category, is_read, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.notifications),
-               $6::jsonb)`,
-            [notif.id, notif.userId, notif.category, notif.isRead, notif.createdAt, json(notif)],
-          );
-        }
-      })());
-    }
-
-    if (delta.newActivityLogs.length) {
-      appendTasks.push((async () => {
-        for (const entry of delta.newActivityLogs) {
-          await pool.query(
-            `insert into alpha_exchange.activity_logs
-               (id, user_id, category, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.activity_logs),
-               $5::jsonb)`,
-            [entry.id, entry.userId, entry.category, entry.createdAt, json(entry)],
-          );
-        }
-      })());
-    }
-
-    if (delta.newTrustHistoryEntries.length) {
-      appendTasks.push((async () => {
-        for (const entry of delta.newTrustHistoryEntries) {
-          await pool.query(
-            `insert into alpha_exchange.trust_score_history
-               (id, seller_id, created_at, sort_index, payload)
-             values ($1,$2,$3,
-               (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.trust_score_history),
-               $4::jsonb)`,
-            [entry.id, entry.sellerId, entry.createdAt, json(entry)],
-          );
-        }
-      })());
-    }
-
-    // Use allSettled so that a failed append-only INSERT never rolls back or
-    // changes the HTTP response — the listing transaction already committed.
-    // Failures are logged with enough context for manual retry or investigation.
-    const appendLabels = ["audit_logs", "notifications", "activity_logs", "trust_score_history"];
-    const results = await Promise.allSettled(appendTasks);
-    perf?.step("parallel_appends");
-    results.forEach((result, i) => {
-      if (result.status === "rejected") {
-        logEvent("error", {
-          event: "alpha_exchange_listing_append",
-          targetUserId: delta.newListing.sellerId,
-          resourceId: delta.newListing.id,
-          outcome: "failed",
-          reason: "post_commit_append_failed",
-          metadata: {
-            table: appendLabels[i] ?? "unknown",
-            errorName: result.reason instanceof Error ? result.reason.name : typeof result.reason,
-          },
-        });
-      }
-    });
 
     try {
       // Fire-and-forget: the listing was already committed. Even though the full
@@ -4469,13 +4424,15 @@ export class AlphaExchangeRepository {
     }
 
     let client: PoolClient | null = null;
+    let destroy = false;
     try {
       client = await pool.connect();
       await client.query("begin");
       try {
         await client.query("select pg_advisory_xact_lock(61422917)");
-      } catch {
-        // pg-mem does not implement advisory locks; local tests stay single-process.
+      } catch (error) {
+        if (isProductionSecurityRuntime() || !(error instanceof Error)
+          || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
       }
 
       const currentMeta = await queryWithLogging(client,
@@ -4572,13 +4529,11 @@ export class AlphaExchangeRepository {
       );
       await client.query("commit");
     } catch (error) {
-      if (client) {
-        try { await client.query("rollback"); } catch { /* ignore rollback failure */ }
-      }
+      if (client) destroy = await rollbackFailedTransaction(client, error);
       throw error;
     } finally {
       if (client) {
-        client.release();
+        client.release(destroy);
       }
     }
   }

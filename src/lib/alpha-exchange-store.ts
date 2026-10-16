@@ -4610,9 +4610,8 @@ async function readDbForListingCreation(): Promise<{ db: AlphaExchangeDb; fromCa
 }
 
 // Targeted write — persists only the rows that changed during createMarketplaceListing.
-// The listing INSERT + trust_snapshot UPSERTs run in one transaction; all other
-// writes (audit_logs, notifications, activity_log, trust_score_history) are
-// independent parallel INSERTs with no advisory lock or version-check overhead.
+// The listing, trust, audit, notifications and activity commit atomically so
+// a failed required event cannot leave an apparently successful partial save.
 // Cache is updated when db came from the full cached read (fromCache=true) so
 // subsequent in-process hits reflect the new listing immediately. When the read
 // was a targeted partial read the cache is invalidated to force a fresh full load.
@@ -9333,6 +9332,11 @@ export async function createMarketplaceListing(input: {
   const activityCountBefore = db.activityLog.length;
   const trustHistoryCountBefore = db.trustScoreHistory.length;
 
+  const pendingPublications: TradeMutationPublications = {
+    notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: false,
+  };
+  tradeMutationPublications.set(db, pendingPublications);
+
   await appendAuditLog(db, {
     action: "listing_created",
     actorUserId: input.actorUserId,
@@ -9352,6 +9356,7 @@ export async function createMarketplaceListing(input: {
       relatedHref: reviewDestination,
       actionHref: reviewDestination,
       actionLabel: "Review Listing",
+      dedupeKey: reviewDestination,
       priority: "critical",
       forceInApp: true,
     });
@@ -9363,6 +9368,7 @@ export async function createMarketplaceListing(input: {
     message: `Listing ${listing.id} was submitted for admin review.`,
     relatedListingId: listing.id,
     relatedHref: sellerListingWorkspaceDestination(listing),
+    dedupeKey: sellerListingWorkspaceDestination(listing),
   });
   logProfile("pushNotification");
   pushActivityLog(db, {
@@ -9381,14 +9387,20 @@ export async function createMarketplaceListing(input: {
   const newActivityLogs = db.activityLog.slice(0, db.activityLog.length - activityCountBefore);
   const newTrustHistoryEntries = db.trustScoreHistory.slice(0, db.trustScoreHistory.length - trustHistoryCountBefore);
 
-  await writeDbForListingCreation(db, {
-    newListing: listing,
-    newAuditLogs,
-    newNotifications,
-    newActivityLogs,
-    newTrustHistoryEntries,
-    updatedTrustSnapshots: db.trustSnapshots,
-  }, fromCache);
+  try {
+    await writeDbForListingCreation(db, {
+      newListing: listing,
+      newAuditLogs,
+      newNotifications,
+      newActivityLogs,
+      newTrustHistoryEntries,
+      updatedTrustSnapshots: db.trustSnapshots,
+    }, fromCache);
+  } finally { tradeMutationPublications.delete(db); }
+  pendingPublications.notifications.forEach(publishNotificationPublication);
+  pendingPublications.trustNotifications.forEach(publishNotificationPublication);
+  pendingPublications.trustEvents.forEach(publishRealtimeEvent);
+  for (const email of pendingPublications.promotionEmails) await sendSellerPrestigePromotionEmail(email);
   await dispatchOwnerActionRequiredEmails(db, {
     event: "owner_listing_review_required",
     title: { ar: "إعلان يحتاج إلى الموافقة", en: "Listing Approval Required" },
