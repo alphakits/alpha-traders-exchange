@@ -88,6 +88,8 @@ type MockPayableCommission = {
 let commissionRecordsOverride: MockPayableCommission[] | null = null;
 let commissionDueStatus: "pending" | "overdue" = "pending";
 let workspaceCanCreateListingOverride: boolean | null = null;
+let workspaceOpenListingCount = 0;
+let workspaceBlockedReasonOverride: string | null = null;
 let commissionPaymentResponse: {
   verification: { verified: boolean; pending?: boolean; notes: string };
 } = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
@@ -109,6 +111,8 @@ describe("seller commission Pay Now", () => {
     commissionRecordsOverride = null;
     commissionDueStatus = "pending";
     workspaceCanCreateListingOverride = null;
+    workspaceOpenListingCount = 0;
+    workspaceBlockedReasonOverride = null;
     commissionPaymentResponse = { verification: { verified: false, pending: true, notes: "Waiting for TRON final confirmation." } };
     commissionPaymentSideEffect = null;
     notificationStreamListener = null;
@@ -176,12 +180,12 @@ describe("seller commission Pay Now", () => {
           listings: [],
           summary: {
             activeListingLimit: 2,
-            openListingCount: 0,
+            openListingCount: workspaceOpenListingCount,
             openTradeCount: 0,
             pendingCommissionCount: payableRecords.length,
             canCreateListing,
             blockedReason: !canCreateListing
-              ? "Your listings are hidden and all new marketplace trading is locked until every pending commission is paid."
+              ? workspaceBlockedReasonOverride ?? listingCommissionRequiredMessage()
               : null,
           },
           commissionStatus: {
@@ -243,6 +247,30 @@ describe("seller commission Pay Now", () => {
     await waitFor(() => expect(document.getElementById("commission-payment")).not.toBeNull());
     const localized = await readApiErrorMessage(jsonResponse({ error: listingCommissionRequiredMessage() }, 400), isAr ? "تعذر تحديث العرض" : "Unable to update listing");
     expect(localized).toBe(listingCommissionRequiredMessage(isAr));
+  });
+
+  it.each(["en", "ar"] as const)("keeps the open-listing limit separate from clear commissions in %s", async (locale) => {
+    commissionRecordsOverride = [];
+    workspaceCanCreateListingOverride = false;
+    workspaceOpenListingCount = 2;
+    workspaceBlockedReasonOverride = "You already have 2 open listings, including listings awaiting review. Close one before creating another.";
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const commissionStatus = await waitFor(() => {
+      const section = document.getElementById("commission-status")!;
+      expect(section?.textContent).toContain(isAr ? "لا توجد عمولة مستحقة حالياً." : "No commission due.");
+      return section;
+    });
+    expect(commissionStatus.textContent).toContain(isAr ? "لا يلزمك دفع أي عمولة حالياً" : "No commission payment is required now");
+    expect(commissionStatus.textContent).not.toMatch(/مساحة عمل البائع مقيدة|Your seller account is temporarily restricted|You already have 2 open listings/);
+    expect(within(commissionStatus).queryByRole("button", { name: /Pay Now|ادفع الآن/ })).toBeNull();
+
+    const createSection = within(document.getElementById("create-listing")!);
+    expect(createSection.getByText(isAr ? "وصلت إلى الحد الأقصى للعروض المفتوحة" : "Open listing limit reached")).toBeTruthy();
+    expect(createSection.getByText(isAr ? /عدد العروض المفتوحة: 2. الحد الأقصى: 2. يشمل ذلك العروض بانتظار المراجعة/ : workspaceBlockedReasonOverride)).toBeTruthy();
+    expect(createSection.getByRole("button", { name: isAr ? "إدارة العروض" : "Manage Listings" })).toBeTruthy();
+    expect(createSection.queryByText(isAr ? "ادفع العمولة أولاً" : "Pay commission first")).toBeNull();
+    expect((createSection.getByRole("button", { name: isAr ? "متابعة إلى الدفع" : "Continue to payment" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it.each(["en", "ar"] as const)("keeps overdue Pay Now available to suspended sellers in %s", async (locale) => {

@@ -3155,11 +3155,6 @@ export function UsdtExchangePage({
     sellerWorkspaceSummary?.pendingCommissionCount ?? 0, sellerCommissionStatus?.pendingCount ?? 0,
   ) > 0;
   const listingCreationBlocked = !canAccessListingCreation || listingBlockedByCommission || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
-  const listingCreationBlockedReason = !canAccessListingCreation
-    ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
-    : listingBlockedByCommission ? listingCommissionRequiredMessage(isAr)
-    : (sellerWorkspaceSummary?.blockedReason
-      ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
   const listingBlockedByActiveLimit = Boolean(
     sellerWorkspaceSummary &&
     !sellerWorkspaceSummary.canCreateListing &&
@@ -3167,6 +3162,15 @@ export function UsdtExchangePage({
     !listingBlockedByCommission &&
     !listingBlockedByMarketplaceEnforcement,
   );
+  const listingCreationBlockedReason = !canAccessListingCreation
+    ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
+    : listingBlockedByCommission ? listingCommissionRequiredMessage(isAr)
+    : listingBlockedByActiveLimit && sellerWorkspaceSummary
+      ? (isAr
+        ? `عدد العروض المفتوحة: ${sellerWorkspaceSummary.openListingCount}. الحد الأقصى: ${sellerWorkspaceSummary.activeListingLimit}. يشمل ذلك العروض بانتظار المراجعة. أغلق أحدها قبل إنشاء عرض جديد. يمكنك متابعة عروضك وصفقاتك الحالية.`
+        : `You already have ${sellerWorkspaceSummary.openListingCount} open listings, including listings awaiting review. Close one before creating another.`)
+      : (sellerWorkspaceSummary?.blockedReason
+        ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
   const isListingCreateSubmitDisabled = !marketReferenceAvailable || listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
