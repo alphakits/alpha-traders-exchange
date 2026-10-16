@@ -757,6 +757,7 @@ describe("guided cash-trade completion", () => {
     const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
     currentSnapshot().purchaseRequests = [];
     Object.assign(currentSnapshot().marketplaceListings[0], { availableAmount: "420", originalAmount: "420", minimumTrade: "420", maximumTrade: "420", price: "3.10" });
+    if (overrides.paymentMethod) currentSnapshot().marketplaceListings[0].paymentMethods = ["Cardless ATM Withdrawal", overrides.paymentMethod];
     invalidateAlphaExchangeStoreCache();
     return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer",
       usdtAmount: "415.202811", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20",
@@ -793,7 +794,7 @@ describe("guided cash-trade completion", () => {
   });
 
   it("keeps ordinary minimums enforced for a non-ATM request", async () => {
-    await expect(bankCode420Request({ paymentMethod: "Face-to-Face (Meet in Person)", safetyAcknowledged: true })).rejects.toThrow();
+    await expect(bankCode420Request({ paymentMethod: "Face-to-Face (Meet in Person)", safetyAcknowledged: true })).rejects.toThrow(/minimum/i);
     expect(currentSnapshot().purchaseRequests).toHaveLength(0);
   });
 

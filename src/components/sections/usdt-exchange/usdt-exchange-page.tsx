@@ -1209,7 +1209,9 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>
+            {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
+              ? <p>{isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code"}: <span className="text-white">{currencyText(`${Math.min(toNumber(listing.maximumTrade) || toNumber(listing.availableAmount), toNumber(listing.availableAmount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</span></p>
+              : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>}
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
