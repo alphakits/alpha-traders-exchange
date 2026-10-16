@@ -139,7 +139,19 @@ for (const method of methods) {
         await buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click();
       } else await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       await expect(sellerPage.getByRole("button", { name: "Adjust Amount", exact: true })).toBeDisabled();
-      await sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : method === methods[2] ? "I Collected the ATM Cash" : "I Received the Cash", exact: true }).click();
+      if (method === methods[1]) {
+        // Either participant may confirm face-to-face cash receipt. The buyer's
+        // confirmation already advances both rooms; it must not need repeating.
+        await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+        await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+        await expect(sellerPage.getByRole("button", { name: "I Received the Cash", exact: true })).toHaveCount(0);
+        const cashState = await readDb(request);
+        expect(cashState.purchaseRequests.find((r: { id: string }) => r.id === f.id)).toMatchObject({
+          status: "funds_received", usdtAmount: newAmount, fiatAmount: newTotal,
+        });
+      } else {
+        await sellerPage.getByRole("button", { name: method === methods[0] ? "Confirm Money Received" : "I Collected the ATM Cash", exact: true }).click();
+      }
       if (method === methods[0]) {
         await sellerPage.getByRole("button", { name: "Release USDT", exact: true }).click();
         await sellerPage.getByLabel("Choose USDT release proof", { exact: true }).setInputFiles({ name: "release.png", mimeType: "image/png", buffer: png });
