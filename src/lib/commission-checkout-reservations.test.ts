@@ -10,6 +10,7 @@ const toleranceMigration = readFileSync(resolve(process.cwd(), "supabase/migrati
 const attributionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261006212309_commission_checkout_active_payment_attribution.sql"), "utf8");
 const collisionMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011145429_commission_checkout_collision_tolerance.sql"), "utf8");
 const repeatedMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261011203949_commission_checkout_repeated_received_amounts.sql"), "utf8");
+const twoUsdtMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261016125533_commission_two_usdt_closed_rounded_references.sql"), "utf8");
 const unsubmittedRepair = readFileSync(resolve(process.cwd(), "scripts/repair-unsubmitted-commission-verification.sql"), "utf8");
 let db: PGlite;
 const createdAt = "2026-09-25T16:00:00.000Z";
@@ -35,7 +36,7 @@ beforeEach(async () => {
     create table alpha_exchange.users(id text primary key,payload jsonb);
     create table alpha_exchange.commissions(id text primary key,seller_id text,payment_status text,payload jsonb);
     create table alpha_exchange.audit_logs(id text primary key,actor_user_id text,target_user_id text,created_at timestamptz,payload jsonb);`);
-  await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration); await db.exec(collisionMigration); await db.exec(repeatedMigration);
+  await db.exec(previous); await db.exec(migration); await db.exec(roundedMigration); await db.exec(toleranceMigration); await db.exec(attributionMigration); await db.exec(collisionMigration); await db.exec(repeatedMigration); await db.exec(twoUsdtMigration);
   const payload = { id: "cm", sellerId: "seller", commissionAmount: 40, paymentExpectedAmount: 40.000001,
     createdAt: checkout.commissions[0].createdAt, paymentStatus: "pending" };
   await db.query("insert into alpha_exchange.commissions values('cm','seller','pending',$1)", [JSON.stringify(payload)]);
@@ -163,7 +164,7 @@ describe("durable self-service checkout reservations", () => {
       attribution: "unambiguous_checkout_tolerance_v1",
       receipt: { signature, network: "BEP20", amountMicros, timestamp: Date.parse(createdAt) + 1000 } });
   }
-  it.each([39_500_000, 40_000_001, 40_500_000, 41_000_000])("persists a verified tolerance receipt and reserves its actual amount: %s", async (amount) => {
+  it.each([38_000_000, 39_500_000, 40_000_001, 40_500_000, 41_000_000, 42_000_000])("persists a verified tolerance receipt and reserves its actual amount: %s", async (amount) => {
     await issue(); await paid(); await tolerantSettlement(amount);
     expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(1);
     expect((await db.query("select * from alpha_exchange.commission_checkout_amount_reservations where amount_micros=$1", [amount])).rows).toHaveLength(1);
@@ -171,7 +172,7 @@ describe("durable self-service checkout reservations", () => {
     await db.exec("delete from alpha_exchange.audit_logs"); await issue(); await tolerantSettlement(amount);
     await paid();
   });
-  it.each([0, 38_999_999, 41_000_001, 39_500_000.5])("database rejects an invalid or out-of-policy receipt: %s", async (amount) => {
+  it.each([0, 37_999_999, 42_000_001, 39_500_000.5])("database rejects an invalid or out-of-policy receipt: %s", async (amount) => {
     await issue(); await paid(); await expect(tolerantSettlement(amount)).rejects.toThrow();
     expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(0);
   });
@@ -314,5 +315,84 @@ describe("durable self-service checkout reservations", () => {
     const fn = await db.query<{ prosecdef: boolean; proacl: string[] }>("select prosecdef,proacl from pg_proc where oid='alpha_exchange.is_earlier_checkout_received_amount(text,bigint,numeric)'::regprocedure");
     expect(fn.rows[0].prosecdef).toBe(false);
     expect(fn.rows[0].proacl.some(grant => grant.startsWith("=X/"))).toBe(false);
+  });
+});
+
+
+describe("two USDT policy and closed rounded-reference regression", () => {
+  async function history() {
+    const oldCreated = "2026-09-24T15:00:00.000Z";
+    const old = { ...checkout, id: "historical", sellerId: "other", createdAt: "2026-09-24T16:00:00.000Z",
+      expectedMicros: 30_940_000, requestedMicros: 30_940_000, dueMicros: 30_940_000, roundedMicros: 31_000_000,
+      commissions: [{ id: "old-fee", dueMicros: 30_940_000, createdAt: oldCreated }] };
+    await db.query("insert into alpha_exchange.commissions values('old-fee','other','pending',$1)", [JSON.stringify({
+      id: "old-fee", sellerId: "other", commissionAmount: 30.94, paymentExpectedAmount: 30.940001,
+      paymentExpectedAmountMode: "unique_v1", paymentReservedExpectedAmounts: [30.94, 31], createdAt: oldCreated,
+    })]);
+    const audit = { id: "historical:issued", actorUserId: "other", targetUserId: "other", createdAt: old.createdAt,
+      newValue: { kind: "commission_checkout_issued_v1", checkout: old } };
+    await db.query("insert into alpha_exchange.audit_logs values($1,'other','other',$2,$3)", [audit.id, audit.createdAt, JSON.stringify(audit)]);
+    await db.query("update alpha_exchange.commissions set payment_status='paid',payload=payload || $1::jsonb where id='old-fee'", [JSON.stringify({
+      paymentStatus: "paid", paymentVerificationStatus: "verified", paidAt: "2026-09-24T16:10:00.000Z",
+    })]);
+    const current = { ...checkout, expectedMicros: 30_008_627, requestedMicros: 30_000_000, dueMicros: 30_000_000,
+      commissions: [{ ...checkout.commissions[0], dueMicros: 30_000_000 }] };
+    await db.query("update alpha_exchange.commissions set payload=payload || $1::jsonb where id='cm'", [JSON.stringify({ commissionAmount: 30, paymentExpectedAmount: 30.000002 })]);
+    await issue(current);
+    return current;
+  }
+  async function settle(current: typeof checkout, amountMicros = 31_000_000, hash = signature) {
+    await db.exec("begin");
+    try {
+      await db.query("update alpha_exchange.commissions set payment_status='paid',payload=payload || $1::jsonb where id='cm'", [JSON.stringify({
+        paymentStatus: "paid", paymentVerificationStatus: "verified", paymentSignature: hash,
+        paidAt: "2026-09-25T16:00:02.000Z", paymentBatchSettlement: { batchId: current.id, groupReceivedMicros: amountMicros },
+      })]);
+      await insertAudit(`${current.id}:settled`, { kind: "commission_checkout_settled_v1", checkoutId: current.id, checkout: current,
+        attribution: "unambiguous_checkout_tolerance_v1", receipt: { signature: hash, network: current.network,
+          amountMicros, timestamp: Date.parse(current.createdAt) + 1000 } });
+      await db.exec("commit");
+    } catch (error) { await db.exec("rollback"); throw error; }
+  }
+  it("a new 31 receipt pays 30 after another seller's rounded option was manually paid, retaining history and replay guards", async () => {
+    const current = await history();
+    const prior = (await db.query("select * from alpha_exchange.commissions where id='old-fee'")).rows;
+    await settle(current);
+    expect((await db.query("select * from alpha_exchange.commissions where id='old-fee'")).rows).toEqual(prior);
+    expect((await db.query("select checkout_id from alpha_exchange.commission_checkout_amount_reservations where amount_micros=31000000")).rows)
+      .toEqual([{ checkout_id: "historical" }]);
+    expect((await db.query("select batch_id from alpha_exchange.commission_batch_receipt_reservations")).rows)
+      .toEqual([{ batch_id: current.id }]);
+    await expect(db.query("insert into alpha_exchange.commissions values('replay','other','paid',$1)", [JSON.stringify({ paymentSignature: signature })])).rejects.toThrow();
+    await db.query("delete from alpha_exchange.audit_logs where id=$1", [`${current.id}:settled`]);
+    await settle(current);
+    expect((await db.query("select * from alpha_exchange.commission_batch_receipt_reservations")).rows).toHaveLength(1);
+  });
+  it("invalid, missing, late, reopened or unverified closure retains the rounded conflict", async () => {
+    const current = await history();
+    const original = (await db.query<{ payload: object }>("select payload from alpha_exchange.commissions where id='old-fee'")).rows[0].payload;
+    for (const fields of [{ paidAt: null }, { paidAt: "invalid" }, { paidAt: createdAt }, { paidAt: "2026-09-25T16:00:00.500Z" },
+      { paymentVerificationStatus: null }, { commissionAmount: 30.95 }, { createdAt }]) {
+      await db.query("update alpha_exchange.commissions set payload=$1 where id='old-fee'", [JSON.stringify({ ...original, ...fields })]);
+      await expect(settle(current)).rejects.toThrow();
+      expect((await db.query<{ payment_status: string }>("select payment_status from alpha_exchange.commissions where id='cm'")).rows[0].payment_status).toBe("pending");
+    }
+    await db.query("update alpha_exchange.commissions set payment_status='pending',payload=$1 where id='old-fee'", [JSON.stringify(original)]);
+    await expect(settle(current)).rejects.toThrow();
+  });
+  it("a historical exact reference still blocks settlement", async () => {
+    const current = await history();
+    await expect(settle(current, 30_940_000)).rejects.toThrow();
+    await expect(settle(current, 30_940_001)).rejects.toThrow();
+  });
+  it("the policy migration is repeatable, private, and never changes financial records", async () => {
+    await history();
+    const before = (await db.query("select * from alpha_exchange.commissions order by id")).rows;
+    await db.exec(twoUsdtMigration); await db.exec(twoUsdtMigration);
+    expect((await db.query("select * from alpha_exchange.commissions order by id")).rows).toEqual(before);
+    expect((await db.query<{ micros: number }>("select alpha_exchange.commission_checkout_tolerance_micros() as micros")).rows[0].micros).toBe(2_000_000);
+    const functions = await db.query<{ prosecdef: boolean; proacl: string[] }>("select prosecdef,proacl from pg_proc where pronamespace='alpha_exchange'::regnamespace and proname in ('commission_checkout_tolerance_micros','is_closed_checkout_rounded_reference')");
+    expect(functions.rows).toHaveLength(2);
+    for (const fn of functions.rows) { expect(fn.prosecdef).toBe(false); expect(fn.proacl.some(grant => grant.startsWith("=X/"))).toBe(false); }
   });
 });

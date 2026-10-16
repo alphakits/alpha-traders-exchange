@@ -32,8 +32,8 @@ it("40 owed / 39 received requires payer confirmation, then queues verification,
   const posts = fetchMock.mock.calls.filter((call) => call[1]?.method === "POST"); expect(posts).toHaveLength(1);
   expect(JSON.parse(String(posts[0][1]?.body))).toEqual({ sellerId: "seller", commissionIds: ["cm40"], signature: originalReceipt, network: "BEP20", confirmedOriginalPayer: true });
 });
-it("a shortfall greater than one dollar never enables approval", async () => {
-  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("commission-receipts") ? history(38_999_999) : state));
+it("a shortfall greater than two dollars never enables approval", async () => {
+  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("commission-receipts") ? history(37_999_999) : state));
   render(<CommissionReceiptReviewPanel locale="en" />); await choose(); fireEvent.click(screen.getByLabelText(/I independently confirmed/));
   expect((screen.getByRole("button", { name: "Link receipt for automatic verification" }) as HTMLButtonElement).disabled).toBe(true);
 });
@@ -52,3 +52,11 @@ it("partial history is explicitly distinguished from complete history", async ()
   render(<CommissionReceiptReviewPanel locale="en" />); await choose(); await screen.findByText(/Receipt history is partial/);
 });
 it("Arabic panel preserves the payer-identification warning", async () => { render(<CommissionReceiptReviewPanel locale="ar" />); await screen.findByRole("heading", { name: "مطابقة إيصالات العمولات" }); expect(screen.getByText(/المطابقة الدقيقة تلقائية/)).toBeTruthy(); });
+
+it.each([38_000_000, 42_000_000])("two-dollar-boundary receipt %s still needs payer confirmation", async (amount) => {
+  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("commission-receipts") ? history(amount) : state));
+  render(<CommissionReceiptReviewPanel locale="en" />); await choose();
+  const button = screen.getByRole("button", { name: "Link receipt for automatic verification" }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText(/I independently confirmed/)); expect(button.disabled).toBe(false);
+});

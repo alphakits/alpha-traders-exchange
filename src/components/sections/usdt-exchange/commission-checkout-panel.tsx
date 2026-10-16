@@ -1,4 +1,5 @@
 "use client";
+import { COMMISSION_TOLERANCE_MICROS, COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import Link from "next/link";
 import { HelpDetails } from "@/components/ui/help-details";
 import { currencyText } from "@/components/ui/currency-text";
@@ -34,11 +35,11 @@ function valid(value: unknown): value is CheckoutState {
     && typeof checkout.id === "string" && checkout.id && typeof checkout.sellerId === "string" && checkout.sellerId
     && Number.isSafeInteger(checkout.expectedMicros) && checkout.expectedMicros > 0
     && Number.isSafeInteger(checkout.dueMicros) && checkout.dueMicros > 0
-    && Math.abs(checkout.expectedMicros - checkout.dueMicros) <= 1_000_000
+    && Math.abs(checkout.expectedMicros - checkout.dueMicros) <= COMMISSION_TOLERANCE_MICROS
     && (checkout.roundedMicros === undefined || (Number.isSafeInteger(checkout.roundedMicros)
       && checkout.roundedMicros === Math.ceil(checkout.expectedMicros / 1e6) * 1e6
       && checkout.roundedMicros > checkout.expectedMicros && checkout.roundedMicros >= checkout.dueMicros
-      && checkout.roundedMicros - checkout.dueMicros <= 1_000_000))
+      && checkout.roundedMicros - checkout.dueMicros <= COMMISSION_TOLERANCE_MICROS))
     && (state.status !== "waiting" || state.pendingCount > 0)
     && ["TRC20", "BEP20"].includes(checkout.network)
     && state.walletAddress === getClientCommissionWalletForNetwork(checkout.network));
@@ -151,7 +152,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
       if (response.status === 401 || response.status === 403) { deny(); return; }
       if (!response.ok && result && typeof result === "object" && "error" in result && result.error === "outside_tolerance") {
         reconcile = false;
-        setError(isAr ? "المبلغ يجب أن يكون ضمن فرق 1 USDT من مجموع العمولات." : "The amount must be within 1 USDT of the commission total.");
+        setError(isAr ? `المبلغ يجب أن يكون ضمن فرق ${COMMISSION_TOLERANCE_USDT} USDT من مجموع العمولات.` : `The amount must be within ${COMMISSION_TOLERANCE_USDT} USDT of the commission total.`);
       } else if (!response.ok) {
         mutationError = message("The payment instructions could not be changed. Check the current status before sending.", "تعذر تغيير تعليمات الدفع. راجع الحالة الحالية قبل الإرسال.");
         if (result && typeof result === "object" && "error" in result && result.error === "payment_in_progress") {
@@ -227,7 +228,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
     </section> : null}
     <button type="button" className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={() => void refresh()} disabled={!authorized || busy}>{message("Refresh payment status", "تحديث حالة الدفع")}</button>
     <HelpDetails title={message("Payment details", "تفاصيل الدفع")}>
-      <p>{message("Up to 1 USDT above or below the combined total is accepted after verification. Ambiguous payments need review. Copy the final amount, including its decimal reference.", "يُقبل فرق حتى 1 USDT زيادة أو نقصانًا عن الإجمالي بعد التحقق. الدفعات غير الواضحة تحتاج للمراجعة. انسخ المبلغ النهائي بكامل كسوره.")}</p>
+      <p>{message(`Up to ${COMMISSION_TOLERANCE_USDT} USDT above or below the combined total is accepted after verification. Ambiguous payments need review. Copy the final amount, including its decimal reference.`, `يُقبل فرق حتى ${COMMISSION_TOLERANCE_USDT} USDT زيادة أو نقصانًا عن الإجمالي بعد التحقق. الدفعات غير الواضحة تحتاج للمراجعة. انسخ المبلغ النهائي بكامل كسوره.`)}</p>
       <p>{message("Matching payments settle automatically. No screenshot, transaction ID, or owner approval is needed. Do not send a top-up while waiting.", "تُسوّى الدفعات المطابقة تلقائيًا دون صورة أو معرّف معاملة أو موافقة المالك. لا ترسل مبلغًا إضافيًا أثناء الانتظار.")}</p>
       {data?.checkedAt && Number.isFinite(Date.parse(data.checkedAt)) ? <p>{message("Status refreshed", "آخر تحديث للحالة")}: <time dateTime={data.checkedAt}>{new Date(data.checkedAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}
       {data?.lastVerificationCheckAt && Number.isFinite(Date.parse(data.lastVerificationCheckAt)) ? <p>{message("Last payment check", "آخر فحص للدفع")}: <time dateTime={data.lastVerificationCheckAt}>{new Date(data.lastVerificationCheckAt).toLocaleString(isAr ? "ar" : "en-US")}</time></p> : null}

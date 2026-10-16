@@ -1,3 +1,4 @@
+import { COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiOwner } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
@@ -17,7 +18,7 @@ export async function GET() {
     const service = await getCommissionBatchRuntime();
     return NextResponse.json({ ...await service.ownerState(),
       enabled: process.env.ALPHA_EXCHANGE_COMMISSION_BATCH_V1 === "1",
-      toleranceUsdt: 1, attributionRequired: true }, { headers });
+      toleranceUsdt: COMMISSION_TOLERANCE_USDT, attributionRequired: true }, { headers });
   } catch {
     return NextResponse.json({ error: "Commission reconciliation is temporarily unavailable." }, { status: 503, headers });
   }

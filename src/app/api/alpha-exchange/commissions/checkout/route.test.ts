@@ -31,3 +31,7 @@ it("rejects malformed switch identifiers and missing acknowledgement", async () 
   expect((await POST(request({ network: "BEP20", currentCheckoutId: "checkout-tron" }))).status).toBe(400);
   expect(mocks.issue).not.toHaveBeenCalled();
 });
+
+it("reports the approved two-USDT policy without requiring owner approval", async () => {
+  expect(await (await GET())!.json()).toMatchObject({ toleranceUsdt: 2, ownerApprovalRequired: false });
+});

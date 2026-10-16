@@ -1,4 +1,5 @@
 import { randomInt, randomUUID } from "node:crypto";
+import { COMMISSION_TOLERANCE_MICROS } from "./commission-tolerance.mjs";
 import type { AlphaExchangeDb, CommissionRecord } from "@/types/alpha-exchange";
 
 export const CHECKOUT_ISSUED = "commission_checkout_issued_v1";
@@ -6,7 +7,7 @@ export const CHECKOUT_SETTLED = "commission_checkout_settled_v1";
 export const CHECKOUT_ATTEMPT = "commission_checkout_attempt_v1";
 export const CHECKOUT_RECOVERY = "commission_checkout_receipt_recovery_v1";
 export const CHECKOUT_SELECTED = "commission_checkout_network_selected_v1";
-export const CHECKOUT_TOLERANCE = 1_000_000;
+export const CHECKOUT_TOLERANCE = COMMISSION_TOLERANCE_MICROS;
 export const CHECKOUT_TOLERANCE_ATTRIBUTION = "unambiguous_checkout_tolerance_v1";
 export type CheckoutNetwork = "TRC20" | "BEP20";
 export interface CommissionCheckout {
@@ -231,7 +232,7 @@ function receiptAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheck
 function assertToleranceAttribution(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
   if (receiptAttribution(snapshot, checkout, deposit) !== CHECKOUT_TOLERANCE_ATTRIBUTION) return;
   // Compare payment instructions that could accept this receipt when it arrived.
-  // An exact-only legacy invoice does not own a +/-1 range: referenceConflict
+  // An exact-only legacy invoice does not own a tolerance range: referenceConflict
   // protects its actual issued references, including historical reservations.
   // Keep checkouts paid AT/AFTER receipt time, so scan order cannot manufacture
   // uniqueness. Only a fully paid group with an earlier paidAt is closed.
@@ -263,16 +264,36 @@ function earlierCheckoutReceipt(snapshot: AlphaExchangeDb, record: CommissionRec
       && allocation?.batchId === previous.id && allocation?.groupReceivedMicros === deposit.amountMicros;
   }));
 }
+/** A whole-number option is not a permanent payer identity. Keep its reservation
+ * for instruction allocation, but allow a new verified receipt only after the
+ * entire old group was verified paid BEFORE the new checkout was issued.
+ * Exact references, open groups and missing/late closure remain protected. */
+function closedRoundedReference(snapshot: AlphaExchangeDb, previous: CommissionCheckout, current: CommissionCheckout, amount: number) {
+  const issuedAt = Date.parse(current.createdAt);
+  return previous.id !== current.id && previous.roundedMicros === amount && previous.expectedMicros !== amount
+    && Date.parse(previous.createdAt) < issuedAt
+    && previous.commissions.every((member) => snapshot.commissionRecords.some((record) => (
+      record.id === member.id && record.sellerId === previous.sellerId && record.createdAt === member.createdAt
+      && checkoutMicros(record.commissionAmount) === member.dueMicros
+      && record.paymentStatus === "paid" && record.paymentVerificationStatus === "verified"
+      && Number.isFinite(Date.parse(record.paidAt ?? "")) && Date.parse(record.paidAt!) < issuedAt
+    )));
+}
 function referenceConflict(snapshot: AlphaExchangeDb, checkout: CommissionCheckout, deposit: CheckoutDeposit) {
   const amount = deposit.amountMicros;
   const ids = new Set(checkout.commissions.map((row) => row.id));
-  return getCommissionCheckouts(snapshot).some((other) => other.id !== checkout.id
-    && (other.expectedMicros === amount || other.roundedMicros === amount))
+  const checkouts = getCommissionCheckouts(snapshot);
+  return checkouts.some((other) => other.id !== checkout.id
+    && (other.expectedMicros === amount || (other.roundedMicros === amount
+      && !closedRoundedReference(snapshot, other, checkout, amount))))
     || snapshot.commissionRecords.some((record) => !ids.has(record.id)
       && ([record.paymentExpectedAmountMode === "legacy_base" || record.paymentExpectedAmount === undefined ? record.commissionAmount : undefined,
         record.paymentExpectedAmount].some((value) => typeof value === "number" && value > 0 && checkoutMicros(value) === amount)
         || ((record.paymentReservedExpectedAmounts ?? []).some((value) => checkoutMicros(value) === amount)
-          && !earlierCheckoutReceipt(snapshot, record, deposit))));
+          && !earlierCheckoutReceipt(snapshot, record, deposit)
+          && !checkouts.some((previous) => previous.sellerId === record.sellerId
+            && previous.commissions.some((member) => member.id === record.id)
+            && closedRoundedReference(snapshot, previous, checkout, amount)))));
 }
 export function allocateCheckout(checkout: CommissionCheckout, receivedMicros = checkout.expectedMicros) {
   const parts = checkout.commissions.map((row) => {

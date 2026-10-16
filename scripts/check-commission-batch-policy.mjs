@@ -11,7 +11,7 @@ const attribution = { kind:'owner_confirmed_receipt', sellerId:'seller', commiss
   network:'BEP20', expectedAmountMicros:38_300_000, approvedByUserId:'owner' };
 const run = (changes={}) => planCommissionBatch({records:structuredClone(records), receipt:{...receipt}, attribution:structuredClone(attribution), now, ...changes});
 const checkReject=(changes,reason)=>assert.deepEqual(run(changes),{accepted:false,reason});
-for (const [amount, accepted] of [[38,true],[38.3,true],[37.3,true],[39.3,true],[37.299999,false],[39.300001,false],[0,false],[-1,false]]) {
+for (const [amount, accepted] of [[38,true],[38.3,true],[37.3,true],[39.3,true],[36.3,true],[40.3,true],[36.299999,false],[40.300001,false],[0,false],[-1,false]]) {
   test(`combined 38.30 with ${amount} received`,()=>assert.equal(run({receipt:{...receipt,amountMicros:Math.round(amount*1e6)}}).accepted,accepted));
 }
 test('38 payment records 0.30 waiver, not 38.30 received',()=>{
@@ -39,9 +39,9 @@ test('fee rate/amount and caller objects remain unchanged',()=>{const before=JSO
 test('receipt reference aliases deduplicate',()=>assert.equal(commissionReceiptKey('0x'+'A'.repeat(64)),commissionReceiptKey('a'.repeat(64))));
 test('invalid reference formats refused',()=>{for(const s of ['','123','https://evil.test/tx','binance-deposit:-1'])assert.equal(commissionReceiptKey(s),null);});
 test('safe six-decimal conversion',()=>{assert.equal(commissionAmountMicros(18.3),18_300_000);assert.equal(commissionAmountMicros(20.000001),20_000_001);for(const n of [NaN,Infinity,-1,0,0.0000001])assert.equal(commissionAmountMicros(n),null);});
-test('tolerance applies once, not once per commission',()=>checkReject({receipt:{...receipt,amountMicros:36_500_000}},'outside_tolerance'));
+test('tolerance applies once, not once per commission',()=>checkReject({receipt:{...receipt,amountMicros:35_500_000}},'outside_tolerance'));
 test('1,001 deterministic allocations conserve actual cash and adjustment',()=>{
- for(let delta=-1_000_000;delta<=1_000_000;delta+=2000){
+ for(let delta=-2_000_000;delta<=2_000_000;delta+=4000){
   const p=run({receipt:{...receipt,amountMicros:38_300_000+delta}});assert.equal(p.accepted,true);
   assert.equal(p.allocations.reduce((s,a)=>s+a.receivedMicros,0),38_300_000+delta);
   assert.equal(p.allocations.reduce((s,a)=>s+a.waivedMicros,0),Math.max(0,-delta));

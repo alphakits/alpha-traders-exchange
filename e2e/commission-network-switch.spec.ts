@@ -25,7 +25,7 @@ for (const locale of ["en", "ar"] as const) {
         await route.fulfill({ json: { status: "waiting", pendingCount: 1, totalDueUsdt: 40, canChangeNetwork: true,
           walletAddress: network === "TRC20" ? CANONICAL_TRC20_COMMISSION_WALLET : CANONICAL_BEP20_COMMISSION_WALLET,
           checkout: { id: `checkout-${network}`, sellerId: "e2e-global-seller", network,
-            dueMicros: 40_000_000, expectedMicros: network === "TRC20" ? 40_000_010 : 40_000_011 },
+            dueMicros: 40_000_000, expectedMicros: network === "TRC20" ? 38_000_000 : 42_000_000 },
         } });
       });
       const change = locale === "en" ? "Change network" : "تغيير الشبكة";
@@ -33,6 +33,10 @@ for (const locale of ["en", "ar"] as const) {
       const networkLabel = locale === "en" ? "Network" : "الشبكة";
       await page.goto(`/${locale}/seller/commission-checkout`);
       await expect(page.getByText(CANONICAL_TRC20_COMMISSION_WALLET, { exact: true })).toBeVisible({ timeout: 15_000 });
+      await page.getByText(locale === "en" ? "Payment details" : "تفاصيل الدفع", { exact: true }).click();
+      await expect(page.getByText(locale === "en" ? /Up to 2 USDT above or below/ : /يُقبل فرق حتى 2 USDT/)).toBeVisible();
+      await expect(page.getByText("38.000000 USDT", { exact: true })).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath(`commission-tolerance-${device}-${locale}.png`), fullPage: true, animations: "disabled" });
       for (const target of ["BEP20", "TRC20"] as const) {
         await page.getByRole("button", { name: change, exact: true }).click();
         await expect(page.getByRole("button", { name: update, exact: true })).toBeDisabled();

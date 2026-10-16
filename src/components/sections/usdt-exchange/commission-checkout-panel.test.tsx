@@ -220,3 +220,10 @@ it("hides instructions if a returned rounded option exceeds the allowed commissi
   await screen.findByRole("alert");
   expect(screen.queryByText(wallet)).toBeNull();
 });
+
+it.each([38_000_000, 42_000_000])("renders valid two-dollar-boundary instructions for %s micros", async (expectedMicros) => {
+  fetchMock.mockResolvedValue(response({ ...waiting, checkout: { ...waiting.checkout, expectedMicros } }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  expect(await screen.findByText(`${(expectedMicros / 1e6).toFixed(6)} USDT`)).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
