@@ -169,7 +169,7 @@ const CASH_TRADE_STEP_ORDER: TradeStep[] = [
   { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
   { id: "accepted", icon: "🤝", label: { en: "Seller Accepted", ar: "وافق البائع" } },
   { id: "payment", icon: "💵", label: { en: "Buyer Confirmed Cash", ar: "أكد المشتري تسليم النقد" } },
-  { id: "verifying", icon: "✅", label: { en: "Seller Confirmed Cash", ar: "أكد البائع استلام النقد" } },
+  { id: "verifying", icon: "✅", label: { en: "Cash Receipt Confirmed", ar: "تم تأكيد استلام النقد" } },
   { id: "release", icon: "₮", label: { en: "USDT Sent", ar: "تم إرسال USDT" } },
   { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
 ];

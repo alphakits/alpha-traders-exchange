@@ -670,6 +670,13 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
   }
   await expect(page.getByText(/Receive the Cash, Then Confirm|استلم النقد ثم أكد/i).first()).toBeVisible({ timeout: 20_000 });
 
+  const beforeCashReceipt = await page.request.get(`/api/alpha-exchange/trade-room/${requestId}`);
+  expect(beforeCashReceipt.ok()).toBeTruthy();
+  const privateRoom = (await beforeCashReceipt.json()) as { request: { status: string; buyerReceivingWalletAddress?: string } };
+  expect(privateRoom.request.status).toBe("accepted");
+  expect(privateRoom.request.buyerReceivingWalletAddress).toBeUndefined();
+  await expect(page.getByText(BUYER_WALLET, { exact: true })).toHaveCount(0);
+
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);
   const buyerAcceptedTitle = "E2E Guided Confirm Cash";
@@ -684,32 +691,37 @@ test("mobile guided cash flow: no photos, wallet privacy, seller-only completion
   });
 
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: localizedTradeActionMatcher("confirm-cash-payment") }).first().click();
-  await expect(page.getByText(/Waiting for Seller to Confirm the Cash|No action now|بانتظار البائع لتأكيد استلام النقد|لا يوجد إجراء الآن/i).first()).toBeVisible({ timeout: 20_000 });
+  const [cashConfirmed] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
+      && response.request().method() === "PATCH"),
+    page.getByRole("button", { name: localizedTradeActionMatcher("confirm-cash-payment") }).first().click(),
+  ]);
+  expect(cashConfirmed.ok(), await cashConfirmed.text()).toBeTruthy();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  await expect(page.getByTestId("trade-progress-details").locator("summary")).toContainText("Cash Receipt Confirmed");
+  await expect(page.getByRole("heading", { name: "Waiting for Seller to Send USDT", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") })).toHaveCount(0);
 
   await login(page.request, sellerEmail, sellerPassword);
-  await waitForNotification(api, sellerEmail, /buyer handed over cash/i, requestId);
-  const sellerConfirmTitle = "E2E Guided Confirm Money";
+  await waitForNotification(api, sellerEmail, /^Buyer confirmed cash received$/i, requestId);
+  const sellerConfirmTitle = "E2E Guided Send USDT and Complete";
   await injectTradeNotification(api, sellerEmail, sellerConfirmTitle, requestId);
-
-  const beforeConfirmResponse = await page.request.get(`/api/alpha-exchange/trade-room/${requestId}`);
-  expect(beforeConfirmResponse.ok()).toBeTruthy();
-  const beforeConfirmRoom = (await beforeConfirmResponse.json()) as { request?: { buyerReceivingWalletAddress?: string } };
-  expect(beforeConfirmRoom.request?.buyerReceivingWalletAddress).toBeUndefined();
 
   await openNotificationAndNavigate({
     page,
     title: new RegExp(`^${escapeRegex(sellerConfirmTitle)}$`, "i"),
     requestId,
-    expectedAction: "confirm-money-received",
+    expectedAction: "complete-cash-trade",
     expectedHash: "action-required",
     viewport,
   });
 
-  await expect(page.getByText(/Buyer Receiving Wallet/i)).toHaveCount(0);
-
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: /I Received the Cash/i }).first().click();
+  // Either participant may confirm face-to-face cash receipt. The buyer's
+  // confirmation reveals the wallet immediately; a second seller receipt
+  // confirmation is neither required nor offered.
+  await expect(page.getByRole("button", { name: /I Received the Cash/i })).toHaveCount(0);
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  await expect(page.getByTestId("trade-progress-details").locator("summary")).toContainText("Cash Receipt Confirmed");
   await expect(page.getByRole("button", { name: localizedTradeActionMatcher("complete-cash-trade") }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Buyer Receiving Wallet/i).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(BUYER_WALLET).first()).toBeVisible({ timeout: 20_000 });
