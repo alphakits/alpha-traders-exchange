@@ -15,3 +15,4 @@ export * from "./interface-access";
 export * from "./usd-ils-reference";
 
 export * from "./price-offer";
+export * from "./commission-amount";

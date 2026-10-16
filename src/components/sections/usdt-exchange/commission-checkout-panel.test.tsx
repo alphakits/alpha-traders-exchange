@@ -15,6 +15,12 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function flush() { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); }
+it.each([0.002, 8.304056])("prefills the exact %s commission without rounding it to cents", async totalDueUsdt => {
+  fetchMock.mockResolvedValue(response({ ...ready, totalDueUsdt }));
+  render(<CommissionCheckoutPanel isAr={false} />);
+  const input = await screen.findByLabelText("Payment amount (USDT)");
+  await waitFor(() => expect((input as HTMLInputElement).value).toBe(String(totalDueUsdt)));
+});
 it("opens a network change without old wallet controls, permits cancellation, and requires acknowledgement", async () => {
   fetchMock.mockResolvedValue(response({ ...waiting, canChangeNetwork: true }));
   render(<CommissionCheckoutPanel isAr={false} />);

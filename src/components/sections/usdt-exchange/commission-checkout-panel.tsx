@@ -1,5 +1,6 @@
 "use client";
 import { COMMISSION_TOLERANCE_MICROS, COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
+import { commissionAmountInput } from "@alpha-traders/contracts";
 import Link from "next/link";
 import { HelpDetails } from "@/components/ui/help-details";
 import { currencyText } from "@/components/ui/currency-text";
@@ -105,7 +106,7 @@ function CheckoutContent({ isAr, embedded = false, onSettled, sessionAvailable }
         return;
       }
       if (!response.ok || !valid(value)) throw new Error("unavailable");
-      setData(value); setError(""); setAmount((previous) => previous || value.totalDueUsdt.toFixed(2));
+      setData(value); setError(""); setAmount((previous) => previous || commissionAmountInput(value.totalDueUsdt));
     } catch {
       if (mounted.current && controller.current === current) { setData(null); setError(isAr ? "تعذر تحديث حالة الدفع. لا ترسل دفعة أخرى؛ أعد المحاولة." : "Payment status is unavailable. Do not send another payment; retry the status check."); }
     } finally { if (controller.current === current) controller.current = null; }

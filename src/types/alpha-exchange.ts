@@ -851,6 +851,8 @@ export interface AdminAnnouncementRun {
 
 export interface PurchaseRequest {
   feePolicyVersion?: "buyer_seller_1pct_v1";
+  /** Set by the server when submitted; legacy requests retain their existing rounding. */
+  commissionCalculationVersion?: "usdt_6dp_v2";
   /** Server-owned count of submitted financial proposals; never refunded. */
   amountAdjustmentCount?: number;
   termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
@@ -932,6 +934,8 @@ export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 
 export interface CommissionRecord {
   id: string;
+  /** Immutable calculation boundary copied from the originating request. */
+  commissionCalculationVersion?: "usdt_6dp_v2";
   /**
    * Trade-backed commissions keep these linkage fields. Manual commissions
    * deliberately omit them instead of inventing marketplace entity IDs.

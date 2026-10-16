@@ -466,7 +466,7 @@ describe("full Exchange App Review rehearsal", () => {
 
     const commission = (await getCommissionRecordsForAdmin())
       .find((entry) => entry.purchaseRequestId === created.request.id);
-    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 0.91 });
+    expect(commission).toMatchObject({ paymentStatus: "pending", commissionAmount: 0.909091, commissionCalculationVersion: "usdt_6dp_v2" });
     await updateCommissionPaymentStatus({
       commissionId: commission!.id,
       actorUserId: OWNER_ID,
@@ -498,7 +498,7 @@ describe("full Exchange App Review rehearsal", () => {
         "commission_paid",
       ]));
     expect((await getCommissionRecordsForAdmin()).filter((entry) => entry.purchaseRequestId === created.request.id))
-      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 0.91 })]);
+      .toEqual([expect.objectContaining({ paymentStatus: "paid", commissionAmount: 0.909091 })]);
     expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)).toMatchObject({
       buyerReview: { rating: 5 },
       sellerResponse: { message: "Thank you for completing the Cardless ATM trade." },

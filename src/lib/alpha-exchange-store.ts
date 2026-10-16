@@ -203,7 +203,7 @@ import { isNewListingBroadcastNotification, listingNotificationViewDestination, 
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, normalizeListingPrice, validatePriceOffer } from "@/lib/price-offer";
-import { calculateTradePaymentTotal, calculateBuyerCommissionAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
+import { calculateTradePaymentTotal, calculateBuyerCommissionAmount, calculateSellerCommissionAmount, calculateSellerTotalAlphaDue, calculateLegacySellerCommissionAmount, calculateLegacySellerTotalAlphaDue, COMMISSION_CALCULATION_VERSION, formatCommissionAmount, sumCommissionAmounts, MARKETPLACE_FEE_CUTOVER_VERSION, canonicalizeNonNegativeTradeAmount, canonicalizeTradeAmount, isTradeAmountLessThan, subtractTradeAmounts } from "@/lib/trade-amount";
 import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
@@ -1033,6 +1033,7 @@ function isQaResetModeEnabled() {
 }
 
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
+  const precise = record.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION;
   const request = record.purchaseRequestId
     ? db.purchaseRequests.find((item) => item.id === record.purchaseRequestId)
     : undefined;
@@ -1041,14 +1042,20 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
     // The seller owes both shares on new-policy trades even if they failed to
     // collect the buyer share. Never reduce the debt from a missing/zero split.
     if (request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION || record.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) {
-      const combined = calculateSellerTotalAlphaDue(request.usdtAmount);
+      const combined = precise ? calculateSellerTotalAlphaDue(request.usdtAmount) : calculateLegacySellerTotalAlphaDue(request.usdtAmount);
       if (combined !== null) return combined;
     }
-    const calculated = calculateSellerCommissionAmount(request.usdtAmount);
+    const calculated = precise ? calculateSellerCommissionAmount(request.usdtAmount) : calculateLegacySellerCommissionAmount(request.usdtAmount);
     if (calculated !== null) return calculated;
   }
   if (isQaCommissionModeEnabled()) return 1;
-  return roundUsdt(record.commissionAmount);
+  return precise ? sumCommissionAmounts([record.commissionAmount]) : roundUsdt(record.commissionAmount);
+}
+
+function assertPayableTradeCommission(amount: string) {
+  if (calculateSellerTotalAlphaDue(amount) === null) {
+    throw new TradeBlockedError("trade-commission-precision", "Trade quantity must produce a positive 1% fee at six-decimal USDT precision and remain within supported amount limits.");
+  }
 }
 
 function getCommissionSubject(record: CommissionRecord) {
@@ -2456,7 +2463,7 @@ export async function getPremiumSellerProfile(input: {
     completedTrades: completedTrades.length,
     tradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
     exactTradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
-    commissionPaid: canSeeExactSellerStats ? Number(trustSnapshot.estimatedCommissionPaid.toFixed(2)) : undefined,
+    commissionPaid: canSeeExactSellerStats ? Number(trustSnapshot.estimatedCommissionPaid.toFixed(6)) : undefined,
     averageTradeSize: canSeeExactSellerStats ? Number(trustSnapshot.averageTradeSize.toFixed(2)) : undefined,
     averageRating: Number(trustSnapshot.rating.toFixed(2)),
     responseTimeMinutes: Number(responseTimeMinutes.toFixed(2)),
@@ -4991,7 +4998,7 @@ type CommissionPaymentConfirmationContext = {
 
 function buildCommissionPaymentConfirmation(input: CommissionPaymentConfirmationContext) {
   const commissionLabel = formatCommissionId(input.commission.displayNumber, input.commission.id);
-  const amountLabel = input.amountDueUsdt.toFixed(2);
+  const amountLabel = formatCommissionAmount(input.amountDueUsdt);
   const remainingCommissionCount = input.remainingCommissions.length;
   const fullyUnlocked = remainingCommissionCount === 0;
   const nextCommission = input.remainingCommissions[0];
@@ -7312,14 +7319,14 @@ export async function getCommissionResetTraceByEmail(email: string) {
       }))
       .filter((record) => record.paymentStatus !== "paid");
     const pendingCount = pendingRecords.length;
-    const amountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+    const amountDue = sumCommissionAmounts(pendingRecords.map(record => getCommissionAmountDueUsdt(db, record)));
     const blockedReason = getSellerListingBlockReason(db, user.id);
     return {
       userId: user.id,
       normalizedEmail: normalizeEmail(user.email),
       role: user.role,
       pendingCommissionCount: pendingCount,
-      commissionDueUsdt: Number(amountDue.toFixed(2)),
+      commissionDueUsdt: amountDue,
       sellerLocked: pendingCount > 0 || blockedReason !== null,
       canCreateListing: blockedReason === null,
       blockedReason,
@@ -10253,7 +10260,7 @@ export async function getSellerCommissionStatus(
   const primaryRecord = requestedCommissionId
     ? pendingRecords.find((record) => record.id === requestedCommissionId)
     : pendingRecords[0];
-  const totalAmountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+  const totalAmountDue = sumCommissionAmounts(pendingRecords.map(record => getCommissionAmountDueUsdt(db, record)));
   const payableAmountDue = primaryRecord ? getCommissionPaymentAmountDueUsdt(primaryRecord) : 0;
   const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
   const primaryRequest = primaryRecord
@@ -10431,6 +10438,7 @@ export async function updateTradeTerms(input: {
         ? "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code."
         : "Enter a valid amount with a positive payment total and at most two decimal places for ILS.", input.requestId);
       const { usdtAmount: amount, fiatAmount: fiat, pricePerUsdt: price } = quote;
+      if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(amount);
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
@@ -10441,6 +10449,7 @@ export async function updateTradeTerms(input: {
       if (input.action === "withdraw_terms" ? !seller : seller) throw new TradeBlockedError("trade-terms-invalid", "Only the intended participant can respond to this proposal.", input.requestId);
       if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
       if (input.action === "accept_amount") {
+        if (request.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(proposal.usdtAmount);
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
         if ((request.status !== "pending" && !isRequestStatusLockingListing(request.status)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
@@ -10710,6 +10719,7 @@ export async function createPurchaseRequest(input: {
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = calculateTradePaymentTotal(usdtAmount, pricePerUsdt, input.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
   if (!fiatAmount || Number(fiatAmount) <= 0) throw new Error("Trade amount must produce a payment total of at least 0.01 in the listing currency.");
+  assertPayableTradeCommission(usdtAmount);
   const preparedCardless = isCardlessAtmPaymentMethod(primaryPaymentMethod) ? parseCardlessWithdrawalDetails({
     withdrawalCode: input.cardlessWithdrawalCode,
     verificationKind: input.cardlessVerificationKind,
@@ -10727,6 +10737,7 @@ export async function createPurchaseRequest(input: {
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
     feePolicyVersion: input.feePolicyVersion,
+    commissionCalculationVersion: COMMISSION_CALCULATION_VERSION,
     id: `purchase-${randomUUID()}`,
     buyerId: input.buyerId,
     listingId: input.listingId,
@@ -11687,12 +11698,12 @@ export async function getTradeRoomData(input: {
     hasOpenDispute: Boolean(openDispute),
     canOpenDispute: isBuyerActor && (request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent"),
     sellerCommissionDueAmount: canViewSellerCommission
-      ? Number(sellerPendingCommissions.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0).toFixed(2))
+      ? sumCommissionAmounts(sellerPendingCommissions.map(record => getCommissionAmountDueUsdt(db, record)))
       : 0,
     sellerCommissionDueCount: canViewSellerCommission ? sellerPendingCommissions.length : 0,
     sellerPayableCommissionId: canViewSellerCommission ? payableSellerCommission?.id : undefined,
     sellerPayableCommissionAmount: canViewSellerCommission && payableSellerCommission
-      ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
+      ? getCommissionAmountDueUsdt(db, payableSellerCommission)
       : undefined,
     ...(input.ownerHistory ? {
       ownerHistory: {
@@ -12571,7 +12582,7 @@ export async function getAccountProfileData(userId: string): Promise<{
       progressToNextLevelPercent: Number(prestigeProgress.progressPercent.toFixed(2)),
       amountToNextLevelUsdt: Number(prestigeProgress.remainingUsdt.toFixed(2)),
       lifetimeCompletedVolumeUsdt: Number(reputation.totalUsdtVolume.toFixed(2)),
-      commissionPaid: Number(reputation.estimatedCommissionPaid.toFixed(2)),
+      commissionPaid: Number(reputation.estimatedCommissionPaid.toFixed(6)),
       averageTradeSize: Number(reputation.averageTradeSize.toFixed(2)),
       promotionHistory: [...(user.sellerPromotionHistory ?? [])].slice(0, 10),
       trustScore: reputation.trustScore,
@@ -14108,6 +14119,7 @@ async function updatePurchaseRequestStatusAttempt(
         { guard: "buyer-seller-commission-at-accept", commissionId: buyerSellerCommission.id },
       );
     }
+    if (next.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION) assertPayableTradeCommission(next.usdtAmount);
     if (toNumber(next.usdtAmount) > toNumber(listing.availableAmount) || toNumber(next.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isAtmTrade) || toNumber(next.usdtAmount) > toNumber(listing.maximumTrade || listing.availableAmount)) {
       throw new TradeBlockedError(
         "listing-amount-unavailable",
@@ -14602,16 +14614,17 @@ async function updatePurchaseRequestStatusAttempt(
     let commission = db.commissionRecords.find((record) => record.purchaseRequestId === request.id);
     if (!commission) {
       const normalizedGross = toNumber(next.fiatAmount);
+      const preciseCommission = next.commissionCalculationVersion === COMMISSION_CALCULATION_VERSION;
       const sellerFeeAmount = isQaCommissionModeEnabled()
         ? (next.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION ? 0.5 : 1)
-        : calculateSellerCommissionAmount(next.usdtAmount);
+        : preciseCommission ? calculateSellerCommissionAmount(next.usdtAmount) : calculateLegacySellerCommissionAmount(next.usdtAmount);
       const hasBuyerFee = next.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION;
       const buyerFeeCollectedAmount = hasBuyerFee
-        ? (isQaCommissionModeEnabled() ? 0.5 : calculateBuyerCommissionAmount(next.usdtAmount))
+        ? (isQaCommissionModeEnabled() ? 0.5 : preciseCommission ? calculateBuyerCommissionAmount(next.usdtAmount) : calculateLegacySellerCommissionAmount(next.usdtAmount))
         : 0;
       const commissionAmount = isQaCommissionModeEnabled()
         ? 1
-        : hasBuyerFee ? calculateSellerTotalAlphaDue(next.usdtAmount) : sellerFeeAmount;
+        : hasBuyerFee ? (preciseCommission ? calculateSellerTotalAlphaDue(next.usdtAmount) : calculateLegacySellerTotalAlphaDue(next.usdtAmount)) : sellerFeeAmount;
       if (sellerFeeAmount === null || buyerFeeCollectedAmount === null || commissionAmount === null) {
         throw new Error("Unable to calculate marketplace fees.");
       }
@@ -14626,6 +14639,7 @@ async function updatePurchaseRequestStatusAttempt(
         rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
         feePolicyVersion: hasBuyerFee ? MARKETPLACE_FEE_CUTOVER_VERSION : undefined,
+        commissionCalculationVersion: next.commissionCalculationVersion,
         sellerFeeAmount,
         buyerFeeCollectedAmount,
         commissionAmount,
@@ -14642,13 +14656,13 @@ async function updatePurchaseRequestStatusAttempt(
         type: "commission_recorded",
         actorUserId: input.actorUserId,
         actorRole,
-        message: hasBuyerFee ? `Alpha fees created: seller 1% (${sellerFeeAmount.toFixed(2)} USDT) + buyer 1% collected by seller (${buyerFeeCollectedAmount.toFixed(2)} USDT); total due ${commission.commissionAmount.toFixed(2)} USDT.` : `Seller fee (1%): ${sellerFeeAmount.toFixed(2)} USDT.`,
+        message: hasBuyerFee ? `Alpha fees created: seller 1% (${formatCommissionAmount(sellerFeeAmount)} USDT) + buyer 1% collected by seller (${formatCommissionAmount(buyerFeeCollectedAmount)} USDT); total due ${formatCommissionAmount(commission.commissionAmount)} USDT.` : `Seller fee (1%): ${formatCommissionAmount(sellerFeeAmount)} USDT.`,
         createdAt: now,
       });
       appendSystemTradeMessage(db, next, {
         senderUserId: input.actorUserId,
         senderRole: actorRole,
-        message: hasBuyerFee ? `Total due to Alpha is ${commission.commissionAmount.toFixed(2)} USDT. Your own seller fee is ${sellerFeeAmount.toFixed(2)} USDT (1%); ${buyerFeeCollectedAmount.toFixed(2)} USDT (1%) is the buyer share included in the agreed payment. You owe the full 2% even if you failed to collect the buyer share; any shortfall is your responsibility.` : `Your seller fee (1%) is ${sellerFeeAmount.toFixed(2)} USDT.`,
+        message: hasBuyerFee ? `Total due to Alpha is ${formatCommissionAmount(commission.commissionAmount)} USDT. Your own seller fee is ${formatCommissionAmount(sellerFeeAmount)} USDT (1%); ${formatCommissionAmount(buyerFeeCollectedAmount)} USDT (1%) is the buyer share included in the agreed payment. You owe the full 2% even if you failed to collect the buyer share; any shortfall is your responsibility.` : `Your seller fee (1%) is ${formatCommissionAmount(sellerFeeAmount)} USDT.`,
         createdAt: now,
       });
       await appendAuditLog(db, {
@@ -14722,8 +14736,8 @@ async function updatePurchaseRequestStatusAttempt(
         category: "trade",
         title: "Commission payment required",
         message: commission.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION
-          ? `Your seller fee (1%): ${commission.sellerFeeAmount?.toFixed(2)} USDT. Buyer share (1%): ${commission.buyerFeeCollectedAmount?.toFixed(2)} USDT. You must cover any uncollected buyer share. Pay both fees: ${commission.commissionAmount.toFixed(2)} USDT base amount. Open payment instructions for the exact transfer amount.`
-          : `Pay ${commission.commissionAmount.toFixed(2)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
+          ? `Your seller fee (1%): ${formatCommissionAmount(commission.sellerFeeAmount ?? 0)} USDT. Buyer share (1%): ${formatCommissionAmount(commission.buyerFeeCollectedAmount ?? 0)} USDT. You must cover any uncollected buyer share. Pay both fees: ${formatCommissionAmount(commission.commissionAmount)} USDT base amount. Open payment instructions for the exact transfer amount.`
+          : `Pay ${formatCommissionAmount(commission.commissionAmount)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
         relatedTradeId: next.tradeId,
         relatedRequestId: request.id,
         relatedListingId: request.listingId,
@@ -14739,7 +14753,7 @@ async function updatePurchaseRequestStatusAttempt(
           userId: adminUser.id,
           category: "trade",
           title: "Seller commission created",
-          message: `${completedTradeSeller?.fullName?.trim() || "A seller"} owes ${commission.commissionAmount.toFixed(2)} USDT commission for the completed trade.`,
+          message: `${completedTradeSeller?.fullName?.trim() || "A seller"} owes ${formatCommissionAmount(commission.commissionAmount)} USDT commission for the completed trade.`,
           relatedTradeId: next.tradeId,
           relatedRequestId: request.id,
           relatedListingId: request.listingId,
@@ -15428,14 +15442,14 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
     return {
       verified: false,
       reference: txHash,
-      notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.`,
+      notes: `Insufficient payment. Received ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} on ${networkLabel}, but ${formatCommissionAmount(input.amountDueUsdt)} USD is required.`,
     };
   }
   logLocalMarketplaceDiagnostic("info", "[commission-verify] rpc-verified", {
     network: input.network, txHash, rpcUrl,
     token: tokenMeta.symbol, amountReceived, confirmations,
   });
-  return { verified: true, reference: txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
+  return { verified: true, reference: txHash, notes: `Verified: ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} received on ${networkLabel}.` };
 }
 
 async function verifyEvmUsdtPayment(input: {
@@ -15627,10 +15641,10 @@ async function verifyEvmUsdtPayment(input: {
     const amountReceived = Number(BigInt(transferLog.data)) / Math.pow(10, tokenMeta.decimals);
     if (amountReceived + 0.000001 < input.amountDueUsdt) {
       logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, amountDueUsdt: input.amountDueUsdt });
-      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.` };
+      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} on ${networkLabel}, but ${formatCommissionAmount(input.amountDueUsdt)} USD is required.` };
     }
     logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, confirmations, via: "explorer" });
-    return { verified: true, reference: input.txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
+    return { verified: true, reference: input.txHash, notes: `Verified: ${formatCommissionAmount(amountReceived)} ${tokenMeta.symbol} received on ${networkLabel}.` };
   } catch (explorerError) {
     primaryError = explorerError instanceof Error ? explorerError.message : String(explorerError);
     logLocalMarketplaceDiagnostic("warn", "[commission-verify] evm-explorer-failed-trying-rpc", { network: input.network, txHash: input.txHash, error: primaryError });
@@ -15821,7 +15835,7 @@ async function verifyTronUsdtPayment(input: {
   return {
     verified: true,
     reference: input.txHash,
-    notes: `Verified: ${amountReceived.toFixed(2)} USDT received on TRON (TRC20).`,
+    notes: `Verified: ${formatCommissionAmount(amountReceived)} USDT received on TRON (TRC20).`,
   };
 }
 
@@ -15917,7 +15931,7 @@ async function verifySolanaUsdtPayment(input: {
     return {
       verified: false,
       reference: input.txHash,
-      notes: `Insufficient payment. Received ${received.toFixed(2)} USDT on Solana, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+      notes: `Insufficient payment. Received ${formatCommissionAmount(received)} USDT on Solana, but ${formatCommissionAmount(input.amountDueUsdt)} USDT is required.`,
     };
   }
 
@@ -15925,7 +15939,7 @@ async function verifySolanaUsdtPayment(input: {
     amountReceived: received,
     recipientWalletAddress: input.recipientWalletAddress,
   });
-  return { verified: true, reference: input.txHash, notes: `Verified: ${received.toFixed(2)} USDT received on Solana.` };
+  return { verified: true, reference: input.txHash, notes: `Verified: ${formatCommissionAmount(received)} USDT received on Solana.` };
 }
 
 /**
@@ -16482,7 +16496,7 @@ export async function clearSellerQaCommissionDues(input: {
           type: "commission_paid",
           actorUserId: input.sellerUserId,
           actorRole: resolveActorRole(snapshot, input.sellerUserId),
-          message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
+          message: `QA commission cleanup cleared ${formatCommissionAmount(amountDueUsdt)} USDT.`,
           createdAt: now,
         });
       }
@@ -16547,7 +16561,7 @@ export async function clearSellerCommissionDuesByAdmin(input: {
           type: "commission_paid",
           actorUserId: input.adminUserId,
           actorRole: resolveActorRole(snapshot, input.adminUserId),
-          message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
+          message: `Admin cleared ${formatCommissionAmount(amountDueUsdt)} USDT commission.`,
           createdAt: now,
         });
         committedRequests.push(request);
@@ -16670,7 +16684,7 @@ export async function updateCommissionPaymentStatus(input: {
           type: "commission_paid",
           actorUserId: input.actorUserId,
           actorRole: resolveActorRole(snapshot, input.actorUserId),
-          message: `Commission marked paid (${amountDueUsdt.toFixed(2)} USDT).`,
+          message: `Commission marked paid (${formatCommissionAmount(amountDueUsdt)} USDT).`,
           createdAt: now,
         });
       }
@@ -17443,9 +17457,9 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       responseTimeMinutes: Number(snapshot.responseTimeMinutes.toFixed(2)),
     }));
 
-  const todayCommission = db.commissionRecords.filter((record) => isToday(record.createdAt)).reduce((sum, record) => sum + record.commissionAmount, 0);
-  const weekCommission = db.commissionRecords.filter((record) => isThisWeek(record.createdAt)).reduce((sum, record) => sum + record.commissionAmount, 0);
-  const monthCommission = db.commissionRecords.filter((record) => isThisMonth(record.createdAt)).reduce((sum, record) => sum + record.commissionAmount, 0);
+  const todayCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isToday(record.createdAt)).map(record => record.commissionAmount));
+  const weekCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisWeek(record.createdAt)).map(record => record.commissionAmount));
+  const monthCommission = sumCommissionAmounts(db.commissionRecords.filter((record) => isThisMonth(record.createdAt)).map(record => record.commissionAmount));
 
   const liveActivity = [
     ...db.sellerApplications
@@ -17507,7 +17521,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
     today: {
       completedTrades: completedToday.length,
       tradeVolumeUsdt: Number(completedToday.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(2)),
-      estimatedCommission: Number(todayCommission.toFixed(2)),
+      estimatedCommission: todayCommission,
       newBuyers: db.users.filter((user) => hasRole(user, "buyer") && isToday(user.createdAt)).length,
       newSellers: db.sellerApplications.filter((application) => application.status === "approved" && isToday(application.updatedAt)).length,
       newListings: db.marketplaceListings.filter((listing) => isToday(listing.createdAt)).length,
@@ -17525,7 +17539,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
     },
     thisWeek: {
       tradeVolumeUsdt: Number(completedThisWeek.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(2)),
-      revenue: Number(weekCommission.toFixed(2)),
+      revenue: weekCommission,
       topSeller: topSellerId ? sellerName(topSellerId) : "No seller activity yet",
       fastestGrowingSeller: fastestGrowingSellerId ? sellerName(fastestGrowingSellerId) : "No trust growth yet",
       highestTrustScoreIncrease:
@@ -17555,9 +17569,9 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       listingsWaitingApproval: db.marketplaceListings.filter((listing) => isListingPendingApproval(listing)).length,
     },
     financialOverview: {
-      estimatedCommissionToday: Number(todayCommission.toFixed(2)),
-      estimatedCommissionThisWeek: Number(weekCommission.toFixed(2)),
-      estimatedCommissionThisMonth: Number(monthCommission.toFixed(2)),
+      estimatedCommissionToday: todayCommission,
+      estimatedCommissionThisWeek: weekCommission,
+      estimatedCommissionThisMonth: monthCommission,
       largestTradeUsdt: Number(toNumber(largestTrade?.usdtAmount).toFixed(2)),
       largestTradeId: largestTrade?.tradeId ?? largestTrade?.id ?? "N/A",
       largestSeller: largestSellerId ? sellerName(largestSellerId) : "N/A",

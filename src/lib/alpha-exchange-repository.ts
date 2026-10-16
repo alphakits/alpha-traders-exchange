@@ -1573,6 +1573,10 @@ function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: Purchas
     : (incomingUpdatedAt > latestUpdatedAt ? incoming : latest);
   return {
     ...preferred,
+    // These terms were disclosed when the request was created. An older
+    // worker can advance progress but must not silently remove either policy.
+    feePolicyVersion: latest.feePolicyVersion,
+    commissionCalculationVersion: latest.commissionCalculationVersion,
     // Trade Room communication must be additive even when two Vercel instances
     // write from different snapshot versions. Lifecycle status still follows the
     // existing monotonic winner above; messages and directional Poke state merge.
@@ -1661,6 +1665,14 @@ function mergeCommissionRecords(latest: CommissionRecord[], incoming: Commission
 
     return {
       ...selected,
+      // Maintenance may advance status, but cannot rewrite the issued fee or
+      // its precision from an older snapshot. Owner corrections use a current,
+      // locked write rather than this conflict-recovery merge.
+      commissionCalculationVersion: canonical.commissionCalculationVersion,
+      feePolicyVersion: canonical.feePolicyVersion,
+      commissionAmount: canonical.commissionAmount,
+      sellerFeeAmount: canonical.sellerFeeAmount,
+      buyerFeeCollectedAmount: canonical.buyerFeeCollectedAmount,
       ...(issuedIntent
         ? {
             paymentExpectedAmount: issuedIntent.paymentExpectedAmount,

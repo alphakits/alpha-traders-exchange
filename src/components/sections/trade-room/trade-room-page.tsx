@@ -194,7 +194,7 @@ function toNumber(value: string | number | null | undefined) {
 function formatUsdtAmount(value: string | number | null | undefined) {
   return `${toNumber(value).toLocaleString("en-US", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 6,
   })} USDT`;
 }
 

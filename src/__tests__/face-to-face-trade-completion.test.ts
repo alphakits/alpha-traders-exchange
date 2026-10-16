@@ -372,6 +372,36 @@ describe("guided cash-trade completion", () => {
     expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: 5, status: "pending" });
   });
 
+  it.each([
+    { paymentMethod: FACE_TO_FACE, amount: "0.1", fiat: "0.32", fee: 0.001, total: 0.002 },
+    { paymentMethod: "Bank Transfer", amount: "0.1", fiat: "0.32", fee: 0.001, total: 0.002 },
+    { paymentMethod: "Cardless ATM Withdrawal", amount: "415.202811", fiat: "1300.00", fee: 4.152028, total: 8.304056 },
+  ])("preserves precise new fees through completion, retries and seller room for $paymentMethod", async ({ paymentMethod, amount, fiat, fee, total }) => {
+    const { requestId } = seedTrade({ paymentMethod, status: "usdt_sent", amount });
+    Object.assign(currentSnapshot().purchaseRequests[0], { feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2", fiatAmount: fiat });
+    const command = { requestId, actorUserId: SELLER_ID, actorRole: "approved_seller" as const, nextStatus: "completed" as const, completionMode: "seller" as const, usdtSentConfirmed: true };
+    await Promise.all([updatePurchaseRequestStatus(command), updatePurchaseRequestStatus(command)]);
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ commissionCalculationVersion: "usdt_6dp_v2", sellerFeeAmount: fee, buyerFeeCollectedAmount: fee, commissionAmount: total })]);
+    invalidateAlphaExchangeStoreCache();
+    expect(await getSellerCommissionStatus(SELLER_ID)).toMatchObject({ amountDue: total, totalAmountDue: total, pendingCount: 1 });
+    const room = await getTradeRoomData({ purchaseRequestId: requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
+    expect(room.sellerCommissionDueAmount).toBe(total);
+    expect(room.sellerPayableCommissionAmount).toBe(total);
+    expect(JSON.stringify(room.messages)).toContain(String(total));
+  });
+
+  it("preserves a pre-cutover small-trade obligation and its existing payment reference", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent", amount: "0.1" });
+    currentSnapshot().purchaseRequests[0].feePolicyVersion = "buyer_seller_1pct_v1";
+    await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+    expect(currentSnapshot().commissionRecords[0]).toMatchObject({ sellerFeeAmount: 0.01, buyerFeeCollectedAmount: 0.01, commissionAmount: 0.02 });
+    const before = await getSellerCommissionStatus(SELLER_ID);
+    invalidateAlphaExchangeStoreCache();
+    const after = await getSellerCommissionStatus(SELLER_ID);
+    expect(after.amountDue).toBe(0.02);
+    expect(after.payableAmountDue).toBe(before.payableAmountDue);
+  });
+
   it.each([FACE_TO_FACE, "Bank Transfer", "Cardless ATM Withdrawal"].flatMap(method => [[method, "600", "150"], [method, "150", "600"]]))("settles %s adjusted from %s to %s exactly once", async (paymentMethod, originalAmount, finalAmount) => {
     const { requestId, listingId } = seedTrade({ paymentMethod, status: "pending", amount: originalAmount });
     const original = currentSnapshot().purchaseRequests[0];
@@ -824,11 +854,11 @@ describe("guided cash-trade completion", () => {
   }
 
   it.each([
-    { cash: "1300", usdt: "415.202811", remaining: "4.797189", fee: 4.15, listingStatus: "paused" },
-    { cash: "1000", usdt: "319.386777", remaining: "100.613223", fee: 3.19, listingStatus: "active" },
+    { cash: "1300", usdt: "415.202811", remaining: "4.797189", fee: 4.152028, listingStatus: "paused" },
+    { cash: "1000", usdt: "319.386777", remaining: "100.613223", fee: 3.193868, listingStatus: "active" },
   ])("settles a $cash ATM code below the listing minimum after explicit seller acceptance", async ({ cash, usdt, remaining, fee, listingStatus }) => {
     const { request } = await bankCode420Request({ usdtAmount: usdt, cardlessIlsAmount: cash });
-    expect(request).toMatchObject({ usdtAmount: usdt, fiatAmount: `${cash}.00`, status: "pending" });
+    expect(request).toMatchObject({ usdtAmount: usdt, fiatAmount: `${cash}.00`, status: "pending", commissionCalculationVersion: "usdt_6dp_v2" });
     expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("420");
     expect(JSON.stringify(sanitizePurchaseRequestForActor(request, SELLER_ID, "approved_seller"))).not.toContain("482913");
     const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
@@ -911,7 +941,7 @@ describe("guided cash-trade completion", () => {
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
     expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("845.29703");
-    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 1.55, buyerFeeCollectedAmount: 1.55, commissionAmount: 3.10, grossAmount: 500 })]);
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 1.54703, buyerFeeCollectedAmount: 1.54703, commissionAmount: 3.09406, grossAmount: 500 })]);
   });
 
   it("freezes the disclosed buyer fee in a new ATM request and preserves the exact cash through recalculation", async () => {
@@ -925,7 +955,7 @@ describe("guided cash-trade completion", () => {
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" });
-    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 1.55, buyerFeeCollectedAmount: 1.55, commissionAmount: 3.1, paymentStatus: "pending" })]);
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ feePolicyVersion: "buyer_seller_1pct_v1", sellerFeeAmount: 1.54703, buyerFeeCollectedAmount: 1.54703, commissionAmount: 3.09406, paymentStatus: "pending" })]);
   });
 
   it("rejects an ATM request that omits the disclosed buyer fee from its cash amount", async () => {

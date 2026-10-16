@@ -3,7 +3,7 @@ import { OwnerAttentionQueue } from "@/components/admin/owner-attention-queue";
 
 import { currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+import { normalizeRegistrationWhatsApp, formatCommissionAmount, commissionAmountInput } from "@alpha-traders/contracts";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -240,7 +240,7 @@ function formatCurrency(value: number) {
 }
 
 function formatUsdt(value: number) {
-  return `${value.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+  return `${formatCommissionAmount(value)} USDT`;
 }
 
 function formatExactUsdt(value: number) {
@@ -1590,7 +1590,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
         const source = record.source === "admin_manual" ? "Admin-issued" : "Trade";
         const tradeValue = record.source === "admin_manual" ? "" : record.grossAmount.toFixed(2);
         const reason = `"${String(record.issueReason ?? "").replace(/"/g, '""')}"`;
-        return [source, tradeId, buyerName, sellerName, tradeValue, record.commissionAmount.toFixed(2), record.paymentStatus, reason, record.createdAt].join(",");
+        return [source, tradeId, buyerName, sellerName, tradeValue, commissionAmountInput(record.commissionAmount), record.paymentStatus, reason, record.createdAt].join(",");
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });

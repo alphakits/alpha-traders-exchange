@@ -15,6 +15,7 @@ import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
 import { formatCount, formatUsdt } from "../../src/finance/financial-display";
+import { formatCommissionAmount } from "@alpha-traders/contracts";
 import {
   BINANCE_USDT_TRC20_COMMISSION_ADDRESS,
   formatExactTrc20CommissionAmount,
@@ -341,8 +342,8 @@ export default function SellerCommissionsScreen() {
           </View>
 
           {selectedRecord?.feePolicyVersion === "buyer_seller_1pct_v1" ? <View style={styles.instructionsCard}>
-            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {selectedRecord.sellerFeeAmount?.toFixed(2)} USDT</Text>
-            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {selectedRecord.buyerFeeCollectedAmount?.toFixed(2)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {formatCommissionAmount(selectedRecord.sellerFeeAmount ?? 0)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {formatCommissionAmount(selectedRecord.buyerFeeCollectedAmount ?? 0)} USDT</Text>
             <Text style={[styles.body, styles.commissionNotice, isRTL && styles.rtlText]}>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</Text>
           </View> : null}
           <View style={styles.instructionsCard}>

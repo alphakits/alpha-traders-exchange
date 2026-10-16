@@ -1289,6 +1289,37 @@ describe("AlphaExchangeRepository", () => {
     });
   });
 
+  it("preserves the accepted fee policy when a stale worker advances a request", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const request = { id: "precision-trade", status: "accepted", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1",
+      feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2",
+      createdAt: "2026-10-17T00:00:00.000Z", updatedAt: "2026-10-17T00:01:00.000Z" };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, purchaseRequests: [request], __runtimeVersion: 2 } as never;
+    await repository.saveSnapshot({ ...baseline, purchaseRequests: [{ ...request, status: "payment_sent",
+      feePolicyVersion: undefined, commissionCalculationVersion: undefined,
+      updatedAt: "2026-10-17T00:02:00.000Z" }], __runtimeVersion: 1 } as unknown as AlphaExchangeDb);
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.purchaseRequests[0]).toMatchObject({ status: "payment_sent", feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2" });
+  });
+
+  it("does not let stale maintenance change issued commission precision, shares or amount", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const canonical = { id: "precision-commission", sellerId: "seller-1", source: "trade", purchaseRequestId: "precision-trade",
+      rate: 0.01, grossAmount: 0.32, commissionAmount: 0.002, sellerFeeAmount: 0.001, buyerFeeCollectedAmount: 0.001,
+      feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2", paymentStatus: "pending",
+      createdAt: "2026-10-17T00:00:00.000Z", updatedAt: "2026-10-17T00:01:00.000Z" };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, commissionRecords: [canonical], __runtimeVersion: 2 } as never;
+    const stale = { ...baseline, commissionRecords: [{ ...canonical, commissionCalculationVersion: undefined,
+      commissionAmount: 0.02, sellerFeeAmount: 0.01, buyerFeeCollectedAmount: 0.01, paymentStatus: "overdue",
+      updatedAt: "2026-10-17T00:02:00.000Z" }], __runtimeVersion: 1 } as unknown as AlphaExchangeDb;
+    await repository.saveSnapshot(stale, { selectedTables: ["commissions"] });
+    const saved = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(saved.commissionRecords[0]).toMatchObject({ paymentStatus: "overdue", commissionCalculationVersion: "usdt_6dp_v2",
+      commissionAmount: 0.002, sellerFeeAmount: 0.001, buyerFeeCollectedAmount: 0.001 });
+  });
+
   it("never lets stale overdue maintenance roll a paid commission back", async () => {
     const repository = new AlphaExchangeRepository(null);
     const baseline = await repository.loadSnapshot();

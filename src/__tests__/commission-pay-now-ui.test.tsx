@@ -335,6 +335,8 @@ describe("seller commission Pay Now", () => {
   it.each([
     { amountDue: 7.89, paymentAmountDue: 7.890001, balance: "7.89 USDT", exact: "7.890001" },
     { amountDue: 0.18, paymentAmountDue: 0.180001, balance: "0.18 USDT", exact: "0.180001" },
+    { amountDue: 0.002, paymentAmountDue: 0.002001, balance: "0.002 USDT", exact: "0.002001" },
+    { amountDue: 8.304056, paymentAmountDue: 8.304057, balance: "8.304056 USDT", exact: "8.304057" },
   ])("preserves the fractional commission balance $balance and exact copy amount", async ({ amountDue, paymentAmountDue, balance, exact }) => {
     commissionRecordsOverride = [{
       commissionId: "fractional-commission",

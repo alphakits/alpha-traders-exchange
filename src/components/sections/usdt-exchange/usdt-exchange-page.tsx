@@ -9,7 +9,7 @@ import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { MarketplaceToolPanel } from "@/components/sections/usdt-exchange/marketplace-tool-panel";
-import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
@@ -515,10 +515,7 @@ export function formatUsdt(value: number) {
 }
 
 function formatCommissionUsdt(value: number) {
-  return `${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} USDT`;
+  return `${formatCommissionAmount(value)} USDT`;
 }
 
 export function formatExactCommissionUsdt(value: number) {
