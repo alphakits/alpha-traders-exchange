@@ -13,7 +13,7 @@ import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentT
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
@@ -2933,7 +2933,7 @@ export function UsdtExchangePage({
       return;
     }
     const requestedAmount = toNumber(tradeAmount);
-    const minTrade = Math.max(0, toNumber(selectedListing.minimumTrade));
+    const minTrade = getPurchaseMinimumTrade(selectedListing.minimumTrade, isCardlessAtmPaymentMethod(selectedListingPaymentMethod));
     const availableTrade = toNumber(selectedListing.availableAmount);
     const configuredMaxTrade = toNumber(selectedListing.maximumTrade) || availableTrade;
     const maxTrade = Math.min(configuredMaxTrade, availableTrade);
@@ -2955,14 +2955,10 @@ export function UsdtExchangePage({
       setStatusMessage(localizeWalletValidationError(walletValidationError, buyerInfo.receivingNetwork, isAr));
       return;
     }
-    if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod)) {
-      const requiredTotal = calculateTradePaymentTotal(tradeAmount, (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price)).toFixed(2), true) ?? "0.00";
-      const notice = cardlessPaymentAmountNotice(buyerInfo.cardlessIlsAmount, requiredTotal, isAr ? "ar" : "en");
-      if (notice) { setStatusMessage(notice); return; }
-    }
     if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && (
       !isCardlessWithdrawalBank(buyerInfo.cardlessBankName)
       || !parseCardlessWithdrawalDetails({ withdrawalCode: buyerInfo.cardlessWithdrawalCode, verificationKind: buyerInfo.cardlessVerificationKind, verificationValue: buyerInfo.cardlessVerificationValue }).ok
+      || !validateCardlessIlsAmount(buyerInfo.cardlessIlsAmount, calculateTradePaymentTotal(String(requestedAmount), (purchasePriceMode === "buyer_offer" ? toNumber(buyerOfferedPrice) : toNumber(selectedListing.price)).toFixed(2), true) ?? "")
     )) {
       setStatusMessage(isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : "Choose the withdrawal bank and complete the withdrawal code, ID or birth date, and ILS amount matching the trade total.");
       return;
@@ -3220,8 +3216,10 @@ export function UsdtExchangePage({
     : listingEditPriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
+  const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
+  const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const buyerTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
+  const selectedMinTrade = selectedListing ? getPurchaseMinimumTrade(selectedListing.minimumTrade, isCardlessAtmPaymentMethod(selectedListingPaymentMethod)) : 0;
   const selectedMaxTrade = selectedListing
     ? Math.min(
         toNumber(selectedListing.maximumTrade) || toNumber(selectedListing.availableAmount),
@@ -3233,8 +3231,6 @@ export function UsdtExchangePage({
     ? localizeWalletValidationError(getWalletAddressValidationError(buyerInfo.receivingNetwork, buyerInfo.receivingWalletAddress), buyerInfo.receivingNetwork, isAr)
     : null;
   const buyerWalletInvalid = buyerWalletValidationError !== null;
-  const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
-  const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
   const todayDateKey = useMemo(() => formatIsraelDateKey(new Date()), []);
 
@@ -5846,12 +5842,18 @@ export function UsdtExchangePage({
           onPaymentMethodChange={(method) => {
             setSelectedPurchasePaymentMethod(method);
             setFaceToFaceSafetyAcknowledged(false);
+            if (isCardlessAtmPaymentMethod(method)) {
+              const price = purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : selectedListing.price;
+              setBuyerInfo((prev) => ({ ...prev, usdtAmount: calculateCardlessUsdtAmount(prev.cardlessIlsAmount, price, true) ?? "" }));
+            }
           }}
           onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: normalizeTradeAmountInput(value) }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
           onOfferedPriceChange={(value) => {
             const price = normalizePriceOfferInput(value);
             setBuyerOfferedPrice(price);
+            const amount = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, price, true);
+            if (isCardlessAtmPaymentMethod(selectedListingPaymentMethod) && amount) setBuyerInfo((prev) => ({ ...prev, usdtAmount: amount }));
           }}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
           onGoToVerification={goToVerificationGate}

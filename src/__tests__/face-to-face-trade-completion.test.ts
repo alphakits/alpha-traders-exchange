@@ -486,7 +486,7 @@ describe("guided cash-trade completion", () => {
       const {requestId} = seedTrade({paymentMethod, status:"pending", amount:"150"});
       Object.assign(currentSnapshot().purchaseRequests[0], {pricePerUsdt:"4.00", fiatAmount:"600.00"});
       await expect(propose("propose_amount", "1100")).rejects.toThrow(/limits/);
-      await expect(propose("propose_amount", "25")).rejects.toThrow(/limits/);
+      await expect(propose("propose_amount", paymentMethod === "Cardless ATM Withdrawal" ? "24" : "25")).rejects.toThrow(/limits|withdrawal/);
       expect(currentSnapshot().purchaseRequests[0].amountAdjustmentCount).toBeUndefined();
       const proposal = await propose("propose_amount", "1000");
       expect(proposal).toMatchObject({usdtAmount:"150", amountAdjustmentCount:1});
@@ -730,14 +730,12 @@ describe("guided cash-trade completion", () => {
     await expect(propose("propose_amount", "300")).rejects.toThrow(/stage/);
   });
 
-  it("blocks outsiders and stale screens, and requires buyer consent for a new exact ATM total", async () => {
+  it("blocks outsiders, stale screens, over-allocation, and cardless cash mismatches", async () => {
     seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
     const request = currentSnapshot().purchaseRequests[0];
     await expect(updateTradeTerms({ requestId: request.id, actorUserId: OUTSIDER_ID, action: "propose_amount", value: "250", expectedUpdatedAt: request.updatedAt })).rejects.toThrow(/not found/);
     await expect(updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_amount", value: "250", expectedUpdatedAt: "stale" })).rejects.toThrow(/changed/);
-    const proposed = await propose("propose_amount", "300");
-    expect(proposed.usdtAmount).toBe("250");
-    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "300", fiatAmount: "960.00" });
+    await expect(propose("propose_amount", "300")).rejects.toThrow(/withdrawal/);
   });
 
   it("enforces the available balance and counter-offer price bounds", async () => {
@@ -755,57 +753,56 @@ describe("guided cash-trade completion", () => {
     return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer", usdtAmount: "125", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20", paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "400", ...overrides });
   }
 
-  function exact420Request(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {
+  function bankCode420Request(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {
     const { listingId } = seedTrade({ paymentMethod: "Cardless ATM Withdrawal", status: "pending" });
     currentSnapshot().purchaseRequests = [];
     Object.assign(currentSnapshot().marketplaceListings[0], { availableAmount: "420", originalAmount: "420", minimumTrade: "420", maximumTrade: "420", price: "3.10" });
     invalidateAlphaExchangeStoreCache();
     return createPurchaseRequest({ buyerId: BUYER_ID, actorUserId: BUYER_ID, listingId, buyerName: "Ready Buyer",
-      usdtAmount: "420", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20",
+      usdtAmount: "415.202811", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0", receivingNetwork: "BEP20",
       paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", cardlessWithdrawalCode: "482913",
-      cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "1315.02",
+      cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", cardlessIlsAmount: "1300",
       feePolicyVersion: "buyer_seller_1pct_v1", ...overrides });
   }
 
-  it.each(["1000", "1300", "1302", "1315.01", "1315.03", "1400"])("rejects ATM code amount %s instead of the exact total without reducing 420 USDT", async (cardlessIlsAmount) => {
-    await expect(exact420Request({ cardlessIlsAmount })).rejects.toMatchObject({
-      code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02", enteredAmount: cardlessIlsAmount },
-    });
-    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
-    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("420");
-  });
-
-  it("keeps the seller's fixed 420 USDT minimum enforced", async () => {
-    await expect(exact420Request({ usdtAmount: "419.354839", cardlessIlsAmount: "1313" })).rejects.toThrow(/minimum|limits/i);
-    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
-  });
-
   it.each([
-    { priceMode: "listing_price" as const, offeredPrice: undefined, cardlessIlsAmount: "1315.02", price: "3.10" },
-    { priceMode: "buyer_offer" as const, offeredPrice: "3.09", cardlessIlsAmount: "1310.78", price: "3.09" },
-  ])("settles the fixed 420 USDT ATM trade and both fees at $price", async ({ price, ...options }) => {
-    const { request } = await exact420Request(options);
-    expect(request).toMatchObject({ usdtAmount: "420", pricePerUsdt: price, fiatAmount: options.cardlessIlsAmount });
+    { cash: "1300", usdt: "415.202811", remaining: "4.797189", fee: 4.15, listingStatus: "paused" },
+    { cash: "1000", usdt: "319.386777", remaining: "100.613223", fee: 3.19, listingStatus: "active" },
+  ])("settles a $cash ATM code below the listing minimum after explicit seller acceptance", async ({ cash, usdt, remaining, fee, listingStatus }) => {
+    const { request } = await bankCode420Request({ usdtAmount: usdt, cardlessIlsAmount: cash });
+    expect(request).toMatchObject({ usdtAmount: usdt, fiatAmount: `${cash}.00`, status: "pending" });
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("420");
     expect(JSON.stringify(sanitizePurchaseRequestForActor(request, SELLER_ID, "approved_seller"))).not.toContain("482913");
     const seller = { requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller" as const };
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "accepted" });
     const room = await getTradeRoomData({ purchaseRequestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", markMessagesRead: false });
-    expect(room.request.status).toBe("payment_sent");
-    expect(JSON.stringify(room.messages)).toContain(`ILS amount: ${options.cardlessIlsAmount}`);
-    expect(JSON.stringify(room.messages)).toContain("482913");
+    expect(room.request).toMatchObject({ status: "payment_sent", usdtAmount: usdt, fiatAmount: `${cash}.00` });
+    expect(JSON.stringify(room.messages)).toContain(`ILS amount: ${cash}.00`);
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "funds_received" });
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "usdt_sent" });
     await updatePurchaseRequestStatus({ ...seller, nextStatus: "completed", completionMode: "cash_trade" });
-    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("0");
-    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: 4.2, buyerFeeCollectedAmount: 4.2, commissionAmount: 8.4, grossAmount: Number(options.cardlessIlsAmount) })]);
+    expect(currentSnapshot().marketplaceListings[0]).toMatchObject({ availableAmount: remaining, status: listingStatus });
+    expect(currentSnapshot().commissionRecords).toEqual([expect.objectContaining({ sellerFeeAmount: fee, buyerFeeCollectedAmount: fee, commissionAmount: fee * 2, grossAmount: Number(cash) })]);
   });
 
-  it("rejects a changed total before the prepared ATM code can be disclosed", async () => {
-    const { request } = await exact420Request();
-    currentSnapshot().purchaseRequests[0].fiatAmount = "1315.03";
-    invalidateAlphaExchangeStoreCache();
-    await expect(updatePurchaseRequestStatus({ requestId: request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "accepted" })).rejects.toMatchObject({ code: "CARDLESS_DETAILS_UNAVAILABLE" });
-    expect(currentSnapshot().purchaseRequests[0].status).toBe("pending");
+  it("rejects claiming the full 420 USDT from a 1300 code or exceeding the seller's inventory", async () => {
+    await expect(bankCode420Request({ usdtAmount: "420" })).rejects.toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02" } });
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+    await expect(bankCode420Request({ usdtAmount: "447.141488", cardlessIlsAmount: "1400" })).rejects.toThrow(/remaining|balance|maximum|available/i);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("keeps ordinary minimums enforced for a non-ATM request", async () => {
+    await expect(bankCode420Request({ paymentMethod: "Face-to-Face (Meet in Person)", safetyAcknowledged: true })).rejects.toThrow();
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
+  it("keeps the 1300 code and recalculates USDT when the seller counters the price", async () => {
+    const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice: "3.09", usdtAmount: "416.546509" });
+    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: "3.10", expectedUpdatedAt: request.updatedAt });
+    expect(proposed.termsProposal).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00" });
+    await updatePurchaseRequestStatus({ requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: proposed.termsProposal!.id });
+    expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00", status: "payment_sent" });
   });
 
   it("adjusts a prepared ATM request before acceptance, replaces the old code and settles the new two-sided total", async () => {
@@ -842,7 +839,7 @@ describe("guided cash-trade completion", () => {
   });
 
   it("rejects an ATM request that omits the disclosed buyer fee from its cash amount", async () => {
-    await expect(readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1" })).rejects.toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "404.00" } });
+    await expect(readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1" })).rejects.toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH" });
     expect(currentSnapshot().purchaseRequests).toHaveLength(0);
   });
 

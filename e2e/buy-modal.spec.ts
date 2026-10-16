@@ -321,7 +321,7 @@ test.describe("Direct Buy USDT modal", () => {
   });
 
   for (const locale of ["en", "ar"] as const) {
-    test(`requires the full ATM code total including the buyer fee in ${locale}`, async ({ page }, info) => {
+    test(`calculates USDT from the ATM hundred-step code including the fee in ${locale}`, async ({ page }, info) => {
       await page.setViewportSize({ width: 390, height: 844 });
       const initial = await readRuntimeDb(page.request);
       const listing = (initial.marketplaceListings as Array<Record<string, unknown>>).find(item => item.id === listingId)!;
@@ -338,16 +338,14 @@ test.describe("Direct Buy USDT modal", () => {
       const amount = dialog.locator("#buyer-usdt-amount");
       const submit = dialog.getByRole("button", { name: locale === "en" ? "Start Trade" : "بدء الصفقة", exact: true });
       await expect(amount).toHaveValue("420");
-      await expect(dialog.getByTestId("cardless-required-total")).toContainText("1,315.02");
       await dialog.locator("#buyer-receiving-wallet").fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
       await dialog.locator("#cardless-bank").selectOption("Bank Hapoalim");
       await dialog.locator("#cardless-withdrawal-code").fill("482913");
       await dialog.locator("#cardless-verification-kind").selectOption("date_of_birth");
       await dialog.locator("#cardless-verification-value").fill("25/08/1995");
       await cash.fill("1300");
-      await expect(submit).toBeDisabled();
-      await expect(dialog.locator("#cardless-amount-feedback")).toContainText("15.02");
-      await expect(amount).toHaveValue("420");
+      await expect(submit).toBeEnabled();
+      await expect(amount).toHaveValue("415.202811");
       const denied = await page.request.post("/api/alpha-exchange/purchase-requests", { data: {
         listingId, usdtAmount: "420", buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE", receivingNetwork: "TRC20",
         paymentMethod: "Cardless ATM Withdrawal", bankName: "Bank Hapoalim", feePolicyVersion: "buyer_seller_1pct_v1",
@@ -356,15 +354,20 @@ test.describe("Direct Buy USDT modal", () => {
       expect(denied.status()).toBe(400);
       expect(await denied.json()).toMatchObject({ code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02" } });
       await cash.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: info.outputPath(`atm-shortfall-${locale}.png`) });
-      await cash.fill(locale === "ar" ? "١٣١٥٫٠٢" : "1315.02");
-      await expect(cash).toHaveValue("1315.02");
+      await page.screenshot({ path: info.outputPath(`atm-code-calculation-${locale}.png`) });
+      await cash.fill("1315");
+      await expect(submit).toBeDisabled();
+      await cash.fill("1400");
+      await expect(submit).toBeDisabled();
+      await cash.fill(locale === "ar" ? "١٣٠٠" : "1300");
+      await expect(cash).toHaveValue("1,300");
+      await expect(amount).toHaveValue("415.202811");
       await expect(submit).toBeEnabled();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
       await Promise.all([page.waitForURL(new RegExp(`/${locale}/trade-room/`)), submit.click()]);
       const saved = await readRuntimeDb(page.request);
       expect((saved.purchaseRequests as Array<Record<string, unknown>>).find(item => item.listingId === listingId)).toMatchObject({
-        usdtAmount: "420", fiatAmount: "1315.02", pricePerUsdt: "3.10", feePolicyVersion: "buyer_seller_1pct_v1", status: "pending",
+        usdtAmount: "415.202811", fiatAmount: "1300.00", pricePerUsdt: "3.10", feePolicyVersion: "buyer_seller_1pct_v1", status: "pending",
       });
     });
   }

@@ -231,7 +231,7 @@ describe("mobile trades collection route", () => {
     expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
   });
 
-  it.each(["en", "ar"])("returns the exact ATM total and shortfall in %s", async (locale) => {
+  it.each(["en", "ar"])("rejects a code that does not cover the claimed USDT in %s", async (locale) => {
     const failure = Object.assign(new Error("ATM amount mismatch"), { name: "TradeBlockedError", code: "CARDLESS_PAYMENT_AMOUNT_MISMATCH", details: { requiredTotal: "1315.02", enteredAmount: "1300" } });
     mocks.createPurchaseRequest.mockRejectedValue(failure);
     const request = mobileRequest("POST", { feePolicyVersion: "buyer_seller_1pct_v1", listingId: "listing-1", usdtAmount: "420",
@@ -242,7 +242,6 @@ describe("mobile trades collection route", () => {
     const payload = await response.json();
     expect(payload.error.code).toBe("CARDLESS_DETAILS_REQUIRED");
     expect(payload.error.message).toContain("1,315.02");
-    expect(payload.error.message).toContain("15.02");
     expect(payload.error.message).toContain(locale === "ar" ? "بالضبط" : "exactly");
   });
 

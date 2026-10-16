@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardlessPaymentAmountNotice, calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, validateCardlessIlsAmount } from "@alpha-traders/contracts";
+import { getPurchaseMinimumTrade, calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, validateCardlessIlsAmount } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradePaymentTotal } from "./trade-amount";
 
 describe("bank cash withdrawal amounts", () => {
@@ -15,26 +15,21 @@ describe("bank cash withdrawal amounts", () => {
     }
   });
 
-  it.each(["0", "99.99", "10000.01", "10001", "10100", "100.001", "1e3", "-100", "1,31,5.02"])("rejects %s", (value) => expect(parseCardlessCashAmount(value)).toBeNull());
+  it.each(["0", "99", "101", "540", "794", "1729", "10001", "10100", "100.01", "1e3", "-100"])("rejects %s", (value) => expect(parseCardlessCashAmount(value)).toBeNull());
   it("accepts all hundred multiples and localized digits", () => {
     for (let cash = 100; cash <= 10000; cash += 100) expect(parseCardlessCashAmount(String(cash))).toBe(cash.toFixed(2));
     expect(parseCardlessCashAmount("١٥٠٠")).toBe("1500.00");
   });
-  it("accepts the exact full ATM payment including cents and Arabic digits", () => {
-    expect(calculateTradePaymentTotal("420", "3.10", true)).toBe("1315.02");
-    for (const input of ["1315.02", "1,315.02", "١٬٣١٥٫٠٢"]) {
-      expect(parseCardlessCashAmount(input)).toBe("1315.02");
-      expect(validateCardlessIlsAmount(input, "1315.02")).toBe("1315.02");
-      expect(cardlessPaymentAmountNotice(input, "1315.02")).toBeNull();
-    }
-    for (const input of ["1000", "1300", "1302", "1315.01", "1315.03", "1400"]) {
-      expect(validateCardlessIlsAmount(input, "1315.02")).toBeNull();
-      expect(cardlessPaymentAmountNotice(input, "1315.02")).toContain("exactly ₪1,315.02");
-    }
-    expect(cardlessPaymentAmountNotice("1300", "1315.02")).toContain("₪15.02 short");
-    expect(cardlessPaymentAmountNotice("1315.01", "1315.02")).toContain("₪0.01 short");
-    expect(cardlessPaymentAmountNotice("1300", "1315.02", "ar")).toContain("ينقص رمز السحب ₪15.02");
-    expect(validateCardlessIlsAmount("1315.02", "1315.021")).toBeNull();
+  it("derives USDT from the hundred-step code including the fee without exceeding a fixed listing", () => {
+    expect(calculateCardlessUsdtAmount("1300", "3.10", true)).toBe("415.202811");
+    expect(calculateTradePaymentTotal("415.202811", "3.10", true)).toBe("1300.00");
+    expect(getPurchaseMinimumTrade("420", true)).toBe(0);
+    expect(getPurchaseMinimumTrade("420", false)).toBe(420);
+    const options = getCardlessCashAmountOptions("3.10", getPurchaseMinimumTrade("420", true), 420, true);
+    expect(options.map(option => option.ilsAmount)).toEqual(Array.from({ length: 13 }, (_, i) => String((i + 1) * 100)));
+    expect(options.at(-1)).toEqual({ ilsAmount: "1300", usdtAmount: "415.202811" });
+    expect(validateCardlessIlsAmount("1300", "1315.02")).toBeNull();
+    expect(validateCardlessIlsAmount("1315.02", "1315.02")).toBeNull();
   });
 
   it("keeps the exact ILS cash total at listing and offer prices", () => {
