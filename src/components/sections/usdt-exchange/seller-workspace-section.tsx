@@ -356,7 +356,6 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     sellerTradeStatus,
     sellerWorkspaceMessage,
     sellerWorkspaceMessageFeedbackKey,
-    sellerWorkspaceSummary,
     sessionUser,
     setCommissionAdvancedOpen,
     setCommissionCopied,
@@ -504,7 +503,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription className="commission-notice">
-                {brandText(isAr ? "سدّد العمولة المستحقة لقبول صفقات جديدة أو الشراء أو إنشاء عروض. يمكنك إكمال صفقاتك الحالية." : "Settle unpaid commission to accept new trades, buy, or create listings. You can still finish existing trades.")}
+                {brandText(sellerCommissionStatus?.status === "clear"
+                  ? (isAr ? "تستحق عمولة الصفقة بعد إكمالها. لا يلزمك دفع أي عمولة حالياً." : "Trade commission becomes payable after completion. No commission payment is required now.")
+                  : (isAr ? "سدّد العمولة المستحقة لقبول صفقات جديدة أو الشراء أو إنشاء عروض. يمكنك إكمال صفقاتك الحالية." : "Settle unpaid commission to accept new trades, buy, or create listings. You can still finish existing trades."))}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -545,7 +546,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <span className="commission-notice font-medium">{isAr ? "لا توجد عمولة مستحقة — حسابك سليم." : "No commission due — you’re all clear."}</span>
+                    <span className="commission-notice font-medium">{isAr ? "لا توجد عمولة مستحقة حالياً." : "No commission due."}</span>
                   </div>
                 </div>
               ) : (
@@ -561,9 +562,6 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 <p>{isAr ? "حتى 3 صفقات نشطة. تبقى عروضك ظاهرة وتستقبل الطلبات." : "Up to 3 active trades. Your listings stay visible and can receive requests."}</p>
                 <Link href="/safety-trust" locale={locale} className="underline underline-offset-2">{isAr ? "سياسة العمولة كاملة" : "Full fee policy"}</Link>
               </HelpDetails>
-              {sellerWorkspaceSummary?.blockedReason ? (
-                <p className="commission-notice rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {currencyText(isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason)}</p>
-              ) : null}
               {selectedCommissionPayment?.feePolicyVersion === "buyer_seller_1pct_v1" ? (
                 <div className="commission-notice commission-notice-panel space-y-2 rounded-xl border p-3 text-sm">
                   <p className="commission-notice">{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: <span className="text-emerald-300">{currencyText(formatUsdt(selectedCommissionPayment.sellerFeeAmount ?? 0))}</span></p>
@@ -1083,7 +1081,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
               {listingCreationBlocked && listingCreateResult?.tone !== "success" ? (
                 <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
-                  <p className={listingBlockedByCommission ? "commission-notice font-semibold" : "font-semibold"}>{listingBlockedByCommission ? (isAr ? "ادفع العمولة أولاً" : "Pay commission first") : (isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked")}</p>
+                  <p className={listingBlockedByCommission ? "commission-notice font-semibold" : "font-semibold"}>{listingBlockedByCommission ? (isAr ? "ادفع العمولة أولاً" : "Pay commission first") : listingBlockedByActiveLimit ? (isAr ? "وصلت إلى الحد الأقصى للعروض المفتوحة" : "Open listing limit reached") : (isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked")}</p>
                   <p className="commission-notice mt-1 text-sm text-[#FDE68A]">{currencyText(isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason)}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {listingBlockedByActiveLimit ? (
