@@ -1,6 +1,6 @@
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
-import { beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { addSellerBankAccount, beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, deleteSellerBankAccount, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateSellerBankAccount, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
@@ -42,6 +42,9 @@ async function execute(operation: string, input: unknown) {
   if (operation === "admin-broadcast") return broadcastNotificationByAdmin(input as Parameters<typeof broadcastNotificationByAdmin>[0]);
   if (operation === "phone-attempt") return recordBuyerVerificationAttempt(input as string);
   if (operation === "phone-challenge") return beginBuyerVerification(input as Parameters<typeof beginBuyerVerification>[0]);
+  if (operation === "bank-add") return addSellerBankAccount(input as Parameters<typeof addSellerBankAccount>[0]);
+  if (operation === "bank-update") return updateSellerBankAccount(input as Parameters<typeof updateSellerBankAccount>[0]);
+  if (operation === "bank-delete") return deleteSellerBankAccount(input as Parameters<typeof deleteSellerBankAccount>[0]);
   if (operation === "status" || operation === "status-with-lost-follow-up") {
     const actionStarted = performance.now();
     const result = await updatePurchaseRequestStatus(input as Parameters<typeof updatePurchaseRequestStatus>[0]);

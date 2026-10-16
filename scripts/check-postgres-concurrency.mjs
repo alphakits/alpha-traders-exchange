@@ -132,6 +132,30 @@ try {
   const authSnapshot = requireOk(await workers[0].call("snapshot"));
   authAccounts.forEach((userId, index) => assert.equal(authSnapshot.users.find(user => user.id === userId).passwordHash, `synthetic-updated-hash-${index}`));
   passed("Concurrent password updates preserve both accounts", { accounts: 2 });
+  const bankInput = { sellerId: "audit-seller-0", actorUserId: "audit-seller-0", accountHolderName: "Synthetic Seller",
+    bankName: "Synthetic Bank", branchNumber: "123", accountNumber: "1234567890" };
+  const bankChanges = await batch([
+    ...Array.from({ length: 3 }, () => ({ operation: "bank-add", input: bankInput })),
+    { operation: "auth-password", input: { userId: bankInput.sellerId, passwordHash: "synthetic-bank-password" } },
+  ]);
+  assert.equal(bankChanges.slice(0, 3).filter(result => result.ok).length, 2);
+  assert.equal(bankChanges.slice(0, 3).filter(result => !result.ok && /up to 2 bank accounts/.test(result.error)).length, 1);
+  requireOk(bankChanges[3]);
+  let bankSeller = requireOk(await workers[0].call("snapshot")).users.find(user => user.id === bankInput.sellerId);
+  assert.equal(bankSeller.passwordHash, "synthetic-bank-password");
+  assert.equal(bankSeller.sellerBankAccounts.length, 2);
+  assert.equal(bankSeller.sellerBankAccounts.filter(account => account.isDefault).length, 1);
+  const bankIds = bankSeller.sellerBankAccounts.map(account => account.id);
+  (await batch(bankIds.map((bankAccountId, index) => ({ operation: "bank-update",
+    input: { ...bankInput, bankAccountId, branchNumber: String(400 + index) } })))).forEach(requireOk);
+  const bankSnapshot = requireOk(await workers[0].call("snapshot"));
+  bankSeller = bankSnapshot.users.find(user => user.id === bankInput.sellerId);
+  bankIds.forEach((id, index) => assert.equal(bankSeller.sellerBankAccounts.find(account => account.id === id).branchNumber, String(400 + index)));
+  assert.equal(bankSnapshot.auditLogs.filter(log => log.targetUserId === bankInput.sellerId && log.action.startsWith("seller_bank_account_")).length, 4);
+  (await batch(bankIds.map(bankAccountId => ({ operation: "bank-delete", input: { ...bankInput, bankAccountId } })))).forEach(requireOk);
+  assert.equal(requireOk(await workers[0].call("snapshot")).users.find(user => user.id === bankInput.sellerId).sellerBankAccounts.length, 0);
+  passed("Concurrent bank changes preserve account security, enforce two slots and retain both edits", { independentProcesses: 4,
+    additions: 2, rejected: 1, edits: 2, deletions: 2, defaultAccountsAfterAddition: 1, passwordPreserved: true });
   const administration = { actorUserId: "audit-owner", userId: authAccounts[0], reason: "Controlled concurrent account check" };
   (await batch([
     { operation: "admin-role", input: { ...administration, role: "admin" } },

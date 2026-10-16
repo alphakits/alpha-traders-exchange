@@ -6717,15 +6717,15 @@ export async function recordBuyerVerificationAttempt(userId: string) {
 async function mutateCanonicalAccountRecords<T>(
   readTables: readonly SnapshotTableName[],
   writeTables: readonly SnapshotTableName[],
-  apply: (snapshot: AlphaExchangeDb) => { changed: boolean; result: T },
+  apply: (snapshot: AlphaExchangeDb) => { changed: boolean; result: T } | Promise<{ changed: boolean; result: T }>,
 ): Promise<T> {
   const { db } = await readDbForCriticalTradeMutation(readTables);
-  let outcome = apply(db);
+  let outcome = await apply(db);
   if (outcome.changed) {
     await writeDb(db, {
       selectedTables: writeTables,
       rebaseTables: readTables,
-      rebaseOnLatest: latest => { outcome = apply(latest); return latest; },
+      rebaseOnLatest: async latest => { outcome = await apply(latest); return latest; },
       cacheResult: false,
     });
   }
@@ -6902,6 +6902,17 @@ export async function getSellerBankAccountsForUser(userId: string) {
   return getSellerBankAccounts(user).map(toPublicSellerBankAccount);
 }
 
+const SELLER_BANK_WRITE_TABLES = [...USER_PROFILE_TABLES, "listings", "audit_logs"] as const;
+const SELLER_BANK_READ_TABLES = [...SELLER_BANK_WRITE_TABLES, "seller_applications", "purchase_requests"] as const;
+
+function assertSellerBankAccountActor(db: AlphaExchangeDb, sellerId: string, actorUserId: string) {
+  if (actorUserId !== sellerId) throw new Error("You can only manage your own bank accounts.");
+  const seller = db.users.find(user => user.id === sellerId);
+  if (!seller) throw new Error("Seller not found.");
+  if (seller.disabled) throw new Error("This account is restricted.");
+  if (!canPublishListings(seller)) throw new Error("Seller approval is required for this marketplace setting.");
+}
+
 export async function addSellerBankAccount(input: {
   sellerId: string;
   actorUserId: string;
@@ -6911,49 +6922,51 @@ export async function addSellerBankAccount(input: {
   accountNumber: string;
   isDefault?: boolean;
 }) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
-  if (userIndex === -1) throw new Error("Seller not found.");
-  const user = db.users[userIndex];
-  const existing = getSellerBankAccounts(user);
-  if (existing.length >= MAX_SELLER_BANK_ACCOUNTS) {
-    throw new Error(`You can save up to ${MAX_SELLER_BANK_ACCOUNTS} bank accounts.`);
-  }
-  const sanitized = sanitizeSellerBankAccountInput(input);
-  const now = nowIso();
-  const newAccount: SellerBankAccount = {
-    id: `seller-bank-${randomUUID()}`,
-    sellerId: input.sellerId,
-    accountHolderName: sanitized.accountHolderName,
-    bankName: sanitized.bankName,
-    branchNumber: sanitized.branchNumber,
-    accountNumber: sanitized.accountNumber,
-    accountLast4: sanitized.accountLast4,
-    isDefault: input.isDefault === true || existing.length === 0,
-    createdAt: now,
-    updatedAt: now,
-  };
-  const nextAccounts = [newAccount, ...existing].map((account, index) => ({
-    ...account,
-    isDefault: index === 0 ? newAccount.isDefault === true : (newAccount.isDefault === true ? false : account.isDefault === true),
-  }));
-  if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
-    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
-  }
-  db.users[userIndex] = {
-    ...user,
-    sellerBankAccounts: nextAccounts,
-    updatedAt: now,
-  };
-  await appendAuditLog(db, {
-    action: "seller_bank_account_added",
-    actorUserId: input.actorUserId,
-    targetUserId: input.sellerId,
-    details: `Seller added bank account ${newAccount.id}.`,
-    newValue: { bankAccountId: newAccount.id, bankName: newAccount.bankName, branchNumber: newAccount.branchNumber, accountLast4: newAccount.accountLast4 },
+  const accountId = `seller-bank-${randomUUID()}`;
+  return mutateCanonicalAccountRecords(SELLER_BANK_READ_TABLES, SELLER_BANK_WRITE_TABLES, async db => {
+    assertSellerBankAccountActor(db, input.sellerId, input.actorUserId);
+    const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+    if (userIndex === -1) throw new Error("Seller not found.");
+    const user = db.users[userIndex];
+    const existing = getSellerBankAccounts(user);
+    if (existing.length >= MAX_SELLER_BANK_ACCOUNTS) {
+      throw new Error(`You can save up to ${MAX_SELLER_BANK_ACCOUNTS} bank accounts.`);
+    }
+    const sanitized = sanitizeSellerBankAccountInput(input);
+    const now = nowIso();
+    const newAccount: SellerBankAccount = {
+      id: accountId,
+      sellerId: input.sellerId,
+      accountHolderName: sanitized.accountHolderName,
+      bankName: sanitized.bankName,
+      branchNumber: sanitized.branchNumber,
+      accountNumber: sanitized.accountNumber,
+      accountLast4: sanitized.accountLast4,
+      isDefault: input.isDefault === true || existing.length === 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const nextAccounts = [newAccount, ...existing].map((account, index) => ({
+      ...account,
+      isDefault: index === 0 ? newAccount.isDefault === true : (newAccount.isDefault === true ? false : account.isDefault === true),
+    }));
+    if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
+      nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+    }
+    db.users[userIndex] = {
+      ...user,
+      sellerBankAccounts: nextAccounts,
+      updatedAt: now,
+    };
+    await appendAuditLog(db, {
+      action: "seller_bank_account_added",
+      actorUserId: input.actorUserId,
+      targetUserId: input.sellerId,
+      details: `Seller added bank account ${newAccount.id}.`,
+      newValue: { bankAccountId: newAccount.id, bankName: newAccount.bankName, branchNumber: newAccount.branchNumber, accountLast4: newAccount.accountLast4 },
+    });
+    return { changed: true, result: toPublicSellerBankAccount(newAccount) };
   });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
-  return toPublicSellerBankAccount(newAccount);
 }
 
 export async function updateSellerBankAccount(input: {
@@ -6966,70 +6979,62 @@ export async function updateSellerBankAccount(input: {
   accountNumber: string;
   isDefault?: boolean;
 }) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
-  if (userIndex === -1) throw new Error("Seller not found.");
-  const user = db.users[userIndex];
-  const accounts = getSellerBankAccounts(user);
-  const accountIndex = accounts.findIndex((account) => account.id === input.bankAccountId);
-  if (accountIndex === -1) throw new Error("Bank account not found.");
-  const sanitized = sanitizeSellerBankAccountInput(input);
-  const currentAccount = accounts[accountIndex];
-  const bankDetailsChanging = currentAccount.accountHolderName !== sanitized.accountHolderName
-    || currentAccount.bankName !== sanitized.bankName
-    || currentAccount.branchNumber !== sanitized.branchNumber
-    || currentAccount.accountNumber !== sanitized.accountNumber;
-  if (bankDetailsChanging && hasInProgressTradeForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
-    throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
-  }
-  const now = nowIso();
-  const updatedAccount: SellerBankAccount = {
-    ...accounts[accountIndex],
-    accountHolderName: sanitized.accountHolderName,
-    bankName: sanitized.bankName,
-    branchNumber: sanitized.branchNumber,
-    accountNumber: sanitized.accountNumber,
-    accountLast4: sanitized.accountLast4,
-    isDefault: input.isDefault === true ? true : accounts[accountIndex].isDefault === true,
-    updatedAt: now,
-  };
-  const nextAccounts = accounts.map((account, index) => {
-    if (index === accountIndex) return updatedAccount;
-    if (updatedAccount.isDefault === true) return { ...account, isDefault: false, updatedAt: now };
-    return account;
-  });
-  if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
-    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
-  }
-  db.users[userIndex] = {
-    ...user,
-    sellerBankAccounts: nextAccounts,
-    updatedAt: now,
-  };
+  return mutateCanonicalAccountRecords(SELLER_BANK_READ_TABLES, SELLER_BANK_WRITE_TABLES, async db => {
+    assertSellerBankAccountActor(db, input.sellerId, input.actorUserId);
+    const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+    if (userIndex === -1) throw new Error("Seller not found.");
+    const user = db.users[userIndex];
+    const accounts = getSellerBankAccounts(user);
+    const accountIndex = accounts.findIndex((account) => account.id === input.bankAccountId);
+    if (accountIndex === -1) throw new Error("Bank account not found.");
+    const sanitized = sanitizeSellerBankAccountInput(input);
+    const currentAccount = accounts[accountIndex];
+    const bankDetailsChanging = currentAccount.accountHolderName !== sanitized.accountHolderName
+      || currentAccount.bankName !== sanitized.bankName
+      || currentAccount.branchNumber !== sanitized.branchNumber
+      || currentAccount.accountNumber !== sanitized.accountNumber;
+    if (bankDetailsChanging && hasInProgressTradeForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
+      throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
+    }
+    const now = nowIso();
+    const updatedAccount: SellerBankAccount = {
+      ...accounts[accountIndex],
+      accountHolderName: sanitized.accountHolderName,
+      bankName: sanitized.bankName,
+      branchNumber: sanitized.branchNumber,
+      accountNumber: sanitized.accountNumber,
+      accountLast4: sanitized.accountLast4,
+      isDefault: input.isDefault === true ? true : accounts[accountIndex].isDefault === true,
+      updatedAt: now,
+    };
+    const nextAccounts = accounts.map((account, index) => {
+      if (index === accountIndex) return updatedAccount;
+      if (updatedAccount.isDefault === true) return { ...account, isDefault: false, updatedAt: now };
+      return account;
+    });
+    if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
+      nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+    }
+    db.users[userIndex] = {
+      ...user,
+      sellerBankAccounts: nextAccounts,
+      updatedAt: now,
+    };
 
-  for (const listing of db.marketplaceListings) {
-    if (listing.sellerId !== input.sellerId || listing.bankAccountId !== updatedAccount.id) continue;
-    listing.bankName = updatedAccount.bankName;
-    listing.updatedAt = now;
-  }
-  await appendAuditLog(db, {
-    action: "seller_bank_account_updated",
-    actorUserId: input.actorUserId,
-    targetUserId: input.sellerId,
-    details: `Seller updated bank account ${updatedAccount.id}.`,
-    newValue: { bankAccountId: updatedAccount.id, bankName: updatedAccount.bankName, branchNumber: updatedAccount.branchNumber, accountLast4: updatedAccount.accountLast4 },
+    for (const listing of db.marketplaceListings) {
+      if (listing.sellerId !== input.sellerId || listing.bankAccountId !== updatedAccount.id) continue;
+      listing.bankName = updatedAccount.bankName;
+      listing.updatedAt = now;
+    }
+    await appendAuditLog(db, {
+      action: "seller_bank_account_updated",
+      actorUserId: input.actorUserId,
+      targetUserId: input.sellerId,
+      details: `Seller updated bank account ${updatedAccount.id}.`,
+      newValue: { bankAccountId: updatedAccount.id, bankName: updatedAccount.bankName, branchNumber: updatedAccount.branchNumber, accountLast4: updatedAccount.accountLast4 },
+    });
+    return { changed: true, result: toPublicSellerBankAccount(updatedAccount) };
   });
-  await writeDb(db, {
-    selectedTables: LISTING_TRUST_WRITE_TABLES,
-    validateBeforeCommit: bankDetailsChanging
-      ? (snapshot) => {
-          if (hasInProgressTradeForSellerBankAccount(snapshot, input.sellerId, input.bankAccountId)) {
-            throw new Error("Bank account details cannot be changed while they are locked to an active trade.");
-          }
-        }
-      : undefined,
-  });
-  return toPublicSellerBankAccount(updatedAccount);
 }
 
 export async function deleteSellerBankAccount(input: {
@@ -7037,35 +7042,36 @@ export async function deleteSellerBankAccount(input: {
   actorUserId: string;
   bankAccountId: string;
 }) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
-  if (userIndex === -1) throw new Error("Seller not found.");
-  const user = db.users[userIndex];
-  const accounts = getSellerBankAccounts(user);
-  const account = accounts.find((item) => item.id === input.bankAccountId);
-  if (!account) throw new Error("Bank account not found.");
-  if (hasActiveUsageForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
-    throw new Error("This bank account is linked to active trades or listings and cannot be deleted right now.");
-  }
-  const now = nowIso();
-  const nextAccounts = accounts.filter((item) => item.id !== input.bankAccountId);
-  if (!nextAccounts.some((item) => item.isDefault === true) && nextAccounts.length > 0) {
-    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
-  }
-  db.users[userIndex] = {
-    ...user,
-    sellerBankAccounts: nextAccounts,
-    updatedAt: now,
-  };
-  await appendAuditLog(db, {
-    action: "seller_bank_account_deleted",
-    actorUserId: input.actorUserId,
-    targetUserId: input.sellerId,
-    details: `Seller deleted bank account ${account.id}.`,
-    oldValue: { bankAccountId: account.id, bankName: account.bankName, branchNumber: account.branchNumber, accountLast4: account.accountLast4 },
+  return mutateCanonicalAccountRecords(SELLER_BANK_READ_TABLES, SELLER_BANK_WRITE_TABLES, async db => {
+    assertSellerBankAccountActor(db, input.sellerId, input.actorUserId);
+    const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+    if (userIndex === -1) throw new Error("Seller not found.");
+    const user = db.users[userIndex];
+    const accounts = getSellerBankAccounts(user);
+    const account = accounts.find((item) => item.id === input.bankAccountId);
+    if (!account) throw new Error("Bank account not found.");
+    if (hasActiveUsageForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
+      throw new Error("This bank account is linked to active trades or listings and cannot be deleted right now.");
+    }
+    const now = nowIso();
+    const nextAccounts = accounts.filter((item) => item.id !== input.bankAccountId);
+    if (!nextAccounts.some((item) => item.isDefault === true) && nextAccounts.length > 0) {
+      nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+    }
+    db.users[userIndex] = {
+      ...user,
+      sellerBankAccounts: nextAccounts,
+      updatedAt: now,
+    };
+    await appendAuditLog(db, {
+      action: "seller_bank_account_deleted",
+      actorUserId: input.actorUserId,
+      targetUserId: input.sellerId,
+      details: `Seller deleted bank account ${account.id}.`,
+      oldValue: { bankAccountId: account.id, bankName: account.bankName, branchNumber: account.branchNumber, accountLast4: account.accountLast4 },
+    });
+    return { changed: true, result: { deleted: true } };
   });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
-  return { deleted: true };
 }
 
 export async function updateUserPreferredLocale(input: {
