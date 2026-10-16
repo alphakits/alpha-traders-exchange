@@ -127,6 +127,26 @@ try {
   monitor = setInterval(() => { pool.query("select count(*)::int as n from pg_stat_activity where datname=current_database() and application_name like 'alpha-audit-worker-%' and state='active'")
     .then(result => { peakActiveConnections = Math.max(peakActiveConnections, result.rows[0].n); }).catch(() => {}); }, 100);
 
+  const authAccounts = ["audit-buyer-0-0", "audit-buyer-0-1"];
+  (await batch(authAccounts.map((userId, index) => ({ operation: "auth-password", input: { userId, passwordHash: `synthetic-updated-hash-${index}` } })))).forEach(requireOk);
+  const authSnapshot = requireOk(await workers[0].call("snapshot"));
+  authAccounts.forEach((userId, index) => assert.equal(authSnapshot.users.find(user => user.id === userId).passwordHash, `synthetic-updated-hash-${index}`));
+  passed("Concurrent password updates preserve both accounts", { accounts: 2 });
+  const verification = requireOk(await workers[0].call("auth-email-issue", authAccounts[0]));
+  const verifications = (await Promise.all(workers.map(worker => worker.call("auth-email-consume", verification.token)))).map(requireOk);
+  assert.equal(verifications.filter(result => result.status === "verified").length, 1);
+  assert.equal(verifications.filter(result => result.status === "invalid").length, 3);
+  passed("Email verification token is consumed once across independent processes", { attempts: 4, verified: 1 });
+  const resetInputs = authAccounts.map(userId => ({ userId, token: randomUUID() }));
+  (await batch(resetInputs.map(input => ({ operation: "auth-reset-issue", input })))).forEach(requireOk);
+  assert.equal(requireOk(await workers[0].call("snapshot")).passwordResetTokens.length, 2);
+  for (const { token } of resetInputs) {
+    const consumed = (await Promise.all(workers.map(worker => worker.call("auth-reset-consume", token)))).map(requireOk);
+    assert.equal(consumed.filter(Boolean).length, 1);
+  }
+  assert.equal(requireOk(await workers[0].call("snapshot")).passwordResetTokens.length, 0);
+  passed("Password reset issuance preserves other accounts and each token is single-use across processes", { accounts: 2, attemptsPerToken: 4 });
+
   const first = fixture.purchaseRequests[0];
   const terms = { requestId: first.id, actorUserId: first.sellerId, action: "propose_amount", value: "200", expectedUpdatedAt: first.updatedAt };
   const racedTerms = await batch(Array.from({ length: 3 }, () => ({ operation: "terms", input: terms })));

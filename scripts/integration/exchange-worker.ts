@@ -1,6 +1,6 @@
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
-import { getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, updatePurchaseRequestStatus, updateTradeTerms, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, updatePurchaseRequestStatus, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
@@ -24,6 +24,18 @@ async function execute(operation: string, input: unknown) {
   if (operation === "snapshot") return repository.loadSnapshot();
   if (operation === "query-timings") return getAuditQueryTimings();
   if (operation === "reconcile-trust") return reconcilePendingTradeTrust();
+  if (operation === "auth-password") {
+    const action = input as { userId: string; passwordHash: string };
+    await updateUserPassword(action.userId, action.passwordHash);
+    return { updated: true };
+  }
+  if (operation === "auth-email-issue") return createEmailVerificationTokenForUser(input as string);
+  if (operation === "auth-email-consume") return consumeEmailVerificationToken(input as string);
+  if (operation === "auth-reset-issue") {
+    const action = input as { userId: string; token: string };
+    return createPasswordResetToken(action.userId, action.token);
+  }
+  if (operation === "auth-reset-consume") return consumePasswordResetToken(input as string);
   if (operation === "status" || operation === "status-with-lost-follow-up") {
     const actionStarted = performance.now();
     const result = await updatePurchaseRequestStatus(input as Parameters<typeof updatePurchaseRequestStatus>[0]);

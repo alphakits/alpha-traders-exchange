@@ -6706,120 +6706,88 @@ export async function recordBuyerVerificationAttempt(userId: string) {
   await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
 }
 
-export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
-  const db = await readDb();
-  const userIndex = db.users.findIndex((user) => user.id === userId);
-  if (userIndex === -1) {
-    throw new Error("User not found.");
+/** Apply authentication changes against canonical records if another writer wins. */
+async function mutateCanonicalAuthRecords<T>(
+  readTables: readonly SnapshotTableName[],
+  writeTables: readonly SnapshotTableName[],
+  apply: (snapshot: AlphaExchangeDb) => { changed: boolean; result: T },
+): Promise<T> {
+  const { db } = await readDbForCriticalTradeMutation(readTables);
+  let outcome = apply(db);
+  if (outcome.changed) {
+    await writeDb(db, {
+      selectedTables: writeTables,
+      rebaseTables: readTables,
+      rebaseOnLatest: latest => { outcome = apply(latest); return latest; },
+      cacheResult: false,
+    });
   }
+  return outcome.result;
+}
 
+export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
   const token = randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString("hex");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
   const sentAt = nowIso();
-
-  db.users[userIndex] = {
-    ...db.users[userIndex],
-    emailVerificationTokenHash: tokenHash,
-    emailVerificationTokenExpiresAt: expiresAt,
-    emailVerificationSentAt: sentAt,
-    updatedAt: sentAt,
-  };
-
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return {
-    token,
-    expiresAt,
-    user: db.users[userIndex],
-  };
+  return mutateCanonicalAuthRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => candidate.id === userId);
+    if (!user) throw new Error("User not found.");
+    Object.assign(user, { emailVerificationTokenHash: tokenHash, emailVerificationTokenExpiresAt: expiresAt,
+      emailVerificationSentAt: sentAt, updatedAt: sentAt });
+    return { changed: true, result: { token, expiresAt, user } };
+  });
 }
+
+type EmailVerificationIssue = { skipped: "already_verified"; user: AlphaExchangeUser }
+  | { skipped: null; token: string; expiresAt: string; user: AlphaExchangeUser } | null;
 
 export async function createEmailVerificationTokenForEmail(email: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
-  const db = await readDb();
   const normalizedEmail = normalizeEmail(email);
-  const userIndex = db.users.findIndex((user) => normalizeEmail(user.email) === normalizedEmail);
-  if (userIndex === -1) {
-    return null;
-  }
-
-  if (db.users[userIndex].emailVerified === true) {
-    return {
-      skipped: "already_verified" as const,
-      user: db.users[userIndex],
-    };
-  }
-
   const token = randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString("hex");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
   const sentAt = nowIso();
-  db.users[userIndex] = {
-    ...db.users[userIndex],
-    emailVerificationTokenHash: tokenHash,
-    emailVerificationTokenExpiresAt: expiresAt,
-    emailVerificationSentAt: sentAt,
-    updatedAt: sentAt,
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return {
-    skipped: null,
-    token,
-    expiresAt,
-    user: db.users[userIndex],
-  };
+  return mutateCanonicalAuthRecords<EmailVerificationIssue>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => normalizeEmail(candidate.email) === normalizedEmail);
+    if (!user) return { changed: false, result: null };
+    if (user.emailVerified === true) return { changed: false, result: { skipped: "already_verified", user } };
+    Object.assign(user, { emailVerificationTokenHash: tokenHash, emailVerificationTokenExpiresAt: expiresAt,
+      emailVerificationSentAt: sentAt, updatedAt: sentAt });
+    return { changed: true, result: { skipped: null, token, expiresAt, user } };
+  });
 }
 
-export async function consumeEmailVerificationToken(rawToken: string) {
+type EmailVerificationConsumption = { status: "invalid" | "expired" } | { status: "verified"; user: AlphaExchangeUser };
+
+export async function consumeEmailVerificationToken(rawToken: string): Promise<EmailVerificationConsumption> {
   const token = String(rawToken ?? "").trim();
-  if (!token) return { status: "invalid" as const };
-
-  const db = await readDb();
+  if (!token) return { status: "invalid" };
   const candidateHash = hashToken(token);
-  const now = Date.now();
-
-  for (let index = 0; index < db.users.length; index += 1) {
-    const user = db.users[index];
-    if (!user.emailVerificationTokenHash) continue;
-    if (!constantTimeHexEquals(user.emailVerificationTokenHash, candidateHash)) continue;
-
-    const expiresAt = user.emailVerificationTokenExpiresAt ? new Date(user.emailVerificationTokenExpiresAt).getTime() : 0;
-    if (!expiresAt || Number.isNaN(expiresAt) || expiresAt <= now) {
-      db.users[index] = {
-        ...user,
-        emailVerificationTokenHash: undefined,
-        emailVerificationTokenExpiresAt: undefined,
-        updatedAt: nowIso(),
-      };
-      await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-      return { status: "expired" as const };
-    }
-
+  return mutateCanonicalAuthRecords<EmailVerificationConsumption>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => candidate.emailVerificationTokenHash
+      && constantTimeHexEquals(candidate.emailVerificationTokenHash, candidateHash));
+    if (!user) return { changed: false, result: { status: "invalid" } };
+    const expiresAt = Date.parse(user.emailVerificationTokenExpiresAt ?? "");
     const verifiedAt = nowIso();
-    db.users[index] = {
-      ...user,
-      emailVerified: true,
-      emailVerifiedAt: verifiedAt,
-      emailVerificationTokenHash: undefined,
-      emailVerificationTokenExpiresAt: undefined,
-      updatedAt: verifiedAt,
-    };
-    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-    return { status: "verified" as const, user: db.users[index] };
-  }
-
-  return { status: "invalid" as const };
+    user.emailVerificationTokenHash = undefined;
+    user.emailVerificationTokenExpiresAt = undefined;
+    user.updatedAt = verifiedAt;
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return { changed: true, result: { status: "expired" } };
+    user.emailVerified = true;
+    user.emailVerifiedAt = verifiedAt;
+    return { changed: true, result: { status: "verified", user } };
+  });
 }
 
 export async function updateUserPassword(userId: string, passwordHash: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  db.users[index] = {
-    ...db.users[index],
-    passwordHash,
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  await mutateCanonicalAuthRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const user = db.users.find(candidate => candidate.id === userId);
+    if (!user) throw new Error("User not found.");
+    user.passwordHash = passwordHash;
+    user.updatedAt = nowIso();
+    return { changed: true, result: undefined };
+  });
 }
 
 function getSellerBankAccounts(user: AlphaExchangeUser) {
@@ -7606,35 +7574,27 @@ export async function deleteSessionsForUser(userId: string) {
 }
 
 export async function createPasswordResetToken(userId: string, rawToken: string, durationMinutes = 30) {
-  const db = await readDb();
   const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + durationMinutes * 60 * 1000);
-  const reset: PasswordResetToken = {
-    id: `pwd-reset-${randomUUID()}`,
-    userId,
-    tokenHash: hashToken(rawToken),
-    createdAt: createdAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-  };
-  db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.userId !== userId);
-  db.passwordResetTokens.push(reset);
-  await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
-  return reset;
+  const reset: PasswordResetToken = { id: `pwd-reset-${randomUUID()}`, userId, tokenHash: hashToken(rawToken),
+    createdAt: createdAt.toISOString(), expiresAt: new Date(createdAt.getTime() + durationMinutes * 60 * 1000).toISOString() };
+  return mutateCanonicalAuthRecords(["users", "password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
+    if (!db.users.some(user => user.id === userId)) throw new Error("User not found.");
+    db.passwordResetTokens = [...db.passwordResetTokens.filter(item => item.userId !== userId), reset];
+    return { changed: true, result: reset };
+  });
 }
 
 export async function consumePasswordResetToken(rawToken: string) {
-  const db = await readDb();
-  const hashed = hashToken(rawToken);
-  const token = db.passwordResetTokens.find((item) => item.tokenHash === hashed);
-  if (!token) return null;
-  if (new Date(token.expiresAt) < new Date()) {
-    db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-    await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
-    return null;
-  }
-  db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-  await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
-  return token;
+  const value = String(rawToken ?? "").trim();
+  if (!value) return null;
+  const hashed = hashToken(value);
+  return mutateCanonicalAuthRecords<PasswordResetToken | null>(["password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
+    const token = db.passwordResetTokens.find(item => constantTimeHexEquals(item.tokenHash, hashed));
+    if (!token) return { changed: false, result: null };
+    db.passwordResetTokens = db.passwordResetTokens.filter(item => item.tokenHash !== hashed);
+    const expiresAt = Date.parse(token.expiresAt);
+    return { changed: true, result: Number.isFinite(expiresAt) && expiresAt > Date.now() ? token : null };
+  });
 }
 
 export async function createSellerApplication(input: {
