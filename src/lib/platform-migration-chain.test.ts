@@ -4,6 +4,29 @@ import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { readdir, readFile } from "node:fs/promises";
 
+// Supabase's migration replayer submits top-level statements separately. Sending
+// a complete file through exec() can create an implicit PostgreSQL transaction
+// and conceal a LOCK TABLE that lacks an explicit BEGIN.
+function statements(sql: string) {
+  const tokens = sql.match(/--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/|\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$|'(?:[^']|'')*'|"(?:[^"]|"")*"|;|[^$'";/-]+|[\s\S]/g) ?? [];
+  const result: string[] = [];
+  let current = "";
+  let dollarQuote: string | null = null;
+  for (const token of tokens) {
+    current += token;
+    if (/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$$/.test(token)) {
+      if (dollarQuote === token) dollarQuote = null;
+      else if (dollarQuote === null) dollarQuote = token;
+    }
+    if (token === ";" && dollarQuote === null) {
+      result.push(current);
+      current = "";
+    }
+  }
+  if (current.replace(/--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\//g, "").trim()) result.push(current);
+  return result;
+}
+
 // A clean schema must be reproducible from tracked migrations. Supabase's
 // managed roles/storage objects are prerequisites, not application bootstrap.
 // This exercises PostgreSQL semantics locally; it does not prove that the
@@ -18,7 +41,11 @@ describe("platform migration reconstruction", () => {
       ))).flat().sort((a, b) => a.name.localeCompare(b.name));
       expect(files.length).toBeGreaterThanOrEqual(35);
       for (const file of files) {
-        try { await db.exec(await readFile(file.path, "utf8")); }
+        try {
+          for (const statement of statements(await readFile(file.path, "utf8"))) {
+            await db.exec(statement);
+          }
+        }
         catch (error) { throw new Error(`Migration reconstruction failed at ${file.path}`, { cause: error }); }
       }
       const tables = await db.query<{ table_name: string }>("select table_name from information_schema.tables where table_schema='alpha_exchange'");
