@@ -783,73 +783,7 @@ describe("seller bank accounts and trade guardrails", () => {
     }
   });
 
-  it("auto-completes an expired USDT receipt window idempotently", async () => {
-    const sentAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
-    const snapshot = currentSnapshot();
-    snapshot.marketplaceListings.push({
-      id: "listing-expired-receipt",
-      sellerId: SELLER_ID,
-      sellerDisplayName: "Seller One",
-      photos: [],
-      originalAmount: "1000",
-      availableAmount: "1000",
-      price: "3.20",
-      currency: "ILS",
-      network: "TRC20",
-      paymentMethods: ["Bank Transfer"],
-      paymentMethod: "Bank Transfer",
-      bankName: "Bank Hapoalim",
-      minimumTrade: "50",
-      maximumTrade: "1000",
-      status: "in_trade",
-      activeTradeRequestId: "req-expired-receipt",
-      createdAt: sentAt,
-      updatedAt: sentAt,
-    } as never);
-    snapshot.purchaseRequests.push({
-      id: "req-expired-receipt",
-      listingId: "listing-expired-receipt",
-      buyerId: BUYER_ID,
-      buyerName: "Buyer",
-      buyerWhatsapp: "+972500000000",
-      buyerNotes: "",
-      sellerId: SELLER_ID,
-      usdtAmount: "100",
-      fiatAmount: "320",
-      currency: "ILS",
-      network: "TRC20",
-      paymentMethod: "Bank Transfer",
-      status: "usdt_sent",
-      usdtSentAt: sentAt,
-      timeline: [],
-      createdAt: sentAt,
-      updatedAt: sentAt,
-    } as never);
-
-    const repository = await getAlphaExchangeRepository();
-    const saveSnapshot = vi.spyOn(repository, "saveSnapshot");
-
-    await runAlphaExchangeMaintenance();
-    const completed = currentSnapshot().purchaseRequests.find((item) => item.id === "req-expired-receipt");
-    expect(completed?.status).toBe("review_open");
-    expect(completed?.completedAt).toBeTruthy();
-    expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
-    expect(currentSnapshot().marketplaceListings.find((item) => item.id === "listing-expired-receipt")?.activeTradeRequestId).toBeUndefined();
-    expect(saveSnapshot.mock.calls.some(([, options]) => {
-      const tables = new Set(options?.selectedTables ?? []);
-      return tables.has("users")
-        && tables.has("activity_logs")
-        && tables.has("trust_snapshots")
-        && tables.has("trust_score_history");
-    })).toBe(true);
-
-    saveSnapshot.mockClear();
-    await runAlphaExchangeMaintenance();
-    expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
-    expect(saveSnapshot.mock.calls.some(([, options]) => options?.selectedTables?.includes("trust_snapshots"))).toBe(false);
-  });
-
-  it.each(["Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])(
+  it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])(
     "never auto-completes a stale %s trade while the seller completion button is pending",
     async (paymentMethod) => {
       const sentAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -904,7 +838,7 @@ describe("seller bank accounts and trade guardrails", () => {
         actorUserId: SELLER_ID,
         actorRole: "approved_seller",
         nextStatus: "completed",
-        completionMode: "cash_trade",
+        completionMode: "seller",
       });
       expect(completed.request.status).toBe("review_open");
       expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === requestId)).toHaveLength(1);

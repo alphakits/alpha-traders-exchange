@@ -1149,6 +1149,11 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       } else {
         await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       }
+      if (paymentMethod === "Face-to-Face (Meet in Person)") {
+        await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+        await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+        await expect(sellerPage.getByText(BUYER_WALLET, { exact: true })).toBeVisible();
+      } else {
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
       const receiveLabel = paymentMethod === "Bank Transfer" ? "Confirm Money Received" : paymentMethod === "Cardless ATM Withdrawal" ? "I Collected the ATM Cash" : "I Received the Cash";
       await expect(sellerPage.getByRole("button", { name: receiveLabel, exact: true })).toHaveCount(1);
@@ -1167,9 +1172,12 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
       release();
       await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+      }
       const feedback = sellerPage.getByTestId("trade-action-feedback");
-      await expect(feedback).toBeInViewport();
-      await expect(sellerPage.locator("#action-required").getByTestId("trade-action-feedback")).toBeVisible();
+      if (paymentMethod !== "Face-to-Face (Meet in Person)") {
+        await expect(feedback).toBeInViewport();
+        await expect(sellerPage.locator("#action-required").getByTestId("trade-action-feedback")).toBeVisible();
+      }
       for (const width of [320, 390, 1440]) {
         await sellerPage.setViewportSize({ width, height: 844 });
         expect(await sellerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
@@ -1187,20 +1195,30 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       } else {
         await expect(sellerPage.getByText(BUYER_WALLET, { exact: true })).toBeVisible();
       }
-      if (paymentMethod === "Bank Transfer") {
+      if (paymentMethod !== "Face-to-Face (Meet in Person)") {
         await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
-        await buyerPage.getByRole("button", { name: "Confirm USDT Received", exact: true }).click();
-        await expect(buyerPage).toHaveURL(url => (
-          url.pathname === path
-          && url.searchParams.get("action") === "review-trade"
-          && url.hash === "#status-banner"
-        ), { timeout: 20_000 });
-      } else {
-        if (paymentMethod === "Cardless ATM Withdrawal") {
-          await expect(sellerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
-        }
-        await sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }).click();
       }
+      await buyerPage.reload();
+      await expect(buyerPage.getByRole("button", { name: /Confirm USDT Received|Mark Trade as Completed|Confirm Trade Completed/i })).toHaveCount(0);
+      const beforeRejection = await readDb(api);
+      const rejected = await buyerContext.request.patch(`/api/alpha-exchange/purchase-requests/${requestId}`, { data: { status: "completed" } });
+      expect(rejected.ok()).toBe(false);
+      expect(await rejected.json()).toMatchObject({ code: "seller-completion-required" });
+      const afterRejection = await readDb(api);
+      const settlementFields = (snapshot: Record<string, unknown>) => {
+        const current = (snapshot.purchaseRequests as Array<Record<string, unknown>>).find(row => row.id === requestId)!;
+        return { status: current.status, completedAt: current.completedAt, usdtAmount: current.usdtAmount,
+          fiatAmount: current.fiatAmount, pricePerUsdt: current.pricePerUsdt, timeline: current.timeline };
+      };
+      expect(settlementFields(afterRejection)).toEqual(settlementFields(beforeRejection));
+      for (const table of ["commissionRecords", "marketplaceListings"]) {
+        expect(afterRejection[table]).toEqual(beforeRejection[table]);
+      }
+      await buyerPage.screenshot({ path: testInfo.outputPath("seller-only-buyer-mobile.png"), fullPage: true });
+      await sellerPage.setViewportSize({ width: 1440, height: 900 });
+      await expect(sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true })).toBeVisible();
+      await sellerPage.screenshot({ path: testInfo.outputPath("seller-only-seller-desktop.png"), fullPage: true });
+      await sellerPage.getByRole("button", { name: "Mark Trade as Completed", exact: true }).click();
       await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
       await buyerPage.getByPlaceholder("Share your seller feedback...").fill("Completed smoothly in the browser rehearsal.");
       await buyerPage.getByRole("button", { name: "Submit Rating", exact: true }).click();

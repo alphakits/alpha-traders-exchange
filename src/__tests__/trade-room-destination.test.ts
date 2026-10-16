@@ -54,7 +54,7 @@ describe("buildTradeRoomDestination", () => {
   it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("targets seller completion after USDT is sent for %s", (paymentMethod) => {
     const request = { ...createRequest("usdt_sent"), paymentMethod };
     expect(buildTradeRoomDestination(request, "seller-1")).toBe("/trade-room/purchase-1?action=complete-cash-trade#action-required");
-    expect(buildTradeRoomDestination(request, "buyer-1")).toBe("/trade-room/purchase-1?action=confirm-usdt-received#action-required");
+    expect(buildTradeRoomDestination(request, "buyer-1")).toBe("/trade-room/purchase-1?action=open-trade#status-banner");
   });
 
   it("preserves cardless USDT confirmation and bank release before completion is available", () => {

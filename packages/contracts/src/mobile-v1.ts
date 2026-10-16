@@ -925,6 +925,7 @@ export type MobileTradeTimelineEvent =
   | "price_offer_accepted"
   | "payment_sent"
   | "seller_confirmed_funds"
+  | "buyer_confirmed_funds"
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"

@@ -914,8 +914,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               ) : null}
               <GoldButton
                 disabled={actionsDisabled || (isCardlessAtm && !cardlessDetails.ok)}
-                loading={busyAction === "payment_sent"}
-                onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("payment_sent", t("cashHandoverConfirmation"))}
+                loading={busyAction === (isCardlessAtm ? "payment_sent" : "funds_received")}
+                onPress={isCardlessAtm ? confirmCardlessCode : () => confirmStatus("funds_received", t("cashHandoverConfirmation"))}
               >
                 {isCardlessAtm ? t("sendAndConfirmWithdrawalCode") : t("handedOverCash")}
               </GoldButton>

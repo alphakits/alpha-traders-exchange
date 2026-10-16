@@ -16,15 +16,17 @@ export type TradeRoomActionTarget =
   | "review-trade"
   | "open-trade";
 
-function isSellerActor(request: PurchaseRequest, actorUserId: string) {
+type TradeActionRequest = Pick<PurchaseRequest, "id" | "sellerId" | "buyerId"> & { status: string; paymentMethod?: string };
+
+function isSellerActor(request: TradeActionRequest, actorUserId: string) {
   return request.sellerId === actorUserId;
 }
 
-function isBuyerActor(request: PurchaseRequest, actorUserId: string) {
+function isBuyerActor(request: TradeActionRequest, actorUserId: string) {
   return request.buyerId === actorUserId;
 }
 
-function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: string): TradeRoomActionTarget {
+function resolveTradeRoomActionTarget(request: TradeActionRequest, actorUserId: string): TradeRoomActionTarget {
   if (request.status === "pending" && isSellerActor(request, actorUserId)) {
     return "accept-trade";
   }
@@ -43,9 +45,6 @@ function resolveTradeRoomActionTarget(request: PurchaseRequest, actorUserId: str
   if (request.status === "usdt_release_pending" && isSellerActor(request, actorUserId)) {
     return isCashTradePaymentMethod(request.paymentMethod) ? "confirm-usdt-sent" : "upload-seller-evidence";
   }
-  if (request.status === "usdt_sent" && isBuyerActor(request, actorUserId)) {
-    return "confirm-usdt-received";
-  }
   if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && (isBuyerActor(request, actorUserId) || isSellerActor(request, actorUserId))) {
     return "review-trade";
   }
@@ -59,7 +58,7 @@ function resolveTradeRoomHashForAction(action: TradeRoomActionTarget) {
   return "action-required";
 }
 
-export function buildTradeRoomDestination(request: PurchaseRequest, actorUserId: string) {
+export function buildTradeRoomDestination(request: TradeActionRequest, actorUserId: string) {
   const action = resolveTradeRoomActionTarget(request, actorUserId);
   const hash = resolveTradeRoomHashForAction(action);
   return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;

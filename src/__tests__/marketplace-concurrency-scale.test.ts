@@ -379,9 +379,10 @@ describe("marketplace concurrency at fifteen-seller scale", () => {
     const completions = await Promise.all(
       submissions.map((submission, index) => updatePurchaseRequestStatus({
         requestId: submission.request.id,
-        actorUserId: BUYER_IDS[index]!,
-        actorRole: "buyer",
+        actorUserId: SELLER_IDS[index]!,
+        actorRole: "approved_seller",
         nextStatus: "completed",
+        completionMode: "seller",
       })),
     );
     expect(completions.every((result) => result.request.status === "review_open")).toBe(true);

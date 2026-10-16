@@ -1160,6 +1160,9 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.sellerEvidence?.fileName).toBe("seller-release-evidence.png");
 
   response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "completed" } });
+  expect(response.ok()).toBe(false);
+  expect(await response.json()).toMatchObject({ code: "seller-completion-required" });
+  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { action: "complete_trade" } });
   expect(response.ok()).toBeTruthy();
   firstTrade = await readPurchaseFromPatchResponse(response);
   expect(firstTrade.status).toBe("review_open");

@@ -108,6 +108,7 @@ jobs:
           path: |
             test-results/**/offer-boundary-*.png
             test-results/**/connection-*.png
+            test-results/**/seller-only-*.png
           if-no-files-found: error
           retention-days: 7
 

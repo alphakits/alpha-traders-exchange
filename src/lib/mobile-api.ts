@@ -141,8 +141,8 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     en: "Complete feedback for your previous trade before starting a new one.",
   },
   AWAITING_BUYER_CONFIRMATION: {
-    ar: "أكد استلام USDT في صفقتك السابقة قبل بدء صفقة جديدة.",
-    en: "Confirm receipt of USDT in your previous trade before starting a new one.",
+    ar: "صفقتك السابقة بانتظار إكمال البائع. افتح غرفة الصفقة للتواصل معه قبل بدء صفقة جديدة.",
+    en: "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting a new one.",
   },
   COMMISSION_DUE: {
     ar: "لديك عمولة معلقة. قم بتسويتها قبل قبول صفقة جديدة.",

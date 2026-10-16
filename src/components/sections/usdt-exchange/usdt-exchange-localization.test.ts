@@ -82,8 +82,7 @@ describe("USDT exchange localized mobile copy", () => {
     expect(sellerWorkspace).toContain("Open the trade for your next step.");
 
     const exchangePage = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
-    expect(exchangePage).toContain('cashTrade ? "confirm-usdt-sent" : "release-usdt"');
-    expect(exchangePage).toContain('cashTrade && isSellerActor) action = "complete-cash-trade"');
+    expect(exchangePage).toContain('return buildTradeRoomDestination(request, sessionUser.id)');
     expect(exchangePage).toContain('!isCashTradePaymentMethod(request.paymentMethod)');
   });
 

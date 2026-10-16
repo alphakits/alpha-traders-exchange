@@ -41,7 +41,6 @@ import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPre
 import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
-  BUYER_CONFIRMATION_TIMEOUT_MINUTES,
   COMMISSION_GRACE_PERIOD_DAYS,
   COMMISSION_RATE,
   DEFAULT_LISTING_EXPIRATION_HOURS,
@@ -549,8 +548,7 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
         : "Wait for seller USDT release";
   }
   if (request.status === "usdt_sent") {
-    if (cashTrade) return recipientIsSeller ? "Complete the cash trade" : "Confirm USDT received";
-    return recipientIsSeller ? "Complete the trade" : "Confirm trade completed";
+    return recipientIsSeller ? "Complete the trade" : "Wait for seller completion";
   }
   if (request.status === "review_open" || request.status === "completed") {
     return "Leave your trade review";
@@ -2545,6 +2543,7 @@ const VALID_TRADE_TIMELINE_TYPES = {
   price_offer_accepted: true,
   payment_sent: true,
   seller_confirmed_funds: true,
+  buyer_confirmed_funds: true,
   usdt_release_started: true,
   usdt_sent: true,
   trade_completed: true,
@@ -3713,7 +3712,7 @@ function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderP
   }
 
   if (request.status === "funds_received") {
-    const actionStartedAt = stageTimestamp(request.fundsReceivedAt, ["seller_confirmed_funds"]);
+    const actionStartedAt = stageTimestamp(request.fundsReceivedAt, ["seller_confirmed_funds", "buyer_confirmed_funds"]);
     if (!actionStartedAt) return null;
     return {
       stage: request.status,
@@ -5667,38 +5666,8 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     });
   }
 
-  const buyerConfirmationTimeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
-  const buyerConfirmationTimeoutRequestIds: string[] = [];
-  for (const request of db.purchaseRequests) {
-    if (request.status !== "usdt_sent") continue;
-    // Cash trades never wait for buyer receipt. Only the seller may run their
-    // explicit completion action, so the legacy Bank Transfer timeout must
-    // never auto-complete Face-to-Face or Cardless ATM trades.
-    if (isCashTradePaymentMethod(request.paymentMethod)) continue;
-    if (request.completedAt) continue;
-    if (!request.usdtSentAt) continue;
-    const usdtSentMs = new Date(request.usdtSentAt).getTime();
-    if (!usdtSentMs || Number.isNaN(usdtSentMs) || usdtSentMs + buyerConfirmationTimeoutMs > nowMs) continue;
-    buyerConfirmationTimeoutRequestIds.push(request.id);
-  }
-
-  for (const requestId of buyerConfirmationTimeoutRequestIds) {
-    const completion = await updatePurchaseRequestStatus({
-      requestId,
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      actorRole: "admin",
-      nextStatus: "completed",
-    });
-    // HTTP-triggered completions schedule this write with Next.js after().
-    // Maintenance has no response lifecycle, so it must persist the same
-    // recalculated seller trust, activity, and profile state itself.
-    await completion.deferredTrustWrite?.();
-  }
-  if (buyerConfirmationTimeoutRequestIds.length > 0) {
-    const refreshed = await readDb({ bypassCache: true });
-    Object.assign(db, refreshed);
-    changed = true;
-  }
+  // Completion requires the seller's explicit action or a verified owner
+  // override. Elapsed time must not settle inventory or commission.
 
   for (const listing of db.marketplaceListings) {
     // A listing's single pointer is only a representative of its active
@@ -10567,7 +10536,7 @@ export async function createPurchaseRequest(input: {
   if (pendingConfirmationTrade) {
     throw new TradeBlockedError(
       "AWAITING_BUYER_CONFIRMATION",
-      "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
+      "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting another purchase.",
       pendingConfirmationTrade.id,
     );
   }
@@ -11005,7 +10974,7 @@ export async function createPurchaseRequest(input: {
       if (awaitingConfirmation) {
         throw new TradeBlockedError(
           "AWAITING_BUYER_CONFIRMATION",
-          "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
+          "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting another purchase.",
           awaitingConfirmation.id,
           { guard: "single-active-buyer-trade-at-commit" },
         );
@@ -11103,29 +11072,7 @@ export async function createPurchaseRequest(input: {
 }
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
-  let db = dbInput ?? await readDbForPurchaseRequestActor(userId, role);
-  if (!dbInput) {
-    const nowMs = Date.now();
-    const timeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
-    const dueBankTransferCompletions = db.purchaseRequests.filter((request) => {
-      if (request.status !== "usdt_sent" || request.completedAt || !request.usdtSentAt) return false;
-      if (isCashTradePaymentMethod(request.paymentMethod)) return false;
-      const sentAtMs = new Date(request.usdtSentAt).getTime();
-      return Number.isFinite(sentAtMs) && sentAtMs > 0 && sentAtMs + timeoutMs <= nowMs;
-    });
-    for (const request of dueBankTransferCompletions) {
-      const completion = await updatePurchaseRequestStatus({
-        requestId: request.id,
-        actorUserId: SYSTEM_ACTOR_USER_ID,
-        actorRole: "admin",
-        nextStatus: "completed",
-      });
-      await completion.deferredTrustWrite?.();
-    }
-    if (dueBankTransferCompletions.length > 0) {
-      db = await readDbForPurchaseRequestActor(userId, role);
-    }
-  }
+  const db = dbInput ?? await readDbForPurchaseRequestActor(userId, role);
   if (role === "admin" || role === "owner") {
     return db.purchaseRequests.map((request) =>
       sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request, userId), userId, role));
@@ -12962,7 +12909,7 @@ async function uploadTradeEvidenceAttempt(
       userId: request.buyerId,
       category: "trade",
       title: "Seller marked USDT sent",
-      message: "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.",
+      message: "Seller marked USDT as sent and will complete the trade. Check your receiving wallet.",
       relatedTradeId: nextRequest.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -13821,6 +13768,13 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
 
+  // Completion belongs to the trade seller (or the verified, reasoned owner
+  // override). Enforce this before idempotent/terminal shortcuts as old clients
+  // can still submit a bare { status: "completed" } after USDT is sent.
+  if (input.nextStatus === "completed" && !isSeller && !isAdminCompletion) {
+    throw new TradeBlockedError("seller-completion-required", "Only this trade's seller can confirm completion.", request.id);
+  }
+
   if (isSeller && !["accepted", "declined", "cancelled", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus) && !isCompletionOverride) {
     throw new TradeBlockedError("seller-transition-not-allowed", "Seller can only set accepted, declined, cancelled, funds_received, usdt_release_pending, or usdt_sent.", request.id, {
       guard: "seller-next-status-allowlist",
@@ -13829,8 +13783,9 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   if (isBuyer && input.nextStatus === "cancelled" && hasRevealedBankDetails(request)) throw new TradeBlockedError("buyer-cancellation-locked", "Bank details have been revealed. Only the seller can cancel while the trade is unpaid.", request.id);
-  if (isBuyer && !acceptingCounter && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
-    throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can only set cancelled, payment_sent, or completed.", request.id, {
+  const isBuyerFaceToFaceCashConfirmation = isBuyer && isFaceToFaceTrade && input.nextStatus === "funds_received";
+  if (isBuyer && !isAdminCompletion && !acceptingCounter && !isBuyerFaceToFaceCashConfirmation && !["cancelled", "payment_sent"].includes(input.nextStatus)) {
+    throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can cancel before payment, confirm payment sent, or confirm cash received for a face-to-face trade.", request.id, {
       guard: "buyer-next-status-allowlist",
       nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
@@ -13950,7 +13905,7 @@ async function updatePurchaseRequestStatusAttempt(
     : [];
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
-    accepted: isFaceToFaceTrade && isSeller ? ["payment_sent", "funds_received", "cancelled"] : ["payment_sent", "cancelled"],
+    accepted: isFaceToFaceTrade && (isSeller || isBuyer) ? ["payment_sent", "funds_received", "cancelled"] : ["payment_sent", "cancelled"],
     payment_sent: ["funds_received"],
     funds_received: ["usdt_release_pending"],
     usdt_release_pending: ["usdt_sent"],
@@ -13984,7 +13939,7 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   if (input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
-    throw new TradeBlockedError("confirmation-prerequisite-missing", "Buyer confirmation requires seller release (status usdt_sent) before completion.", request.id, {
+    throw new TradeBlockedError("confirmation-prerequisite-missing", "Seller release (status usdt_sent) is required before completion.", request.id, {
       guard: "completed-requires-usdt-sent",
       currentStatus,
       expectedStatus: "usdt_sent",
@@ -14422,29 +14377,33 @@ async function updatePurchaseRequestStatusAttempt(
       db.tradeMessages = (db.tradeMessages ?? []).map((message) => message.purchaseRequestId === request.id ? redactCredential(message) : message);
     }
     appendTradeTimelineEntry(next, {
-      type: "seller_confirmed_funds",
+      type: isBuyer ? "buyer_confirmed_funds" : "seller_confirmed_funds",
       actorUserId: input.actorUserId,
       actorRole,
       message: isAtmTrade
         ? "Seller confirmed ATM cash collected"
         : isFaceToFaceTrade
-          ? "Seller confirmed cash received"
+          ? isBuyer ? "Buyer confirmed the seller received the cash" : "Seller confirmed cash received"
           : "Seller confirmed funds received",
       createdAt: now,
     });
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: isCashTrade
+      message: isBuyer
+        ? "Buyer confirmed the seller received the cash. The buyer wallet is now revealed. The seller must send the full USDT amount and complete the trade."
+        : isCashTrade
         ? "Seller confirmed receiving the cash. The buyer wallet is now revealed to the seller, who should send USDT and confirm it was sent. No photo is required."
         : "Seller confirmed the funds were received. USDT release is now unlocked.",
       createdAt: now,
     });
     pushNotification(db, {
-      userId: request.buyerId,
+      userId: isBuyer ? request.sellerId : request.buyerId,
       category: "trade",
-      title: isAtmTrade ? "Seller confirmed cash collected" : "Seller confirmed funds received",
-      message: isBankTransferTrade
+      title: isBuyer ? "Buyer confirmed cash received" : isAtmTrade ? "Seller confirmed cash collected" : "Seller confirmed funds received",
+      message: isBuyer
+        ? "Buyer confirmed handing the full cash total to you. Verify the cash, send USDT to the revealed wallet, then complete the trade."
+        : isBankTransferTrade
         ? "Seller verified the bank transfer and confirmed funds received."
         : isAtmTrade
           ? "Seller confirmed cash was collected from the cardless ATM. Your wallet is now visible to the seller for the USDT transfer."
@@ -14454,7 +14413,8 @@ async function updatePurchaseRequestStatusAttempt(
       relatedHref: requestDetailsHref(request.id),
       whatsappEvent: "trade_update",
     });
-    queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
+    const cashConfirmationRecipient = isBuyer ? request.sellerId : request.buyerId;
+    queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:${isBuyer ? "seller" : "buyer"}:${cashConfirmationRecipient}`, recipientUserId: cashConfirmationRecipient, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "usdt_release_pending") {
     if (isCashTrade) {
       throw new TradeBlockedError("cash-release-stage-not-allowed", "Cash trades move directly from funds confirmation to USDT sent.", request.id, {
@@ -14507,7 +14467,7 @@ async function updatePurchaseRequestStatusAttempt(
       title: "Seller marked USDT sent",
       message: isCashTrade
         ? "The seller marked USDT as sent and will complete the cash trade. Check your receiving wallet."
-        : "Seller marked USDT as sent and can complete the trade. Check your receiving wallet; you may also confirm receipt.",
+        : "Seller marked USDT as sent and will complete the trade. Check your receiving wallet.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -14550,7 +14510,7 @@ async function updatePurchaseRequestStatusAttempt(
       next.usdtSentAt = now;
       appendTradeTimelineEntry(next, { type: "usdt_sent", actorUserId: input.actorUserId, actorRole, message: "Seller marked USDT sent", createdAt: now });
     }
-    const completionActorLabel = isAdminCompletion ? "Admin" : isSeller ? "Seller" : "Buyer";
+    const completionActorLabel = isAdminCompletion ? "Admin" : "Seller";
     const cashTradeLabel = isAtmTrade ? "Cardless ATM" : "Face-to-Face";
     const cashExchangeLabel = isAtmTrade ? "cash and USDT exchange" : "in-person exchange";
     const completionTitle = isAdminCompletion ? "Trade completed by admin" : isCashTradeCompletion ? `${cashTradeLabel} trade completed` : "Trade completed";
@@ -14558,7 +14518,7 @@ async function updatePurchaseRequestStatusAttempt(
       ? "Admin force-completed this trade."
       : isCashTradeCompletion
       ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete.`
-      : isSellerCompletion ? "Seller confirmed trade completed" : "Buyer confirmed trade completed";
+      : "Seller confirmed trade completed";
     next.completedAt = now;
     appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: completionMessage, createdAt: now });
     next.lockedAt = now;
@@ -14573,9 +14533,7 @@ async function updatePurchaseRequestStatusAttempt(
         ? "Admin confirmed this trade as completed. The trade has moved to history and review, and the seller commission is due."
         : isCashTradeCompletion
         ? `${completionActorLabel} marked the ${cashTradeLabel} trade complete. The trade has moved to history and review, and the seller commission is due.`
-        : isSellerCompletion
-          ? "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due."
-          : "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
+        : "Seller confirmed USDT delivery and completed the trade. The trade has moved to history and review, and the seller commission is due.",
       createdAt: now,
     });
 
@@ -14736,9 +14694,7 @@ async function updatePurchaseRequestStatusAttempt(
         ? "An admin confirmed this trade as complete. Check your commission due."
         : isCashTradeCompletion
         ? `${completionActorLabel} marked the ${cashExchangeLabel} complete. The trade is in review; check your commission due.`
-        : isSellerCompletion
-          ? "You completed the trade. Check your commission due."
-          : `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
+        : "You completed the trade. Check your commission due.",
       relatedTradeId: next.tradeId,
       relatedRequestId: request.id,
       relatedListingId: request.listingId,

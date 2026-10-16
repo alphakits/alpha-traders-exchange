@@ -131,8 +131,8 @@ function tradeEmailContent(
         ...common,
         title,
         message: {
-          ar: "وافق البائع على صفقة اللقاء الشخصي. أكد تسليم النقد؛ لا يلزم رفع صورة. بعد تأكيد البائع استلامه تظهر له محفظتك ليرسل كامل USDT ويكمل الصفقة دون انتظار تأكيد آخر منك.",
-          en: "The seller accepted the Face-to-Face trade. Confirm handing over the cash; no photo is required. Once the seller confirms receipt, your wallet is revealed so the seller can send all USDT and complete the trade without another buyer confirmation.",
+          ar: "وافق البائع على صفقة اللقاء الشخصي. أكد تسليم النقد؛ لا يلزم رفع صورة. بعد تأكيد أي طرف استلام البائع للنقد تظهر له محفظتك ليرسل كامل USDT ويكمل الصفقة دون انتظار تأكيد آخر منك.",
+          en: "The seller accepted the Face-to-Face trade. Confirm handing over the cash; no photo is required. Once either participant confirms the seller received the cash, your wallet is revealed so the seller can send all USDT and complete the trade without another buyer confirmation.",
         },
       };
     }
@@ -214,6 +214,12 @@ function tradeEmailContent(
     };
   }
   if (event === "seller_funds_received") {
+    if (isFaceToFacePaymentMethod(request.paymentMethod) && request.timeline?.some((entry) => entry.type === "buyer_confirmed_funds")) {
+      return { ...common,
+        title: { ar: "أكد المشتري استلام البائع للنقد", en: "Buyer Confirmed Cash Receipt" },
+        message: { ar: "أكد المشتري تسليم كامل النقد للبائع. تحقق من النقد، ثم أرسل USDT إلى المحفظة الظاهرة وأكمل الصفقة.", en: "The buyer confirmed handing the full cash total to the seller. Verify the cash, send USDT to the revealed wallet, then complete the trade." },
+      };
+    }
     const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
     const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
     return {
@@ -296,6 +302,7 @@ export async function prepareTradeEventEmails(input: {
     || (input.event === "seller_usdt_released" && isCashTradePaymentMethod(input.request.paymentMethod))
     ? [input.request.buyerId, input.request.sellerId]
     : input.event === "new_buy_request" || input.event === "buyer_payment_sent"
+      || (input.event === "seller_funds_received" && isFaceToFacePaymentMethod(input.request.paymentMethod) && input.request.timeline?.some((entry) => entry.type === "buyer_confirmed_funds"))
       ? [input.request.sellerId]
       : [input.request.buyerId];
   const recipients = [buyer, seller].filter(

@@ -115,13 +115,13 @@ describe("toMobileNotification destinations", () => {
     });
   });
 
-  it("marks legacy cash completion as a seller action, never a buyer action", () => {
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("marks %s completion as a seller action, never a buyer action", (paymentMethod) => {
     const snapshot = {
       requestId: "request-cash",
       currentStage: "usdt_sent",
       buyerId: "buyer-1",
       sellerId: "seller-1",
-      paymentMethod: "Cardless ATM Withdrawal",
+      paymentMethod,
       counterpartyName: "Counterparty",
       usdtAmount: "100",
       fiatAmount: "350",

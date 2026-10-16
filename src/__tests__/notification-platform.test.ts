@@ -28,7 +28,7 @@ describe("notification platform", () => {
     ["trade_accepted", "وافق البائع على صفقتك.", "Seller accepted your trade."],
     ["payment_sent", "تم تحديد الدفع كمُرسل. تحقّق من استلام الأموال.", "Payment marked sent. Verify funds."],
     ["funds_received", "تم تأكيد استلام الأموال.", "Funds confirmed received."],
-    ["usdt_sent", "تم إرسال USDT. أكّد الاستلام.", "USDT sent. Confirm receipt."],
+    ["usdt_sent", "تم إرسال USDT. تحقّق من محفظتك؛ سيُكمل البائع الصفقة.", "USDT sent. Check your wallet; the seller will complete the trade."],
     ["trade_completed", "اكتملت الصفقة.", "Trade completed."],
   ] as const)("renders %s SMS in Arabic first and English second", (event, arabic, english) => {
     const destination = "https://alphatraders.co.il/trade-room/123";

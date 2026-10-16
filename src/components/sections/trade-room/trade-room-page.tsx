@@ -335,7 +335,7 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
-  if (isCashTrade && request.status === "accepted" && isBuyer) {
+  if (isCashTrade && isBuyer && (request.status === "accepted" || (!isAtm && request.status === "payment_sent"))) {
     return {
       label: isAtm
         ? (isAr ? "إرسال بيانات السحب وتأكيدها" : "Send & Confirm Withdrawal Details")
@@ -344,14 +344,14 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
         ? (isAr ? "تم إرسال بيانات السحب" : "Withdrawal Details Sent")
         : (isAr ? "تم تأكيد تسليم النقد" : "Cash Handover Confirmed"),
       mode: "status",
-      nextStatus: "payment_sent",
+      nextStatus: isAtm ? "payment_sent" : "funds_received",
       confirmationMessage: isAtm
         ? (isAr
             ? "هل راجعت رمز السحب ورقم الهوية أو تاريخ الميلاد؟ سيتم إرسال البيانات للبائع الآن. بعد الإرسال لا يمكن الإلغاء العادي."
             : "Have you checked the withdrawal code and ID number or date of birth? Both details will be sent to the seller now. Normal cancellation is locked after submission.")
         : (isAr
-            ? "أكد فقط بعد تسليم النقد المتفق عليه للبائع وجهًا لوجه. لا يلزم رفع صورة. بعد التأكيد لا يمكن إلغاء الصفقة العادية."
-            : "Confirm only after handing the agreed cash to the seller in person. No photo is required. Normal cancellation is locked after confirmation."),
+            ? "أكد فقط بعد استلام البائع كامل النقد المتفق عليه. ستظهر محفظتك لإرسال USDT. بعد التأكيد يُمنع الإلغاء العادي."
+            : "Confirm only after the seller has received the full agreed cash. Your wallet will become visible for USDT delivery. Normal cancellation is locked after confirmation."),
     };
   }
 
@@ -402,14 +402,6 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
     };
   }
 
-  if (isCashTrade && isBuyer && request.status === "usdt_sent") {
-    return {
-      label: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
-      successLabel: isAr ? "تم تأكيد الاستلام" : "Receipt Confirmed",
-      mode: "status", nextStatus: "completed",
-      confirmationMessage: isAr ? "أكد فقط بعد وصول كامل مبلغ USDT إلى محفظتك على الشبكة الصحيحة." : "Confirm only after the full USDT amount arrives in your wallet on the correct network.",
-    };
-  }
   // Cash trades never use evidence uploaders.
   if (isCashTrade) return null;
 
@@ -461,14 +453,6 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       mode: "status",
       nextStatus: "usdt_sent",
       requiresEvidenceSide: sellerEvidenceRequired ? "seller" : undefined,
-    };
-  }
-  if (request.status === "usdt_sent" && isBuyer) {
-    return {
-      label: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
-      successLabel: isAr ? "تم تأكيد استلام USDT" : "USDT Receipt Confirmed",
-      mode: "status",
-      nextStatus: "completed",
     };
   }
   return null;
@@ -623,7 +607,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "⏳",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "بانتظار البائع لإرسال USDT" : "Waiting for Seller to Send USDT",
-          detail: isAr ? "أكد البائع استلام النقد وظهر له عنوان محفظتك. سيرسل USDT ثم يؤكد الإرسال." : "The seller confirmed the cash and can now see your wallet. The seller will send USDT and confirm it was sent.",
+          detail: isAr ? "تم تأكيد استلام النقد وظهر عنوان محفظتك للبائع. سيرسل USDT ثم يؤكد الإرسال." : "Cash receipt is confirmed and your wallet is visible to the seller. The seller will send USDT and confirm it was sent.",
           yourAction: isAr ? "تحقق من محفظتك" : "Watch your wallet",
           counterpartyAction: isAr ? "البائع يرسل USDT ثم يؤكد" : "Seller sends USDT, then confirms",
           tradeStatus: currentStatus,
@@ -644,8 +628,8 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "⏳",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "أكد البائع إرسال USDT" : "Seller Confirmed USDT Sent",
-          detail: isAr ? "تحقق من محفظتك. يمكنك تأكيد الاستلام الآن، أو يستطيع البائع إكمال الصفقة دون انتظارك." : "Check your wallet. You can confirm receipt now, or the seller can complete the trade independently.",
-          yourAction: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
+          detail: isAr ? "تحقق من محفظتك. يكمل البائع الصفقة بعد إرسال كامل USDT. تواصل عبر غرفة الصفقة إذا كانت هناك مشكلة." : "Check your wallet. The seller completes the trade after sending the full USDT amount. Use the trade chat if there is a problem.",
+          yourAction: isAr ? "بانتظار إكمال البائع" : "Waiting for seller completion",
           counterpartyAction: isAr ? "البائع يكمل الصفقة" : "Seller completes the trade",
           tradeStatus: currentStatus,
         };
@@ -861,9 +845,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
           detail: isAr ? "تم تأكيد إرسال USDT. أكمل الصفقة الآن؛ لا تنتظر المشتري." : "USDT sent is confirmed. Complete the trade now; do not wait for the buyer.",
         }
       : {
-          isYourTurn: true,
-          title: isAr ? "دورك الآن" : "YOUR TURN",
-          detail: isAr ? "تحقق من محفظتك ثم أكد استلام USDT." : "Check your wallet, then confirm USDT received.",
+          isYourTurn: false,
+          title: isAr ? "بانتظار البائع" : "WAITING FOR SELLER",
+          detail: isAr ? "تحقق من محفظتك. سيُكمل البائع الصفقة؛ تواصل معه في المحادثة إذا ظهرت مشكلة." : "Check your wallet. The seller will complete the trade; use chat if there is a problem.",
         };
   }
 
@@ -923,17 +907,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
         };
   }
 
-  return isSeller
-    ? {
-        isYourTurn: false,
-        title: isAr ? "بانتظار المشتري" : "WAITING FOR BUYER",
-        detail: isAr ? "المشتري يؤكد استلام USDT." : "Buyer needs to confirm USDT receipt.",
-      }
-    : {
-        isYourTurn: true,
-        title: isAr ? "دورك الآن" : "YOUR TURN",
-        detail: isAr ? "تحقق من وصول USDT ثم أكد الاستلام." : "Verify USDT arrived and confirm receipt.",
-      };
+  return { isYourTurn: false, title: isAr ? "حالة الصفقة" : "TRADE STATUS",
+    detail: isAr ? "راجع حالة الصفقة الحالية وتواصل عبر المحادثة إذا احتجت للمساعدة." : "Check the current trade status and use chat if you need help." };
+
 }
 
 function timelineStepForEvent(event: TradeTimelineEntry): StepId {
@@ -941,7 +917,7 @@ function timelineStepForEvent(event: TradeTimelineEntry): StepId {
   if (event.type === "request_accepted" || event.type === "price_offer_accepted") return "accepted";
   if (event.type === "payment_sent" || event.type === "buyer_evidence_uploaded") return "payment";
   if (event.type === "bank_details_revealed" || event.type === "trade_inactivity_warning_sent") return "payment";
-  if (event.type === "seller_confirmed_funds") return "verifying";
+  if (event.type === "seller_confirmed_funds" || event.type === "buyer_confirmed_funds") return "verifying";
   if (event.type === "usdt_release_started" || event.type === "usdt_sent" || event.type === "seller_evidence_uploaded") return "release";
   if (event.type === "trade_closed_manually") return "completed";
   return "completed";
@@ -955,6 +931,7 @@ function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
       request_accepted: "وافق البائع على الطلب",
       price_offer_accepted: "وافق البائع على عرض السعر",
       payment_sent: "أكد المشتري إرسال الدفعة",
+      buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد",
       seller_confirmed_funds: "أكد البائع استلام الدفعة",
       usdt_release_started: "بدأ البائع إرسال USDT",
       usdt_sent: "أكد البائع إرسال USDT",
@@ -1123,7 +1100,7 @@ function buildOptimisticRoom(
     funds_received: { type: "seller_confirmed_funds", message: "Seller confirmed funds received" },
     usdt_release_pending: { type: "usdt_release_started", message: "Seller started USDT release" },
     usdt_sent: { type: "usdt_sent", message: "Seller marked USDT sent" },
-    completed: { type: "buyer_confirmed_receipt", message: "Buyer confirmed USDT receipt" },
+    completed: { type: "trade_completed", message: "Seller confirmed trade completed" },
   };
   const cashTrade = isCashTradePaymentMethod(room.request.paymentMethod);
   const cardlessAtm = isCardlessAtmPaymentMethod(room.request.paymentMethod);
@@ -1134,7 +1111,9 @@ function buildOptimisticRoom(
     : cashTrade && nextStatus === "payment_sent"
       ? { type: "payment_sent" as const, message: cardlessAtm ? "Buyer confirmed the cardless withdrawal code was sent" : "Buyer confirmed the cash was handed to the seller" }
       : cashTrade && nextStatus === "funds_received"
-        ? { type: "seller_confirmed_funds" as const, message: cardlessAtm ? "Seller confirmed ATM cash collected" : "Seller confirmed cash received" }
+        ? actor.id === room.request.buyerId
+          ? { type: "buyer_confirmed_funds" as const, message: "Buyer confirmed the seller received the cash" }
+          : { type: "seller_confirmed_funds" as const, message: cardlessAtm ? "Seller confirmed ATM cash collected" : "Seller confirmed cash received" }
         : timelineByStatus[nextStatus];
   nextRequest.timeline.push({
     id: `optimistic-${nextStatus}-${now.getTime()}`,
@@ -3104,9 +3083,7 @@ function TradeRoomPageSession({
                       : "Your trade has been fully completed and recorded."}
                   </p>
                   <p>
-                    {currencyText(isFaceToFaceTrade
-                      ? (isAr ? "شكرًا لتأكيد اكتمال التبادل وجهًا لوجه." : "Thank you for confirming that the in-person exchange was completed.")
-                      : (isAr ? "شكرًا لتأكيد استلام USDT." : "Thank you for confirming that you received your USDT."))}
+                    {currencyText(isAr ? "أكد البائع إكمال الصفقة. يمكنك الآن إرسال تقييمك." : "The seller confirmed completion. You can now submit your review.")}
                   </p>
                   <p>
                     {isAr
@@ -3738,8 +3715,8 @@ function TradeRoomPageSession({
                             ? "يجب إكمال الصفقة قبل انتهاء المؤقت. قد يؤثر التأخير المتكرر أو عدم إرسال الأموال في سمعتك كبائع وعروضك المستقبلية، وقد يؤدي إلى مراجعة إدارية."
                             : "You must complete this trade before the timer expires. Repeated delays or failure to deliver funds may affect your seller reputation, future listings, and may result in administrative review.")
                         : (isAr
-                            ? "يجب تأكيد الاستلام قبل انتهاء المؤقت واتباع قواعد المنصة. قد يؤثر التأخير المتكرر أو التأكيد غير الصحيح في حالة حسابك ويؤدي إلى مراجعة إدارية."
-                            : "You must confirm receipt before the timer expires and follow platform rules. Repeated delays or inaccurate confirmations may affect your account standing and can trigger administrative review.")}
+                            ? "تحقق من محفظتك. يجب على البائع تأكيد إرسال USDT وإكمال الصفقة. إذا ظهرت مشكلة، تواصل معه أو افتح نزاعًا."
+                            : "Check your wallet. The seller must confirm USDT delivery and complete the trade. If there is a problem, contact the seller or open a dispute.")}
                     </p>
                   ) : null}
                 </div>
@@ -3988,7 +3965,7 @@ function TradeRoomPageSession({
               <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
                 {isFaceToFaceTrade ? (
                   <>
-                    <p>{isAr ? "التقِ في مكان عام وآمن. يؤكد المشتري تسليم النقد، ثم يؤكد البائع استلامه قبل ظهور المحفظة." : "Meet in a safe public place. The buyer confirms handing over cash, then the seller confirms receipt before the wallet is revealed."}</p>
+                    <p>{isAr ? "التقِ في مكان عام وآمن. يمكن لأي طرف تأكيد استلام البائع كامل النقد لإظهار المحفظة. البائع وحده يُكمل الصفقة." : "Meet in a safe public place. Either participant can confirm that the seller received the full cash total. This reveals the wallet; only the seller can complete the trade."}</p>
                     <p>{currencyText(isAr ? "البائع وحده يكمل الصفقة بعد إرسال كامل USDT إلى عنوان المشتري الصحيح." : "Only the seller completes the trade, after sending the full USDT amount to the correct buyer wallet.")}</p>
                   </>
                 ) : isCardlessAtmTrade ? (

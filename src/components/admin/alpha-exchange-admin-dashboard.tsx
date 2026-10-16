@@ -486,6 +486,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: 
     if (!isArabic) return event.message;
     const labels: Record<PurchaseRequest["timeline"][number]["type"], string> = {
       request_submitted: "تم إرسال طلب الشراء", price_offer_submitted: "تم إرسال عرض السعر", request_accepted: "وافق البائع على الطلب", price_offer_accepted: "وافق البائع على عرض السعر", payment_sent: "أكد المشتري إرسال الدفعة",
+      buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد",
       seller_confirmed_funds: "أكد البائع استلام الدفعة", usdt_release_started: "بدأ البائع إرسال USDT", usdt_sent: "أكد البائع إرسال USDT",
       trade_completed: "اكتملت الصفقة بنجاح", trade_timed_out: "انتهت مهلة الصفقة", trade_locked: "تم إغلاق الصفقة",
       review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", dispute_resolved: "تم حل نزاع الصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",

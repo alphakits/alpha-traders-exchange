@@ -225,9 +225,10 @@ async function completeTrade(input: {
 
   const completion = await updatePurchaseRequestStatus({
     requestId: request.request.id,
-    actorUserId: input.buyerId,
-    actorRole: "buyer",
+    actorUserId: SELLER_ID,
+    actorRole: "approved_seller",
     nextStatus: "completed",
+    completionMode: "seller",
   });
   if (input.runDeferredTrustWrite && completion.deferredTrustWrite) {
     await completion.deferredTrustWrite();
@@ -382,9 +383,10 @@ describe("partial listing preservation", () => {
 
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
-      actorUserId: BUYER_ONE_ID,
-      actorRole: "buyer",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
       nextStatus: "completed",
+      completionMode: "seller",
     });
     await completion.deferredTrustWrite?.();
 
@@ -1023,9 +1025,10 @@ describe("partial listing preservation", () => {
 
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
-      actorUserId: BUYER_ONE_ID,
-      actorRole: "buyer",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
       nextStatus: "completed",
+      completionMode: "seller",
     });
     await completion.deferredTrustWrite?.();
     expect(Boolean(completion.request.completedAt)).toBe(true);
@@ -1064,7 +1067,7 @@ describe("partial listing preservation", () => {
     });
   });
 
-  it("auto-completes overdue buyer confirmation and blocks new purchases pending feedback", async () => {
+  it("keeps stale bank trades unsettled on read until the seller completes, then requires feedback", async () => {
     const lockedListing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -1125,12 +1128,19 @@ describe("partial listing preservation", () => {
     await getMyPurchaseRequests(BUYER_ONE_ID, "buyer");
 
     const snapshotAfter = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
-    const completed = snapshotAfter.purchaseRequests.find((entry) => entry.id === created.request.id);
+    const waiting = snapshotAfter.purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(waiting?.status).toBe("usdt_sent");
+    expect(waiting?.completedAt).toBeUndefined();
+    expect(snapshotAfter.commissionRecords.filter((entry) => entry.purchaseRequestId === created.request.id)).toHaveLength(0);
+    const completion = await updatePurchaseRequestStatus({ requestId: created.request.id, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    expect(completion.request.status).toBe("review_open");
+    const settled = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const completed = settled.purchaseRequests.find((entry) => entry.id === created.request.id);
     expect(completed?.status).toBe("review_open");
     expect(Boolean(completed?.completedAt)).toBe(true);
-    expect(snapshotAfter.commissionRecords.filter((entry) => entry.purchaseRequestId === created.request.id)).toHaveLength(1);
-    expect(snapshotAfter.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Trade completed")).toBe(true);
-    expect(snapshotAfter.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Review available")).toBe(true);
+    expect(settled.commissionRecords.filter((entry) => entry.purchaseRequestId === created.request.id)).toHaveLength(1);
+    expect(settled.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Trade completed")).toBe(true);
+    expect(settled.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Review available")).toBe(true);
 
     await expect(
       createPurchaseRequest({
@@ -1531,9 +1541,10 @@ describe("partial listing preservation", () => {
     expect(sellerEvidence.request.status).toBe("usdt_sent");
     await updatePurchaseRequestStatus({
       requestId: request.request.id,
-      actorUserId: BUYER_ONE_ID,
-      actorRole: "buyer",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
       nextStatus: "completed",
+      completionMode: "seller",
     });
 
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };

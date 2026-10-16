@@ -302,9 +302,10 @@ describe("full Exchange App Review rehearsal", () => {
 
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
-      actorUserId: BUYER_ID,
-      actorRole: "buyer",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
       nextStatus: "completed",
+      completionMode: "seller",
     });
     expect(completion.request.status).toBe("review_open");
     if (completion.deferredTrustWrite) await completion.deferredTrustWrite();

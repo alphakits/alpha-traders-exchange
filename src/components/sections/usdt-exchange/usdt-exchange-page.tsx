@@ -1,5 +1,7 @@
 "use client";
 
+import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+
 import { PAGE_SECTION_NAVIGATION_EVENT, navigateToPageSection, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
 import { LiveMarketCards } from "@/components/market/live-market-cards";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
@@ -302,6 +304,7 @@ export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolea
     request_accepted: "وافق البائع على طلب الصفقة.",
     price_offer_accepted: "وافق البائع على عرض السعر.",
     payment_sent: "أكد المشتري إرسال الدفعة.",
+    buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد.",
     seller_confirmed_funds: "أكد البائع استلام الدفعة.",
     usdt_release_started: "بدأت مرحلة إرسال USDT.",
     usdt_sent: "أكد البائع إرسال USDT.",
@@ -4027,47 +4030,13 @@ export function UsdtExchangePage({
   const resolveTradeRoomDestinationFromSnapshot = useCallback((notification: AlphaExchangeNotification) => {
     const snapshot = notification.tradeSnapshot;
     if (!snapshot?.requestId || !snapshot.currentStage || !sessionUser) return null;
-    const isSellerActor = snapshot.sellerId === sessionUser.id;
-    const isBuyerActor = snapshot.buyerId === sessionUser.id;
-    const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
-    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
-    if (snapshot.currentStage === "pending" && isSellerActor) action = "accept-trade";
-    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-    else if (snapshot.currentStage === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
-    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
-    else if (snapshot.currentStage === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
-    else if ((snapshot.currentStage === "review_open" || snapshot.currentStage === "completed" || snapshot.currentStage === "locked") && isBuyerActor) action = "review-trade";
-    if (action === "open-trade") return null;
-    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
-      ? "evidence"
-      : action === "review-trade"
-        ? "status-banner"
-        : "action-required";
-    return `/trade-room/${snapshot.requestId}?action=${encodeURIComponent(action)}#${hash}`;
+    return buildTradeRoomDestination({ id: snapshot.requestId, status: snapshot.currentStage,
+      sellerId: snapshot.sellerId, buyerId: snapshot.buyerId, paymentMethod: snapshot.paymentMethod }, sessionUser.id);
   }, [sessionUser]);
 
   const buildTradeRoomDestinationFromRequest = useCallback((request: PurchaseRequest) => {
     if (!sessionUser) return `/trade-room/${request.id}`;
-    const isSellerActor = request.sellerId === sessionUser.id;
-    const isBuyerActor = request.buyerId === sessionUser.id;
-    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
-    if (request.status === "pending" && isSellerActor) action = "accept-trade";
-    else if (request.status === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-    else if (request.status === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (request.status === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
-    else if (request.status === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-    else if (request.status === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
-    else if (request.status === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
-    else if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor) action = "review-trade";
-    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
-      ? "evidence"
-      : action === "review-trade" || action === "open-trade"
-        ? "status-banner"
-        : "action-required";
-    return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
+    return buildTradeRoomDestination(request, sessionUser.id);
   }, [sessionUser]);
 
   const resolveTradeRoomDestinationFromRequests = useCallback((notification: AlphaExchangeNotification) => {

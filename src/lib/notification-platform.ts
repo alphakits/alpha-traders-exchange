@@ -44,8 +44,8 @@ export function getSmsTemplate(event: SmsEventType, destination?: string): strin
       en: "Funds confirmed received.",
     },
     usdt_sent: {
-      ar: "تم إرسال USDT. أكّد الاستلام.",
-      en: "USDT sent. Confirm receipt.",
+      ar: "تم إرسال USDT. تحقّق من محفظتك؛ سيُكمل البائع الصفقة.",
+      en: "USDT sent. Check your wallet; the seller will complete the trade.",
     },
     trade_completed: {
       ar: "اكتملت الصفقة.",

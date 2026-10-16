@@ -134,6 +134,14 @@ beforeEach(() => {
 });
 
 describe("mobile trade detail route", () => {
+  it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("exposes no buyer completion action for %s", async (paymentMethod) => {
+    mocks.getTradeRoomData.mockResolvedValue(room({ paymentMethod, status: "usdt_sent" }));
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.trade.actions).toMatchObject({ canConfirmReceived: false, canCompleteTrade: false, canCompleteFaceToFace: false });
+  });
+
   it("accepts the explicit seller completion command on the native API", async () => {
     mocks.requireMobileApiUser.mockResolvedValue({ user: { id: "private-seller-id", role: "approved_seller" }, accessToken: "access", unauthorized: null });
     mocks.updatePurchaseRequestStatus.mockResolvedValue({ request: room({ status: "review_open" }).request, statusChanged: true });

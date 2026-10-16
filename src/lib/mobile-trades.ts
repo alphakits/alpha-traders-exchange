@@ -106,7 +106,7 @@ export function toMobileTradeActions(
       && !["pending", "declined", "cancelled"].includes(request.status),
     canMarkPaymentSent: isBuyer
       && isCashTrade
-      && request.status === "accepted",
+      && (request.status === "accepted" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "payment_sent")),
     canUploadPaymentEvidence: isBuyer
       && request.status === "accepted"
       && !isCashTrade,
@@ -122,8 +122,9 @@ export function toMobileTradeActions(
     canUploadReleaseEvidence: isSeller
       && request.status === "usdt_release_pending"
       && !isCashTrade,
-    canConfirmReceived: isBuyer
-      && request.status === "usdt_sent",
+    // Retain the wire field for installed clients; receipt confirmation must
+    // never grant buyers the seller's settlement action.
+    canConfirmReceived: false,
     canCompleteTrade: isSeller && isSellerTradeCompletionAvailable(request.paymentMethod, request.status),
     canCompleteFaceToFace: isSeller
       && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
