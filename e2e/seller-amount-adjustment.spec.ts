@@ -78,12 +78,14 @@ for (const method of methods) {
         await sellerPage.setViewportSize({ width: 390, height: 844 });
         await sellerPage.goto(path);
       }
+      await buyerPage.goto(path);
+      // Both participants keep the room open; proposals and accepted totals must sync without a reload.
       // First increase, then reduce: both directions share the two-turn limit.
       await adjust.click();
       await sellerPage.getByLabel(method === methods[2] ? "New withdrawal amount (ILS)" : "Correct USDT amount", {exact:true}).fill(method === methods[2] ? "3000" : "1500");
       await sellerPage.getByRole("button", {name:"Propose corrected amount", exact:true}).click();
       await expect(sellerPage.getByRole("button", {name:"Withdraw proposal", exact:true})).toBeVisible();
-      await buyerPage.goto(path);
+      await expect(buyerPage.getByRole("button", {name:"Accept these terms", exact:true})).toBeVisible({ timeout: 20_000 });
       await buyerPage.getByRole("button", {name:"Accept these terms", exact:true}).click();
       await expect(adjust).toBeEnabled();
       await expect(sellerPage.getByTestId("trade-adjustment-count")).toContainText("1 / 2");
@@ -96,9 +98,13 @@ for (const method of methods) {
       if (method === methods[1]) await sellerPage.screenshot({ path: info.outputPath("adjust-600-to-150.png") });
       await sellerPage.getByRole("button", { name: "Propose corrected amount", exact: true }).click();
       await expect(sellerPage.getByRole("button", { name: "Withdraw proposal", exact: true })).toBeVisible();
-      await test.step("Buyer opens the proposal", async () => { await buyerPage.goto(path, { waitUntil: "domcontentloaded" }); });
+      await expect(buyerPage.getByRole("button", { name: "Accept these terms", exact: true })).toBeVisible({ timeout: 20_000 });
       await buyerPage.getByRole("button", { name: "Accept these terms", exact: true }).click();
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount, { timeout: 20_000 });
+      await expect(buyerPage.getByTestId("trade-room-summary")).toContainText(newAmount);
+      const newTotal = method === methods[2] ? "500.00" : "484.80";
+      await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newTotal);
+      await expect(buyerPage.getByTestId("trade-room-summary")).toContainText(newTotal);
       await sellerPage.reload();
       await expect(sellerPage.getByTestId("trade-room-summary")).toContainText(newAmount);
       await expect(adjust).toBeDisabled();
@@ -145,7 +151,7 @@ for (const method of methods) {
       expect(repeat.ok(), await repeat.text()).toBeTruthy();
       const after = await readDb(request);
       expect(after.marketplaceListings.find((l: {id: string}) => l.id === f.listingId).availableAmount).toBe(method === methods[2] ? "1345.29703" : "1350");
-      expect(after.commissionRecords.filter((c: {purchaseRequestId: string}) => c.purchaseRequestId === f.id)).toEqual([expect.objectContaining({ commissionAmount: method === methods[2] ? 3.1 : 3 })]);
+      expect(after.commissionRecords.filter((c: {purchaseRequestId: string}) => c.purchaseRequestId === f.id)).toEqual([expect.objectContaining({ commissionAmount: method === methods[2] ? 3.1 : 3, sellerFeeAmount: method === methods[2] ? 1.55 : 1.5, buyerFeeCollectedAmount: method === methods[2] ? 1.55 : 1.5, grossAmount: method === methods[2] ? 500 : 484.8 })]);
       expect(errors).toEqual([]);
     } finally { await buyer.close(); await seller.close(); }
   });

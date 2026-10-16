@@ -806,6 +806,34 @@ describe("guided cash-trade completion", () => {
     expect(currentSnapshot().purchaseRequests[0]).toMatchObject({ usdtAmount: "415.202811", fiatAmount: "1300.00", status: "payment_sent" });
   });
 
+  it.each([
+    { offeredPrice: "3.09", original: "416.546509", counterPrice: "3.10", reserved: "4", accepted: true },
+    { offeredPrice: "3.09", original: "416.546509", counterPrice: "3.08", reserved: "3", accepted: false },
+  ])("checks the recalculated ATM quantity against newly reserved stock: $accepted", async ({ offeredPrice, original, counterPrice, reserved, accepted }) => {
+    const { request } = await bankCode420Request({ priceMode: "buyer_offer", offeredPrice, usdtAmount: original });
+    const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "counter_offer", value: counterPrice, expectedUpdatedAt: request.updatedAt });
+    currentSnapshot().purchaseRequests.push({ ...structuredClone(currentSnapshot().purchaseRequests[0]), id: "other-reservation", buyerId: OUTSIDER_ID, status: "accepted", usdtAmount: reserved, termsProposal: undefined, messages: [] });
+    invalidateAlphaExchangeStoreCache();
+    const command = { requestId: request.id, actorUserId: BUYER_ID, actorRole: "buyer" as const, nextStatus: "accepted" as const, acceptCounterOfferId: proposed.termsProposal!.id };
+    if (accepted) {
+      await expect(updatePurchaseRequestStatus(command)).resolves.toMatchObject({ request: { usdtAmount: "415.202811", fiatAmount: "1300.00", status: "payment_sent" } });
+    } else {
+      await expect(updatePurchaseRequestStatus(command)).rejects.toMatchObject({ code: "listing-amount-unavailable" });
+      expect(currentSnapshot().purchaseRequests.find(item => item.id === request.id)).toMatchObject({ usdtAmount: original, status: "pending", termsProposal: { status: "pending" } });
+    }
+    expect(currentSnapshot().commissionRecords).toHaveLength(0);
+  });
+
+  it("rejects a new request whose positive USDT amount rounds to a zero payment", async () => {
+    const { listingId } = seedTrade({ status: "pending" });
+    currentSnapshot().purchaseRequests = [];
+    currentSnapshot().marketplaceListings[0].minimumTrade = "0";
+    await expect(createPurchaseRequest({ listingId, buyerId: BUYER_ID, actorUserId: BUYER_ID, buyerName: "Buyer", usdtAmount: "0.000001",
+      paymentMethod: FACE_TO_FACE, safetyAcknowledged: true, feePolicyVersion: "buyer_seller_1pct_v1",
+      receivingNetwork: "BEP20", buyerReceivingWalletAddress: "0x7088a120cde7351dbf3e7831a9da3f74058c89a0" })).rejects.toThrow(/payment total/i);
+    expect(currentSnapshot().purchaseRequests).toHaveLength(0);
+  });
+
   it("adjusts a prepared ATM request before acceptance, replaces the old code and settles the new two-sided total", async () => {
     const { request } = await readyRequest({ feePolicyVersion: "buyer_seller_1pct_v1", usdtAmount: "618.811881", cardlessIlsAmount: "2000" });
     const proposed = await updateTradeTerms({ requestId: request.id, actorUserId: SELLER_ID, action: "propose_ils_amount", value: "500", expectedUpdatedAt: request.updatedAt });

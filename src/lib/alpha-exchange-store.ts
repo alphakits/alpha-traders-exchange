@@ -1,4 +1,4 @@
-import { calculateUsdtForPaymentTotal } from "@alpha-traders/contracts";
+import { calculateTradeTermsQuote } from "@alpha-traders/contracts";
 import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, type MarketplacePriceAlert } from "@/lib/marketplace-price-alert";
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
 import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
@@ -10454,32 +10454,20 @@ export async function updateTradeTerms(input: {
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod) && !request.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) throw new TradeBlockedError("trade-terms-invalid", "Read and accept the Face-to-Face safety guidelines first.", input.requestId);
       const raw = canonicalizeTradeAmount(input.value) || "";
       if (!(counter ? /^\d{1,7}(?:\.\d{1,2})?$/ : /^\d{1,9}(?:\.\d{1,6})?$/).test(raw) || Number(raw) <= 0) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid positive amount.", input.requestId);
-      let price = normalizeListingPrice(request.pricePerUsdt || request.listingPriceAtRequest || listing.price) || "";
-      let amount = request.usdtAmount;
-      let fiat = request.fiatAmount;
+      const lockedPrice = normalizeListingPrice(request.pricePerUsdt || request.listingPriceAtRequest || listing.price) || "";
       if (counter) {
         const bounds = getPriceOfferBounds(request.listingPriceAtRequest || listing.price);
         if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.listingPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
-        price = Number(raw).toFixed(2);
-        if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
-          amount = calculateCardlessUsdtAmount(fiat, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
-          if (!amount) throw new TradeBlockedError("trade-terms-invalid", "The withdrawal amount is invalid.", input.requestId);
-        } else fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
-      } else {
-        if (input.action === "propose_ils_amount" && request.currency !== "ILS") throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
-        amount = input.action === "propose_ils_amount" ? calculateUsdtForPaymentTotal(raw, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "" : raw;
-        if (!amount) throw new TradeBlockedError("trade-terms-invalid", "Enter a valid ILS total with at most two decimal places.", input.requestId);
-        fiat = calculateTradePaymentTotal(amount, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION) || "";
-        if (isCardlessAtmPaymentMethod(request.paymentMethod)) {
-          // Before a code/payment is shared, both participants can agree a new
-          // withdrawal total. The old cash amount must not pin this correction.
-          const cash = input.action === "propose_ils_amount" ? raw : fiat;
-          const canonical = calculateCardlessUsdtAmount(cash, price, request.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
-          if (!canonical || (input.action === "propose_amount" && Number(amount) !== Number(canonical))) throw new TradeBlockedError("trade-terms-invalid", "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code.", input.requestId);
-          amount = canonical;
-          fiat = Number(cash).toFixed(2);
-        }
+      } else if (input.action === "propose_ils_amount" && request.currency !== "ILS") {
+        throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
       }
+      const quote = calculateTradeTermsQuote({ ...request, pricePerUsdt: lockedPrice,
+        paymentMethod: normalizeMarketplacePaymentMethod(request.paymentMethod) || request.paymentMethod },
+      counter ? "counter_offer" : input.action === "propose_ils_amount" ? "propose_ils_amount" : "propose_amount", raw);
+      if (!quote) throw new TradeBlockedError("trade-terms-invalid", isCardlessAtmPaymentMethod(request.paymentMethod)
+        ? "ATM withdrawal must be 100–10,000 ILS in multiples of 100. Adjust the ILS withdrawal amount before sharing a new code."
+        : "Enter a valid amount with a positive payment total and at most two decimal places for ILS.", input.requestId);
+      const { usdtAmount: amount, fiatAmount: fiat, pricePerUsdt: price } = quote;
       if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
@@ -10757,7 +10745,7 @@ export async function createPurchaseRequest(input: {
   const canonicalCardlessBanks = requestedCardlessBanks;
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = calculateTradePaymentTotal(usdtAmount, pricePerUsdt, input.feePolicyVersion === MARKETPLACE_FEE_CUTOVER_VERSION);
-  if (!fiatAmount) throw new Error("Unable to calculate the trade total.");
+  if (!fiatAmount || Number(fiatAmount) <= 0) throw new Error("Trade amount must produce a payment total of at least 0.01 in the listing currency.");
   const preparedCardless = isCardlessAtmPaymentMethod(primaryPaymentMethod) ? parseCardlessWithdrawalDetails({
     withdrawalCode: input.cardlessWithdrawalCode,
     verificationKind: input.cardlessVerificationKind,
@@ -14058,7 +14046,7 @@ async function updatePurchaseRequestStatusAttempt(
         nextStatus: input.nextStatus,
       });
     }
-    assertSellerTradeCapacity(db, listing, request.usdtAmount, request.id);
+    assertSellerTradeCapacity(db, listing, next.usdtAmount, request.id);
     // Allow acceptance if: listing is active, OR listing is locked by this request (re-entry after crash),
     // OR listing is expired/paused but this request was already pending against it (expired after request was submitted).
     const listingIsOpenForAccept =
@@ -14198,7 +14186,7 @@ async function updatePurchaseRequestStatusAttempt(
       const payload = decryptCardlessCredential(preparedCredential.message, request.id, preparedCredential.id);
       let prepared: Record<string, unknown> = {};
       try { prepared = JSON.parse(payload ?? "{}"); } catch { /* fail closed below */ }
-      if (!parseCardlessWithdrawalDetails(prepared).ok || !validateCardlessIlsAmount(prepared.ilsAmount, request.fiatAmount)) {
+      if (!parseCardlessWithdrawalDetails(prepared).ok || !validateCardlessIlsAmount(prepared.ilsAmount, next.fiatAmount)) {
         throw new TradeBlockedError("CARDLESS_DETAILS_UNAVAILABLE", "The protected withdrawal details are unavailable. Ask the buyer to cancel this pending request and submit again.", request.id);
       }
       next.paymentSentAt = now;
@@ -14929,7 +14917,7 @@ async function updatePurchaseRequestStatusAttempt(
         }
 
         if (input.nextStatus === "accepted") {
-          if (canonicalListing) assertSellerTradeCapacity(canonicalSnapshot, canonicalListing, canonicalRequest.usdtAmount, canonicalRequest.id);
+          if (canonicalListing) assertSellerTradeCapacity(canonicalSnapshot, canonicalListing, next.usdtAmount, canonicalRequest.id);
           const canonicalPendingCommissionCount = getSellerPendingCommissionCount(canonicalSnapshot, request.sellerId);
           const canonicalPendingSiblingIds = canonicalSnapshot.purchaseRequests
             .filter((candidate) => candidate.id !== request.id && candidate.listingId === request.listingId && candidate.status === "pending")

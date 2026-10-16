@@ -144,3 +144,17 @@ it("still lets the buyer approve the second proposal before acceptance", async (
   await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({action:"accept_amount",proposalId:"second"});
 });
+
+it.each(["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"])("previews counter-offer totals including the buyer fee for %s", paymentMethod => {
+  const cardless = paymentMethod === "Cardless ATM Withdrawal";
+  render(<TradeTermsPanel request={{ ...base, paymentMethod, feePolicyVersion: "buyer_seller_1pct_v1", pricePerUsdt: "3.09", usdtAmount: cardless ? "416.546509" : "420", fiatAmount: cardless ? "1300.00" : "1310.78" }} actorId="seller" isAr={false} onUpdated={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Make a counter-offer" }));
+  fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.10" } });
+  const preview = screen.getByTestId("trade-adjustment-preview");
+  expect(preview.textContent).toContain(cardless ? "415.202811 USDT" : "420 USDT");
+  expect(preview.textContent).toContain(cardless ? "1,300.00" : "1,315.02");
+  expect(preview.textContent).toContain("1% fee");
+  fireEvent.change(screen.getByLabelText("Counter price in ILS per USDT"), { target: { value: "3.101" } });
+  expect(screen.queryByTestId("trade-adjustment-preview")).toBeNull();
+  expect((screen.getByRole("button", { name: "Send counter-offer" }) as HTMLButtonElement).disabled).toBe(true);
+});
