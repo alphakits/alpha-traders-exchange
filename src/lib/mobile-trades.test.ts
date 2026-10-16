@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toMobileTradeActions, toMobileTradeSummary } from "@/lib/mobile-trades";
+import { mobileTradeErrorCode, toMobileTradeActions, toMobileTradeSummary } from "@/lib/mobile-trades";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 const acceptedBankTrade = {
@@ -11,6 +11,26 @@ const acceptedBankTrade = {
 } as PurchaseRequest;
 
 describe("mobile trade actions", () => {
+  it("distinguishes saved private ATM details from legacy accepted credentials", () => {
+    const request = { ...acceptedBankTrade, paymentMethod: "Cardless ATM Withdrawal",
+      messages: [{ credentialKind: "cardless_code" }] } as PurchaseRequest;
+    expect(toMobileTradeActions(request, "buyer-1").canConfirmPreparedCardlessCode).toBe(false);
+    expect(toMobileTradeActions(request, "buyer-1").canCancel).toBe(false);
+    const prepared = { ...request, cardlessCodeAwaitingBuyerConfirmation: true };
+    expect(toMobileTradeActions(prepared, "buyer-1").canConfirmPreparedCardlessCode).toBe(true);
+    expect(toMobileTradeActions(prepared, "buyer-1").canCancel).toBe(true);
+    expect(toMobileTradeActions(prepared, "seller-1").canConfirmPreparedCardlessCode).toBe(false);
+    expect(toMobileTradeActions({ ...prepared, sensitivePaymentKind: "cardless_code", sensitivePaymentSharedAt: "2026-10-16T12:00:00Z" }, "buyer-1").canCancel).toBe(false);
+  });
+  it("allows linked bank inspection before acceptance but closes the action at terminal stages", () => {
+    const pending = { ...acceptedBankTrade, sellerBankAccountId: "bank-1", status: "pending" as const };
+    expect(toMobileTradeActions(pending, "buyer-1").canViewBankDetails).toBe(true);
+    expect(toMobileTradeActions(pending, "outsider").canViewBankDetails).toBe(false);
+    for (const status of ["cancelled", "declined", "completed", "review_open", "locked"] as const) {
+      expect(toMobileTradeActions({ ...pending, status }, "buyer-1").canViewBankDetails).toBe(false);
+    }
+    expect(mobileTradeErrorCode(new Error("Bank details are available only for an active Bank Transfer request."))).toBe("TRADE_ACTION_NOT_ALLOWED");
+  });
   it("exposes the persisted adjustment count to both native participants", () => {
     for (const userId of ["seller-1", "buyer-1"]) {
       expect(toMobileTradeSummary({...acceptedBankTrade, amountAdjustmentCount:2}, userId).amountAdjustmentCount).toBe(2);

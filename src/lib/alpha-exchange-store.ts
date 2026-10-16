@@ -93,6 +93,7 @@ import { logEvent } from "@/lib/structured-logging";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
+  isBankDetailsDisclosureStage,
   isBuyerEvidenceRequiredForPaymentMethod,
   isCardlessAtmPaymentMethod,
   isCashTradeCompletionAvailable,
@@ -9175,17 +9176,10 @@ function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId:
   const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
   const elevated = actorRole === "admin" || actorRole === "owner";
   if (!participant && !elevated) return false;
-  const disclosureStatuses = new Set<PurchaseRequestStatus>([
-    "accepted",
-    "payment_sent",
-    "funds_received",
-    "usdt_release_pending",
-    "usdt_sent",
-  ]);
   return Boolean(
     request.sellerBankAccountId
     && isBankTransferPaymentMethod(request.paymentMethod)
-    && disclosureStatuses.has(request.status),
+    && isBankDetailsDisclosureStage(request.status),
   );
 }
 export async function createMarketplaceListing(input: {
@@ -11768,8 +11762,7 @@ export async function getTradeRoomBankDetails(input: {
   actorUserId: string;
   actorRole: UserRole;
 }) {
-  // Bank account numbers are sensitive and become available immediately after
-  // acceptance. Bypass the short-lived read cache so another instance cannot
+  // Bank account numbers are sensitive. Bypass the short-lived read cache so another instance cannot
   // authorize disclosure from a trade state that has already been cancelled.
   const db = await readDb({ bypassCache: true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
@@ -11786,7 +11779,7 @@ export async function getTradeRoomBankDetails(input: {
     // prevent the stale request from receiving the account number.
     assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
     if (!canRevealTradeBankDetailsToActor(request, input.actorUserId, input.actorRole)) {
-      throw new Error("Bank details are available only after the seller accepts the trade.");
+      throw new Error("Bank details are available only for an active Bank Transfer request.");
     }
 
     const seller = snapshot.users.find((user) => user.id === request.sellerId);
@@ -11799,7 +11792,7 @@ export async function getTradeRoomBankDetails(input: {
       requestId: request.id,
       tradeId: request.tradeId ?? request.id,
       bankAccountId: bankAccount.id,
-      accountHolderName: input.actorUserId === request.sellerId || input.actorRole === "admin" || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
+      accountHolderName: input.actorUserId === request.sellerId || input.actorRole === "owner" ? bankAccount.accountHolderName : "",
       bankName: bankAccount.bankName,
       branchNumber: bankAccount.branchNumber,
       accountNumber: bankAccount.accountNumber,
@@ -13576,6 +13569,7 @@ type UpdatePurchaseRequestStatusInput = {
   cardlessWithdrawalCode?: string;
   cardlessVerificationKind?: string;
   cardlessVerificationValue?: string;
+  usePreparedCardlessDetails?: boolean;
   clientOperationId?: string;
   traceId?: string;
   acceptCounterOfferId?: string;
@@ -13664,15 +13658,31 @@ async function updatePurchaseRequestStatusAttempt(
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isCashTrade = isCashTradePaymentMethod(requestPaymentMethod);
-  const cardlessWithdrawalCode = normalizeCardlessDigits(String(input.cardlessWithdrawalCode ?? "")).replace(/\s+/g, "");
+  let preparedCardlessMessage: TradeChatMessage | undefined;
+  let preparedCardlessPayload: string | undefined;
+  let preparedCardlessDetails: Record<string, unknown> = {};
+  if (input.usePreparedCardlessDetails) {
+    if (!isBuyer || !isAtmTrade || input.nextStatus !== "payment_sent") {
+      throw new TradeBlockedError("buyer-cardless-confirmation-required", "Only the buyer can confirm sending prepared withdrawal details.", request.id);
+    }
+    preparedCardlessMessage = request.messages?.find(message => message.credentialKind === "cardless_code");
+    preparedCardlessPayload = preparedCardlessMessage
+      ? decryptCardlessCredential(preparedCardlessMessage.message, request.id, preparedCardlessMessage.id) ?? undefined
+      : undefined;
+    try { preparedCardlessDetails = JSON.parse(preparedCardlessPayload ?? "{}"); } catch { /* validate below */ }
+    if (!parseCardlessWithdrawalDetails(preparedCardlessDetails).ok || !validateCardlessIlsAmount(preparedCardlessDetails.ilsAmount, request.fiatAmount)) {
+      throw new TradeBlockedError("CARDLESS_DETAILS_UNAVAILABLE", "The protected withdrawal details are unavailable or no longer match the agreed cash amount. Refresh the trade before continuing.", request.id);
+    }
+  }
+  const cardlessWithdrawalCode = normalizeCardlessDigits(String(preparedCardlessDetails.withdrawalCode ?? input.cardlessWithdrawalCode ?? "")).replace(/\s+/g, "");
   const cardlessDetails = parseCardlessWithdrawalDetails({
     withdrawalCode: cardlessWithdrawalCode,
-    verificationKind: input.cardlessVerificationKind,
-    verificationValue: input.cardlessVerificationValue,
+    verificationKind: preparedCardlessDetails.verificationKind ?? input.cardlessVerificationKind,
+    verificationValue: preparedCardlessDetails.verificationValue ?? input.cardlessVerificationValue,
   });
-  const cardlessCredentialPayload = cardlessDetails.ok
+  const cardlessCredentialPayload = preparedCardlessPayload ?? (cardlessDetails.ok
     ? JSON.stringify(cardlessDetails.details)
-    : cardlessWithdrawalCode;
+    : cardlessWithdrawalCode);
   const cardlessOperationId = String(input.clientOperationId ?? "").trim().toLowerCase();
   const cardlessCodeIsValid = /^\d{4,12}$/.test(cardlessWithdrawalCode);
   const cardlessOperationIdIsValid = /^[a-f0-9]{32}$|^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cardlessOperationId);
@@ -14145,16 +14155,11 @@ async function updatePurchaseRequestStatusAttempt(
       if (!parseCardlessWithdrawalDetails(prepared).ok || !validateCardlessIlsAmount(prepared.ilsAmount, next.fiatAmount)) {
         throw new TradeBlockedError("CARDLESS_DETAILS_UNAVAILABLE", "The protected withdrawal details are unavailable. Ask the buyer to cancel this pending request and submit again.", request.id);
       }
-      next.paymentSentAt = now;
-      next.sensitivePaymentSharedAt = now;
-      next.sensitivePaymentKind = "cardless_code";
-      db.tradeMessages = [preparedCredential, ...(db.tradeMessages ?? []).filter((message) => message.id !== preparedCredential.id)];
     }
-    next.status = preparedCredential ? "payment_sent" : "accepted";
-    if (preparedCredential) {
-      appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: request.buyerId, actorRole: "buyer", message: "Prepared withdrawal details shared after seller acceptance", createdAt: now });
-      pushNotification(db, { userId: request.sellerId, category: "trade", title: "Cardless withdrawal code ready", message: "Buyer sent the cardless withdrawal code. Collect the ATM cash, then confirm receipt in the Trade Room.", relatedTradeId: next.tradeId, relatedRequestId: request.id, relatedHref: requestDetailsHref(request.id), whatsappEvent: "trade_update" });
-    }
+    // Acceptance reserves inventory; only a later buyer command can disclose
+    // prepared ATM credentials and cross the irreversible payment boundary.
+    next.status = "accepted";
+    next.cardlessCodeAwaitingBuyerConfirmation = Boolean(preparedCredential);
     const isPriceOffer = next.priceMode === "buyer_offer";
     if (acceptingCounter) {
       pushNotification(db, {
@@ -14173,7 +14178,7 @@ async function updatePurchaseRequestStatusAttempt(
     }
     next.tradeId = next.tradeId ?? `trade-${randomUUID()}`;
     next.tradeCreatedAt = now;
-    listing.status = preparedCredential ? "in_trade" : "matched";
+    listing.status = "matched";
     listing.activeTradeRequestId = request.id;
     listing.lockedAt = now;
     listing.updatedAt = now;
@@ -14192,7 +14197,7 @@ async function updatePurchaseRequestStatusAttempt(
       message: isFaceToFaceTrade
         ? "Seller accepted the Face-to-Face trade. Buyer hands over the full cash total. Seller can confirm receipt without waiting for the buyer button, then sends the full USDT amount to the revealed wallet and completes the trade. No photo is required."
         : isAtmTrade
-          ? preparedCredential ? "Seller accepted the Cardless ATM trade. The prepared withdrawal details are now available. Collect the ATM cash and confirm receipt to reveal the buyer wallet." : "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
+          ? "Seller accepted the Cardless ATM trade. Buyer should send the withdrawal code and confirm it with one button; no photo is required. After the seller collects and confirms the cash, the buyer wallet is revealed so the seller can confirm USDT sent and then complete the trade with a separate button."
         : isPriceOffer
           ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
           : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
@@ -14215,7 +14220,7 @@ async function updatePurchaseRequestStatusAttempt(
         : isFaceToFaceTrade
           ? "Your meeting is ready. After handing over the cash, confirm it in the Trade Room. No photo is required."
           : isAtmTrade
-            ? preparedCredential ? "The seller accepted and can now collect your prepared ATM withdrawal. Your wallet remains hidden until cash collection is confirmed." : "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
+            ? "Your Cardless ATM trade is active. Send the withdrawal code, then confirm it in the Trade Room. No photo is required."
           : "Seller accepted your trade request. You can now upload your payment receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
@@ -14295,7 +14300,13 @@ async function updatePurchaseRequestStatusAttempt(
         });
       }
       const credentialMessageId = `trade-credential-${createHash("sha256").update(`${request.id}:${request.buyerId}:${cardlessOperationId}`).digest("hex").slice(0, 32)}`;
-      const credentialMessage: TradeChatMessage = {
+      const credentialMessage: TradeChatMessage = preparedCardlessMessage ? {
+        ...preparedCardlessMessage,
+        sentAt: now,
+        readByUserIds: [request.buyerId],
+        deliveredAt: undefined,
+        seenAt: undefined,
+      } : {
         id: credentialMessageId,
         purchaseRequestId: request.id,
         kind: "user",
@@ -14309,10 +14320,11 @@ async function updatePurchaseRequestStatusAttempt(
         sentAt: now,
         readByUserIds: [request.buyerId],
       };
-      next.messages = [credentialMessage, ...(next.messages ?? [])];
-      db.tradeMessages = [credentialMessage, ...(db.tradeMessages ?? [])];
+      next.messages = [credentialMessage, ...(next.messages ?? []).filter(message => message.credentialKind !== "cardless_code")];
+      db.tradeMessages = [credentialMessage, ...(db.tradeMessages ?? []).filter(message => message.purchaseRequestId !== request.id || message.credentialKind !== "cardless_code")];
       next.sensitivePaymentSharedAt = now;
       next.sensitivePaymentKind = "cardless_code";
+      next.cardlessCodeAwaitingBuyerConfirmation = false;
     }
     next.status = "payment_sent";
     if (buyerEvidence) {

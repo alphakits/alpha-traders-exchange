@@ -96,7 +96,7 @@ describe("Trade Room client stability helpers", () => {
     expect(edited.clientMessageId).toBe("message-id-3");
   });
 
-  it("shows sensitive bank details only for a linked bank-transfer trade after acceptance", () => {
+  it("makes linked bank-transfer details available before acceptance and closes disclosure after settlement", () => {
     const acceptedBankTransfer = {
       ...room({ status: "accepted" }).request,
       paymentMethod: "Bank Transfer",
@@ -104,10 +104,11 @@ describe("Trade Room client stability helpers", () => {
     } as PurchaseRequest;
 
     expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, false)).toBe(true);
-    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "pending" }, false)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "pending" }, false)).toBe(true);
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, paymentMethod: "Cardless ATM Withdrawal" }, false)).toBe(false);
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, sellerBankAccountId: undefined }, false)).toBe(false);
     expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, true)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "completed" }, false)).toBe(false);
   });
 
   it("guides Face-to-Face through cash receipt and explicit seller delivery completion", () => {

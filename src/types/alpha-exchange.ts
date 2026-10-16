@@ -898,6 +898,8 @@ export interface PurchaseRequest {
   /** First sensitive payment-detail disclosure, retained for audit and redaction decisions. */
   sensitivePaymentSharedAt?: string;
   sensitivePaymentKind?: "bank_details" | "cardless_code";
+  /** Prepared credentials remain private after acceptance until the buyer confirms sending. */
+  cardlessCodeAwaitingBuyerConfirmation?: boolean;
   fundsReceivedAt?: string;
   usdtReleaseStartedAt?: string;
   usdtReleaseDeadlineAt?: string;

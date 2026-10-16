@@ -291,6 +291,23 @@ describe("seller bank accounts and trade guardrails", () => {
     ).rejects.toThrow("linked to active trades or listings");
   });
 
+  it("lets the buyer inspect the linked bank details before accepting a pending request", async () => {
+    seedAcceptedBankTransferTrade();
+    currentSnapshot().purchaseRequests[0].status = "pending";
+    const details = await getTradeRoomBankDetails({ purchaseRequestId: "req-1", actorUserId: BUYER_ID, actorRole: "buyer" });
+    expect(details).toMatchObject({ accountNumber: "1234567890", branchNumber: "123", accountHolderName: "" });
+    expect(currentSnapshot().purchaseRequests[0].status).toBe("pending");
+    expect(currentSnapshot().purchaseRequests[0].paymentSentAt).toBeUndefined();
+    expect(currentSnapshot().auditLogs.filter(log => log.action === "trade_bank_details_revealed")).toHaveLength(1);
+  });
+
+  it("keeps a member's bank account-holder name private from an ordinary admin", async () => {
+    seedAcceptedBankTransferTrade();
+    currentSnapshot().users.push(createUser("admin-1", "admin") as never);
+    const details = await getTradeRoomBankDetails({ purchaseRequestId: "req-1", actorUserId: "admin-1", actorRole: "admin" });
+    expect(details.accountHolderName).toBe("");
+  });
+
   it("reveals bank details only to trade participants after accept and logs reveal once in short window", async () => {
     seedAcceptedBankTransferTrade();
 
@@ -375,7 +392,7 @@ describe("seller bank accounts and trade guardrails", () => {
       purchaseRequestId: "req-stale-bank-details",
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("only after the seller accepts");
+    })).rejects.toThrow("only for an active Bank Transfer request");
 
     const committed = currentSnapshot().purchaseRequests.find((request) => request.id === "req-stale-bank-details");
     expect(committed?.status).toBe("cancelled");
@@ -392,7 +409,7 @@ describe("seller bank accounts and trade guardrails", () => {
       purchaseRequestId: "req-atm-bank-details",
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("only after the seller accepts");
+    })).rejects.toThrow("only for an active Bank Transfer request");
 
     const room = await getTradeRoomData({
       purchaseRequestId: "req-atm-bank-details",
@@ -426,7 +443,7 @@ describe("seller bank accounts and trade guardrails", () => {
         purchaseRequestId: "req-racing-bank-details",
         actorUserId: BUYER_ID,
         actorRole: "buyer",
-      })).rejects.toThrow("only after the seller accepts");
+      })).rejects.toThrow("only for an active Bank Transfer request");
     } finally {
       saveSpy.mockRestore();
     }

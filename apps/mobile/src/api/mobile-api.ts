@@ -889,7 +889,7 @@ export function submitMobileCardlessCode(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
   requestId: string,
-  details: import("@alpha-traders/contracts").CardlessWithdrawalDetails,
+  details: import("@alpha-traders/contracts").CardlessWithdrawalDetails | { usePreparedDetails: true },
   clientOperationId: string,
 ) {
   return mobileRequest<MobileTradeMutationResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {

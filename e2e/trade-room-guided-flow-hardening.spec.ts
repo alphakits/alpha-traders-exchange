@@ -223,9 +223,9 @@ function purchaseRequestPayload(usdtAmount = "300") {
   };
 }
 
-async function createTradeRequest(request: APIRequestContext, usdtAmount = "300") {
+async function createTradeRequest(request: APIRequestContext, usdtAmount = "300", overrides: Record<string, unknown> = {}) {
   const response = await request.post("/api/alpha-exchange/purchase-requests", {
-    data: purchaseRequestPayload(usdtAmount),
+    data: { ...purchaseRequestPayload(usdtAmount), ...overrides },
   });
   if (!response.ok()) {
     const responseBody = await response.text().catch(() => "");
@@ -1113,7 +1113,17 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
     try {
       await login(buyerContext.request, buyerEmail, buyerPassword);
       await login(sellerContext.request, sellerEmail, sellerPassword);
-      const requestId = await createTradeRequest(buyerContext.request, "300");
+      if (paymentMethod === "Cardless ATM Withdrawal") {
+        const setup = await readDb(api);
+        const listing = (setup.marketplaceListings as Array<Record<string, unknown>>).find(row => row.id === ids.listing)!;
+        Object.assign(listing, { paymentMethod, paymentMethods: [paymentMethod], price: "3.00" });
+        await writeDb(api, setup);
+      }
+      const requestId = await createTradeRequest(buyerContext.request, paymentMethod === "Cardless ATM Withdrawal" ? "297.029703" : "300",
+        paymentMethod === "Cardless ATM Withdrawal" ? {
+          paymentMethod, bankName: "Bank Hapoalim", cardlessWithdrawalCode: "123456", cardlessVerificationKind: "date_of_birth",
+          cardlessVerificationValue: "01/01/1990", cardlessIlsAmount: "900", receivingNetwork: "TRC20",
+        } : {});
       const db = await readDb(api);
       const trade = (db.purchaseRequests as Array<Record<string, unknown>>).find((row) => row.id === requestId)!;
       // The cardless cash total must be a multiple of 100 and include the
@@ -1123,6 +1133,14 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
       sellerUser.sellerBankAccounts = [{ id: `bank-${ids.seller}`, sellerId: ids.seller, accountHolderName: "Guided Flow Seller", bankName: "Bank Hapoalim", branchNumber: "123", accountNumber: "9000000000", accountLast4: "0000", isDefault: true, createdAt: iso(), updatedAt: iso() }];
       await writeDb(api, db);
       const path = `/en/trade-room/${requestId}`;
+      if (paymentMethod === "Bank Transfer") {
+        await buyerPage.goto(path);
+        await expect(buyerPage.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+        await buyerPage.getByRole("button", { name: "Reveal Bank Details", exact: true }).click();
+        await expect(buyerPage.getByText("9000000000", { exact: true })).toBeVisible();
+        await expect(buyerPage.getByText("Guided Flow Seller", { exact: true })).toHaveCount(0);
+        await buyerPage.screenshot({ path: testInfo.outputPath("bank-details-before-acceptance-mobile.png"), fullPage: true });
+      }
       await sellerPage.goto(path);
       await expect(sellerPage.getByTestId("trade-header-notice")).toHaveCount(0);
       await expect(sellerPage.getByRole("button", { name: "Accept Trade", exact: true })).toBeInViewport();
@@ -1137,15 +1155,23 @@ for (const paymentMethod of ["Bank Transfer", "Cardless ATM Withdrawal", "Face-t
         await buyerPage.getByLabel("Choose payment receipt", { exact: true }).setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: png });
         await buyerPage.getByRole("button", { name: "Upload Payment Receipt", exact: true }).click();
       } else if (paymentMethod === "Cardless ATM Withdrawal") {
-        await buyerPage.locator("#cardless-withdrawal-code").fill("123456");
-        await buyerPage.locator("#cardless-verification-kind").selectOption("date_of_birth");
-        await buyerPage.locator("#cardless-verification-value").fill("01/01/1990");
+        await expect(buyerPage.getByText(/Your saved withdrawal details are still private/)).toBeVisible();
+        await expect(buyerPage.locator("#cardless-withdrawal-code")).toHaveCount(0);
+        await expect(sellerPage.getByText(/123456/)).toHaveCount(0);
+        await expect(sellerPage.getByRole("button", { name: "I Collected the ATM Cash", exact: true })).toHaveCount(0);
+        const premature = await sellerContext.request.patch(`/api/alpha-exchange/purchase-requests/${requestId}`, { data: { status: "funds_received" } });
+        expect(premature.ok()).toBe(false);
+        await buyerPage.reload();
+        await expect(buyerPage.getByText(/Your saved withdrawal details are still private/)).toBeVisible();
+        await buyerPage.screenshot({ path: testInfo.outputPath("atm-private-before-confirmation-mobile.png"), fullPage: true });
         const [submitted] = await Promise.all([
           buyerPage.waitForResponse(response => new URL(response.url()).pathname === `/api/alpha-exchange/purchase-requests/${requestId}`
             && response.request().method() === "PATCH", { timeout: 15_000 }),
           buyerPage.getByRole("button", { name: "Send & Confirm Withdrawal Details", exact: true }).click(),
         ]);
         expect(submitted.ok(), await submitted.text()).toBeTruthy();
+        await expect(sellerPage.getByText(/123456/).first()).toBeVisible();
+        await sellerPage.screenshot({ path: testInfo.outputPath("atm-shared-after-confirmation-mobile.png"), fullPage: true });
       } else {
         await buyerPage.getByRole("button", { name: "I Handed Over the Cash", exact: true }).click();
       }

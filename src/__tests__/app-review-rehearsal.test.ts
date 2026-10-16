@@ -218,7 +218,7 @@ describe("full Exchange App Review rehearsal", () => {
       purchaseRequestId: created.request.id,
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("only after the seller accepts");
+    })).resolves.toMatchObject({ accountNumber: "0000000001", accountHolderName: "" });
 
     const accepted = await updatePurchaseRequestStatus({
       requestId: created.request.id,
@@ -386,7 +386,9 @@ describe("full Exchange App Review rehearsal", () => {
       purchaseRequestId: created.request.id,
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-    })).rejects.toThrow("Bank details are available only after the seller accepts the trade.");
+    })).rejects.toThrow("Bank details are available only for an active Bank Transfer request.");
+
+    await updatePurchaseRequestStatus({ requestId: created.request.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "payment_sent", usePreparedCardlessDetails: true, clientOperationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" });
 
     const sellerRoomBeforeCash = await getTradeRoomData({
       purchaseRequestId: created.request.id,

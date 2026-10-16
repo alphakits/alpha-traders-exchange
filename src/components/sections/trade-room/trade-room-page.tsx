@@ -35,7 +35,7 @@ import {
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { postTradeReview, TradeReviewTimeoutError } from "@/lib/trade-review-client";
 import { fetchClientJson, runClientRequest } from "@/lib/client-request-deadline";
-import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isBankDetailsDisclosureStage, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, isCashTradePaymentMethod, isCashTradeUsdtSentConfirmationAvailable, isFaceToFacePaymentMethod, isSellerTradeCompletionAvailable, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
@@ -331,7 +331,7 @@ export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, 
       successLabel: request.priceMode === "buyer_offer" ? (isAr ? "تم قبول عرض السعر" : "Price Offer Accepted") : (isAr ? "تم قبول الطلب" : "Trade Accepted"),
       mode: "status",
       nextStatus: "accepted",
-      confirmationMessage: isAr ? `سترسل ${request.usdtAmount} USDT على شبكة ${request.network}. ${isAtm ? "بعد القبول تظهر بيانات السحب ويبدأ جمع النقد؛ لا يتاح الإلغاء العادي." : "هل توافق؟"}` : `You will send ${request.usdtAmount} USDT on ${request.network}. ${isAtm ? "Acceptance reveals the withdrawal details and starts cash collection; normal cancellation is no longer available." : "Accept these terms?"}`,
+      confirmationMessage: isAr ? `سترسل ${request.usdtAmount} USDT على شبكة ${request.network}. ${isAtm ? "بعد القبول، انتظر تأكيد المشتري إرسال بيانات السحب قبل جمع النقد." : "هل توافق؟"}` : `You will send ${request.usdtAmount} USDT on ${request.network}. ${isAtm ? "After accepting, wait for the buyer to confirm sending the withdrawal details before collecting cash." : "Accept these terms?"}`,
     };
   }
 
@@ -1318,9 +1318,7 @@ export function canRevealTradeRoomBankDetails(request: PurchaseRequest | null, i
     && !isSeller
     && Boolean(request.sellerBankAccountId)
     && isBankTransferPaymentMethod(request.paymentMethod)
-    && request.status !== "pending"
-    && request.status !== "declined"
-    && request.status !== "cancelled",
+    && isBankDetailsDisclosureStage(request.status),
   );
 }
 
@@ -1931,6 +1929,9 @@ function TradeRoomPageSession({
     ? (isSeller ? room?.counterpart.buyerName : room?.counterpart.sellerName)
     : "";
   const isCardlessAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
+  const hasPreparedCardlessDetails = isCardlessAtmTrade && request?.status === "accepted"
+    && request.cardlessCodeAwaitingBuyerConfirmation === true
+    && Boolean(request.messages?.some(message => message.credentialKind === "cardless_code"));
   const tradeSteps = isCardlessAtmTrade ? CARDLESS_ATM_TRADE_STEP_ORDER : isCashTrade ? CASH_TRADE_STEP_ORDER : STEP_ORDER;
   const currentStepIndex = request ? getTradeProgressIndex(request.status) : 0;
   const progressPercent = Math.round((currentStepIndex / Math.max(1, tradeSteps.length - 1)) * 100);
@@ -2126,7 +2127,7 @@ function TradeRoomPageSession({
     const cardlessDetails = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
     const isCardlessSubmission = nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod);
     if (nextStatus === "payment_sent" && isCardlessAtmPaymentMethod(request.paymentMethod)) {
-      if (!cardlessDetails.ok) {
+      if (!hasPreparedCardlessDetails && !cardlessDetails.ok) {
         setActionError(isAr ? "أدخل رمز سحب صالحاً ورقم الهوية أو تاريخ الميلاد المطلوب من البنك." : "Enter a valid withdrawal code and the ID number or date of birth required by the bank.");
         return;
       }
@@ -2135,10 +2136,10 @@ function TradeRoomPageSession({
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     const previousRoom = room;
     const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor, action.command);
-    const payload = isCardlessSubmission && cardlessDetails.ok
+    const payload = isCardlessSubmission && (hasPreparedCardlessDetails || cardlessDetails.ok)
       ? {
           action: "submit_cardless_code",
-          ...cardlessDetails.details,
+          ...(hasPreparedCardlessDetails ? { usePreparedDetails: true } : cardlessDetails.ok ? cardlessDetails.details : {}),
           clientOperationId: globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(16).padStart(12, "0")}${Math.random().toString(16).slice(2).padEnd(20, "0").slice(0, 20)}`,
         }
       : action.command
@@ -2288,7 +2289,7 @@ function TradeRoomPageSession({
       setActionBusy(false);
       void fetchRoom(true);
     }
-  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, fetchRoom, isAr, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, hasPreparedCardlessDetails, fetchRoom, isAr, request, requestId, room, router, setActionError, setStatusMessage, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2567,7 +2568,7 @@ function TradeRoomPageSession({
 
   const handlePrimaryAction = useCallback(async () => {
     if (!primaryAction) return;
-    if (primaryAction.mode === "status" && primaryAction.nextStatus === "payment_sent" && isCardlessAtmTrade) {
+    if (primaryAction.mode === "status" && primaryAction.nextStatus === "payment_sent" && isCardlessAtmTrade && !hasPreparedCardlessDetails) {
       const parsed = parseCardlessWithdrawalDetails({ withdrawalCode: cardlessCode, verificationKind: cardlessVerificationKind, verificationValue: cardlessVerificationValue });
       if (!parsed.ok) {
         const inputId = parsed.field === "withdrawalCode" ? "cardless-withdrawal-code" : "cardless-verification-value";
@@ -2596,7 +2597,7 @@ function TradeRoomPageSession({
       if (!window.confirm(message)) return;
     } else if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
-  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
+  }, [buyerEvidenceFile, cardlessCode, cardlessVerificationKind, cardlessVerificationValue, hasPreparedCardlessDetails, handleStatusUpdate, handleUploadEvidence, isAr, isCardlessAtmTrade, primaryAction, sellerEvidenceFile, setActionError, isSeller, request?.feePolicyVersion, request?.fiatAmount, request?.currency]);
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
@@ -3350,8 +3351,8 @@ function TradeRoomPageSession({
                 ) : !isSeller && request.status === "pending" && isBankTransferPaymentMethod(requestPaymentMethod) ? (
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#9CA3AF]">
                     {request.priceMode === "buyer_offer"
-                      ? (isAr ? "عرض السعر بانتظار قرار البائع. ستظهر تفاصيل الحساب البنكي بعد موافقته." : "Your price offer is waiting for the seller. Bank details appear after acceptance.")
-                      : (isAr ? "تفاصيل الحساب البنكي ستكون متاحة بعد قبول البائع للصفقة." : "Bank details become available after the seller accepts the trade.")}
+                      ? (isAr ? "عرض السعر بانتظار قرار البائع. يجب ربط تفاصيل البنك قبل متابعة التحويل." : "Your price offer is waiting for the seller. The seller must link bank details before this Bank Transfer can proceed.")
+                      : (isAr ? "تفاصيل البنك غير متاحة. اطلب من البائع ربط حساب الدفع قبل المتابعة." : "Bank details are unavailable. Ask the seller to link the payment account before proceeding.")}
                   </div>
                 ) : null}
 
@@ -3376,7 +3377,7 @@ function TradeRoomPageSession({
                 ) : null}
 
                 {isCardlessAtmTrade && isActorBuyer && request.status === "accepted" && !hasPendingTradeTerms ? (
-                  <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
+                  hasPreparedCardlessDetails ? <p role="status" className="rounded-xl border border-[#C9A227]/50 bg-[#C9A227]/10 p-3 text-sm text-white">{isAr ? "بيانات السحب التي أدخلتها محفوظة وخاصة. اضغط تأكيد إرسال الرمز لمشاركتها مع البائع وبدء سحب النقد. يُقفل الإلغاء بعد التأكيد." : "Your saved withdrawal details are still private. Confirm sending the code to share them with the seller and start cash collection. Cancellation locks after confirmation."}</p> : <CardlessWithdrawalFields isAr={isAr} disabled={actionBusy} code={cardlessCode}
                     verificationKind={cardlessVerificationKind} verificationValue={cardlessVerificationValue}
                     onCodeChange={setCardlessCode} onKindChange={setCardlessVerificationKind} onValueChange={setCardlessVerificationValue} />
                 ) : null}

@@ -13,6 +13,7 @@ import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
+  isBankDetailsDisclosureStage,
   isFaceToFacePaymentMethod,
   isCashTradeCompletionAvailable,
   isSellerTradeCompletionAvailable,
@@ -103,10 +104,13 @@ export function toMobileTradeActions(
     canViewBankDetails: isBuyer
       && Boolean(request.sellerBankAccountId)
       && isBankTransferPaymentMethod(request.paymentMethod)
-      && !["pending", "declined", "cancelled"].includes(request.status),
+      && isBankDetailsDisclosureStage(request.status),
     canMarkPaymentSent: isBuyer
       && isCashTrade
       && (request.status === "accepted" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "payment_sent")),
+    canConfirmPreparedCardlessCode: isBuyer && request.paymentMethod === "Cardless ATM Withdrawal"
+      && request.status === "accepted" && request.cardlessCodeAwaitingBuyerConfirmation === true
+      && Boolean(request.messages?.some(message => message.credentialKind === "cardless_code")),
     canUploadPaymentEvidence: isBuyer
       && request.status === "accepted"
       && !isCashTrade,
@@ -250,7 +254,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
   if (message.includes("review already submitted") || message.includes("response already submitted") || message.includes("cannot reply")) {
     return "TRADE_ACTION_NOT_ALLOWED";
   }
-  if (message.includes("not allowed") || message.includes("only after") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
+  if (message.includes("not allowed") || message.includes("only after") || message.includes("bank details are available only") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
   return null;
 }
 

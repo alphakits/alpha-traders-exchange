@@ -1023,6 +1023,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canCancel: boolean;
     canViewBankDetails: boolean;
     canMarkPaymentSent: boolean;
+    canConfirmPreparedCardlessCode?: boolean;
     canUploadPaymentEvidence: boolean;
     canConfirmFunds: boolean;
     canBeginRelease: boolean;

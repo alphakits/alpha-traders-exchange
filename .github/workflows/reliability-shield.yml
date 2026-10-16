@@ -109,6 +109,8 @@ jobs:
             test-results/**/offer-boundary-*.png
             test-results/**/connection-*.png
             test-results/**/seller-only-*.png
+            test-results/**/atm-*.png
+            test-results/**/bank-*.png
           if-no-files-found: error
           retention-days: 7
 

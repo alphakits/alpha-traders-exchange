@@ -14,8 +14,10 @@ export function hasIrreversibleRequestProgress(request: PurchaseRequest) {
     // Revealing bank account details is reversible. A disclosed withdrawal
     // credential can already be used to collect cash, even with a stale status.
     || (request.sensitivePaymentKind === "cardless_code" && request.sensitivePaymentSharedAt)
-    // Prepared codes on pending requests are still hidden from the seller.
-    || (request.status === "accepted" && request.messages?.some((message) => message.credentialKind === "cardless_code")),
+    // New accepted requests keep prepared codes private until buyer confirmation.
+    // Missing markers on legacy accepted records remain conservatively locked.
+    || (request.status === "accepted" && request.cardlessCodeAwaitingBuyerConfirmation !== true
+      && request.messages?.some((message) => message.credentialKind === "cardless_code")),
   );
 }
 
