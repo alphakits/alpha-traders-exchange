@@ -261,7 +261,8 @@ test.describe("Direct Buy USDT modal", () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test("submits the minimum valid price offer on desktop and freezes the negotiated totals", async ({ page }) => {
+  for (const [price, discount, total] of [["3.25", "0.35", "328.25"], ["3.95", "-0.35", "398.95"]]) {
+  test(`submits the boundary price offer ${price} on desktop and freezes negotiated totals`, async ({ page }, info) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/en/usdt-exchange");
 
@@ -275,9 +276,10 @@ test.describe("Direct Buy USDT modal", () => {
     await expect(page.getByRole("heading", { name: /^Make a Price Offer$/ })).toBeVisible();
     const priceInput = page.getByLabel(/Your Price per USDT/i);
     await expect(priceInput).toHaveAttribute("min", "3.25");
-    await expect(priceInput).toHaveAttribute("max", "3.59");
+    await expect(priceInput).toHaveAttribute("max", "3.95");
     await expect(priceInput).toHaveAttribute("step", "0.01");
-    await priceInput.fill("3.25");
+    await priceInput.fill(price);
+    await page.screenshot({ path: info.outputPath(`offer-boundary-${price}-desktop.png`) });
     await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
 
     await Promise.all([
@@ -291,16 +293,18 @@ test.describe("Direct Buy USDT modal", () => {
     expect(submitted).toMatchObject({
       usdtAmount: "100",
       listingPriceAtRequest: "3.60",
-      pricePerUsdt: "3.25",
+      pricePerUsdt: price,
       priceMode: "buyer_offer",
-      priceOfferDiscount: "0.35",
-      fiatAmount: "328.25",
+      priceOfferDiscount: discount,
+      fiatAmount: total,
       feePolicyVersion: "buyer_seller_1pct_v1",
       status: "pending",
     });
   });
 
-  test("keeps the Arabic price-offer dialog valid and overflow-free at 320px", async ({ page }) => {
+  }
+
+  test("keeps the Arabic price-offer dialog valid and overflow-free at 320px", async ({ page }, info) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await page.goto("/ar/usdt-exchange");
 
@@ -312,7 +316,10 @@ test.describe("Direct Buy USDT modal", () => {
     const priceInput = page.getByLabel(/سعرك لكل USDT/);
     await priceInput.fill("3.24");
     await expect(priceInput).toHaveAttribute("aria-invalid", "true");
-    await priceInput.fill("3.25");
+    await priceInput.fill("3.96");
+    await expect(priceInput).toHaveAttribute("aria-invalid", "true");
+    await priceInput.fill("3.95");
+    await page.screenshot({ path: info.outputPath("offer-boundary-ar-mobile.png") });
     await expect(priceInput).not.toHaveAttribute("aria-invalid", "true");
     await expect(page.getByRole("button", { name: /^إرسال عرض السعر$/ })).toBeVisible();
 

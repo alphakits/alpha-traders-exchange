@@ -27,6 +27,7 @@ import { Link } from "@/i18n/navigation";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 import { FooterMarketOverview } from "@/components/layout/footer-market-overview";
 import { FooterNewsletterSignup } from "@/components/layout/footer-newsletter-signup";
+import { FooterConnectionCheck } from "@/components/layout/footer-connection-check";
 import { isProtectedPage } from "@/lib/protected-page";
 
 type FooterItem = {
@@ -374,10 +375,7 @@ export function SiteFooterContent({ locale, whatsappUrl }: { locale: AppLocale; 
         <div className="section-container flex flex-col gap-2 py-4 text-xs text-[#B8BFCC] md:flex-row md:items-center md:justify-between">
           <p>© {year}{brandText(" Alpha Traders")}</p>
           <p>{isAr ? "مبني للمتداولين المحترفين. صُنع بدقة. الإصدار 1.3" : "Built for Professional Traders. Made with precision. Version 1.3"}</p>
-          <p className="inline-flex items-center gap-2 text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            {isAr ? "حالة المنصة: تعمل" : "Platform Status: Operational"}
-          </p>
+          <FooterConnectionCheck isAr={isAr} />
         </div>
       </div>
     </footer>

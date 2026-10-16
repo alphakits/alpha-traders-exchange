@@ -213,7 +213,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
       return "LISTING_UNAVAILABLE";
     }
     if (code === "safety-acknowledgment-required") return "SAFETY_ACKNOWLEDGEMENT_REQUIRED";
-    if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_NOT_LOWER" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
+    if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_ABOVE_MAXIMUM" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
       return "PRICE_OFFER_INVALID";
     }
     if (code === "purchase-request-not-found") return "TRADE_NOT_FOUND";

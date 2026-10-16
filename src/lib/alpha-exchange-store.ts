@@ -10457,7 +10457,7 @@ export async function updateTradeTerms(input: {
       const lockedPrice = normalizeListingPrice(request.pricePerUsdt || request.listingPriceAtRequest || listing.price) || "";
       if (counter) {
         const bounds = getPriceOfferBounds(request.listingPriceAtRequest || listing.price);
-        if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.listingPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
+        if (request.currency !== "ILS" || !bounds || Number(raw) < Number(bounds.minimumPrice) || Number(raw) > Number(bounds.maximumPrice)) throw new TradeBlockedError("trade-terms-invalid", "Counter-offer must be within the listing's allowed price range.", input.requestId);
       } else if (input.action === "propose_ils_amount" && request.currency !== "ILS") {
         throw new TradeBlockedError("trade-terms-invalid", "ILS correction requires an ILS trade.", input.requestId);
       }
@@ -10719,6 +10719,7 @@ export async function createPurchaseRequest(input: {
     throw new TradeBlockedError(priceOffer.code, priceOffer.message, undefined, {
       listingId: listing.id,
       minimumPrice: priceOffer.minimumPrice,
+      maximumPrice: priceOffer.maximumPrice,
       listingPrice: priceOffer.listingPrice ?? priceBounds.listingPrice,
     });
   }

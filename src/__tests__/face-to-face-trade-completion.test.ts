@@ -738,13 +738,25 @@ describe("guided cash-trade completion", () => {
     await expect(propose("propose_amount", "300")).rejects.toThrow(/withdrawal/);
   });
 
+  it("requires buyer acceptance of a counter-offer at the upper price boundary", async () => {
+    seedTrade({ status: "pending" });
+    currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
+    currentSnapshot().purchaseRequests[0].pricePerUsdt = "3.00";
+    const proposal = await propose("counter_offer", "3.55");
+    expect(proposal.pricePerUsdt).toBe("3.00");
+    expect(proposal.termsProposal?.pricePerUsdt).toBe("3.55");
+    const accepted = await updatePurchaseRequestStatus({ requestId: proposal.id, actorUserId: BUYER_ID, actorRole: "buyer", nextStatus: "accepted", acceptCounterOfferId: proposal.termsProposal!.id });
+    expect(accepted.request.pricePerUsdt).toBe("3.55");
+    expect(accepted.request.fiatAmount).toBe("887.50");
+  });
+
   it("enforces the available balance and counter-offer price bounds", async () => {
     seedTrade({ status: "pending" });
     await expect(propose("propose_amount", "1001")).rejects.toThrow(/limits/);
     currentSnapshot().purchaseRequests[0].status = "pending";
     currentSnapshot().purchaseRequests[0].priceMode = "buyer_offer";
     invalidateAlphaExchangeStoreCache();
-    await expect(propose("counter_offer", "3.21")).rejects.toThrow(/price range/);
+    await expect(propose("counter_offer", "3.56")).rejects.toThrow(/price range/);
   });
 
   function readyRequest(overrides: Partial<Parameters<typeof createPurchaseRequest>[0]> = {}) {

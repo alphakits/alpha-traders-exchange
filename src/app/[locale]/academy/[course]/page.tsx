@@ -37,7 +37,7 @@ export default async function CoursePage({ params }: { params: Promise<{ locale:
   return <>
     <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
     <AcademyStudentHub courses={[{ id: course.id, title: course.title, titleAr: course.titleAr,
-      lessons: lessons.map(({ id, courseId, slug, title, titleAr, description, descriptionAr, durationMinutes, thumbnail, order }) => ({
+      lessons: lessons.map(({ id, courseId, slug, title, titleAr, description, descriptionAr, durationMinutes, order }) => ({
         id, courseId, slug, title, titleAr, description, descriptionAr, durationMinutes, thumbnail: lessonNarratives[slug]?.visuals[0]?.src ?? "/images/brand/alpha-traders-logo.webp", order,
       })),
     }]} />

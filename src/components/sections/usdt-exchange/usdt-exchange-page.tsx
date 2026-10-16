@@ -699,7 +699,7 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "PRICE_MODE_INVALID") return "نوع السعر المحدد غير صالح.";
   if (code === "PRICE_OFFERS_ILS_ONLY") return "عروض الأسعار متاحة فقط للعروض المسعّرة بالشيكل.";
   if (code === "PRICE_OFFER_INVALID_FORMAT") return "أدخل سعرًا صالحًا بالشيكل، بحد أقصى منزلتين عشريتين.";
-  if (code === "PRICE_OFFER_NOT_LOWER") return "يجب أن يكون عرض السعر أقل من سعر البائع الحالي.";
+  if (code === "PRICE_OFFER_ABOVE_MAXIMUM") return "لا يمكن أن يزيد عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "SELLER_COMMISSION_DUE") return "يجب دفع عمولة البائع المستحقة قبل بدء عملية شراء جديدة.";
   if (code === "LISTING_SELLER_LOCKED") return "هذا العرض غير متاح مؤقتاً لطلبات شراء جديدة. اختر بائعاً آخر.";
@@ -1290,7 +1290,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                 {isAr ? "قدّم عرض سعر" : "Make an Offer"}
               </span>
               <span className="text-[11px] font-medium text-[#D1D5DB]">
-                {currencyText(isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower")}
+                {currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price")}
               </span>
             </Button>
           ) : null}
@@ -5834,6 +5834,7 @@ export function UsdtExchangePage({
           priceMode={purchasePriceMode}
           offeredPrice={buyerOfferedPrice}
           minimumOfferedPrice={selectedOfferBounds?.minimumPrice ?? ""}
+          maximumOfferedPrice={selectedOfferBounds?.maximumPrice ?? ""}
           offerPriceInvalid={Boolean(selectedOfferValidation && !selectedOfferValidation.ok)}
           offeredTradePrice={selectedTradePrice}
           requiresSafetyNotice={selectedListingRequiresSafetyNotice}

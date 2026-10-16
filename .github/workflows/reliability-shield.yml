@@ -100,6 +100,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Preserve offer limits and connection recovery screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: platform-audit-screenshots
+          path: |
+            test-results/**/offer-boundary-*.png
+            test-results/**/connection-*.png
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Preserve profile phone and desktop visual checks
         if: always()
         uses: actions/upload-artifact@v4
