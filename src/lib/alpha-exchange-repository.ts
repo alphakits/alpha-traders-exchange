@@ -814,7 +814,30 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       await bulkInsert(tx, `INSERT INTO alpha_exchange.purchase_requests (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
 SELECT id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at::timestamptz, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[])
-  AS t(id,trade_id,listing_id,seller_id,buyer_id,status,timed_out_at,completed_at,created_at,updated_at,sort_index,payload)`, [
+  AS t(id,trade_id,listing_id,seller_id,buyer_id,status,timed_out_at,completed_at,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  trade_id = excluded.trade_id,
+  listing_id = excluded.listing_id,
+  seller_id = excluded.seller_id,
+  buyer_id = excluded.buyer_id,
+  status = excluded.status,
+  timed_out_at = excluded.timed_out_at,
+  completed_at = excluded.completed_at,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.purchase_requests.trade_id IS DISTINCT FROM excluded.trade_id
+   OR alpha_exchange.purchase_requests.listing_id IS DISTINCT FROM excluded.listing_id
+   OR alpha_exchange.purchase_requests.seller_id IS DISTINCT FROM excluded.seller_id
+   OR alpha_exchange.purchase_requests.buyer_id IS DISTINCT FROM excluded.buyer_id
+   OR alpha_exchange.purchase_requests.status IS DISTINCT FROM excluded.status
+   OR alpha_exchange.purchase_requests.timed_out_at IS DISTINCT FROM excluded.timed_out_at
+   OR alpha_exchange.purchase_requests.completed_at IS DISTINCT FROM excluded.completed_at
+   OR alpha_exchange.purchase_requests.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.purchase_requests.updated_at IS DISTINCT FROM excluded.updated_at
+   OR alpha_exchange.purchase_requests.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.purchase_requests.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.tradeId ?? null),
         rows.map(r => r.listingId),
@@ -838,7 +861,20 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       await bulkInsert(tx, `INSERT INTO alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
 SELECT id, user_id, category, is_read::boolean, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
-  AS t(id,user_id,category,is_read,created_at,sort_index,payload)`, [
+  AS t(id,user_id,category,is_read,created_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  user_id = excluded.user_id,
+  category = excluded.category,
+  is_read = excluded.is_read,
+  created_at = excluded.created_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.notifications.user_id IS DISTINCT FROM excluded.user_id
+   OR alpha_exchange.notifications.category IS DISTINCT FROM excluded.category
+   OR alpha_exchange.notifications.is_read IS DISTINCT FROM excluded.is_read
+   OR alpha_exchange.notifications.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.notifications.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.notifications.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.userId),
         rows.map(r => r.category),
@@ -857,7 +893,28 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       await bulkInsert(tx, `INSERT INTO alpha_exchange.commissions (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
 SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
-  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)`, [
+  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  purchase_request_id = excluded.purchase_request_id,
+  listing_id = excluded.listing_id,
+  seller_id = excluded.seller_id,
+  buyer_id = excluded.buyer_id,
+  payment_status = excluded.payment_status,
+  due_at = excluded.due_at,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.commissions.purchase_request_id IS DISTINCT FROM excluded.purchase_request_id
+   OR alpha_exchange.commissions.listing_id IS DISTINCT FROM excluded.listing_id
+   OR alpha_exchange.commissions.seller_id IS DISTINCT FROM excluded.seller_id
+   OR alpha_exchange.commissions.buyer_id IS DISTINCT FROM excluded.buyer_id
+   OR alpha_exchange.commissions.payment_status IS DISTINCT FROM excluded.payment_status
+   OR alpha_exchange.commissions.due_at IS DISTINCT FROM excluded.due_at
+   OR alpha_exchange.commissions.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.commissions.updated_at IS DISTINCT FROM excluded.updated_at
+   OR alpha_exchange.commissions.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.commissions.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.purchaseRequestId ?? null),
         rows.map(r => r.listingId ?? null),
@@ -880,7 +937,24 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       await bulkInsert(tx, `INSERT INTO alpha_exchange.audit_logs (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
 SELECT id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
-  AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)`, [
+  AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  action = excluded.action,
+  actor_user_id = excluded.actor_user_id,
+  target_user_id = excluded.target_user_id,
+  listing_id = excluded.listing_id,
+  purchase_request_id = excluded.purchase_request_id,
+  created_at = excluded.created_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.audit_logs.action IS DISTINCT FROM excluded.action
+   OR alpha_exchange.audit_logs.actor_user_id IS DISTINCT FROM excluded.actor_user_id
+   OR alpha_exchange.audit_logs.target_user_id IS DISTINCT FROM excluded.target_user_id
+   OR alpha_exchange.audit_logs.listing_id IS DISTINCT FROM excluded.listing_id
+   OR alpha_exchange.audit_logs.purchase_request_id IS DISTINCT FROM excluded.purchase_request_id
+   OR alpha_exchange.audit_logs.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.audit_logs.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.audit_logs.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.action),
         rows.map(r => r.actorUserId),
@@ -1331,6 +1405,15 @@ async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName
       evidenceContentById: context?.evidenceContentById ?? new Map(),
       evidenceOverrides: context?.evidenceOverrides,
     });
+    return;
+  }
+  // Preserve stable row identities and dependent records. A full snapshot may
+  // remove missing IDs, but must not transiently delete rows it is keeping.
+  if (["purchase_requests", "notifications", "commissions", "audit_logs"].includes(tableName)) {
+    const table = getTable(tableName);
+    const rows = table.values(db) as Array<{ id: string }>;
+    await tx.query(`delete from alpha_exchange.${tableName} where not (id = any($1::text[]))`, [rows.map(row => row.id)]);
+    await table.insert(tx, rows, { evidenceContentById: context?.evidenceContentById ?? new Map(), evidenceOverrides: context?.evidenceOverrides });
     return;
   }
   await tx.query(`delete from alpha_exchange.${tableName}`);

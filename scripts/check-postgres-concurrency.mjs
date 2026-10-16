@@ -148,6 +148,11 @@ try {
   assert.equal(new Set(active.map(request => request.tradeId)).size, 45);
   passed("15 concurrent sellers, 60 buyer requests, three accepted per seller", { accepted: 45, blocked: 15, prematureCommissions: 0 });
 
+  // A retained request must never be transiently deleted during snapshot
+  // replacement. Such a deletion can silently cascade a dependent record.
+  await pool.query("create table alpha_exchange.audit_reference_probe(request_id text primary key references alpha_exchange.purchase_requests(id) on delete cascade)");
+  await pool.query("insert into alpha_exchange.audit_reference_probe select unnest($1::text[])", [active.map(request => request.id)]);
+
   // Independent application instances restart while trades are active.
   for (const worker of workers) worker.child.kill("SIGKILL");
   workers.splice(0, workers.length, ...Array.from({ length: 4 }, (_, index) => startWorker(index + 4)));
@@ -194,6 +199,8 @@ try {
     }
   }
   passed("Duplicate completion settles and deducts inventory exactly once", { submissions: 90, trades: 45, commissions: 45 });
+  assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.audit_reference_probe")).rows[0].n, 45);
+  passed("Retained trade references survive every lifecycle write and process restart", { references: 45 });
 
   const manualCommand = { sellerId: "audit-seller-0", actorUserId: "audit-owner", commissionAmount: 7.25,
     reason: "Synthetic owner assignment", clientOperationId: randomUUID() };
