@@ -28,6 +28,13 @@ it("recovers from an induced outage and supports Arabic", async () => {
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => expect(screen.getByRole("status").textContent).toBe("نجح آخر فحص"));
 });
+it("retains same-origin preview access when the health route is protected", async () => {
+  vi.stubGlobal("fetch", vi.fn((_url: unknown, init?: RequestInit) => Promise.resolve(
+    init?.credentials === "same-origin" ? Response.json(healthy()) : new Response("Deployment authentication required", { status: 401 }),
+  )));
+  render(<FooterConnectionCheck isAr={false} />); fireEvent.click(screen.getByRole("button"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Last check passed"));
+});
 it("bounds a stalled transport and makes retry available", async () => {
   vi.useFakeTimers(); vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   render(<FooterConnectionCheck isAr={false} />); fireEvent.click(screen.getByRole("button"));

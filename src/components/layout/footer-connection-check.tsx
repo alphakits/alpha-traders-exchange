@@ -17,7 +17,7 @@ export function FooterConnectionCheck({ isAr }: { isAr: boolean }) {
     try {
       const { response, payload } = await fetchClientJson<{
         status?: string; checks?: { database?: string }; timestamp?: string;
-      }>("/api/health", { cache: "no-store", credentials: "omit", signal: controller.signal }, 5_000);
+      }>("/api/health", { cache: "no-store", credentials: "same-origin", signal: controller.signal }, 5_000);
       const age = Date.now() - Date.parse(payload?.timestamp ?? "");
       if (!response.ok || payload?.status !== "ok" || payload?.checks?.database !== "ok" || !Number.isFinite(age) || age < -5_000 || age > 90_000) throw new Error("health_unconfirmed");
       if (active.current === controller) setState("ok");
