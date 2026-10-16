@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null }));
-import { derivePublicProfileUsername, getAccountProfileData, updateAccountProfileData, createPurchaseRequest, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
+import { derivePublicProfileUsername, getAccountProfileData, updateAccountProfileData, createPurchaseRequest, getMarketplaceListings, getMyPurchaseRequests, getNotificationsForUser, getTradeRoomData, getPremiumSellerProfile, getPublicUserProfileRouteData, getTrustEngineOverviewForAdmin, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import { publicAccountId } from "@/lib/public-account-identity";
 import { toMobileAccountProfile } from "@/lib/mobile-account-profile";
 import { toMobileTradeDetail } from "@/lib/mobile-trades";
@@ -21,6 +21,30 @@ beforeEach(() => { globalThis.__alphaExchangeMemorySnapshot = seed() as never; g
 afterEach(() => { invalidateAlphaExchangeStoreCache(); globalThis.__alphaExchangeMemorySnapshot = undefined as never; globalThis.__alphaExchangeRepositoryPromise = undefined as never; });
 
 describe("account rank consistency and privacy", () => {
+  it("replaces fabricated cached statistics with current outcomes across public, private and owner views", async () => {
+    const db = seed();
+    db.purchaseRequests = Array.from({ length: 20 }, (_, index) => trade(`cancelled-${index}`, "10", "cancelled"));
+    db.trustSnapshots = [{ sellerId: "seller-one", updatedAt: now, snapshot: {
+      sellerId: "seller-one", trustScore: 99, totalUsdtVolume: 0, level: "bronze", badges: ["top_rated"],
+      rating: 5, completedTrades: 200, responseTimeMinutes: 1, disputesLost: 3, marketplaceViolations: 2,
+      profileViews: 999, listingViews: 888, customerSatisfaction: 99, monthlyGrowthPercent: 64,
+    } }] as AlphaExchangeDb["trustSnapshots"];
+    db.commissionRecords = [
+      { id: "paid", sellerId: "seller-one", commissionCalculationVersion: "usdt_6dp_v2", commissionAmount: 0.002, paymentStatus: "paid", createdAt: now, updatedAt: now },
+      { id: "unpaid", sellerId: "seller-one", commissionCalculationVersion: "usdt_6dp_v2", commissionAmount: 10, paymentStatus: "pending", createdAt: now, updatedAt: now },
+    ] as AlphaExchangeDb["commissionRecords"];
+    globalThis.__alphaExchangeMemorySnapshot = db as never;
+    invalidateAlphaExchangeStoreCache();
+    const listing = (await getMarketplaceListings("active"))[0];
+    expect(listing.sellerReputation).toMatchObject({ rating: 0, completedTrades: 0, successRate: 0, cancellationRate: 100, marketplaceViolations: 0 });
+    expect(listing.sellerReputation?.disputesLost).toBeUndefined();
+    const own = await getAccountProfileData("seller-one");
+    expect(own.stats).toMatchObject({ commissionPaid: 0.002, completedTrades: 0 });
+    const owner = await getTrustEngineOverviewForAdmin(db);
+    expect(owner.flaggedSellers.find(row => row.sellerId === "seller-one")?.reason).toBe("High cancellation rate");
+    expect(JSON.stringify(owner)).not.toContain("Disputes lost");
+  });
+
   it("shows the public owner identity while reserving members' identities and contact details for the canonical owner", async () => {
     const db = seed();
     const owner = { ...user("owner-one", true), fullName: "Alex Morgan", role: "owner", roles: ["owner", "admin"], profilePhotoUrl: "https://example.test/owner.jpg", whatsappNumber: "+972501111111" } as AlphaExchangeUser;

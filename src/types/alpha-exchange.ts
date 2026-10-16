@@ -406,18 +406,20 @@ export interface SellerReputationSnapshot {
   cancellationRate: number;
   completionRate: number;
   responseTimeMinutes: number;
-  customerSatisfaction: number;
+  customerSatisfaction?: number;
   recentActivityScore: number;
   accountAgeDays: number;
   profileCompletion: number;
   verificationScore: number;
-  disputesLost: number;
+  /** Unavailable until a dispute records an adjudicated losing party. */
+  disputesLost?: number;
+  accountSuspended?: boolean;
   marketplaceViolations: number;
   listingQualityScore: number;
-  profileViews: number;
-  listingViews: number;
+  profileViews?: number;
+  listingViews?: number;
   tradeRequests: number;
-  monthlyGrowthPercent: number;
+  monthlyGrowthPercent?: number;
   estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;

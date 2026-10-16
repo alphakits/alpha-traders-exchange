@@ -3326,7 +3326,6 @@ export function UsdtExchangePage({
       return acc;
     }, {});
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
-    const estimatedCommissionPaid = insightMetrics.revenueGenerated * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
     return {
       activeListings: myListings.filter((listing) => listing.status === "active").length,
@@ -3340,7 +3339,6 @@ export function UsdtExchangePage({
       tradeRequests: sellerRequests.length,
       successRate: insightMetrics.successRate,
       completionRate: insightMetrics.completionRate,
-      estimatedCommissionPaid,
       revenueGenerated: insightMetrics.revenueGenerated,
       repeatBuyers: repeatBuyersCount,
       averageTradeSize: insightMetrics.averageTradeSize,

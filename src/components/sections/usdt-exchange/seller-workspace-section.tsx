@@ -100,7 +100,6 @@ type SellerOverviewStats = {
   tradeRequests: number;
   successRate: number;
   completionRate: number;
-  estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;
   averageTradeSize: number;

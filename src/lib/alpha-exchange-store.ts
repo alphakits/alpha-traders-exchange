@@ -3,7 +3,7 @@ import { priceAlertSchema, priceAlertMatchesListing, readMarketplacePriceAlert, 
 import { accountSessionId, presentAccountSession } from "@/lib/account-session-presentation";
 import { buildMarketplaceOperationalSnapshot } from "@/lib/marketplace-operational-health";
 import { ownerFollowUpAlerts, OWNER_FOLLOW_UP_REASON } from "@/lib/owner-follow-up-alerts";
-import { measureSellerActivity, withMeasuredSellerActivity } from "@/lib/seller-activity-metrics";
+import { measureSellerActivity } from "@/lib/seller-activity-metrics";
 import { readUserPresence, visibleUserPresence, endPresenceSession } from "@/lib/user-presence-store";
 import { deriveUserPresence } from "@alpha-traders/contracts";
 import { normalizePrivateContact, requiresBuyerContact } from "@/lib/buyer-contact";
@@ -1869,17 +1869,8 @@ function isTrustEligibleSeller(user: AlphaExchangeUser) {
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
-  const measured = (snapshot: SellerReputationSnapshot) => withMeasuredSellerActivity(snapshot, db.purchaseRequests.filter(request => request.sellerId === snapshot.sellerId));
-  if (db.trustSnapshots.length) {
-    const sellers = new Map(db.users.map(user => [user.id, user]));
-    return new Map(db.trustSnapshots.map(entry => {
-      const seller = sellers.get(entry.sellerId);
-      if (!seller) return [entry.sellerId, entry.snapshot];
-      const volume = Math.max(0, entry.snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
-      const rank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(volume, seller.sellerPrestigeRank);
-      return [entry.sellerId, measured({ ...entry.snapshot, totalUsdtVolume: volume, level: rank, ...buildPrestigeFieldsForSnapshot({ volumeUsdt: volume, rank, isOverridden: Boolean(seller.sellerRankOverride) }) })];
-    }));
-  }
+  // Cached legacy snapshots included estimated facts. Recompute from current
+  // records so public pages, owner reports and worker decisions agree.
   const listingsBySeller = new Map<string, MarketplaceListing[]>();
   for (const listing of db.marketplaceListings) {
     const rows = listingsBySeller.get(listing.sellerId);
@@ -1906,6 +1897,7 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
         listings: listingsBySeller.get(seller.id) ?? [],
         requests: requestsBySeller.get(seller.id) ?? [],
         commissions: commissionsBySeller.get(seller.id) ?? [],
+        enforcementRecords: getMarketplaceEnforcementRecords(db),
       });
       snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
       const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
@@ -1922,7 +1914,7 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
       return snapshot;
     });
   const ranked = rankTrustSnapshots(base);
-  return new Map(ranked.map((snapshot) => [snapshot.sellerId, measured(snapshot)]));
+  return new Map(ranked.map((snapshot) => [snapshot.sellerId, snapshot]));
 }
 
 function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string): SellerReputationSnapshot {
@@ -1950,18 +1942,18 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
       cancellationRate: 0,
       completionRate: 0,
       responseTimeMinutes: 0,
-      customerSatisfaction: 0,
+      customerSatisfaction: undefined,
       recentActivityScore: 0,
       accountAgeDays: 0,
       profileCompletion: 0,
       verificationScore: 0,
-      disputesLost: 0,
+      disputesLost: undefined,
       marketplaceViolations: 0,
       listingQualityScore: 0,
-      profileViews: 0,
-      listingViews: 0,
+      profileViews: undefined,
+      listingViews: undefined,
       tradeRequests: 0,
-      monthlyGrowthPercent: 0,
+      monthlyGrowthPercent: undefined,
       estimatedCommissionPaid: 0,
       revenueGenerated: 0,
       repeatBuyers: 0,
@@ -1979,6 +1971,7 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
     listings: db.marketplaceListings.filter((listing) => listing.sellerId === seller.id),
     requests: db.purchaseRequests.filter((request) => request.sellerId === seller.id),
     commissions: db.commissionRecords.filter((record) => record.sellerId === seller.id),
+    enforcementRecords: getMarketplaceEnforcementRecords(db),
     marketplacePosition: 0,
   });
   snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
@@ -1993,7 +1986,7 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
       isOverridden: Boolean(seller.sellerRankOverride),
     }),
   );
-  return withMeasuredSellerActivity(snapshot, db.purchaseRequests.filter(request => request.sellerId === sellerId));
+  return snapshot;
 }
 
 const LISTING_END_STATUSES = new Set<ListingStatus>(["completed", "cancelled", "closed", "expired"]);
@@ -5848,13 +5841,13 @@ function isSellerTrustFlagged(snapshot: SellerReputationSnapshot | undefined) {
   if (!snapshot) return false;
   return snapshot.trustScore < 55
     || snapshot.marketplaceViolations > 0
-    || snapshot.disputesLost >= 3
+    || snapshot.accountSuspended === true
     || snapshot.cancellationRate >= 20;
 }
 
 function hasConcreteSellerRiskSignal(snapshot: SellerReputationSnapshot) {
   return snapshot.marketplaceViolations > 0
-    || snapshot.disputesLost >= 3
+    || snapshot.accountSuspended === true
     || snapshot.cancellationRate >= 20;
 }
 
@@ -5900,6 +5893,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
           listings: listingsBySeller.get(seller.id) ?? [],
           requests: requestsBySeller.get(seller.id) ?? [],
           commissions: commissionsBySeller.get(seller.id) ?? [],
+          enforcementRecords: getMarketplaceEnforcementRecords(db),
         });
         snapshot.totalUsdtVolume = Math.max(snapshot.totalUsdtVolume, seller.lifetimeCompletedVolumeUsdt ?? 0);
       const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
@@ -18308,7 +18302,7 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   if (trustInitialized && !dbInput) {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
-  const snapshots = db.trustSnapshots.map((entry) => entry.snapshot);
+  const snapshots = [...computeTrustSnapshotMap(db).values()];
   const byScoreDesc = [...snapshots].sort((a, b) => b.trustScore - a.trustScore);
   const byScoreAsc = [...snapshots].sort((a, b) => a.trustScore - b.trustScore);
   const historyWindow = db.trustScoreHistory.slice(0, 500);
@@ -18326,7 +18320,7 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   }));
 
   const flagged = snapshots
-    .filter((snapshot) => snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.disputesLost >= 3 || snapshot.cancellationRate >= 20)
+    .filter((snapshot) => snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.accountSuspended === true || snapshot.cancellationRate >= 20)
     .sort((a, b) => a.trustScore - b.trustScore)
     .slice(0, 5)
     .map((snapshot) => ({
@@ -18336,9 +18330,9 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
       level: snapshot.level,
       reason:
         snapshot.marketplaceViolations > 0
-          ? "Marketplace violations"
-          : snapshot.disputesLost >= 3
-            ? "Disputes lost"
+          ? "Active marketplace enforcement"
+          : snapshot.accountSuspended === true
+            ? "Account suspended"
             : snapshot.cancellationRate >= 20
               ? "High cancellation rate"
               : "Low trust score",
