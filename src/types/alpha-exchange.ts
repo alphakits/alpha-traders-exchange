@@ -857,6 +857,8 @@ export interface PurchaseRequest {
   commissionCalculationVersion?: "usdt_6dp_v2";
   /** Server-owned count of submitted financial proposals; never refunded. */
   amountAdjustmentCount?: number;
+  /** Durable, server-owned follow-up committed with a terminal trade transition. */
+  trustReconciliation?: { requestedAt: string; requestedByUserId: string; reconciledAt?: string };
   termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;

@@ -24,6 +24,7 @@ let sequence = 0;
 const timings = [];
 const workers = [];
 const checks = [];
+const queryMetrics = [];
 let peakActiveConnections = 0;
 function startWorker(index) {
   const child = fork(workerFile, [], { env: { PATH: process.env.PATH, NODE_ENV: "production",
@@ -39,7 +40,8 @@ function startWorker(index) {
     clearTimeout(task.timeout); pending.delete(message.id);
     timings.push({ operation: task.operation, requestId: task.input?.requestId, nextStatus: task.input?.nextStatus,
       ok: message.ok, code: message.code, details: message.details, elapsedMs: message.elapsedMs,
-      actionElapsedMs: message.result?.actionElapsedMs, backgroundElapsedMs: message.result?.backgroundElapsedMs, worker: index });
+      actionElapsedMs: message.result?.actionElapsedMs, backgroundElapsedMs: message.result?.backgroundElapsedMs,
+      metrics: message.result?.metrics, worker: index });
     task.resolve(message);
   });
   child.on("exit", (code, signal) => {
@@ -56,6 +58,9 @@ function passed(name, details) { checks.push({ name, status: "PASS", details });
 function requireOk(result) { assert.equal(result.ok, true, `${result.code ?? ""}: ${result.error ?? ""}`); return result.result; }
 async function batch(commands) {
   return Promise.all(commands.map((command, index) => workers[index % workers.length].call(command.operation, command.input)));
+}
+async function captureQueryMetrics(phase) {
+  queryMetrics.push({ phase, workers: (await Promise.all(workers.map(worker => worker.call("query-timings")))).map(requireOk) });
 }
 const now = new Date().toISOString();
 function user(id, seller, index) {
@@ -154,6 +159,7 @@ try {
   await pool.query("insert into alpha_exchange.audit_reference_probe select unnest($1::text[])", [active.map(request => request.id)]);
 
   // Independent application instances restart while trades are active.
+  await captureQueryMetrics("acceptance-before-process-restart");
   for (const worker of workers) worker.child.kill("SIGKILL");
   workers.splice(0, workers.length, ...Array.from({ length: 4 }, (_, index) => startWorker(index + 4)));
   (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
@@ -214,9 +220,42 @@ try {
   assert.equal(snapshot.auditLogs.filter(row => row.action === "commission_recorded" && row.newValue?.commissionId === assigned[0].id).length, 1);
   passed("Concurrent owner commission retries create one obligation and reject changed terms", { submissions: 8, obligations: 1 });
 
+  // Stop every process after an additional synthetic trade commits, deliberately
+  // omitting its after-response callback. Its durable intent must recover while
+  // preserving an account restriction/password change committed afterwards.
+  const recoveryRequest = { ...fixture.purchaseRequests[0], id: "audit-recovery-request", listingId: "audit-recovery-listing",
+    tradeId: "audit-recovery-trade", status: "usdt_sent", usdtSentAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  snapshot.marketplaceListings.push({ ...fixture.marketplaceListings[0], id: recoveryRequest.listingId,
+    originalAmount: "1000", availableAmount: "1000", status: "in_trade", activeTradeRequestId: recoveryRequest.id });
+  snapshot.purchaseRequests.push(recoveryRequest);
+  requireOk(await workers[0].call("seed", snapshot));
+  requireOk(await workers[0].call("status-with-lost-follow-up", { ...sellerCommand(recoveryRequest, "completed").input,
+    completionMode: "seller", usdtSentConfirmed: true }));
+  snapshot = requireOk(await workers[0].call("snapshot"));
+  assert(snapshot.purchaseRequests.find(row => row.id === recoveryRequest.id).trustReconciliation?.requestedAt);
+  assert(!snapshot.purchaseRequests.find(row => row.id === recoveryRequest.id).trustReconciliation?.reconciledAt);
+  const changedAccount = snapshot.users.find(row => row.id === "audit-buyer-14-3");
+  changedAccount.disabled = true; changedAccount.passwordHash = "synthetic-new-account-password-hash";
+  requireOk(await workers[0].call("seed", snapshot));
+  await captureQueryMetrics("all-payment-methods-and-before-lost-follow-up-restart");
+  for (const worker of workers) worker.child.kill("SIGKILL");
+  workers.splice(0, workers.length, ...Array.from({ length: 4 }, (_, index) => startWorker(index + 8)));
+  (await Promise.all(workers.map(worker => worker.call("ready")))).forEach(requireOk);
+  const reconciled = (await Promise.all(workers.map(worker => worker.call("reconcile-trust")))).map(requireOk);
+  assert.equal(reconciled.reduce((total, result) => total + result.reconciled, 0), 1);
+  snapshot = requireOk(await workers[0].call("snapshot"));
+  assert(snapshot.purchaseRequests.find(row => row.id === recoveryRequest.id).trustReconciliation?.reconciledAt);
+  assert.equal(snapshot.commissionRecords.filter(row => row.purchaseRequestId === recoveryRequest.id).length, 1);
+  assert.equal(snapshot.marketplaceListings.find(row => row.id === recoveryRequest.listingId).availableAmount, "750");
+  assert.equal(snapshot.users.find(row => row.id === changedAccount.id).disabled, true);
+  assert.equal(snapshot.users.find(row => row.id === changedAccount.id).passwordHash, "synthetic-new-account-password-hash");
+  assert.equal(snapshot.users.find(row => row.id === recoveryRequest.sellerId).lifetimeCompletedVolumeUsdt, 1000);
+  passed("Lost completion follow-up recovers after all workers restart without reverting account security or settlement", { recovered: 1, workers: 4, duplicateSettlements: 0 });
+
   const before = snapshot.marketplaceListings[0];
+  await captureQueryMetrics("trust-recovery-before-transaction-kill");
   requireOk(await workers[0].call("hold-uncommitted-write", before.id));
-  workers[0].child.kill("SIGKILL"); workers[0] = startWorker(8);
+  workers[0].child.kill("SIGKILL"); workers[0] = startWorker(12);
   requireOk(await workers[0].call("ready"));
   assert.equal(requireOk(await workers[0].call("manual-commission", manualCommand)).id, assigned[0].id);
   const recovered = requireOk(await workers[0].call("snapshot"));
@@ -224,6 +263,8 @@ try {
   passed("Killed process rolls back its unfinished database transaction", { listing: before.id, availableAmount: before.availableAmount });
   assert(peakActiveConnections >= 2, `No overlapping PostgreSQL activity observed: ${peakActiveConnections}`);
   passed("Observed simultaneous database activity across independent processes", { peakActiveConnections });
+  await captureQueryMetrics("final");
+  await writeFile(path.join(output, "query-timings.json"), JSON.stringify({ scope: "Incremental query aggregates captured before each controlled process stop; no SQL text or bound values", phases: queryMetrics }, null, 2));
   await writeFile(path.join(output, "runtime.json"), JSON.stringify(runtime, null, 2));
 } catch (error) {
   checks.push({ name: "Database concurrency run", status: "FAIL", error: error.stack ?? String(error) });

@@ -1,6 +1,6 @@
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
-import { getRuntimePostgresPool } from "./postgres-runtime";
-import { getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, updatePurchaseRequestStatus, updateTradeTerms, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
+import { getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, updatePurchaseRequestStatus, updateTradeTerms, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
@@ -22,12 +22,14 @@ async function execute(operation: string, input: unknown) {
     return { seeded: true };
   }
   if (operation === "snapshot") return repository.loadSnapshot();
-  if (operation === "status") {
+  if (operation === "query-timings") return getAuditQueryTimings();
+  if (operation === "reconcile-trust") return reconcilePendingTradeTrust();
+  if (operation === "status" || operation === "status-with-lost-follow-up") {
     const actionStarted = performance.now();
     const result = await updatePurchaseRequestStatus(input as Parameters<typeof updatePurchaseRequestStatus>[0]);
     const actionElapsedMs = performance.now() - actionStarted;
     const backgroundStarted = performance.now();
-    await result.deferredTrustWrite?.();
+    if (operation === "status") await result.deferredTrustWrite?.();
     return { request: result.request, statusChanged: result.statusChanged, metrics: result.metrics,
       actionElapsedMs, backgroundElapsedMs: performance.now() - backgroundStarted };
   }

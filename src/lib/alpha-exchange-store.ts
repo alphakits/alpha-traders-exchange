@@ -3572,7 +3572,8 @@ export async function runAlphaExchangeMaintenance() {
   if (changed || numberingChanged) {
     await writeDb(db);
   }
-  return { changed: changed || numberingChanged };
+  const trust = await reconcilePendingTradeTrust();
+  return { changed: changed || numberingChanged || trust.reconciled > 0 };
 }
 
 export const TRADE_ACTION_REMINDER_INTERVAL_MS = 60 * 60_000;
@@ -4074,9 +4075,9 @@ const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "a
 const PASSWORD_RESET_TABLES = ["password_reset_tokens"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: core trade state written synchronously (critical path).
-const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: trust data written after the response via after() (non-critical path).
-const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
@@ -5178,6 +5179,59 @@ type TradeMutationPublications = {
   calculatingTrust: boolean;
 };
 const tradeMutationPublications = new WeakMap<AlphaExchangeDb, TradeMutationPublications>();
+
+let tradeTrustReconciliationInFlight: Promise<{ reconciled: number }> | null = null;
+
+/** Recoverable derived-state work. No stale account snapshot is ever replayed. */
+export function reconcilePendingTradeTrust(): Promise<{ reconciled: number }> {
+  if (tradeTrustReconciliationInFlight) return tradeTrustReconciliationInFlight;
+  const task = (async () => {
+    let reconciled = 0;
+    // Bound each invocation so continuous trading cannot monopolize a worker.
+    // Every unprocessed intent remains in the committed request for the next run.
+    for (let batch = 0; batch < 4; batch++) {
+      const { db } = await readDbForCriticalTradeMutation(TRADE_STATUS_TERMINAL_READ_TABLES);
+      if (!db.purchaseRequests.some(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt)) break;
+      let publications: TradeMutationPublications;
+      let committedCount = 0;
+      const apply = async (snapshot: AlphaExchangeDb) => {
+        publications = { notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: true };
+        const pending = snapshot.purchaseRequests.filter(request => request.trustReconciliation && !request.trustReconciliation.reconciledAt);
+        committedCount = pending.length;
+        if (!pending.length) return snapshot;
+        tradeMutationPublications.set(snapshot, publications);
+        try {
+          await recalculateTrustEngine(snapshot, {
+            reason: "Committed trade lifecycle reconciliation",
+            triggeredBy: pending.length === 1 ? pending[0].trustReconciliation!.requestedByUserId : SYSTEM_ACTOR_USER_ID,
+          });
+        } finally { tradeMutationPublications.delete(snapshot); }
+        const reconciledAt = nowIso();
+        for (const request of pending) request.trustReconciliation = { ...request.trustReconciliation!, reconciledAt };
+        return snapshot;
+      };
+      await apply(db);
+      await writeDb(db, {
+        selectedTables: TRADE_COMPLETION_TRUST_TABLES,
+        rebaseOnLatest: apply,
+        rebaseTables: TRADE_STATUS_TERMINAL_READ_TABLES,
+        cacheResult: false,
+      });
+      // If another process changed any record while this work waited, apply()
+      // recalculated under the transaction lock and replaced the publications.
+      publications!.trustNotifications.forEach(publishNotificationPublication);
+      publications!.trustEvents.forEach(publishRealtimeEvent);
+      for (const email of publications!.promotionEmails) await sendSellerPrestigePromotionEmail(email);
+      reconciled += committedCount;
+    }
+    return { reconciled };
+  })();
+  tradeTrustReconciliationInFlight = task;
+  void task.finally(() => {
+    if (tradeTrustReconciliationInFlight === task) tradeTrustReconciliationInFlight = null;
+  }).catch(() => undefined);
+  return task;
+}
 
 function publishOrDeferNotification(db: AlphaExchangeDb, publication: DeferredNotificationPublication) {
   const pending = tradeMutationPublications.get(db);
@@ -11128,6 +11182,7 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   const redacted: PurchaseRequest = {
     ...request,
     amountAdjustmentCount: getTradeAmountAdjustmentCount(request),
+    trustReconciliation: undefined,
     sellerBankAccountSnapshot: undefined,
     buyerName: canViewPrivateContent || request.buyerIsOwner ? request.buyerName : publicAccountName({ id: request.buyerId }),
     timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
@@ -14871,16 +14926,11 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
   const shouldRecalculateTrust = input.nextStatus === "completed" || input.nextStatus === "declined" || input.nextStatus === "cancelled";
-  const beforeTrustMs = Date.now();
   if (shouldRecalculateTrust) {
-    pendingPublications.calculatingTrust = true;
-    await recalculateTrustEngine(db, {
-      reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated",
-      triggeredBy: input.actorUserId,
-    });
-    pendingPublications.calculatingTrust = false;
+    next.trustReconciliation = { requestedAt: now, requestedByUserId: input.actorUserId };
   }
-  const trustMs = Date.now() - beforeTrustMs;
+  // Trust work is durable and runs after this commit from canonical records.
+  const trustMs = 0;
 
   if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
@@ -14891,9 +14941,8 @@ async function updatePurchaseRequestStatusAttempt(
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
   });
-  // For trust-affecting transitions, write only the core trade tables synchronously so the
-  // response returns quickly (≤5s target). Trust-related tables (user profiles, snapshots,
-  // activity logs) are written in a deferred task via after() in the route handler.
+  // Commit financial state and its durable follow-up together. Trust calculation
+  // and publication are recovered by maintenance if the after() task is lost.
   try {
     await writeDb(db, {
       traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
@@ -15074,10 +15123,7 @@ async function updatePurchaseRequestStatusAttempt(
     // The route handler runs this via after() so the HTTP response is sent first.
     deferredTrustWrite: shouldRecalculateTrust
       ? () => deferredTrustTask ??= (async () => {
-          await writeDb(db, { selectedTables: TRADE_COMPLETION_TRUST_TABLES });
-          pendingPublications.trustNotifications.forEach(publishNotificationPublication);
-          pendingPublications.trustEvents.forEach(publishRealtimeEvent);
-          for (const email of pendingPublications.promotionEmails) await sendSellerPrestigePromotionEmail(email);
+          await reconcilePendingTradeTrust();
         })()
       : undefined,
     metrics: {

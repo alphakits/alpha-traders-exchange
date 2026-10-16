@@ -261,6 +261,7 @@ function operationalIncidentLabel(kind: MarketplaceOperationalIncidentKind, isAr
     stalled_trade: { en: "Trade still idle after buyer reminder", ar: "الصفقة ما زالت متوقفة بعد تذكير المشتري" },
     orphaned_listing_lock: { en: "Listing lock has no active trade", ar: "قفل العرض غير مرتبط بصفقة نشطة" },
     unlinked_active_trade: { en: "Active trade is not linked to its listing", ar: "الصفقة النشطة غير مرتبطة بعرضها" },
+    pending_trade_trust: { en: "Trade reputation update is delayed", ar: "تأخر تحديث سمعة الصفقة" },
   };
   return isArabic ? labels[kind].ar : labels[kind].en;
 }

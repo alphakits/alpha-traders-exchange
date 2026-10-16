@@ -1303,6 +1303,18 @@ describe("AlphaExchangeRepository", () => {
     expect(saved.purchaseRequests[0]).toMatchObject({ status: "payment_sent", feePolicyVersion: "buyer_seller_1pct_v1", commissionCalculationVersion: "usdt_6dp_v2" });
   });
 
+  it.each([true, false])("preserves reconciled trade trust work from stale maintenance (legacy=%s)", async legacy => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const intent = { requestedAt: "2026-10-17T00:01:00.000Z", requestedByUserId: "seller-1", reconciledAt: "2026-10-17T00:02:00.000Z" };
+    const request = { id: "trust-trade", status: "completed", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1",
+      createdAt: intent.requestedAt, updatedAt: intent.requestedAt, trustReconciliation: intent };
+    globalThis.__alphaExchangeMemorySnapshot = { ...baseline, purchaseRequests: [request], __runtimeVersion: 2 } as never;
+    await repository.saveSnapshot({ ...baseline, purchaseRequests: [{ ...request,
+      updatedAt: "2026-10-17T00:03:00.000Z", trustReconciliation: legacy ? undefined : { ...intent, reconciledAt: undefined } }], __runtimeVersion: 1 } as unknown as AlphaExchangeDb);
+    expect((globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb).purchaseRequests[0].trustReconciliation).toEqual(intent);
+  });
+
   it("does not let stale maintenance change issued commission precision, shares or amount", async () => {
     const repository = new AlphaExchangeRepository(null);
     const baseline = await repository.loadSnapshot();

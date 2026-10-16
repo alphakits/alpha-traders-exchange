@@ -38,10 +38,12 @@ export function ownerFollowUpAlerts(
       stalled_trade: ["Trade needs follow-up", "صفقة تحتاج إلى متابعة"],
       orphaned_listing_lock: ["Listing lock needs review", "قفل عرض يحتاج إلى مراجعة"],
       unlinked_active_trade: ["Trade linkage needs review", "ارتباط صفقة يحتاج إلى مراجعة"],
+      pending_trade_trust: ["Trade reputation update is delayed", "تأخر تحديث سمعة الصفقة"],
     };
     const episode = incident.kind === "stalled_trade"
       ? `${request?.status}:${request?.inactivityWarningSentAt}`
-      : incident.kind === "overdue_usdt_release" ? request?.usdtReleaseDeadlineAt ?? "" : "";
+      : incident.kind === "overdue_usdt_release" ? request?.usdtReleaseDeadlineAt ?? ""
+      : incident.kind === "pending_trade_trust" ? request?.trustReconciliation?.requestedAt ?? "" : "";
     return {
       reason: `${OWNER_FOLLOW_UP_REASON}${incident.id}:${episode}`,
       title: "Action required: trade follow-up",

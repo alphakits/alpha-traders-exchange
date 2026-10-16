@@ -83,6 +83,17 @@ describe("hourly trade action reminder cron", () => {
     expect(mocks.runOwnerFollowUpAlerts).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["maintenance", "reminders", "owner"])("keeps owner failure detection active when %s fails and never reports success", async stage => {
+    vi.stubEnv("CRON_SECRET", SECRET);
+    const operation = stage === "maintenance" ? mocks.runAlphaExchangeMaintenance
+      : stage === "reminders" ? mocks.runTradeActionReminders : mocks.runOwnerFollowUpAlerts;
+    operation.mockRejectedValueOnce(new Error("Controlled dependency failure"));
+    const response = await GET(request(`Bearer ${SECRET}`));
+    expect(response.status).toBe(500);
+    expect((await response.json()).ok).not.toBe(true);
+    expect(mocks.runOwnerFollowUpAlerts).toHaveBeenCalledTimes(1);
+  });
+
   it("runs from Dublin and staggers five-minute cron checks", () => {
     const config = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8"));
 

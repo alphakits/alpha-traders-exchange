@@ -1660,6 +1660,12 @@ function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: Purchas
     // worker can advance progress but must not silently remove either policy.
     feePolicyVersion: latest.feePolicyVersion,
     commissionCalculationVersion: latest.commissionCalculationVersion,
+    // A stale lifecycle/maintenance writer cannot resurrect completed follow-up
+    // work. A genuinely new terminal transition has its own requestedAt value.
+    trustReconciliation: !incoming.trustReconciliation || (latest.trustReconciliation?.requestedAt === incoming.trustReconciliation?.requestedAt
+      && latest.trustReconciliation?.reconciledAt)
+      ? latest.trustReconciliation
+      : preferred.trustReconciliation,
     // Trade Room communication must be additive even when two Vercel instances
     // write from different snapshot versions. Lifecycle status still follows the
     // existing monotonic winner above; messages and directional Poke state merge.

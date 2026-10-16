@@ -25,6 +25,7 @@ import {
   getMarketplaceListings,
   invalidateAlphaExchangeStoreCache,
   runAlphaExchangeMaintenance,
+  reconcilePendingTradeTrust,
   submitBuyerTradeReview,
   submitSellerBuyerReview,
   updatePurchaseRequestStatus,
@@ -1907,6 +1908,88 @@ describe("guided cash-trade completion", () => {
       expect(email).toHaveBeenCalledTimes(1);
       expect(publish).toHaveBeenCalledTimes(publications);
     } finally { save.mockRestore(); publish.mockRestore(); email.mockRestore(); }
+  });
+
+  it("preserves newer account security changes when delayed completion trust work runs", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent" });
+    const completed = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    const repository = await getAlphaExchangeRepository();
+    const newer = await repository.loadSnapshot();
+    const account = newer.users.find(user => user.id === OUTSIDER_ID)!;
+    account.disabled = true;
+    account.passwordHash = "new-password-hash-from-concurrent-account-change";
+    account.preferredLocale = "en";
+    await repository.saveSnapshot(newer, { selectedTables: ["users"] });
+    await completed.deferredTrustWrite!();
+    expect(currentSnapshot().users.find(user => user.id === OUTSIDER_ID)).toMatchObject({
+      disabled: true, passwordHash: "new-password-hash-from-concurrent-account-change", preferredLocale: "en",
+    });
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("750");
+  });
+
+  it("rebases trust work against an account change committed while its write was waiting", async () => {
+    const { requestId } = seedTrade({ status: "usdt_sent" });
+    const result = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    let changed = false;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      if (!changed && options?.selectedTables?.includes("trust_snapshots")) {
+        changed = true;
+        const canonical = await repository.loadSnapshot();
+        canonical.users.find(user => user.id === OUTSIDER_ID)!.disabled = true;
+        await persist(canonical, { selectedTables: ["users"] });
+      }
+      return persist(incoming, options);
+    });
+    try {
+      await result.deferredTrustWrite!();
+      expect(changed).toBe(true);
+      expect(currentSnapshot().users.find(user => user.id === OUTSIDER_ID)?.disabled).toBe(true);
+      expect(currentSnapshot().purchaseRequests[0].trustReconciliation?.reconciledAt).toBeTruthy();
+    } finally { save.mockRestore(); }
+  });
+
+  it.each(["lost_callback", "failed_write"])("maintenance recovers durable trust work after %s without repeating settlement", async failure => {
+    const { requestId } = seedTrade({ status: "usdt_sent", amount: "15000" });
+    currentSnapshot().marketplaceListings[0].availableAmount = "20000";
+    currentSnapshot().marketplaceListings[0].originalAmount = "20000";
+    const result = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+      actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    expect(currentSnapshot().purchaseRequests[0].trustReconciliation?.reconciledAt).toBeUndefined();
+    expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.sellerPrestigeRank).toBe("bronze");
+    if (failure === "failed_write") {
+      const repository = await getAlphaExchangeRepository();
+      const save = vi.spyOn(repository, "saveSnapshot").mockRejectedValueOnce(new Error("Controlled trust write interruption"));
+      await expect(result.deferredTrustWrite!()).rejects.toThrow("Controlled trust write interruption");
+      save.mockRestore();
+    }
+    invalidateAlphaExchangeStoreCache();
+    await runAlphaExchangeMaintenance();
+    expect(currentSnapshot().purchaseRequests[0].trustReconciliation?.reconciledAt).toBeTruthy();
+    expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.sellerPrestigeRank).toBe("silver");
+    expect(currentSnapshot().commissionRecords).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("5000");
+    const beforeRetry = JSON.stringify(currentSnapshot());
+    expect(await reconcilePendingTradeTrust()).toEqual({ reconciled: 0 });
+    expect(JSON.stringify(currentSnapshot())).toBe(beforeRetry);
+  });
+
+  it("coalesces pending trade trust work using all committed trades", async () => {
+    for (const [requestId, amount] of [["coalesced-a", "250"], ["coalesced-b", "400"]]) {
+      seedTrade({ requestId, status: "usdt_sent", amount });
+      await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID,
+        actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+    }
+    const first = reconcilePendingTradeTrust();
+    expect(reconcilePendingTradeTrust()).toBe(first);
+    expect(await first).toEqual({ reconciled: 2 });
+    expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.lifetimeCompletedVolumeUsdt).toBe(650);
+    expect(currentSnapshot().purchaseRequests.every(request => request.trustReconciliation?.reconciledAt)).toBe(true);
+    expect(currentSnapshot().commissionRecords).toHaveLength(2);
   });
 
   it("rejects a stale buyer completion retry after seller completion", async () => {
