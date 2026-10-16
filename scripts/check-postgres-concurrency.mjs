@@ -155,9 +155,16 @@ try {
   assert(forbidden.every(result => !result.ok && result.code === "seller-completion-required"));
   passed("Buyer cannot complete any payment method", { rejected: forbidden.length });
 
+  const invalidAtmDetails = await batch(active.filter(request => request.paymentMethod === "Cardless ATM Withdrawal").map(request => ({
+    ...buyerCommand(request, "payment_sent"), input: { ...buyerCommand(request, "payment_sent").input,
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "phone", cardlessVerificationValue: "0501234567", clientOperationId: randomUUID() },
+  })));
+  assert(invalidAtmDetails.every(result => !result.ok && result.code === "cardless-verification-required"));
+  passed("ATM rejects unsupported identification details before advancing payment", { rejected: invalidAtmDetails.length });
+
   const paymentCommands = active.map(request => request.paymentMethod === "Bank Transfer" ? evidence(request, "buyer")
     : request.paymentMethod === "Cardless ATM Withdrawal" ? { ...buyerCommand(request, "payment_sent"), input: { ...buyerCommand(request, "payment_sent").input,
-      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "phone", cardlessVerificationValue: "0501234567", clientOperationId: randomUUID() } }
+      cardlessWithdrawalCode: "482913", cardlessVerificationKind: "date_of_birth", cardlessVerificationValue: "25/08/1995", clientOperationId: randomUUID() } }
       : buyerCommand(request, "funds_received"));
   (await batch(paymentCommands)).forEach(requireOk);
   (await batch(active.filter(request => request.paymentMethod !== "Face-to-Face (Meet in Person)").map(request => sellerCommand(request, "funds_received")))).forEach(requireOk);

@@ -160,6 +160,7 @@ jobs:
             test-results/**/seller-only-*.png
             test-results/**/atm-*.png
             test-results/**/bank-*.png
+            test-results/**/commission-*.png
           if-no-files-found: error
           retention-days: 7
 
