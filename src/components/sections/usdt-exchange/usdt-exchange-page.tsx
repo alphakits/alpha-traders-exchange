@@ -13,7 +13,7 @@ import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentT
 
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback, useActionFeedbackState } from "@/components/ui/action-feedback";
-import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade, cardlessPaymentAmountNotice, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
@@ -681,7 +681,8 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
   return map[context];
 }
 
-function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
+function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string, details?: Record<string, unknown>) {
+  if (code === "CARDLESS_PAYMENT_AMOUNT_MISMATCH" && typeof details?.requiredTotal === "string") return cardlessPaymentAmountNotice(details.enteredAmount, details.requiredTotal, isAr ? "ar" : "en") ?? englishMessage;
   if (code === "CARDLESS_DETAILS_REQUIRED") return isAr ? "اختر بنك السحب وأكمل رمز السحب والهوية أو تاريخ الميلاد ومبلغ السحب المطابق لإجمالي الصفقة بالشيكل." : englishMessage;
   if (!isAr) return englishMessage;
   if (code === "PENDING_BUYER_FEEDBACK") return "أكمل تقييم صفقتك السابقة قبل بدء طلب جديد. افتح صفقاتك لإضافة التقييم.";
@@ -1208,7 +1209,9 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
             </div>
           </div>
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>
+            {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).some(isCardlessAtmPaymentMethod)
+              ? <p>{isAr ? "الحد الأقصى؛ كمية ATM تُحسب من الرمز" : "Maximum; ATM quantity follows the code"}: <span className="text-white">{currencyText(`${Math.min(toNumber(listing.maximumTrade) || toNumber(listing.availableAmount), toNumber(listing.availableAmount)).toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</span></p>
+              : <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{currencyText(`${Math.trunc(toNumber(listing.minimumTrade)).toLocaleString("en-US")} – ${Math.trunc(toNumber(listing.maximumTrade)).toLocaleString("en-US")} USDT`)}</span></p>}
             <p>
               {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
@@ -2932,7 +2935,7 @@ export function UsdtExchangePage({
       return;
     }
     const requestedAmount = toNumber(tradeAmount);
-    const minTrade = Math.max(0, toNumber(selectedListing.minimumTrade));
+    const minTrade = getPurchaseMinimumTrade(selectedListing.minimumTrade, isCardlessAtmPaymentMethod(selectedListingPaymentMethod));
     const availableTrade = toNumber(selectedListing.availableAmount);
     const configuredMaxTrade = toNumber(selectedListing.maximumTrade) || availableTrade;
     const maxTrade = Math.min(configuredMaxTrade, availableTrade);
@@ -3027,7 +3030,7 @@ export function UsdtExchangePage({
         const blockingDestination = purchaseBlockDestination(errorCode, errorDetails);
         if (blockingDestination) {
           closeListingModal();
-          navigateAfterSuccess(router, blockingDestination, purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
+          navigateAfterSuccess(router, blockingDestination, purchaseRequestErrorMessage(errorCode, isAr, errorMessage, errorDetails));
           return;
         }
         const commissionActionHref = typeof errorDetails.actionHref === "string" && errorDetails.actionHref.startsWith("/")
@@ -3038,7 +3041,7 @@ export function UsdtExchangePage({
           router.push(commissionActionHref);
           return;
         }
-        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
+        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage, errorDetails));
         return;
       }
       const data = payload as { purchase?: PurchaseRequest; destination?: string };
@@ -3215,8 +3218,10 @@ export function UsdtExchangePage({
     : listingEditPriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
+  const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
+  const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const buyerTradeAmount = toNumber(buyerInfo.usdtAmount);
-  const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
+  const selectedMinTrade = selectedListing ? getPurchaseMinimumTrade(selectedListing.minimumTrade, isCardlessAtmPaymentMethod(selectedListingPaymentMethod)) : 0;
   const selectedMaxTrade = selectedListing
     ? Math.min(
         toNumber(selectedListing.maximumTrade) || toNumber(selectedListing.availableAmount),
@@ -3228,8 +3233,6 @@ export function UsdtExchangePage({
     ? localizeWalletValidationError(getWalletAddressValidationError(buyerInfo.receivingNetwork, buyerInfo.receivingWalletAddress), buyerInfo.receivingNetwork, isAr)
     : null;
   const buyerWalletInvalid = buyerWalletValidationError !== null;
-  const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
-  const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
   const todayDateKey = useMemo(() => formatIsraelDateKey(new Date()), []);
 

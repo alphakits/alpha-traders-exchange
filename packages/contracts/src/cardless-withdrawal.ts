@@ -17,6 +17,26 @@ export function parseCardlessCashAmount(value: unknown) {
   return amount >= 100 && amount <= 10000 && amount % 100 === 0 ? amount.toFixed(2) : null;
 }
 
+/** ATM requests use the bank-code quantity; the seller must accept that quantity.
+ * The ordinary listing minimum still applies to every other payment method.
+ * The ATM parser, exact total check and inventory cap remain mandatory.
+ */
+export function getPurchaseMinimumTrade(listedMinimum: string | number, isCardless: boolean) {
+  return isCardless ? 0 : Math.max(0, Number(canonicalizeNonNegativeTradeAmount(listedMinimum) ?? 0));
+}
+
+export function cardlessPaymentAmountNotice(value: unknown, expectedTotal: string, locale = "en") {
+  const amount = parseCardlessCashAmount(value);
+  const isAr = locale === "ar";
+  if (!amount) return isAr
+    ? "اختر مبلغ رمز سحب من 100 إلى 10,000 شيكل بمضاعفات 100. تُحسب كمية USDT بعد احتساب عمولتك 1% ضمن مبلغ الرمز."
+    : "Choose an ATM code amount from ₪100 to ₪10,000 in ₪100 steps. USDT is calculated with your 1% fee included in the code amount.";
+  if (validateCardlessIlsAmount(amount, expectedTotal)) return null;
+  const required = Number(expectedTotal).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return isAr ? `مبلغ الرمز لا يطابق كمية USDT المطلوبة. تكلفة هذه الكمية بالضبط ₪${required} شاملة عمولتك 1%. أعد حساب كمية USDT من مبلغ الرمز.`
+    : `The code amount does not match the requested USDT. That quantity costs exactly ₪${required}, including your 1% fee. Recalculate USDT from the ATM code amount.`;
+}
+
 /** Divide the bank's cash amount by the agreed price using integer arithmetic. */
 export function calculateCardlessUsdtAmount(cash: unknown, price: string, includesBuyerFee = false) {
   const amount = parseCardlessCashAmount(cash);

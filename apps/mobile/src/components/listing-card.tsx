@@ -214,7 +214,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
             </View>
           </View>
           <View style={styles.infoPanel}>
-            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{formatWholeUsdtNumber(listing.minimumTrade)} – {formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
+            <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? copy("Maximum; ATM quantity follows the code", "الحد الأقصى؛ كمية ATM تُحسب من الرمز") : copy("Trade limits", "حدود الصفقة")}: <Text style={styles.infoValue}>{listing.paymentMethods.includes("Cardless ATM Withdrawal") ? "" : `${formatWholeUsdtNumber(listing.minimumTrade)} – `}{formatWholeUsdtNumber(listing.maximumTrade)} USDT</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Trade flow", "مسار الصفقة")}: <Text style={styles.escrowValue}>{copy("Structured and recorded by Alpha Traders", "منظّم ومسجّل عبر Alpha Traders")}</Text></Text>
             <Text style={[styles.infoLine, isRTL && styles.rtlText]}>{copy("Region", "المنطقة")}: <Text style={styles.infoValue}>{listing.seller.country || copy("Israel", "إسرائيل")}</Text></Text>
           </View>

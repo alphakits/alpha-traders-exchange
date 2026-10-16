@@ -308,12 +308,12 @@ export function mobileError(
   requestId: string,
   locale: MobileLocale,
   status: number,
-  options: { retryAfterSeconds?: number } = {},
+  options: { retryAfterSeconds?: number; message?: string } = {},
 ) {
   const payload: MobileApiErrorResponse = {
     error: {
       code,
-      message: errorMessages[code][locale],
+      message: options.message ?? errorMessages[code][locale],
     },
     requestId,
   };

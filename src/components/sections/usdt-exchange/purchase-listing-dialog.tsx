@@ -4,7 +4,7 @@ import { formatMoneyNumber } from "@/lib/accent-text";
 import { brandText, currencyText, moneyText } from "@/components/ui/currency-text";
 import { ActionFeedback } from "@/components/ui/action-feedback";
 import { TradePaymentSummary } from "@/components/sections/usdt-exchange/trade-payment-summary";
-import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getCardlessCashAmountOptions, calculateCardlessUsdtAmount, normalizeCardlessDigits, type CardlessVerificationKind } from "@alpha-traders/contracts";
+import { getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, getPurchaseMinimumTrade, getCardlessCashAmountOptions, calculateCardlessUsdtAmount, normalizeCardlessDigits, type CardlessVerificationKind } from "@alpha-traders/contracts";
 import { CardlessWithdrawalFields } from "@/components/sections/trade-room/cardless-withdrawal-fields";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import type { FormEventHandler } from "react";
@@ -146,7 +146,7 @@ export function PurchaseListingDialog({
   const cardlessPrice = (priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2);
   const cashBeforeFeeUsdt = calculateCardlessUsdtAmount(buyerInfo.cardlessIlsAmount, cardlessPrice);
   const cardlessCashOptions = isCardless
-    ? getCardlessCashAmountOptions((priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2), selectedMinTrade, selectedMaxTrade, true)
+    ? getCardlessCashAmountOptions((priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice).toFixed(2), getPurchaseMinimumTrade(selectedMinTrade, true), selectedMaxTrade, true)
     : [];
   const selectedCashOption = cardlessCashOptions.find((option) => Number(option.ilsAmount) === Number(buyerInfo.cardlessIlsAmount));
   const cardlessCashUnavailable = isCardless && Boolean(buyerInfo.cardlessIlsAmount) && !selectedCashOption;
@@ -276,7 +276,7 @@ export function PurchaseListingDialog({
                     {cardlessCashUnavailable ? <option value={buyerInfo.cardlessIlsAmount} disabled>{formatIls(Number(buyerInfo.cardlessIlsAmount))} — {isAr ? "غير متاح لهذا العرض" : "Unavailable for this listing"}</option> : null}
                     {cardlessCashOptions.map((option) => <option key={option.ilsAmount} value={option.ilsAmount}>{formatMoneyNumber(`₪${option.ilsAmount} · ${option.usdtAmount} USDT`)}</option>)}
                   </select>
-                  <p id="cardless-amount-help" className="commission-notice text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ الرمز: بمضاعفات ₪100، حتى ₪10,000 وضمن حدود العرض. تُحسب كمية USDT وعمولتك 1% تلقائيًا." : "Enter the cash amount for your code: ₪100 steps, up to ₪10,000, within this listing’s limits. USDT and your 1% fee are calculated automatically.")}</p>
+                  <p id="cardless-amount-help" className="commission-notice text-xs text-[#D1D5DB]">{currencyText(isAr ? "أدخل مبلغ رمز السحب الفعلي بمضاعفات ₪100. عمولتك 1% مشمولة في المبلغ وتُحسب كمية USDT تلقائيًا. يجب أن يقبل البائع الكمية المحسوبة، وقد تكون أقل من الحد المعتاد للعرض. لا يمكن تجاوز الرصيد المتاح أو الحد الأقصى." : "Enter the exact cash amount of your ATM code in ₪100 steps. Your 1% fee is included in that amount, and USDT is calculated automatically. The seller must accept the calculated quantity, which can be below the listing’s usual minimum. The available balance and maximum still apply.")}</p>
                   {!cardlessCashOptions.length ? <p role="alert" className="text-xs text-red-300">{currencyText(isAr ? `لا يوجد مبلغ سحب بين 100 و10,000 شيكل يناسب حدود هذا العرض (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) بالسعر الحالي. اختر طريقة دفع أخرى أو عرضاً آخر، أو اطلب من البائع تعديل حدود عرضه.` : `No withdrawal amount from ₪100 to ₪10,000 fits this listing’s limits (${formatMoneyNumber(String(selectedMinTrade))} – ${formatMoneyNumber(String(selectedMaxTrade))} USDT) at the current price. Choose another payment method or listing, or ask the seller to adjust their listing limits.`)}</p> : cardlessCashUnavailable ? <p role="alert" className="text-xs text-red-300">{isAr ? "مبلغ الرمز لا يناسب العرض. لا تستخدم رمزًا لمبلغ مختلف. اختر عرضًا آخر أو أنشئ رمزًا بمبلغ متاح." : "This code amount does not fit the listing. Do not use a code for a different amount. Choose another listing or create a code for an available amount."}</p> : null}
                 </div> : null}
                 <div className="grid gap-3 md:grid-cols-3">
@@ -287,7 +287,7 @@ export function PurchaseListingDialog({
                       <p className="commission-notice">{currencyText(isAr ? `قبل العمولة: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT` : `Before fee: ₪${buyerInfo.cardlessIlsAmount} ÷ ₪${cardlessPrice} = ${cashBeforeFeeUsdt} USDT`)}</p>
                       <p className="commission-notice">{currencyText(isAr ? `تستلم ${buyerInfo.usdtAmount} USDT. مبلغ السحب يشمل عمولة المشتري 1%.` : `You receive ${buyerInfo.usdtAmount} USDT. Your withdrawal amount includes the buyer’s 1% fee.`)}</p>
                     </div> : null}
-                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {currencyText(`${selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} - ${selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
+                    <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isCardless ? (isAr ? "الحد الأقصى المتاح" : "Maximum available") : (isAr ? "حدود الصفقة" : "Trade limits")}: {currencyText(`${isCardless ? "" : selectedMinTrade.toLocaleString("en-US", { maximumFractionDigits: 6 }) + " - "}${selectedMaxTrade.toLocaleString("en-US", { maximumFractionDigits: 6 })} USDT`)}</p>
                   </div>
                   {priceMode === "buyer_offer" ? (
                     <div className="space-y-2 md:col-span-3">

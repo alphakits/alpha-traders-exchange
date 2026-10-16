@@ -24,7 +24,7 @@ import { nextProfileNameChangeAt, ProfileNameCooldownError } from "@/lib/profile
 import { verifyBep20Commission } from "@/lib/bep20-commission-verifier";
 import { isOwnerApprovedSeller } from "@/lib/seller-approval";
 import { hasVerifiedPhone } from "@/lib/verification-bypass";
-import { formatCardlessWithdrawalPayload, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
+import { formatCardlessWithdrawalPayload, cardlessPaymentAmountNotice, getPurchaseMinimumTrade, normalizeCardlessDigits, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, normalizeRegistrationWhatsApp } from "@alpha-traders/contracts";
 import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "crypto";
@@ -2147,6 +2147,15 @@ function qualitySortListings(
   });
 }
 
+/** The next ATM buyer can request a smaller code-backed quantity with seller approval. */
+function minimumRequestableListingAmount(listing: MarketplaceListing) {
+  const methods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
+  const listedMinimum = Math.max(0, toNumber(listing.minimumTrade));
+  if (!methods.some(isCardlessAtmPaymentMethod)) return listedMinimum;
+  const atmMinimum = toNumber(calculateCardlessUsdtAmount("100", listing.price, true));
+  return methods.every(isCardlessAtmPaymentMethod) ? atmMinimum : Math.min(listedMinimum, atmMinimum);
+}
+
 function publicMarketplaceListing(listing: MarketplaceListing): MarketplaceListing {
   // Allowlist the marketplace contract; private review, delivery, bank and
   // active-trade metadata must not travel with public listings.
@@ -2176,7 +2185,7 @@ function enrichListingsWithSellerData(
       availableAmount: publicAvailability ? listingUnreservedAmount(db, listing) : listing.availableAmount,
       sellerActiveTradeCount: getSellerOpenTradeCount(db, listing.sellerId),
       newRequestBlockReason: getSellerOpenTradeCount(db, listing.sellerId) >= MAX_SELLER_ACTIVE_TRADES ? "trade_limit"
-        : isTradeAmountLessThan(listingUnreservedAmount(db, listing), listing.minimumTrade) === true ? "inventory_reserved" : undefined,
+        : isTradeAmountLessThan(listingUnreservedAmount(db, listing), String(minimumRequestableListingAmount(listing))) === true ? "inventory_reserved" : undefined,
       sellerDisplayName: publicAccountName({ id: listing.sellerId, role: "approved_seller" }),
       notes: visibleText(listing.notes),
       sellerDescription: visibleText(listing.sellerDescription),
@@ -8792,7 +8801,7 @@ export async function getMarketplaceListings(
           if (!seller || seller.disabled === true || !canPublishListings(seller)) return false;
           if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
           const availableAmount = toNumber(listing.availableAmount);
-          const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
+          const minimumTrade = minimumRequestableListingAmount(listing);
           const maximumTrade = toNumber(listing.maximumTrade) || availableAmount;
           if (availableAmount <= 0 || Math.min(maximumTrade, availableAmount) < minimumTrade) return false;
           if (listing.expiresAt) {
@@ -10471,7 +10480,7 @@ export async function updateTradeTerms(input: {
           fiat = Number(cash).toFixed(2);
         }
       }
-      if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < Number(listing.minimumTrade) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
+      if (!Number.isFinite(Number(fiat)) || Number(fiat) <= 0 || Number(amount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(amount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(amount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "Amount exceeds the available balance or trade limits.", input.requestId);
       request.amountAdjustmentCount = getTradeAmountAdjustmentCount(request) + 1;
       request.termsProposal = { id: randomUUID(), kind: counter ? "counter_offer" : "amount_correction", status: "pending", pricePerUsdt: price, usdtAmount: amount, fiatAmount: fiat, createdAt: now };
       if (counter && isFaceToFacePaymentMethod(request.paymentMethod)) request.sellerSafetyAcknowledged = true;
@@ -10482,7 +10491,7 @@ export async function updateTradeTerms(input: {
       if (proposal.kind === "counter_offer" ? request.status !== "pending" : !["pending", "accepted"].includes(request.status)) throw new TradeBlockedError("trade-terms-invalid", "Trade terms can no longer be changed.", input.requestId);
       if (input.action === "accept_amount") {
         if (proposal.kind !== "amount_correction") throw new TradeBlockedError("trade-terms-invalid", "Use the counter-offer acceptance action.", input.requestId);
-        if ((request.status !== "pending" && !isRequestStatusLockingListing(request.status)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < Number(listing.minimumTrade) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
+        if ((request.status !== "pending" && !isRequestStatusLockingListing(request.status)) || Number(proposal.usdtAmount) > Number(listingUnreservedAmount(snapshot, listing, request.id)) || Number(proposal.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(request.paymentMethod)) || Number(proposal.usdtAmount) > Number(listing.maximumTrade || listing.availableAmount)) throw new TradeBlockedError("trade-terms-invalid", "The proposed amount is no longer available.", input.requestId);
         if (isCardlessAtmPaymentMethod(request.paymentMethod) && Number(request.fiatAmount) !== Number(proposal.fiatAmount)) {
           // Prepared credentials are still private before acceptance. They
           // cannot be reused for a different cash amount; request a fresh code.
@@ -10698,7 +10707,7 @@ export async function createPurchaseRequest(input: {
   const rawRequestedUsdtAmount = String(input.usdtAmount ?? "").trim();
   const requestedUsdtAmount = canonicalizeTradeAmount(rawRequestedUsdtAmount);
   const requestedAmount = toNumber(requestedUsdtAmount);
-  const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
+  const minimumTrade = getPurchaseMinimumTrade(listing.minimumTrade, isCardlessAtmPaymentMethod(primaryPaymentMethod));
   const maximumTrade = toNumber(listing.maximumTrade) || toNumber(listing.availableAmount);
   const remainingAmount = toNumber(listingUnreservedAmount(db, listing));
   if (!requestedUsdtAmount || requestedAmount <= 0) throw new Error("Trade amount must be a valid positive USDT amount with no more than six decimal places.");
@@ -10755,7 +10764,12 @@ export async function createPurchaseRequest(input: {
     verificationValue: input.cardlessVerificationValue,
   }) : null;
   const cardlessIlsAmount = validateCardlessIlsAmount(input.cardlessIlsAmount, fiatAmount);
-  if (preparedCardless && (!preparedCardless.ok || listing.currency !== "ILS" || !cardlessIlsAmount)) {
+  if (preparedCardless && !cardlessIlsAmount) {
+    throw new TradeBlockedError("CARDLESS_PAYMENT_AMOUNT_MISMATCH", cardlessPaymentAmountNotice(input.cardlessIlsAmount, fiatAmount) ?? "ATM code amount must match the full payment total.", undefined, {
+      requiredTotal: fiatAmount, enteredAmount: typeof input.cardlessIlsAmount === "string" ? input.cardlessIlsAmount : "",
+    });
+  }
+  if (preparedCardless && (!preparedCardless.ok || listing.currency !== "ILS")) {
     throw new TradeBlockedError("CARDLESS_DETAILS_REQUIRED", "Enter the withdrawal code, ID number or birth date, and the exact ILS withdrawal amount matching this trade before submitting.");
   }
   const tradeId = `trade-${randomUUID()}`;
@@ -10961,7 +10975,7 @@ export async function createPurchaseRequest(input: {
       }
       assertSellerTradeCapacity(snapshot, canonicalListing, requestedUsdtAmount);
       const canonicalAvailableAmount = toNumber(listingUnreservedAmount(snapshot, canonicalListing));
-      const canonicalMinimumTrade = Math.max(0, toNumber(canonicalListing.minimumTrade));
+      const canonicalMinimumTrade = getPurchaseMinimumTrade(canonicalListing.minimumTrade, isCardlessAtmPaymentMethod(primaryPaymentMethod));
       const canonicalMaximumTrade = toNumber(canonicalListing.maximumTrade) || canonicalAvailableAmount;
       if (
         requestedAmount > canonicalAvailableAmount
@@ -14140,7 +14154,7 @@ async function updatePurchaseRequestStatusAttempt(
         { guard: "buyer-seller-commission-at-accept", commissionId: buyerSellerCommission.id },
       );
     }
-    if (toNumber(next.usdtAmount) > toNumber(listing.availableAmount) || toNumber(next.usdtAmount) < toNumber(listing.minimumTrade) || toNumber(next.usdtAmount) > toNumber(listing.maximumTrade || listing.availableAmount)) {
+    if (toNumber(next.usdtAmount) > toNumber(listing.availableAmount) || toNumber(next.usdtAmount) < getPurchaseMinimumTrade(listing.minimumTrade, isAtmTrade) || toNumber(next.usdtAmount) > toNumber(listing.maximumTrade || listing.availableAmount)) {
       throw new TradeBlockedError(
         "listing-amount-unavailable",
         "The listing no longer has enough USDT for this request.",
@@ -14591,7 +14605,8 @@ async function updatePurchaseRequestStatusAttempt(
         listing.maximumTrade = listingMaximumForAvailableAmount(listing);
         const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
         const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= Date.now());
-        const remainderBelowMinimum = isTradeAmountLessThan(remainingAmount ?? "0", listing.minimumTrade) === true;
+        const executableMinimum = minimumRequestableListingAmount(listing);
+        const remainderBelowMinimum = isTradeAmountLessThan(remainingAmount ?? "0", String(executableMinimum)) === true;
         listing.status = shouldExpire ? "expired" : remainderBelowMinimum ? "paused" : "active";
         listing.expiredAt = shouldExpire ? now : undefined;
         await appendListingStateAudit(db, {
@@ -14603,7 +14618,7 @@ async function updatePurchaseRequestStatusAttempt(
           details: shouldExpire
             ? `Listing ${listing.id} expired after trade completion with ${listing.availableAmount} USDT remaining.`
             : remainderBelowMinimum
-              ? `Listing ${listing.id} paused because its ${listing.availableAmount} USDT remainder is below the ${listing.minimumTrade} USDT minimum trade.`
+              ? `Listing ${listing.id} paused because its ${listing.availableAmount} USDT remainder is below the ${executableMinimum} USDT minimum executable trade.`
             : `Listing ${listing.id} reopened with ${listing.availableAmount} USDT remaining.`,
         });
       } else {

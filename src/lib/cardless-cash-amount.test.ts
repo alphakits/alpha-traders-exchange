@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, validateCardlessIlsAmount } from "@alpha-traders/contracts";
+import { getPurchaseMinimumTrade, calculateCardlessUsdtAmount, getCardlessCashAmountOptions, parseCardlessCashAmount, validateCardlessIlsAmount } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradePaymentTotal } from "./trade-amount";
 
 describe("bank cash withdrawal amounts", () => {
@@ -20,6 +20,18 @@ describe("bank cash withdrawal amounts", () => {
     for (let cash = 100; cash <= 10000; cash += 100) expect(parseCardlessCashAmount(String(cash))).toBe(cash.toFixed(2));
     expect(parseCardlessCashAmount("١٥٠٠")).toBe("1500.00");
   });
+  it("derives USDT from the hundred-step code including the fee without exceeding a fixed listing", () => {
+    expect(calculateCardlessUsdtAmount("1300", "3.10", true)).toBe("415.202811");
+    expect(calculateTradePaymentTotal("415.202811", "3.10", true)).toBe("1300.00");
+    expect(getPurchaseMinimumTrade("420", true)).toBe(0);
+    expect(getPurchaseMinimumTrade("420", false)).toBe(420);
+    const options = getCardlessCashAmountOptions("3.10", getPurchaseMinimumTrade("420", true), 420, true);
+    expect(options.map(option => option.ilsAmount)).toEqual(Array.from({ length: 13 }, (_, i) => String((i + 1) * 100)));
+    expect(options.at(-1)).toEqual({ ilsAmount: "1300", usdtAmount: "415.202811" });
+    expect(validateCardlessIlsAmount("1300", "1315.02")).toBeNull();
+    expect(validateCardlessIlsAmount("1315.02", "1315.02")).toBeNull();
+  });
+
   it("keeps the exact ILS cash total at listing and offer prices", () => {
     for (const price of ["3.27", "3.20", "3.03", "2.92"]) for (let cash = 100; cash <= 10000; cash += 100) {
       const usdt = calculateCardlessUsdtAmount(String(cash), price)!;

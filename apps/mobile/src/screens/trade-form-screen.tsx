@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal, getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount,
+  calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal, getCardlessWithdrawalBankOptions, isCardlessWithdrawalBank, parseCardlessWithdrawalDetails, validateCardlessIlsAmount, calculateCardlessUsdtAmount, getPurchaseMinimumTrade,
   type CardlessVerificationKind, type MobileSupportedNetwork,
   getWalletAddressValidationError,
   normalizeLocalizedDecimalInput,
@@ -135,7 +135,7 @@ export function TradeFormScreen({
   const buyerFee = calculateTradeBuyerFiatFee(String(numericValue(amount)), cardlessPrice) ?? "0.00";
   const buyerTotal = calculateTradePaymentTotal(String(numericValue(amount)), cardlessPrice, true) ?? "0.00";
   useEffect(() => {
-    if (isCardless) { const calculated = calculateCardlessUsdtAmount(cashAmount, cardlessPrice, true); if (calculated) setAmount(calculated); }
+    if (isCardless) { const calculated = calculateCardlessUsdtAmount(cashAmount, cardlessPrice, true); setAmount(calculated ?? ""); }
   }, [isCardless, cashAmount, cardlessPrice]);
   const offerRangeUsd = listing?.currency === "ILS"
     ? (() => {
@@ -156,12 +156,12 @@ export function TradeFormScreen({
       ? t("tronWalletHint")
       : t("solWalletHint");
   const amountRange = listing
-    ? `${formatWholeUsdtNumber(listing.minimumTrade)}–${formatWholeUsdtNumber(listing.maximumTrade)} USDT`
+    ? `${isCardless ? "" : formatWholeUsdtNumber(listing.minimumTrade) + "–"}${formatWholeUsdtNumber(listing.maximumTrade)} USDT`
     : "";
   const formIsValid = useMemo(() => {
     if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || walletValidationError) return false;
     const value = numericValue(amount);
-    const minimum = numericValue(listing.minimumTrade);
+    const minimum = getPurchaseMinimumTrade(listing.minimumTrade, isCardless);
     const available = numericValue(listing.availableAmount);
     const configuredMaximum = numericValue(listing.maximumTrade) || available;
     const maximum = Math.min(configuredMaximum, available);
@@ -318,7 +318,7 @@ export function TradeFormScreen({
             <TextInput
               accessibilityHint={`${t("amountHint")}: ${amountRange}`}
               accessibilityLabel={t("tradeAmount")}
-              editable={!isSubmitting}
+              editable={!isSubmitting && !isCardless}
               inputMode="decimal"
               onBlur={() => setAmount(formatFinancialNumber(amount, { maximumFractionDigits: 6 }))}
               onChangeText={(value) => setAmount(normalizeTradeAmountInput(value))}
@@ -411,11 +411,12 @@ export function TradeFormScreen({
             <TextInput accessibilityLabel={locale === "ar" ? "رمز السحب" : "Withdrawal code"} placeholder={locale === "ar" ? "رمز السحب" : "Withdrawal code"} placeholderTextColor={colors.textMuted} keyboardType="number-pad" maxLength={12} value={withdrawalCode} onChangeText={setWithdrawalCode} style={styles.input} editable={!isSubmitting} />
             {(["id_number", "date_of_birth"] as const).map((kind) => <Pressable key={kind} onPress={() => { setVerificationKind(kind); setVerificationValue(""); }} style={[styles.option, verificationKind === kind && styles.optionSelected]} accessibilityRole="radio" accessibilityState={{ checked: verificationKind === kind }}><Text style={styles.optionLabel}>{kind === "id_number" ? (locale === "ar" ? "رقم الهوية" : "ID number") : (locale === "ar" ? "تاريخ الميلاد" : "Date of birth")}</Text></Pressable>)}
             <TextInput accessibilityLabel={verificationKind === "date_of_birth" ? "DD/MM/YYYY" : "ID number"} placeholder={verificationKind === "date_of_birth" ? "DD/MM/YYYY" : (locale === "ar" ? "رقم الهوية" : "ID number")} placeholderTextColor={colors.textMuted} keyboardType={verificationKind === "date_of_birth" ? "default" : "number-pad"} value={verificationValue} onChangeText={setVerificationValue} style={styles.input} editable={!isSubmitting} />
-            <Text style={styles.label}>{locale === "ar" ? "مبلغ السحب بالشيكل: 100–10,000 بمضاعفات 100" : "Withdrawal ILS: 100–10,000 in multiples of 100"}</Text>
+            <Text style={styles.hint}>{locale === "ar" ? "تُحسب كمية USDT من مبلغ الرمز شاملاً عمولتك. يجب أن يقبل البائع الكمية، وقد تكون أقل من الحد المعتاد للعرض." : "USDT is calculated from the code total including your fee. The seller must accept the quantity, which may be below the usual listing minimum."}</Text>
+            <Text style={styles.label}>{locale === "ar" ? "إجمالي رمز السحب: 100–10,000 شيكل بمضاعفات 100، يشمل عمولتك 1%" : "ATM code total: 100–10,000 ILS in ₪100 steps, including your 1% fee"}</Text>
             <TextInput accessibilityLabel="Withdrawal amount ILS" placeholder="100–10,000 ILS" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={cashAmount} onChangeText={(value) => {
               setCashAmount(value);
               const calculated = calculateCardlessUsdtAmount(value, mode === "offer" ? canonicalOfferPrice : canonicalListingPrice(listing.price), true);
-              if (calculated) setAmount(calculated);
+              setAmount(calculated ?? "");
             }} style={styles.input} editable={!isSubmitting} />
           </View> : null}
           {isFaceToFace ? (
