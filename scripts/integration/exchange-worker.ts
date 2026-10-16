@@ -23,9 +23,13 @@ async function execute(operation: string, input: unknown) {
   }
   if (operation === "snapshot") return repository.loadSnapshot();
   if (operation === "status") {
+    const actionStarted = performance.now();
     const result = await updatePurchaseRequestStatus(input as Parameters<typeof updatePurchaseRequestStatus>[0]);
+    const actionElapsedMs = performance.now() - actionStarted;
+    const backgroundStarted = performance.now();
     await result.deferredTrustWrite?.();
-    return { request: result.request, statusChanged: result.statusChanged, metrics: result.metrics };
+    return { request: result.request, statusChanged: result.statusChanged, metrics: result.metrics,
+      actionElapsedMs, backgroundElapsedMs: performance.now() - backgroundStarted };
   }
   if (operation === "terms") return updateTradeTerms(input as Parameters<typeof updateTradeTerms>[0]);
   if (operation === "manual-commission") return issueSellerCommissionByAdmin(input as Parameters<typeof issueSellerCommissionByAdmin>[0]);
@@ -50,6 +54,6 @@ process.on("message", async ({ id, operation, input }: Command) => {
     process.send?.({ id, ok: true, result, elapsedMs: performance.now() - started });
   } catch (error) {
     process.send?.({ id, ok: false, error: error instanceof Error ? error.message : String(error),
-      code: (error as { code?: string }).code, elapsedMs: performance.now() - started });
+      code: (error as { code?: string }).code, details: (error as { details?: unknown }).details, elapsedMs: performance.now() - started });
   }
 });

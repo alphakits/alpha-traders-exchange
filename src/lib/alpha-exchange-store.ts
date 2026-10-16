@@ -5168,6 +5168,26 @@ type DeferredNotificationPublication = {
   notification: AlphaExchangeNotification;
 };
 
+// Each lifecycle attempt owns a fresh snapshot. Effects from a rejected attempt
+// are discarded with it, including notifications created by nested helpers.
+type TradeMutationPublications = {
+  notifications: DeferredNotificationPublication[];
+  trustNotifications: DeferredNotificationPublication[];
+  trustEvents: Parameters<typeof publishRealtimeEvent>[0][];
+  promotionEmails: Parameters<typeof sendSellerPrestigePromotionEmail>[0][];
+  calculatingTrust: boolean;
+};
+const tradeMutationPublications = new WeakMap<AlphaExchangeDb, TradeMutationPublications>();
+
+function publishOrDeferNotification(db: AlphaExchangeDb, publication: DeferredNotificationPublication) {
+  const pending = tradeMutationPublications.get(db);
+  if (pending) {
+    (pending.calculatingTrust ? pending.trustNotifications : pending.notifications).push(publication);
+  } else {
+    publishNotificationPublication(publication);
+  }
+}
+
 function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
   if (!publication) return;
   if (publication.notification.whatsappChannelOnly !== true) {
@@ -5292,7 +5312,7 @@ function pushNotification(
       });
       db.notifications[duplicateIndex] = updated;
       const publication = { type: "notification.updated" as const, notification: updated };
-      if (input.deferRealtime !== true) publishNotificationPublication(publication);
+      if (input.deferRealtime !== true) publishOrDeferNotification(db, publication);
       return publication;
     }
   }
@@ -5332,7 +5352,7 @@ function pushNotification(
   db.notifications.unshift(notification);
   pruneNotificationBacklog(db);
   const publication = { type: "notification.created" as const, notification };
-  if (input.deferRealtime !== true) publishNotificationPublication(publication);
+  if (input.deferRealtime !== true) publishOrDeferNotification(db, publication);
   return publication;
 }
 
@@ -5957,14 +5977,17 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     );
 
     if (scoreChanged && !input.suppressSideEffects) {
-      publishRealtimeEvent({
+      const reputationEvent: Parameters<typeof publishRealtimeEvent>[0] = {
         type: "reputation.updated",
         payload: {
           sellerId: snapshot.sellerId,
           trustScore: newScore,
           reviewCount: visibleReviewCountBySeller.get(snapshot.sellerId) ?? 0,
         },
-      });
+      };
+      const pending = tradeMutationPublications.get(db);
+      if (pending) pending.trustEvents.push(reputationEvent);
+      else publishRealtimeEvent(reputationEvent);
       db.trustScoreHistory.unshift({
         id: `trust-score-${randomUUID()}`,
         sellerId: snapshot.sellerId,
@@ -6048,7 +6071,10 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
         title: "Prestige promotion unlocked",
         details: `Promoted to ${snapshot.level} seller.`,
       });
-      await sendSellerPrestigePromotionEmail({ seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id });
+      const promotionEmail = { seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id };
+      const pending = tradeMutationPublications.get(db);
+      if (pending) pending.promotionEmails.push(promotionEmail);
+      else await sendSellerPrestigePromotionEmail(promotionEmail);
     }
 
     if (owner && sharpDrop && sellerNotificationContext && !input.suppressSideEffects) {
@@ -13605,6 +13631,7 @@ export async function updatePurchaseRequestStatus(input: UpdatePurchaseRequestSt
 async function updatePurchaseRequestStatusAttempt(
   input: UpdatePurchaseRequestStatusInput,
   concurrencyRetryCount: number,
+  reconcileOnly = false,
 ): Promise<UpdatePurchaseRequestStatusResult> {
   const startedAt = Date.now();
   const debugTradeRoom = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
@@ -13857,6 +13884,14 @@ async function updatePurchaseRequestStatusAttempt(
       },
     };
   }
+  if (reconcileOnly) {
+    // A competing request may have committed during the last failed attempt.
+    // The authorized idempotency checks above can acknowledge that result.
+    // Otherwise stop here: reconciliation must never start another write.
+    throw new TradeBlockedError("concurrent-status-change",
+      "This trade changed while your action was being saved. Refresh the Trade Room and try again.", input.requestId,
+      { guard: "canonical-transition-reconcile", nextStatus: input.nextStatus, currentStatus });
+  }
   if (input.nextStatus === "completed" && !isCompletionOverride && currentStatus !== "usdt_sent") {
     const strongDb = await readDb({ bypassCache: true });
     const strongIndex = strongDb.purchaseRequests.findIndex((item) => item.id === input.requestId);
@@ -13985,6 +14020,10 @@ async function updatePurchaseRequestStatusAttempt(
   }
   const actorRole = resolveActorRole(db, input.actorUserId);
   const now = nowIsoAfter(request.updatedAt, listing?.updatedAt);
+  const pendingPublications: TradeMutationPublications = {
+    notifications: [], trustNotifications: [], trustEvents: [], promotionEmails: [], calculatingTrust: false,
+  };
+  tradeMutationPublications.set(db, pendingPublications);
   const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
@@ -14834,10 +14873,12 @@ async function updatePurchaseRequestStatusAttempt(
   const shouldRecalculateTrust = input.nextStatus === "completed" || input.nextStatus === "declined" || input.nextStatus === "cancelled";
   const beforeTrustMs = Date.now();
   if (shouldRecalculateTrust) {
+    pendingPublications.calculatingTrust = true;
     await recalculateTrustEngine(db, {
       reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated",
       triggeredBy: input.actorUserId,
     });
+    pendingPublications.calculatingTrust = false;
   }
   const trustMs = Date.now() - beforeTrustMs;
 
@@ -14965,16 +15006,13 @@ async function updatePurchaseRequestStatusAttempt(
       return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1);
     }
     if (error instanceof ConcurrentTradeMutationError) {
-      throw new TradeBlockedError(
-        "concurrent-status-change",
-        "This trade changed while your action was being saved. Refresh the Trade Room and try again.",
-        input.requestId,
-        { guard: "canonical-transition-retry", nextStatus: input.nextStatus },
-      );
+      return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1, true);
     }
     throw error;
   }
   const writeDbMs = Date.now() - beforeWriteMs;
+  tradeMutationPublications.delete(db);
+  pendingPublications.notifications.forEach(publishNotificationPublication);
   await dispatchCommittedSms(db, priorSmsCount);
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation commit-complete", {
     requestId: input.requestId,
@@ -15027,6 +15065,7 @@ async function updatePurchaseRequestStatusAttempt(
       },
     });
   }
+  let deferredTrustTask: Promise<void> | undefined;
   return {
     request: enriched,
     statusChanged: true,
@@ -15034,9 +15073,12 @@ async function updatePurchaseRequestStatusAttempt(
     // When trust was recalculated, return a deferred task that writes the trust tables.
     // The route handler runs this via after() so the HTTP response is sent first.
     deferredTrustWrite: shouldRecalculateTrust
-      ? async () => {
+      ? () => deferredTrustTask ??= (async () => {
           await writeDb(db, { selectedTables: TRADE_COMPLETION_TRUST_TABLES });
-        }
+          pendingPublications.trustNotifications.forEach(publishNotificationPublication);
+          pendingPublications.trustEvents.forEach(publishRealtimeEvent);
+          for (const email of pendingPublications.promotionEmails) await sendSellerPrestigePromotionEmail(email);
+        })()
       : undefined,
     metrics: {
       readDbMs,

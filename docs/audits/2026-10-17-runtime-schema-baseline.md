@@ -20,7 +20,7 @@ outbox RLS configuration, revokes PUBLIC access, and uses bounded lock/statement
 timeouts. It does not rewrite production migration metadata or resolve every
 historical difference between the two existing migration directories.
 
-CI applies the baseline to an isolated PostgreSQL database, seeds 75 synthetic
+CI applies the baseline to an isolated PostgreSQL database, seeds 76 synthetic
 accounts, replays it, and compares all eleven definitions against the inspected
 catalog. After the concurrent business-engine tests, CI creates a `pg_dump`
 backup, restores into a separate database, compares every runtime table's row

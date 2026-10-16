@@ -37,7 +37,9 @@ function startWorker(index) {
     const task = pending.get(message.id);
     if (!task) return;
     clearTimeout(task.timeout); pending.delete(message.id);
-    timings.push({ operation: task.operation, ok: message.ok, elapsedMs: message.elapsedMs, worker: index });
+    timings.push({ operation: task.operation, requestId: task.input?.requestId, nextStatus: task.input?.nextStatus,
+      ok: message.ok, code: message.code, details: message.details, elapsedMs: message.elapsedMs,
+      actionElapsedMs: message.result?.actionElapsedMs, backgroundElapsedMs: message.result?.backgroundElapsedMs, worker: index });
     task.resolve(message);
   });
   child.on("exit", (code, signal) => {
@@ -47,7 +49,7 @@ function startWorker(index) {
   return { child, call(operation, input) { return new Promise((resolve, reject) => {
     const id = ++sequence;
     const timeout = setTimeout(() => { pending.delete(id); reject(new Error(`${operation} exceeded 60 seconds`)); }, 60_000);
-    pending.set(id, { resolve, reject, timeout, operation }); child.send({ id, operation, input });
+    pending.set(id, { resolve, reject, timeout, operation, input }); child.send({ id, operation, input });
   }); } };
 }
 function passed(name, details) { checks.push({ name, status: "PASS", details }); console.log(`PASS ${name}: ${JSON.stringify(details)}`); }
@@ -219,13 +221,21 @@ try {
 } catch (error) {
   checks.push({ name: "Database concurrency run", status: "FAIL", error: error.stack ?? String(error) });
   console.error(error); process.exitCode = 1;
+  try {
+    const snapshot = requireOk(await workers[0].call("snapshot"));
+    await writeFile(path.join(output, "failure-snapshot-summary.json"), JSON.stringify({
+      requests: snapshot.purchaseRequests.map(({ id, status, completedAt, listingId, usdtAmount }) => ({ id, status, completedAt, listingId, usdtAmount })),
+      listings: snapshot.marketplaceListings.map(({ id, availableAmount }) => ({ id, availableAmount })),
+      commissions: snapshot.commissionRecords.map(({ id, purchaseRequestId, commissionAmount, paymentStatus }) => ({ id, purchaseRequestId, commissionAmount, paymentStatus })),
+    }, null, 2));
+  } catch (snapshotError) { console.error("Could not capture controlled failure state:", snapshotError.message); }
 } finally {
   clearInterval(monitor);
   for (const worker of workers) worker.child.kill("SIGKILL");
   await pool.end();
-  const durations = timings.filter(row => row.ok && row.operation === "status").map(row => row.elapsedMs).sort((a, b) => a - b);
+  const durations = timings.filter(row => row.ok && row.operation === "status").map(row => row.actionElapsedMs ?? row.elapsedMs).sort((a, b) => a - b);
   const percentile = fraction => durations.length ? durations[Math.min(durations.length - 1, Math.ceil(fraction * durations.length) - 1)] : null;
   await writeFile(path.join(output, "results.json"), JSON.stringify({ commit: process.env.GITHUB_SHA ?? null, checks, peakActiveConnections,
     serverActionTiming: { count: durations.length, medianMs: percentile(0.5), p95Ms: percentile(0.95), maxMs: percentile(1),
-      scope: "Direct business-engine actions against loopback PostgreSQL, including concurrent lock waiting; excludes browser and external delivery" }, timings }, null, 2));
+      scope: "Direct business-engine actions against loopback PostgreSQL, including concurrent lock waiting; excludes deferred trust persistence, browser and external delivery. Per-call elapsedMs still includes awaited background work." }, timings }, null, 2));
 }

@@ -465,6 +465,7 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
         sellerId: seller.id,
         commissionAmount: 12.5,
         reason: "Documented settlement adjustment",
+        clientOperationId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
       });
     });
     expect(await screen.findByText("Admin-issued")).toBeTruthy();

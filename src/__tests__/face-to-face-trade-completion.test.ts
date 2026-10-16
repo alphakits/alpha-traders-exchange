@@ -31,6 +31,9 @@ import {
   uploadTradeEvidence,
 } from "@/lib/alpha-exchange-store";
 import { isBuyerEvidenceRequiredForPaymentMethod, isCashTradeCompletionAvailable, isCashTradeUsdtSentConfirmationAvailable, isFaceToFaceCompletionAvailable } from "@/lib/marketplace-payment-methods";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import * as tradeRealtime from "@/lib/realtime";
+import * as marketplaceEmail from "@/lib/marketplace-email-delivery";
 
 const SELLER_ID = "face-seller-1";
 const NEXT_SELLER_ID = "face-seller-2";
@@ -1817,6 +1820,93 @@ describe("guided cash-trade completion", () => {
     const { requestId } = seedTrade({ status: "accepted" });
     currentSnapshot().disputes.push({ id: "owner-action-dispute", purchaseRequestId: requestId, status: "open" } as never);
     await expect(forceCancelTradeByAdmin({ requestId, actorUserId: OWNER_ID, reason: "Close" })).rejects.toThrow("Resolve the open dispute");
+  });
+
+  it.each([true, false])("reconciles after exhausted completion conflicts without a fourth write (committed=%s)", async committedByOtherWriter => {
+    const requestId = "face-request-1";
+    seedTrade({ status: "usdt_sent" });
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    let attempts = 0;
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      attempts++;
+      if (attempts === 3 && committedByOtherWriter) await persist(incoming);
+      const canonical = structuredClone(currentSnapshot());
+      canonical.marketplaceListings[0].updatedAt = new Date(Date.now() + attempts * 1000).toISOString();
+      options?.validateLatestBeforeCommit?.(canonical);
+      throw new Error("Expected canonical conflict");
+    });
+    try {
+      const action = updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller",
+        nextStatus: "completed", completionMode: "seller", usdtSentConfirmed: true });
+      if (committedByOtherWriter) {
+        const result = await action;
+        expect(result.statusChanged).toBe(false);
+        expect(result.request.completedAt).toBeTruthy();
+        expect(currentSnapshot().commissionRecords).toHaveLength(1);
+        expect(currentSnapshot().marketplaceListings[0].availableAmount).toBe("750");
+      } else {
+        await expect(action).rejects.toMatchObject({ code: "concurrent-status-change" });
+        expect(currentSnapshot().commissionRecords).toHaveLength(0);
+        expect(currentSnapshot().purchaseRequests[0].status).toBe("usdt_sent");
+        expect(publish.mock.calls.filter(([event]) => event.type.startsWith("notification.") || event.type === "reputation.updated")).toHaveLength(0);
+      }
+      expect(save).toHaveBeenCalledTimes(3);
+    } finally { save.mockRestore(); publish.mockRestore(); }
+  });
+
+  it.each(["commit", "core_failure", "trust_failure"])("publishes completion and promotion only after their commits (%s)", async outcome => {
+    const { requestId } = seedTrade({ status: "usdt_sent", amount: "15000" });
+    currentSnapshot().marketplaceListings[0].availableAmount = "20000";
+    currentSnapshot().marketplaceListings[0].originalAmount = "20000";
+    currentSnapshot().users.find(user => user.id === SELLER_ID)!.notificationPreferences!.email = true;
+    const repository = await getAlphaExchangeRepository();
+    const persist = repository.saveSnapshot.bind(repository);
+    const publish = vi.spyOn(tradeRealtime, "publishRealtimeEvent");
+    const email = vi.spyOn(marketplaceEmail, "sendMarketplaceEmail").mockResolvedValue({ ok: true });
+    let saves = 0;
+    const save = vi.spyOn(repository, "saveSnapshot").mockImplementation(async (incoming, options) => {
+      saves++;
+      expect(email).not.toHaveBeenCalled();
+      expect(publish.mock.calls.filter(([event]) => event.type === "reputation.updated")).toHaveLength(0);
+      if (saves === 1) expect(publish).not.toHaveBeenCalled();
+      if ((saves === 1 && outcome === "core_failure") || (saves === 2 && outcome === "trust_failure")) throw new Error("Controlled database failure");
+      return persist(incoming, options);
+    });
+    try {
+      const action = updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+      if (outcome === "core_failure") {
+        await expect(action).rejects.toThrow("Controlled database failure");
+        expect(publish).not.toHaveBeenCalled();
+        expect(email).not.toHaveBeenCalled();
+        expect(currentSnapshot().commissionRecords).toHaveLength(0);
+        return;
+      }
+      const result = await action;
+      expect(publish.mock.calls.filter(([event]) => event.type === "trade.status_changed")).toHaveLength(1);
+      expect(email).not.toHaveBeenCalled();
+      const trustTask = result.deferredTrustWrite!();
+      if (outcome === "trust_failure") {
+        await expect(trustTask).rejects.toThrow("Controlled database failure");
+        expect(email).not.toHaveBeenCalled();
+        expect(publish.mock.calls.filter(([event]) => event.type === "reputation.updated")).toHaveLength(0);
+        expect(currentSnapshot().purchaseRequests[0].completedAt).toBeTruthy();
+        expect(save).toHaveBeenCalledTimes(2);
+        return;
+      }
+      await trustTask;
+      expect(currentSnapshot().users.find(user => user.id === SELLER_ID)?.sellerPrestigeRank).toBe("silver");
+      expect(email).toHaveBeenCalledTimes(1);
+      expect(publish.mock.calls.some(([event]) => event.type === "reputation.updated")).toBe(true);
+      const publications = publish.mock.calls.length;
+      await result.deferredTrustWrite!();
+      const retry = await updatePurchaseRequestStatus({ requestId, actorUserId: SELLER_ID, actorRole: "approved_seller", nextStatus: "completed", completionMode: "seller" });
+      expect(retry.statusChanged).toBe(false);
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(email).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledTimes(publications);
+    } finally { save.mockRestore(); publish.mockRestore(); email.mockRestore(); }
   });
 
   it("rejects a stale buyer completion retry after seller completion", async () => {
