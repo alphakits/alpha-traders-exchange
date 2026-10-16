@@ -1,6 +1,6 @@
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { getAuditQueryTimings, getRuntimePostgresPool } from "./postgres-runtime";
-import { broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
+import { beginBuyerVerification, broadcastNotificationByAdmin, changeUserRoleByAdmin, consumeEmailVerificationToken, consumePasswordResetToken, createEmailVerificationTokenForUser, createPasswordResetToken, disableUserAccountByAdmin, getTradeRoomData, invalidateAlphaExchangeStoreCache, issueSellerCommissionByAdmin, reconcilePendingTradeTrust, recordBuyerVerificationAttempt, setSellerVacationModeByAdmin, updatePurchaseRequestStatus, updateTradeTerms, updateUserPassword, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 // External delivery is deliberately outside this database test. The child
@@ -40,6 +40,8 @@ async function execute(operation: string, input: unknown) {
   if (operation === "admin-disable") return disableUserAccountByAdmin(input as Parameters<typeof disableUserAccountByAdmin>[0]);
   if (operation === "admin-vacation") return setSellerVacationModeByAdmin(input as Parameters<typeof setSellerVacationModeByAdmin>[0]);
   if (operation === "admin-broadcast") return broadcastNotificationByAdmin(input as Parameters<typeof broadcastNotificationByAdmin>[0]);
+  if (operation === "phone-attempt") return recordBuyerVerificationAttempt(input as string);
+  if (operation === "phone-challenge") return beginBuyerVerification(input as Parameters<typeof beginBuyerVerification>[0]);
   if (operation === "status" || operation === "status-with-lost-follow-up") {
     const actionStarted = performance.now();
     const result = await updatePurchaseRequestStatus(input as Parameters<typeof updatePurchaseRequestStatus>[0]);

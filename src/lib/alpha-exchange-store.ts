@@ -6551,36 +6551,38 @@ export async function confirmProfilePhoneVerification(input: { userId: string; p
 }
 
 export async function grantStudentRole(userId: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "student");
-  db.users[index] = {
-    ...user,
-    roles,
-    role: resolvePrimaryRole(roles),
-    onboardingSelection: "student",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "student");
+    db.users[index] = {
+      ...user,
+      roles,
+      role: resolvePrimaryRole(roles),
+      onboardingSelection: "student",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function selectGuestOnboarding(userId: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  db.users[index] = {
-    ...user,
-    onboardingSelection: "guest",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    db.users[index] = {
+      ...user,
+      onboardingSelection: "guest",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function activateBuyerOnboardingWithoutPhone(input: {
@@ -6589,34 +6591,35 @@ export async function activateBuyerOnboardingWithoutPhone(input: {
   lastName: string;
   displayName?: string;
 }) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  // The legacy function name predates mandatory SMS. All callers, including
-  // native onboarding, must now prove phone verification before granting Buyer.
-  if (needsMarketplacePhoneVerification(user)) throw new Error("Verify your phone number before activating Buyer access.");
-  const firstName = input.firstName.trim();
-  const lastName = input.lastName.trim();
-  if (!firstName || !lastName) {
-    throw new Error("First name and last name are required.");
-  }
-  assertNoExchangeDirectContact(firstName, lastName, input.displayName);
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    // The legacy function name predates mandatory SMS. All callers, including
+    // native onboarding, must now prove phone verification before granting Buyer.
+    if (needsMarketplacePhoneVerification(user)) throw new Error("Verify your phone number before activating Buyer access.");
+    const firstName = input.firstName.trim();
+    const lastName = input.lastName.trim();
+    if (!firstName || !lastName) {
+      throw new Error("First name and last name are required.");
+    }
+    assertNoExchangeDirectContact(firstName, lastName, input.displayName);
 
-  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
-  db.users[index] = {
-    ...user,
-    roles,
-    role: resolvePrimaryRole(roles),
-    buyerFirstName: firstName,
-    buyerLastName: lastName,
-    buyerDisplayName: input.displayName?.trim() || undefined,
-    onboardingSelection: "buyer",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return db.users[index];
+    const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+    db.users[index] = {
+      ...user,
+      roles,
+      role: resolvePrimaryRole(roles),
+      buyerFirstName: firstName,
+      buyerLastName: lastName,
+      buyerDisplayName: input.displayName?.trim() || undefined,
+      onboardingSelection: "buyer",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function beginBuyerVerification(input: {
@@ -6628,85 +6631,90 @@ export async function beginBuyerVerification(input: {
 }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
   assertNoExchangeDirectContact(input.firstName, input.lastName, input.displayName);
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const normalizedPhone = normalizeIsraeliPhone(input.phone);
-  if (!normalizedPhone) {
-    throw new Error("This marketplace is currently available only for verified Israeli buyers.");
-  }
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const normalizedPhone = normalizeIsraeliPhone(input.phone);
+    if (!normalizedPhone) {
+      throw new Error("This marketplace is currently available only for verified Israeli buyers.");
+    }
 
-  const today = formatIsraelCalendarDateKey(Date.now());
-  const sendsDate = user.buyerOtpSendsDate ?? today;
-  const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
-  if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
+    const today = formatIsraelCalendarDateKey(Date.now());
+    const sendsDate = user.buyerOtpSendsDate ?? today;
+    const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
+    if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
 
-  assertAccountPhoneAvailable(db.users, user, normalizedPhone);
+    assertAccountPhoneAvailable(db.users, user, normalizedPhone);
 
-  db.users[index] = {
-    ...user,
-    buyerFirstName: input.firstName.trim(),
-    buyerLastName: input.lastName.trim(),
-    buyerDisplayName: input.displayName?.trim() || undefined,
-    buyerVerificationStatus: "otp_sent",
-    buyerOtpRequestedAt: nowIso(),
-    buyerOtpSendsDate: today,
-    buyerOtpSendsToday: sendsToday + 1,
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  return { phone: normalizedPhone, user: db.users[index] };
+    db.users[index] = {
+      ...user,
+      buyerFirstName: input.firstName.trim(),
+      buyerLastName: input.lastName.trim(),
+      buyerDisplayName: input.displayName?.trim() || undefined,
+      buyerVerificationStatus: "otp_sent",
+      buyerOtpRequestedAt: nowIso(),
+      buyerOtpSendsDate: today,
+      buyerOtpSendsToday: sendsToday + 1,
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: { phone: normalizedPhone, user: db.users[index] } };
+  });
 }
 
 export async function completeBuyerVerification(input: { userId: string; phone: string }) {
   if (!isMarketplacePhoneVerificationEnabled()) throw new Error("Phone verification is disabled.");
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  const normalizedPhone = normalizeIsraeliPhone(input.phone);
-  if (!normalizedPhone) throw new Error("Invalid Israeli phone number.");
-  assertAccountPhoneAvailable(db.users, user, normalizedPhone);
+  const committed = await mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const normalizedPhone = normalizeIsraeliPhone(input.phone);
+    if (!normalizedPhone) throw new Error("Invalid Israeli phone number.");
+    assertAccountPhoneAvailable(db.users, user, normalizedPhone);
 
-  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
-  db.users[index] = {
-    ...user,
-    roles,
-    role: resolvePrimaryRole(roles),
-    verifiedPhone: normalizedPhone,
-    phoneVerifiedAt: nowIso(),
-    buyerVerificationStatus: "verified",
-    buyerVerificationAttempts: Math.max(0, Number(user.buyerVerificationAttempts ?? 0)),
-    onboardingSelection: "buyer",
-    onboardingCompletedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
-  if (canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== normalizedPhone) schedulePhoneSecurityNotice(input.userId);
-  return db.users[index];
+    const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+    db.users[index] = {
+      ...user,
+      roles,
+      role: resolvePrimaryRole(roles),
+      verifiedPhone: normalizedPhone,
+      phoneVerifiedAt: nowIso(),
+      buyerVerificationStatus: "verified",
+      buyerVerificationAttempts: Math.max(0, Number(user.buyerVerificationAttempts ?? 0)),
+      onboardingSelection: "buyer",
+      onboardingCompletedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: { user: db.users[index], phoneChanged: canonicalPhoneNumber(user.verifiedPhone ?? user.whatsappNumber) !== normalizedPhone } };
+  });
+  if (committed.phoneChanged) schedulePhoneSecurityNotice(input.userId);
+  return committed.user;
 }
 
 export async function recordBuyerVerificationAttempt(userId: string) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === userId);
-  if (index === -1) return;
-  const user = db.users[index];
-  const now = Date.now();
-  const windowStart = user.buyerVerificationWindowStartedAt ? new Date(user.buyerVerificationWindowStartedAt).getTime() : 0;
-  const withinWindow = Number.isFinite(windowStart) && windowStart > 0 && now - windowStart < 60 * 60 * 1000;
-  const attempts = withinWindow ? Number(user.buyerVerificationAttempts ?? 0) + 1 : 1;
-  db.users[index] = {
-    ...user,
-    buyerVerificationAttempts: attempts,
-    buyerVerificationWindowStartedAt: withinWindow ? user.buyerVerificationWindowStartedAt : nowIso(),
-    updatedAt: nowIso(),
-  };
-  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === userId);
+    if (index === -1) return { changed: false, result: undefined };
+    const user = db.users[index];
+    if (user.disabled) throw new Error("Account access is restricted.");
+    const now = Date.now();
+    const windowStart = user.buyerVerificationWindowStartedAt ? new Date(user.buyerVerificationWindowStartedAt).getTime() : 0;
+    const withinWindow = Number.isFinite(windowStart) && windowStart > 0 && now - windowStart < 60 * 60 * 1000;
+    const attempts = withinWindow ? Number(user.buyerVerificationAttempts ?? 0) + 1 : 1;
+    db.users[index] = {
+      ...user,
+      buyerVerificationAttempts: attempts,
+      buyerVerificationWindowStartedAt: withinWindow ? user.buyerVerificationWindowStartedAt : nowIso(),
+      updatedAt: nowIso(),
+    };
+    return { changed: true, result: undefined };
+  });
 }
 
-/** Apply authentication changes against canonical records if another writer wins. */
-async function mutateCanonicalAuthRecords<T>(
+/** Apply account changes against canonical records if another writer wins. */
+async function mutateCanonicalAccountRecords<T>(
   readTables: readonly SnapshotTableName[],
   writeTables: readonly SnapshotTableName[],
   apply: (snapshot: AlphaExchangeDb) => { changed: boolean; result: T },
@@ -6729,7 +6737,7 @@ export async function createEmailVerificationTokenForUser(userId: string, durati
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
   const sentAt = nowIso();
-  return mutateCanonicalAuthRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+  return mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
     const user = db.users.find(candidate => candidate.id === userId);
     if (!user) throw new Error("User not found.");
     Object.assign(user, { emailVerificationTokenHash: tokenHash, emailVerificationTokenExpiresAt: expiresAt,
@@ -6747,7 +6755,7 @@ export async function createEmailVerificationTokenForEmail(email: string, durati
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
   const sentAt = nowIso();
-  return mutateCanonicalAuthRecords<EmailVerificationIssue>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+  return mutateCanonicalAccountRecords<EmailVerificationIssue>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
     const user = db.users.find(candidate => normalizeEmail(candidate.email) === normalizedEmail);
     if (!user) return { changed: false, result: null };
     if (user.emailVerified === true) return { changed: false, result: { skipped: "already_verified", user } };
@@ -6763,7 +6771,7 @@ export async function consumeEmailVerificationToken(rawToken: string): Promise<E
   const token = String(rawToken ?? "").trim();
   if (!token) return { status: "invalid" };
   const candidateHash = hashToken(token);
-  return mutateCanonicalAuthRecords<EmailVerificationConsumption>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+  return mutateCanonicalAccountRecords<EmailVerificationConsumption>(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
     const user = db.users.find(candidate => candidate.emailVerificationTokenHash
       && constantTimeHexEquals(candidate.emailVerificationTokenHash, candidateHash));
     if (!user) return { changed: false, result: { status: "invalid" } };
@@ -6780,7 +6788,7 @@ export async function consumeEmailVerificationToken(rawToken: string): Promise<E
 }
 
 export async function updateUserPassword(userId: string, passwordHash: string) {
-  await mutateCanonicalAuthRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
+  await mutateCanonicalAccountRecords(AUTH_USER_READ_TABLES, USER_PROFILE_TABLES, db => {
     const user = db.users.find(candidate => candidate.id === userId);
     if (!user) throw new Error("User not found.");
     user.passwordHash = passwordHash;
@@ -7576,7 +7584,7 @@ export async function createPasswordResetToken(userId: string, rawToken: string,
   const createdAt = new Date();
   const reset: PasswordResetToken = { id: `pwd-reset-${randomUUID()}`, userId, tokenHash: hashToken(rawToken),
     createdAt: createdAt.toISOString(), expiresAt: new Date(createdAt.getTime() + durationMinutes * 60 * 1000).toISOString() };
-  return mutateCanonicalAuthRecords(["users", "password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
+  return mutateCanonicalAccountRecords(["users", "password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
     if (!db.users.some(user => user.id === userId)) throw new Error("User not found.");
     db.passwordResetTokens = [...db.passwordResetTokens.filter(item => item.userId !== userId), reset];
     return { changed: true, result: reset };
@@ -7587,7 +7595,7 @@ export async function consumePasswordResetToken(rawToken: string) {
   const value = String(rawToken ?? "").trim();
   if (!value) return null;
   const hashed = hashToken(value);
-  return mutateCanonicalAuthRecords<PasswordResetToken | null>(["password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
+  return mutateCanonicalAccountRecords<PasswordResetToken | null>(["password_reset_tokens"], PASSWORD_RESET_TABLES, db => {
     const token = db.passwordResetTokens.find(item => constantTimeHexEquals(item.tokenHash, hashed));
     if (!token) return { changed: false, result: null };
     db.passwordResetTokens = db.passwordResetTokens.filter(item => item.tokenHash !== hashed);
@@ -17938,41 +17946,42 @@ export async function updateMarketplacePriceAlert(userId: string, value: Marketp
 export async function updateNotificationPreferences(
   input: { userId: string; preferences: Partial<NotificationPreferences> },
 ) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.userId);
-  if (index === -1) throw new Error("User not found.");
-  if (input.preferences.sms === true && !hasVerifiedPhoneForSms(db.users[index])) {
-    throw new Error("Verify a phone number before enabling SMS notifications.");
-  }
-  const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
-  const next = normalizeNotificationPreferences({
-    ...current,
-    inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
-    email: typeof input.preferences.email === "boolean" ? input.preferences.email : current.email,
-    sms: typeof input.preferences.sms === "boolean" ? input.preferences.sms : current.sms,
-    browserPush: typeof input.preferences.browserPush === "boolean" ? input.preferences.browserPush : current.browserPush,
-    browserPushTradeUpdates: typeof input.preferences.browserPushTradeUpdates === "boolean" ? input.preferences.browserPushTradeUpdates : current.browserPushTradeUpdates,
-    browserPushChatMessages: typeof input.preferences.browserPushChatMessages === "boolean" ? input.preferences.browserPushChatMessages : current.browserPushChatMessages,
-    browserPushListings: typeof input.preferences.browserPushListings === "boolean" ? input.preferences.browserPushListings : current.browserPushListings,
-    browserPushFeedback: typeof input.preferences.browserPushFeedback === "boolean" ? input.preferences.browserPushFeedback : current.browserPushFeedback,
-    browserPushAdminAlerts: typeof input.preferences.browserPushAdminAlerts === "boolean" ? input.preferences.browserPushAdminAlerts : current.browserPushAdminAlerts,
-    browserPushPromptDismissedAt: input.preferences.browserPushPromptDismissedAt ?? current.browserPushPromptDismissedAt,
-    browserPushPermissionState: input.preferences.browserPushPermissionState ?? current.browserPushPermissionState,
-    browserPushSubscriptionHash: input.preferences.browserPushSubscriptionHash ?? current.browserPushSubscriptionHash,
+  return mutateCanonicalAccountRecords([...AUTH_USER_READ_TABLES, "activity_logs"], NOTIFICATION_PREFERENCES_TABLES, db => {
+    const index = db.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    if (db.users[index].disabled) throw new Error("Account access is restricted.");
+    if (input.preferences.sms === true && !hasVerifiedPhoneForSms(db.users[index])) {
+      throw new Error("Verify a phone number before enabling SMS notifications.");
+    }
+    const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
+    const next = normalizeNotificationPreferences({
+      ...current,
+      inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
+      email: typeof input.preferences.email === "boolean" ? input.preferences.email : current.email,
+      sms: typeof input.preferences.sms === "boolean" ? input.preferences.sms : current.sms,
+      browserPush: typeof input.preferences.browserPush === "boolean" ? input.preferences.browserPush : current.browserPush,
+      browserPushTradeUpdates: typeof input.preferences.browserPushTradeUpdates === "boolean" ? input.preferences.browserPushTradeUpdates : current.browserPushTradeUpdates,
+      browserPushChatMessages: typeof input.preferences.browserPushChatMessages === "boolean" ? input.preferences.browserPushChatMessages : current.browserPushChatMessages,
+      browserPushListings: typeof input.preferences.browserPushListings === "boolean" ? input.preferences.browserPushListings : current.browserPushListings,
+      browserPushFeedback: typeof input.preferences.browserPushFeedback === "boolean" ? input.preferences.browserPushFeedback : current.browserPushFeedback,
+      browserPushAdminAlerts: typeof input.preferences.browserPushAdminAlerts === "boolean" ? input.preferences.browserPushAdminAlerts : current.browserPushAdminAlerts,
+      browserPushPromptDismissedAt: input.preferences.browserPushPromptDismissedAt ?? current.browserPushPromptDismissedAt,
+      browserPushPermissionState: input.preferences.browserPushPermissionState ?? current.browserPushPermissionState,
+      browserPushSubscriptionHash: input.preferences.browserPushSubscriptionHash ?? current.browserPushSubscriptionHash,
+    });
+    db.users[index] = {
+      ...db.users[index],
+      notificationPreferences: next,
+      updatedAt: nowIso(),
+    };
+    pushActivityLog(db, {
+      userId: input.userId,
+      category: "account",
+      title: "Notification preferences updated",
+      details: `inApp=${next.inApp}, email=${next.email}, sms=${next.sms}`,
+    });
+    return { changed: true, result: next };
   });
-  db.users[index] = {
-    ...db.users[index],
-    notificationPreferences: next,
-    updatedAt: nowIso(),
-  };
-  pushActivityLog(db, {
-    userId: input.userId,
-    category: "account",
-    title: "Notification preferences updated",
-    details: `inApp=${next.inApp}, email=${next.email}, sms=${next.sms}`,
-  });
-  await writeDb(db, { selectedTables: NOTIFICATION_PREFERENCES_TABLES });
-  return next;
 }
 
 export async function updateSmsDeliveryStatus(input: { deliveryId?: string; messageSid: string; status: SmsDeliveryStatus; providerStatus: string }) {

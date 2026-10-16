@@ -169,6 +169,16 @@ try {
   assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.notifications where payload->>'titleEn'=$1", [broadcast.titleEn])).rows[0].n, 76);
   assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.audit_logs where payload->>'details'=$1", [`Broadcast notification sent: ${broadcast.titleEn}`])).rows[0].n, 1);
   passed("Broadcast audit failure rolls back all recipients and another process safely retries", { recipients: 76, auditRecords: 1, externalDelivery: "disabled" });
+  (await batch(Array.from({ length: 4 }, () => ({ operation: "phone-attempt", input: authAccounts[0] })))).forEach(requireOk);
+  assert.equal(requireOk(await workers[0].call("snapshot")).users.find(user => user.id === authAccounts[0]).buyerVerificationAttempts, 4);
+  const phoneChallenges = await batch(Array.from({ length: 6 }, () => ({ operation: "phone-challenge", input: {
+    userId: authAccounts[0], firstName: "Controlled", lastName: "Account",
+    phone: fixture.users.find(user => user.id === authAccounts[0]).verifiedPhone,
+  } })));
+  assert.equal(phoneChallenges.filter(result => result.ok).length, 5);
+  assert.equal(phoneChallenges.filter(result => !result.ok && /OTP send limit/.test(result.error)).length, 1);
+  assert.equal(requireOk(await workers[0].call("snapshot")).users.find(user => user.id === authAccounts[0]).buyerOtpSendsToday, 5);
+  passed("Phone challenge and attempt counters cannot be bypassed across processes", { attempts: 4, simultaneousChallenges: 6, allowed: 5, rejected: 1, actualSmsSent: 0 });
   const verification = requireOk(await workers[0].call("auth-email-issue", authAccounts[0]));
   const verifications = (await Promise.all(workers.map(worker => worker.call("auth-email-consume", verification.token)))).map(requireOk);
   assert.equal(verifications.filter(result => result.status === "verified").length, 1);
