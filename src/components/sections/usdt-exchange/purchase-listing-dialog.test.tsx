@@ -197,3 +197,11 @@ describe("purchase dialog seller privacy", () => {
     expect(screen.getByLabelText(locale === "en" ? /USDT Amount/ : /كمية USDT/)).toBeTruthy();
   });
 });
+
+it.each(["Bank Transfer", "Face-to-Face (Meet in Person)"])("blocks a zero-rounded payment in the %s purchase form", selectedPaymentMethod => {
+  render(<Harness selectedPaymentMethod={selectedPaymentMethod} selectedMinTrade={0} initialBuyerInfo={{ usdtAmount: "0.000001" }} />);
+  expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole("alert").textContent).toContain("at least 0.01");
+  fireEvent.change(screen.getByLabelText(/USDT Amount/), { target: { value: "1" } });
+  expect((screen.getByRole("button", { name: "Start Trade" }) as HTMLButtonElement).disabled).toBe(false);
+});
