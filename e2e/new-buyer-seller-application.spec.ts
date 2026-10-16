@@ -196,7 +196,11 @@ test("buyer without phone verification can submit and retain a pending seller ap
 
   await page.reload();
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
-  await page.request.post("/api/auth/logout");
+  // End the old document before replacing its session through the API. Otherwise
+  // its session-expiry redirect can abort the new session's navigation.
+  await page.goto("about:blank");
+  const logout = await page.request.post("/api/auth/logout");
+  expect(logout.ok(), await logout.text()).toBeTruthy();
   await login(page.request);
   await page.goto("/en/usdt-exchange");
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
