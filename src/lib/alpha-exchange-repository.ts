@@ -1311,6 +1311,9 @@ type AggregatedSnapshotRow = {
  *
  * `tableNames` is restricted to the compile-time snapshot table allowlist, so
  * interpolating these identifiers cannot introduce user-controlled SQL.
+ * The payloads are already JSONB. Aggregate to wire JSON rather than rebuilding
+ * a second binary document for the whole collection; pg parses either result
+ * into the same objects. Explicit ordering and empty arrays stay unchanged.
  */
 function buildAggregatedSnapshotSql(
   tableNames: readonly SnapshotTableName[],
@@ -1324,16 +1327,16 @@ function buildAggregatedSnapshotSql(
       : null;
     if (limit) {
       return `coalesce((
-        select jsonb_agg(bounded.payload order by bounded.sort_index asc)
+        select json_agg(bounded.payload order by bounded.sort_index asc)
         from (
           select payload, sort_index
           from alpha_exchange.${tableName}
           order by sort_index asc
           limit ${limit}
         ) bounded
-      ), '[]'::jsonb) as "${tableName}"`;
+      ), '[]'::json) as "${tableName}"`;
     }
-    return `coalesce((select jsonb_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::jsonb) as "${tableName}"`;
+    return `coalesce((select json_agg(payload order by sort_index asc) from alpha_exchange.${tableName}), '[]'::json) as "${tableName}"`;
   });
   return `select
     (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${payloadColumns.length ? `,\n    ${payloadColumns.join(",\n    ")}` : ""}`;
@@ -3729,8 +3732,11 @@ export class AlphaExchangeRepository {
           try {
             await queryWithLogging(client, "select pg_advisory_xact_lock(61422917)");
             logProfile("advisory_lock");
-          } catch {
-            // pg-mem does not implement advisory locks; local tests stay single-process.
+          } catch (error) {
+            // A failed lock never authorizes an unlocked write. Only the
+            // explicitly unsupported local pg-mem function may be skipped.
+            if (isProductionSecurityRuntime() || !(error instanceof Error)
+              || !/function .*pg_advisory_xact_lock.*does not exist/i.test(error.message)) throw error;
           }
 
           const loadedVersion = getVersion(db);
@@ -3774,17 +3780,25 @@ export class AlphaExchangeRepository {
           );
           logProfile("update_runtime_meta");
 
-          attachVersion(db, writtenVersion);
           await client.query("commit");
+          attachVersion(db, writtenVersion);
           logProfile("commit");
           return;
         } catch (error) {
+          // The driver may time out before PostgreSQL stops the statement.
+          // Destroy the socket instead of queuing rollback or recycling it.
+          if (error instanceof Error && /query read timeout/i.test(error.message)) {
+            client?.release(true);
+            client = null;
+            throw error;
+          }
           try {
             if (client) {
               await client.query("rollback");
             }
           } catch {
-            // Ignore rollback failure; a fresh client will be acquired on retry.
+            client?.release(true);
+            client = null;
           }
           const retryClient = client;
           if (

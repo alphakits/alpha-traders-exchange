@@ -56,6 +56,48 @@ function createEmptyDb(): AlphaExchangeDb {
 }
 
 describe("AlphaExchangeRepository", () => {
+  it("does not advance a listing snapshot version when commit fails", async () => {
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql === "commit") throw new Error("connection terminated during commit");
+        return { rows: [] };
+      }), release: vi.fn(),
+    };
+    const repository = new AlphaExchangeRepository({ query: vi.fn(), connect: vi.fn().mockResolvedValue(client), on: vi.fn() } as unknown as Pool);
+    vi.spyOn(repository, "ensureReady").mockResolvedValue();
+    const snapshot = { ...createEmptyDb(), __runtimeVersion: 0 };
+    await expect(repository.saveListingCreationSnapshot(snapshot)).rejects.toThrow("connection terminated during commit");
+    expect(snapshot.__runtimeVersion).toBe(0);
+  });
+
+  it.each(["canceling statement due to statement timeout", "Query read timeout", "connection terminated unexpectedly"])(
+    "never writes a listing when its transaction lock fails: %s",
+    async (message) => {
+      vi.stubEnv("NODE_ENV", "production");
+      const client = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("pg_advisory_xact_lock")) throw new Error(message);
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+      const repository = new AlphaExchangeRepository({
+        query: vi.fn(), connect: vi.fn().mockResolvedValue(client), on: vi.fn(),
+      } as unknown as Pool);
+      vi.spyOn(repository, "ensureReady").mockResolvedValue();
+      await expect(repository.saveListingCreationSnapshot(createEmptyDb())).rejects.toThrow(message);
+      const queries = client.query.mock.calls.map(([sql]) => sql.trim());
+      expect(queries.some(sql => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+      expect(queries).not.toContain("commit");
+      if (message === "Query read timeout") {
+        expect(queries).not.toContain("rollback");
+        expect(client.release).toHaveBeenCalledWith(true);
+      } else {
+        expect(queries).toContain("rollback");
+      }
+    },
+  );
+
   it("invalidates every session for the recovering account while preserving another account's sessions", async () => {
     const snapshot = createEmptyDb();
     snapshot.authSessions = [
@@ -452,7 +494,7 @@ describe("AlphaExchangeRepository", () => {
     expect(snapshot.purchaseRequests).toEqual([{ id: "purchase-1", status: "accepted" }]);
     expect(snapshot.users).toEqual([]);
     expect((snapshot as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(17);
-    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("jsonb_agg(payload order by sort_index asc)"));
+    const selectedQueries = query.mock.calls.filter(([sql]) => String(sql).includes("json_agg(payload order by sort_index asc)"));
     expect(selectedQueries).toHaveLength(1);
     expect(String(selectedQueries[0]?.[0])).not.toContain('as "users"');
   });
@@ -800,7 +842,7 @@ describe("AlphaExchangeRepository", () => {
         if (failLoads) {
           return Promise.reject(new Error("timeout exceeded when trying to connect"));
         }
-        if (queryText.includes("jsonb_agg(payload order by sort_index asc)")) {
+        if (queryText.includes("json_agg(payload order by sort_index asc)")) {
           return Promise.resolve({
             rows: [{
               version: "7",
@@ -852,7 +894,7 @@ describe("AlphaExchangeRepository", () => {
     };
     const successPool = {
       query: vi.fn((queryText: string) => {
-        if (queryText.includes("jsonb_agg(payload order by sort_index asc)")) {
+        if (queryText.includes("json_agg(payload order by sort_index asc)")) {
           return Promise.resolve({
             rows: [{
               version: "9",
@@ -1060,7 +1102,7 @@ describe("AlphaExchangeRepository", () => {
     };
     const client = {
       query: vi.fn((sql: string) => {
-        if (typeof sql === "string" && sql.includes("jsonb_agg(payload order by sort_index asc)")) {
+        if (typeof sql === "string" && sql.includes("json_agg(payload order by sort_index asc)")) {
           return Promise.resolve({
             rows: [{ version: "2", purchase_requests: [canonicalRequest] }],
           });
@@ -1095,7 +1137,7 @@ describe("AlphaExchangeRepository", () => {
     });
 
     const aggregateQueries = client.query.mock.calls.filter(([sql]) => (
-      typeof sql === "string" && sql.includes("jsonb_agg(payload order by sort_index asc)")
+      typeof sql === "string" && sql.includes("json_agg(payload order by sort_index asc)")
     ));
     expect(aggregateQueries).toHaveLength(1);
     expect(client.query.mock.calls.some(([sql]) => (
@@ -1697,7 +1739,7 @@ describe("AlphaExchangeRepository", () => {
     ];
     const client = {
       query: vi.fn((sql: string) => {
-        if (sql.includes("jsonb_agg")) return Promise.resolve({ rows: [{ version: "2", purchase_requests: requests }] });
+        if (/jsonb?_agg/.test(sql)) return Promise.resolve({ rows: [{ version: "2", purchase_requests: requests }] });
         if (sql.includes("select version::text as version")) return Promise.resolve({ rows: [{ version: "2" }] });
         return Promise.resolve({ rows: [] });
       }), release: vi.fn(),
@@ -1714,7 +1756,7 @@ describe("AlphaExchangeRepository", () => {
         return snapshot;
       },
     });
-    const sql = client.query.mock.calls.find(([query]) => query.includes("jsonb_agg"))?.[0] ?? "";
+    const sql = client.query.mock.calls.find(([query]) => /jsonb?_agg/.test(query))?.[0] ?? "";
     expect(sql).toContain('as "purchase_requests"');
     expect(sql).not.toContain('as "sessions"');
     expect(sql).not.toContain('as "evidence"');

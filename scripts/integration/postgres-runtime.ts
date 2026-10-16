@@ -21,7 +21,7 @@ pool.on("connect", client => {
     const query = args[0];
     const sql = typeof query === "string" ? query : String((query as { text?: unknown })?.text ?? "");
     const operation = /pg_advisory_xact_lock/.test(sql) ? "advisory_lock"
-      : /jsonb_agg/.test(sql) ? "snapshot_aggregate"
+      : /jsonb?_agg/.test(sql) ? "snapshot_aggregate"
       : /runtime_meta/.test(sql) ? "runtime_version"
       : /^(begin|commit|rollback)$/i.test(sql.trim()) ? sql.trim().toLowerCase()
       : `${sql.trim().split(/\s+/)[0]?.toLowerCase() ?? "other"}:${sql.match(/alpha_exchange\.([a-z_]+)/)?.[1] ?? "schema"}`;
