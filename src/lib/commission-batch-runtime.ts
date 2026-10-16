@@ -1,3 +1,4 @@
+import { COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import "server-only";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
@@ -28,7 +29,7 @@ export async function getCommissionBatchRuntime() {
     // Evidence of actual runtime enablement, not merely a build-time flag.
     // Do not include secrets, account identities, addresses or receipt bodies.
     logEvent("info", { event: "commission_batch_runtime_ready", outcome: "success",
-      metadata: { enabled: true, receiptReservationGuards: true, toleranceUsdt: 1, attributionRequired: true } });
+      metadata: { enabled: true, receiptReservationGuards: true, toleranceUsdt: COMMISSION_TOLERANCE_USDT, attributionRequired: true } });
   }
   const repository = await getAlphaExchangeRepository();
   const workflow = createCommissionBatchWorkflow({

@@ -1,3 +1,4 @@
+import { COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
@@ -23,7 +24,7 @@ export async function GET() {
     const rail = state.checkout ? resolveCommissionWalletForNetwork(state.checkout.network) : null;
     if (rail && !rail.available) throw new Error("Destination unavailable");
     return NextResponse.json({ ...state, walletAddress: rail?.available ? rail.walletAddress : null,
-      checkedAt: new Date().toISOString(), toleranceUsdt: 1, ownerApprovalRequired: false }, { headers });
+      checkedAt: new Date().toISOString(), toleranceUsdt: COMMISSION_TOLERANCE_USDT, ownerApprovalRequired: false }, { headers });
   } catch {
     return NextResponse.json({ error: "CHECKOUT_UNAVAILABLE" }, { status: 503, headers });
   }

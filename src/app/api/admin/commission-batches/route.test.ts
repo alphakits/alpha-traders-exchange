@@ -51,3 +51,7 @@ describe("owner-only batch receipt association", () => {
     mocks.approve.mockRejectedValue(new Error("private-connection-string")); const response = await POST(request()); expect(response!.status).toBe(503); expect(JSON.stringify(await response!.json())).not.toContain("private");
   });
 });
+
+it("reports the same two-USDT group policy with payer attribution retained", async () => {
+  expect(await (await GET())!.json()).toMatchObject({ toleranceUsdt: 2, attributionRequired: true });
+});

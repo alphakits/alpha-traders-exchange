@@ -1,4 +1,5 @@
 "use client";
+import { COMMISSION_TOLERANCE_MICROS, COMMISSION_TOLERANCE_USDT } from "@/lib/commission-tolerance.mjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Commission = { id: string; displayNumber?: number; sellerId: string; sellerName: string; commissionAmount: number; hasPaymentInProgress: boolean };
@@ -74,7 +75,7 @@ export function CommissionReceiptReviewPanel({ locale }: { locale: "ar" | "en" }
   const due = chosen.reduce((sum, record) => sum + Math.round(record.commissionAmount * 1e6), 0);
   const receipt = history?.receipts.find((item) => `${item.network}:${item.signature}` === receiptKey);
   const delta = receipt ? receipt.amountMicros - due : 0;
-  const acceptable = Boolean(state?.enabled && chosen.length && chosen.length === selected.length && receipt && !receipt.reserved && !receipt.conflicting && receipt.amountMicros > 0 && Math.abs(delta) <= 1_000_000);
+  const acceptable = Boolean(state?.enabled && chosen.length && chosen.length === selected.length && receipt && !receipt.reserved && !receipt.conflicting && receipt.amountMicros > 0 && Math.abs(delta) <= COMMISSION_TOLERANCE_MICROS);
   async function approve() {
     if (!acceptable || !confirmed || !receipt || pendingOther.current || denied.current) return;
     const controller = new AbortController(); pendingOther.current = controller;
@@ -97,7 +98,7 @@ export function CommissionReceiptReviewPanel({ locale }: { locale: "ar" | "en" }
   const control = "w-full rounded-lg border border-white/20 bg-slate-950 p-3 text-white";
   return <main dir={ar ? "rtl" : "ltr"} className="mx-auto max-w-5xl space-y-5 px-4 py-6 text-slate-100">
     <header><h1 className="text-2xl font-semibold">{ar ? "مطابقة إيصالات العمولات" : "Commission receipt reconciliation"}</h1>
-      <p className="mt-2 text-sm text-slate-300">{ar ? "المطابقة الدقيقة تلقائية. الإيصالات المجهولة أو المجمعة تحتاج ربطًا موثوقًا بالبائع أولًا، ثم تُفحص وتُسوّى تلقائيًا بهامش ±1 USDT مرة واحدة للدفعة كاملة." : "Exact payment matching is automatic. An unidentified or combined receipt needs a reliable seller association first; receipt verification and settlement then run automatically with ±1 USDT tolerance once per payment group."}</p></header>
+      <p className="mt-2 text-sm text-slate-300">{ar ? `المطابقة الدقيقة تلقائية. الإيصالات المجهولة أو المجمعة تحتاج ربطًا موثوقًا بالبائع أولًا، ثم تُفحص وتُسوّى تلقائيًا بهامش ±${COMMISSION_TOLERANCE_USDT} USDT مرة واحدة للدفعة كاملة.` : `Exact payment matching is automatic. An unidentified or combined receipt needs a reliable seller association first; receipt verification and settlement then run automatically with ±${COMMISSION_TOLERANCE_USDT} USDT tolerance once per payment group.`}</p></header>
     {error ? <p role="alert" className="rounded-lg border border-amber-400/40 p-3">{error}</p> : null}
     {notice ? <p role="status" className="rounded-lg border border-emerald-400/40 p-3">{notice}</p> : null}
     <button type="button" className="rounded-lg border border-white/20 px-4 py-2" onClick={() => { void refresh(); }}>{ar ? "تحديث البيانات" : "Refresh records"}</button>

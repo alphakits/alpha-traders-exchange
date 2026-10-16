@@ -1,5 +1,6 @@
+import { COMMISSION_TOLERANCE_MICROS } from "./commission-tolerance.mjs";
 /** Pure settlement policy. Receipt verification and attribution are server-side responsibilities. */
-export const COMMISSION_BATCH_TOLERANCE_MICROS = 1_000_000;
+export const COMMISSION_BATCH_TOLERANCE_MICROS = COMMISSION_TOLERANCE_MICROS;
 export const COMMISSION_BATCH_CLOCK_SKEW_MS = 5 * 60_000;
 
 export interface BatchCommission {

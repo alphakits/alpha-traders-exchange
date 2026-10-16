@@ -76,8 +76,8 @@ for(const useOriginal of [true,false])test(`network switching still settles exac
 });
 test('seller issues 39 against 40 without owner approval and independently verified receipt settles',async()=>{const x=setup();const c=await issue(x);assert.equal(c.expectedMicros,39000000);assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');const r=await reconcile(x,[deposit(c)]);assert.equal(r.verified,1);assert.equal(x.calls(),1);assert.equal(x.db().commissionRecords[0].commissionAmount,40);assert.equal(x.db().commissionRecords[0].paymentBatchSettlement.waivedMicros,1000000);});
 test('38 paid against combined 18.3 plus 20 preserves original amounts',async()=>{const x=setup([18.3,20]);const c=await issue(x,'38');const r=await reconcile(x,[deposit(c)]);assert.equal(r.verified,1);assert.deepEqual(x.db().commissionRecords.map(c=>c.commissionAmount),[18.3,20]);assert.equal(x.db().commissionRecords.reduce((s,c)=>s+c.paymentBatchSettlement.waivedMicros,0),300000);});
-for(const amount of ['39','41','40.00001'])test(`boundary allowed ${amount}`,async()=>{const x=setup();const c=await issue(x,amount);assert.ok(Math.abs(c.expectedMicros-c.dueMicros)<=1000000);});
-for(const amount of ['38.999999','41.000001'])test(`outside tolerance ${amount}`,async()=>{const x=setup();await rejects(()=>issue(x,amount),'outside_tolerance');assert.equal(x.db().auditLogs.length,0);});
+for(const amount of ['38','39','41','42','40.00001'])test(`boundary allowed ${amount}`,async()=>{const x=setup();const c=await issue(x,amount);assert.ok(Math.abs(c.expectedMicros-c.dueMicros)<=2000000);});
+for(const amount of ['37.999999','42.000001'])test(`outside tolerance ${amount}`,async()=>{const x=setup();await rejects(()=>issue(x,amount),'outside_tolerance');assert.equal(x.db().auditLogs.length,0);});
 for(const amount of ['0','-1','NaN','Infinity','1e2','1.0000001','', ' 39','39 '])test(`reject malformed ${JSON.stringify(amount)}`,()=>assert.throws(()=>parseCheckoutAmount(amount)));
 test('positive tiny payment required for small fees; zero never clears',async()=>{const x=setup([.5]);await rejects(()=>issue(x,'0'),'invalid_amount');});
 test('duplicate issuance is idempotent',async()=>{const x=setup();const [a,b]=await Promise.all([issue(x),issue(x)]);assert.equal(a.id,b.id);assert.equal(x.db().auditLogs.length,1);});
@@ -205,20 +205,20 @@ test('incident: 14 received against 14.44 due automatically settles and records 
  assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,0);
  assert.equal(x.db().notifications.length,1);
 });
-for(const amount of [13440000,13750000,14000000,14875000,15440000])test(`actual receipt within symmetric tolerance: ${amount}`,async()=>{
+for(const amount of [12440000,13440000,13750000,14000000,14875000,15440000,16440000])test(`actual receipt within symmetric tolerance: ${amount}`,async()=>{
  const x=setup([14.44]);const c=await issue(x,'14.44');
  assert.equal((await reconcile(x,[deposit(c,{amountMicros:amount})])).verified,1);
  const settlement=x.db().commissionRecords[0].paymentBatchSettlement;
  assert.equal(settlement.receivedMicros,amount);assert.equal(settlement.waivedMicros,Math.max(0,14440000-amount));
  assert.equal(settlement.excessMicros,Math.max(0,amount-14440000));
 });
-for(const amount of [0,13439999,15440001,14000000.5])test(`actual receipt outside tolerance or invalid: ${amount}`,async()=>{
+for(const amount of [0,12439999,16440001,14000000.5])test(`actual receipt outside tolerance or invalid: ${amount}`,async()=>{
  const x=setup([14.44]);const c=await issue(x,'14.44');
  assert.equal((await reconcile(x,[deposit(c,{amountMicros:amount})])).verified,0);assert.equal(x.calls(),0);
 });
 test('tolerance is against base dues, not stacked on a seller-selected discount',async()=>{
- const x=setup([14.44]);const c=await issue(x,'13.44');
- assert.equal((await reconcile(x,[deposit(c,{amountMicros:13000000})])).verified,0);
+ const x=setup([14.44]);const c=await issue(x,'12.44');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:12000000})])).verified,0);
 });
 test('two eligible checkouts never choose an underpayment by scan order',async()=>{
  const x=setup([14.44]);const c=await issue(x,'14.44');
@@ -278,9 +278,62 @@ test('two distinct within-tolerance receipts require review and never silently d
  const r=await reconcile(x,[deposit(c,{amountMicros:14000000}),deposit(c,{amountMicros:14500000,signature:'binance-deposit:2'})]);
  assert.equal(r.verified,0);assert.equal(r.review,1);assert.equal(x.calls(),0);
 });
-test('combined underpayment waives at most one USDT over the whole checkout',async()=>{
+test('combined underpayment waives at most two USDT over the whole checkout',async()=>{
  const x=setup([7.22,7.22]);const c=await issue(x,'14.44');
  assert.equal((await reconcile(x,[deposit(c,{amountMicros:14000000})])).verified,1);
  assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.waivedMicros,0),440000);
  assert.equal(x.db().commissionRecords.reduce((sum,row)=>sum+row.paymentBatchSettlement.receivedMicros,0),14000000);
+});
+
+// Regression: a different seller's fully paid October-style rounded option
+// must not permanently own the whole-number amount for every future receipt.
+async function closedRoundedFixture(network='BEP20') {
+ const x=setup([30]);
+ const member={id:'closed-fee',dueMicros:30940000,createdAt:new Date(NOW-200000).toISOString()};
+ const previous={id:'closed-checkout',sellerId:'other',network,createdAt:new Date(NOW-100000).toISOString(),
+  expectedMicros:30940000,requestedMicros:30940000,dueMicros:30940000,roundedMicros:31000000,commissions:[member]};
+ x.patch(db=>{
+  db.commissionRecords.push({id:member.id,sellerId:'other',createdAt:member.createdAt,commissionAmount:30.94,
+   paymentExpectedAmount:30.940001,paymentExpectedAmountMode:'unique_v1',paymentReservedExpectedAmounts:[30.94,31],
+   paymentStatus:'paid',paymentVerificationStatus:'verified',paidAt:new Date(NOW-50000).toISOString()});
+  db.auditLogs.push({id:`${previous.id}:issued`,actorUserId:'other',targetUserId:'other',createdAt:previous.createdAt,
+   newValue:{kind:'commission_checkout_issued_v1',checkout:previous}});
+ });
+ const c=await x.api.issue({sellerId:'seller',network,desiredAmount:'30'});
+ return {x,c,previous};
+}
+for(const network of ['TRC20','BEP20'])test(`closed rounded option: new 31 receipt pays 30 automatically on ${network}`,async()=>{
+ const {x,c}=await closedRoundedFixture(network);const before=structuredClone(x.db().commissionRecords[1]);
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:31000000})])).verified,1);
+ assert.equal(x.calls(),1);assert.deepEqual(x.db().commissionRecords[1],before);
+ assert.equal(x.db().commissionRecords[0].paymentBatchSettlement.excessMicros,1000000);
+ assert.equal(x.db().notifications[0].reason,'commission_payment_verified');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:31000000})])).verified,0);
+});
+for(const changes of [{paidAt:undefined},{paidAt:'invalid'},{paidAt:new Date(NOW).toISOString()},
+ {paidAt:new Date(NOW+1).toISOString()},{paymentStatus:'pending'},{paymentVerificationStatus:undefined},
+ {createdAt:new Date(NOW-1).toISOString()},{commissionAmount:30.95}])test(`closed rounded option retains incomplete closure: ${JSON.stringify(changes)}`,async()=>{
+ const {x,c}=await closedRoundedFixture();x.patch(db=>Object.assign(db.commissionRecords[1],changes));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:31000000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('closed rounded option never releases the original exact or legacy reference',async()=>{
+ const {x,c}=await closedRoundedFixture();
+ for(const amountMicros of [30940000,30940001])assert.equal((await reconcile(x,[deposit(c,{amountMicros})])).verified,0);
+ assert.equal(x.calls(),0);
+});
+test('closed rounded option cannot reuse the old transaction',async()=>{
+ const {x,c}=await closedRoundedFixture();x.patch(db=>db.commissionRecords[1].paymentSignature='binance-deposit:123456789');
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:31000000})])).verified,0);assert.equal(x.calls(),0);
+});
+test('closed rounded option is rechecked atomically if an old group reopens during verification',async()=>{
+ const {x,c}=await closedRoundedFixture();x.afterVerify(()=>x.patch(db=>db.commissionRecords[1].paymentStatus='pending'));
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:31000000})])).verified,0);
+ assert.equal(x.db().commissionRecords[0].paymentStatus,'pending');assert.equal(x.db().notifications.length,0);
+});
+test('two dollar tolerance never attributes a receipt to either of two newly competing sellers',async()=>{
+ const x=setup([30]);const c=await issue(x,'30');
+ x.patch(db=>db.commissionRecords.push({id:'other-new',sellerId:'other',commissionAmount:33.5,paymentExpectedAmount:33.500001,
+  paymentStatus:'pending',createdAt:new Date(NOW-1000).toISOString()}));
+ await x.api.issue({sellerId:'other',network:'BEP20',desiredAmount:'33.5'});
+ assert.equal((await reconcile(x,[deposit(c,{amountMicros:31750000})])).verified,0);assert.equal(x.calls(),0);
 });

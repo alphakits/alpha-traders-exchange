@@ -251,3 +251,37 @@ it("receiving 30 for a 29.20 checkout automatically clears canonical seller acce
   });
   expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
 });
+
+it.each([
+  ["TRC20", -2], ["TRC20", 1], ["TRC20", 2],
+  ["BEP20", -2], ["BEP20", 1], ["BEP20", 2],
+] as const)("scanner settles a %s receipt at %+d USDT and unlocks once despite closed rounded history", async (network, delta) => {
+  const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+  const previousCreated = new Date(Date.now() - 120_000).toISOString();
+  snapshot.commissionRecords = [{ ...snapshot.commissionRecords[0], commissionAmount: 30, paymentExpectedAmount: 30.000002 },
+    { ...snapshot.commissionRecords[0], id: "old-fee", sellerId: "other", commissionAmount: 30.94,
+      paymentExpectedAmount: 30.940001, paymentReservedExpectedAmounts: [30.94, 31],
+      paymentStatus: "paid", paymentVerificationStatus: "verified", createdAt: previousCreated,
+      paidAt: new Date(Date.now() - 90_000).toISOString() }];
+  const previous = { id: "old-checkout", sellerId: "other", network, createdAt: previousCreated,
+    expectedMicros: 30_940_000, requestedMicros: 30_940_000, dueMicros: 30_940_000, roundedMicros: 31_000_000,
+    commissions: [{ id: "old-fee", createdAt: previousCreated, dueMicros: 30_940_000 }] };
+  snapshot.auditLogs = [{ id: `${previous.id}:issued`, action: "commission_recorded", actorUserId: "other", targetUserId: "other",
+    createdAt: previousCreated, details: "Historical fixture", newValue: { kind: "commission_checkout_issued_v1", checkout: previous } }];
+  const service = await getCommissionCheckoutRuntime();
+  const current = await service.issue({ sellerId: "seller", network });
+  const payment = { signature: network === "TRC20" ? "e".repeat(64) : `0x${"e".repeat(64)}`, network,
+    amountMicros: (30 + delta) * 1e6, timestamp: Date.parse(current.createdAt) + 1 };
+  (network === "TRC20" ? mocks.tron : mocks.bep20).mockResolvedValue({ verified: true });
+  (network === "TRC20" ? mocks.scanTron : mocks.scanBsc).mockResolvedValue({ configured: true, complete: true, pages: 1, deposits: [payment] });
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(1);
+  expect(await getSellerListingWorkspaceData({ sellerId: "seller" })).toMatchObject({
+    commissionStatus: { status: "clear", pendingCount: 0 }, summary: { canCreateListing: true },
+  });
+  expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).commissionRecords[0]).toMatchObject({
+    commissionAmount: 30, paymentStatus: "paid", paymentBatchSettlement: {
+      receivedMicros: payment.amountMicros, waivedMicros: Math.max(0, -delta) * 1e6, excessMicros: Math.max(0, delta) * 1e6,
+    },
+  });
+  expect((await service.scan(Date.now() + 60_000)).verified).toBe(0);
+});
