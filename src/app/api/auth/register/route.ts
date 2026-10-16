@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
     const whatsappInput = typeof body.whatsappNumber === "string" ? body.whatsappNumber.trim() : "";
-    const agreedToTerms = Boolean(body.agreedToTerms);
+    const agreedToTerms = body.agreedToTerms === true;
 
     if (!fullName || !email || !password || !confirmPassword) {
       return registrationErrorResponse(locale, "REQUIRED_FIELDS", 400);

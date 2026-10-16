@@ -89,6 +89,14 @@ describe("auth register route", () => {
     expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
   });
 
+  it.each([false, null, undefined, "false", "true", 0, 1, {}, []])("requires literal true Terms consent, rejecting %j before signup", async agreedToTerms => {
+    const response = await POST(makeRequest("consent@example.test", "en", { agreedToTerms }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "TERMS_REQUIRED" });
+    expect(mocks.signUp).not.toHaveBeenCalled();
+    expect(mocks.upsertUserProfileForAuth).not.toHaveBeenCalled();
+  });
+
   it("returns localized arabic message when ip limiter blocks", async () => {
     mocks.inferLocaleFromRequest.mockReturnValue("ar");
     mocks.checkRateLimit.mockReset();
