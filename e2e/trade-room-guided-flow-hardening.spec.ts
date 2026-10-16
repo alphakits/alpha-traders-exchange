@@ -424,13 +424,21 @@ async function openNotificationAndNavigate(input: {
     expect(panelGeometry.bottom).toBeLessThanOrEqual(panelGeometry.viewportHeight);
     expect(panelGeometry.listOverflowY).toBe("auto");
 
-    const actionLabelMatcher = /Continue Trade|Open Trade Room|Leave Review|ترك تقييم|Open/i;
+    const expectedNotificationLabels: Record<string, string> = {
+      "accept-trade": "Review trade request",
+      "confirm-cash-payment": "Confirm cash or code sent",
+      "confirm-money-received": "Confirm payment received",
+      "complete-cash-trade": "Mark trade as completed",
+      "review-trade": "Leave a trade review",
+    };
+    const expectedNotificationLabel = expectedNotificationLabels[expectedAction];
+    expect(expectedNotificationLabel, `Expected notification label for ${expectedAction}`).toBeTruthy();
     await expect(panel).toBeVisible({ timeout: 20_000 });
     const titleElement = panel.locator("p.text-sm.font-medium.text-white, p.text-sm.font-medium.text-slate-100").filter({ hasText: title }).first();
     await expect(titleElement).toBeVisible({ timeout: 20_000 });
     const targetCard = titleElement.locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]").first();
     await expect(targetCard).toBeVisible({ timeout: 20_000 });
-    const actionButton = targetCard.locator("button:visible").filter({ hasText: actionLabelMatcher }).first();
+    const actionButton = targetCard.getByRole("button", { name: expectedNotificationLabel, exact: true });
     await expect(actionButton).toBeVisible({ timeout: 20_000 });
     await Promise.all([
       page.waitForURL(destinationRegex, { timeout: 10_000 }),
