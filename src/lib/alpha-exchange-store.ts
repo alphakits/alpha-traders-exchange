@@ -9048,45 +9048,50 @@ export async function updateSellerProfileStateByAdmin(input: {
   feature?: boolean;
   hidden?: boolean;
 }) {
-  const db = await readDb();
-  const index = db.users.findIndex((user) => user.id === input.sellerId);
-  if (index === -1) throw new Error("Seller not found.");
-  const seller = db.users[index];
-  if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
-  if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
-    throw new Error("Seller profile state can be managed only for approved sellers.");
-  }
-  if (input.feature === true && !isTrustEligibleSeller(seller)) {
-    throw new Error("Seller identity verification must be recorded before featuring this profile.");
-  }
-  const nextFeatured = typeof input.feature === "boolean" ? input.feature : seller.isFeaturedSeller === true;
-  const nextHidden = typeof input.hidden === "boolean" ? input.hidden : seller.isProfileHidden === true;
-  db.users[index] = {
-    ...seller,
-    isFeaturedSeller: nextFeatured,
-    isProfileHidden: nextHidden,
-    updatedAt: nowIso(),
-  };
+  return mutateCanonicalAccountRecords([...SELLER_PROFILE_STATE_TABLES, "seller_applications"], SELLER_PROFILE_STATE_TABLES, async db => {
+    assertAccountAdministrationActor(db, input.adminUserId, false);
+    const index = db.users.findIndex((user) => user.id === input.sellerId);
+    if (index === -1) throw new Error("Seller not found.");
+    const seller = db.users[index];
+    if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
+    if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
+      throw new Error("Seller profile state can be managed only for approved sellers.");
+    }
+    if (input.feature === true && !isTrustEligibleSeller(seller)) {
+      throw new Error("Seller identity verification must be recorded before featuring this profile.");
+    }
+    const nextFeatured = typeof input.feature === "boolean" ? input.feature : seller.isFeaturedSeller === true;
+    const nextHidden = typeof input.hidden === "boolean" ? input.hidden : seller.isProfileHidden === true;
+    db.users[index] = {
+      ...seller,
+      isFeaturedSeller: nextFeatured,
+      isProfileHidden: nextHidden,
+      updatedAt: nowIso(),
+    };
 
-  if (seller.isFeaturedSeller !== nextFeatured) {
-    await appendAuditLog(db, {
-      action: "seller_featured",
-      actorUserId: input.adminUserId,
-      targetUserId: seller.id,
-      details: `${nextFeatured ? "Featured" : "Unfeatured"} seller profile.`,
-    });
-  }
-  if (seller.isProfileHidden !== nextHidden) {
-    await appendAuditLog(db, {
-      action: nextHidden ? "seller_hidden" : "seller_unhidden",
-      actorUserId: input.adminUserId,
-      targetUserId: seller.id,
-      details: `${nextHidden ? "Hidden" : "Unhidden"} seller profile.`,
-    });
-  }
+    if (seller.isFeaturedSeller !== nextFeatured) {
+      await appendAuditLog(db, {
+        action: "seller_featured",
+        actorUserId: input.adminUserId,
+        targetUserId: seller.id,
+        details: `${nextFeatured ? "Featured" : "Unfeatured"} seller profile.`,
+        oldValue: { isFeaturedSeller: seller.isFeaturedSeller === true },
+        newValue: { isFeaturedSeller: nextFeatured },
+      });
+    }
+    if (seller.isProfileHidden !== nextHidden) {
+      await appendAuditLog(db, {
+        action: nextHidden ? "seller_hidden" : "seller_unhidden",
+        actorUserId: input.adminUserId,
+        targetUserId: seller.id,
+        details: `${nextHidden ? "Hidden" : "Unhidden"} seller profile.`,
+        oldValue: { isProfileHidden: seller.isProfileHidden === true },
+        newValue: { isProfileHidden: nextHidden },
+      });
+    }
 
-  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
-  return db.users[index];
+    return { changed: true, result: db.users[index] };
+  });
 }
 
 export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb, viewerUserId?: string) {

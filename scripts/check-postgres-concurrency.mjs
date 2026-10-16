@@ -156,6 +156,20 @@ try {
   assert.equal(requireOk(await workers[0].call("snapshot")).users.find(user => user.id === bankInput.sellerId).sellerBankAccounts.length, 0);
   passed("Concurrent bank changes preserve account security, enforce two slots and retain both edits", { independentProcesses: 4,
     additions: 2, rejected: 1, edits: 2, deletions: 2, defaultAccountsAfterAddition: 1, passwordPreserved: true });
+  const profileCommand = { sellerId: bankInput.sellerId, adminUserId: "audit-owner" };
+  (await batch([
+    { operation: "admin-profile", input: { ...profileCommand, feature: true } },
+    { operation: "admin-profile", input: { ...profileCommand, hidden: true } },
+    { operation: "auth-password", input: { userId: bankInput.sellerId, passwordHash: "synthetic-profile-password" } },
+  ])).forEach(requireOk);
+  const profileSnapshot = requireOk(await workers[0].call("snapshot"));
+  const profileSeller = profileSnapshot.users.find(user => user.id === bankInput.sellerId);
+  assert.equal(profileSeller.isFeaturedSeller, true);
+  assert.equal(profileSeller.isProfileHidden, true);
+  assert.equal(profileSeller.passwordHash, "synthetic-profile-password");
+  assert.equal(profileSnapshot.auditLogs.filter(log => log.targetUserId === bankInput.sellerId && ["seller_featured", "seller_hidden"].includes(log.action)).length, 2);
+  requireOk(await workers[0].call("admin-profile", { ...profileCommand, feature: false, hidden: false }));
+  passed("Concurrent owner profile controls retain visibility, featured status and password changes", { independentProcesses: 3, auditRecords: 2, fixtureRestored: true });
   const administration = { actorUserId: "audit-owner", userId: authAccounts[0], reason: "Controlled concurrent account check" };
   (await batch([
     { operation: "admin-role", input: { ...administration, role: "admin" } },

@@ -5,7 +5,7 @@ vi.mock("@/lib/postgres-runtime", () => ({ getRuntimePostgresPool: () => null })
 vi.mock("@/lib/realtime", () => ({ publishRealtimeEvent: vi.fn() }));
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { broadcastNotificationByAdmin, changeUserRoleByAdmin, disableUserAccountByAdmin,
-  invalidateAlphaExchangeStoreCache, setSellerVacationModeByAdmin } from "@/lib/alpha-exchange-store";
+  invalidateAlphaExchangeStoreCache, setSellerVacationModeByAdmin, updateSellerProfileStateByAdmin } from "@/lib/alpha-exchange-store";
 import { publishRealtimeEvent } from "@/lib/realtime";
 
 const snapshot = () => globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
@@ -104,4 +104,57 @@ it("rejects a broadcast if owner access is revoked while the write waits", async
   expect(snapshot().notifications).toHaveLength(0);
   expect(snapshot().auditLogs).toHaveLength(0);
   expect(vi.mocked(publishRealtimeEvent)).not.toHaveBeenCalled();
+});
+
+function sellerProfile() {
+  const user = snapshot().users.find(user => user.id === "account")!;
+  Object.assign(user, { role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller",
+    isFeaturedSeller: false, isProfileHidden: false,
+    sellerApprovalVerification: { method: "manual_authorized_reviewer_v1", identityDocumentReviewed: true,
+      liveIdentityVideoReviewed: true, contactOwnershipConfirmed: true, marketplaceRulesAccepted: true,
+      verifiedAt: new Date().toISOString(), verifiedByUserId: "owner" } });
+}
+const profileChange = { sellerId: "account", adminUserId: "owner", feature: true };
+
+it("profile controls preserve a concurrent password change", async () => {
+  sellerProfile();
+  await beforeCommit(db => { db.users.find(user => user.id === "account")!.passwordHash = "new-hash"; });
+  const result = await updateSellerProfileStateByAdmin(profileChange);
+  expect(result.passwordHash).toBe("new-hash");
+  expect(snapshot().users.find(user => user.id === "account")).toMatchObject({ passwordHash: "new-hash", isFeaturedSeller: true });
+});
+
+it("profile controls recheck a disabled actor before commit", async () => {
+  sellerProfile();
+  await beforeCommit(db => { db.users.find(user => user.id === "owner")!.disabled = true; });
+  await expect(updateSellerProfileStateByAdmin(profileChange)).rejects.toThrow(/admin access/i);
+  expect(snapshot().auditLogs).toHaveLength(0);
+});
+
+it("profile controls protect a target promoted to owner while waiting", async () => {
+  sellerProfile();
+  await beforeCommit(db => { Object.assign(db.users.find(user => user.id === "account")!, { role: "owner", roles: ["owner"] }); });
+  await expect(updateSellerProfileStateByAdmin(profileChange)).rejects.toThrow(/owner account/i);
+  expect(snapshot().users.find(user => user.id === "account")?.isFeaturedSeller).toBe(false);
+});
+
+it("profile controls recheck seller eligibility before featuring", async () => {
+  sellerProfile();
+  await beforeCommit(db => { Object.assign(db.users.find(user => user.id === "account")!, { role: "buyer", roles: ["buyer"], sellerStatus: "buyer" }); });
+  await expect(updateSellerProfileStateByAdmin(profileChange)).rejects.toThrow(/approved sellers/i);
+  expect(snapshot().auditLogs).toHaveLength(0);
+});
+
+it("profile controls retain simultaneous visibility and featured changes", async () => {
+  sellerProfile();
+  await Promise.all([updateSellerProfileStateByAdmin(profileChange),
+    updateSellerProfileStateByAdmin({ sellerId: "account", adminUserId: "owner", hidden: true })]);
+  expect(snapshot().users.find(user => user.id === "account")).toMatchObject({ isFeaturedSeller: true, isProfileHidden: true });
+  expect(snapshot().auditLogs).toHaveLength(2);
+});
+
+it("profile controls reject a non-admin service caller", async () => {
+  sellerProfile();
+  await expect(updateSellerProfileStateByAdmin({ ...profileChange, adminUserId: "other" })).rejects.toThrow(/admin access/i);
+  expect(snapshot().auditLogs).toHaveLength(0);
 });
