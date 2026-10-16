@@ -18046,6 +18046,9 @@ export async function openTradeDispute(input: {
   let notificationPublications: DeferredNotificationPublication[] = [];
 
   const applyDisputeToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    // A stale attempt can be rebased or rejected. Publish only notifications
+    // produced by the final committed attempt, including owner alerts.
+    notificationPublications = [];
     const request = snapshot.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
     if (!request) throw new Error("Trade not found.");
     if (request.buyerId !== input.openedByUserId) {
@@ -18067,7 +18070,6 @@ export async function openTradeDispute(input: {
         throw new Error("An open dispute already exists for this trade.");
       }
       committed = { dispute: existingOpen, request, created: false };
-      notificationPublications = notificationPublications.filter((publication) => snapshot.notifications.some((item) => item.id === publication.notification.id));
       return snapshot;
     }
 
@@ -18096,7 +18098,7 @@ export async function openTradeDispute(input: {
     request.updatedAt = nowIsoAfter(request.updatedAt, dispute.createdAt);
 
     for (const adminUser of getAdminNotificationRecipients(snapshot)) {
-      pushNotification(snapshot, {
+      const ownerPublication = pushNotification(snapshot, {
         userId: adminUser.id,
         category: "dispute",
         title: "Dispute opened",
@@ -18107,7 +18109,9 @@ export async function openTradeDispute(input: {
         actionLabel: "Review Trade",
         priority: "critical",
         forceInApp: true,
+        deferRealtime: true,
       });
+      if (ownerPublication) notificationPublications.push(ownerPublication);
       queueSmsDelivery(snapshot, {
         eventType: "trade_requires_admin_review",
         eventKey: `trade:${request.id}:admin-review:${adminUser.id}`,
@@ -18115,7 +18119,6 @@ export async function openTradeDispute(input: {
         destinationPath: adminPurchaseRequestsDestination(request.id),
       });
     }
-    notificationPublications = [];
     const buyerPublication = pushNotification(snapshot, {
       userId: request.buyerId,
       category: "dispute",
