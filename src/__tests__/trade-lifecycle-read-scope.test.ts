@@ -14,14 +14,15 @@ describe("PostgreSQL lifecycle request dependencies", () => {
       create table alpha_exchange.purchase_requests
         (id text primary key, seller_id text, buyer_id text, status text, sort_index bigint, payload jsonb);
       create table alpha_exchange.seller_profiles (sort_index bigint, payload jsonb);
-      create table alpha_exchange.seller_settings (sort_index bigint, payload jsonb);`);
+      create table alpha_exchange.seller_settings (sort_index bigint, payload jsonb);
+      create table alpha_exchange.users (id text primary key, sort_index bigint, payload jsonb);`);
     const client = { query: (sql: string, parameters?: unknown[]) => db.query(sql, parameters), release: () => {} };
     repository = new AlphaExchangeRepository({ connect: async () => client } as unknown as Pool);
     vi.spyOn(repository, "ensureReady").mockResolvedValue();
   });
   afterAll(async () => { await db.close(); });
   beforeEach(async () => {
-    await db.exec("delete from alpha_exchange.purchase_requests");
+    await db.exec("delete from alpha_exchange.purchase_requests; delete from alpha_exchange.users");
     const rows = [
       ["target", "seller-a", "buyer-a"],
       ["seller-capacity", "seller-a", "buyer-b"],
@@ -70,4 +71,18 @@ describe("PostgreSQL lifecycle request dependencies", () => {
         await db.query("select pg_advisory_unlock(61422919, hashtext($1))", ["target"]);
       }
     });
+  it.each(["pending", "completed"])("retains caller and participant authority while narrowing only committed retries (%s)", async status => {
+    for (const [index, id] of ["seller-a", "buyer-a", "owner-caller", "unrelated"].entries()) {
+      await db.query("insert into alpha_exchange.users values ($1,$2,$3)",
+        [id, index, JSON.stringify({ id, role: id === "owner-caller" ? "owner" : "buyer", disabled: id === "owner-caller" })]);
+    }
+    await db.query("update alpha_exchange.purchase_requests set status=$1, payload=jsonb_set(payload,'{status}',to_jsonb($1::text)) where id='target'", [status]);
+    const tx = (await repository.beginTradeLifecycleTransaction(["users", "purchase_requests"], "target", "completed", "owner-caller"))!;
+    try {
+      expect(tx.snapshot.users.map(user => user.id)).toEqual(status === "completed"
+        ? ["seller-a", "buyer-a", "owner-caller"] : ["seller-a", "buyer-a", "owner-caller", "unrelated"]);
+      expect(tx.snapshot.users.find(user => user.id === "owner-caller")).toMatchObject({ role: "owner", disabled: true });
+    } finally { await tx.close(); }
+    expect((await db.query("select id from alpha_exchange.users")).rows).toHaveLength(4);
+  });
 });

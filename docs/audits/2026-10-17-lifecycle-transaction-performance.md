@@ -123,3 +123,23 @@ case checks that recovery still proceeds. The real four-process harness also
 holds an active lifecycle lock, verifies that all intents remain pending, then
 releases it and verifies exact-once recovery with account/session preservation.
 Fresh real-PostgreSQL timing results must still be read from the new CI run.
+
+## Canonical authority on committed retries
+
+The trust-priority revision 6150fbf passed 28 functional database checks and all
+three restore checks, but its maximum action time was 1,098.94 ms. The slowest
+completion retry spent its time waiting for and reading canonical state. This
+remains a failed performance gate, with the unchanged workload and deadline.
+
+Read-only committed retries now load the canonical caller and both trade
+participants instead of all accounts. All existing permission, credential and
+dispute checks still run, and the retry cannot commit. State-changing actions
+retain the complete account collection under the global financial lock. Legacy
+callers that omit the actor ID also retain the complete collection.
+
+The new regression failed before the change because a completed retry included
+an unrelated account. Its paired pending-state case verifies that a changing
+transaction still reads every account. Both retain the caller's canonical role
+and disabled state, and neither removes database rows. Seven real-SQL scope
+checks and 27 transaction tests pass locally; exact-candidate PostgreSQL timing
+and the full release workflow remain required.

@@ -2316,15 +2316,15 @@ export class AlphaExchangeRepository {
    * This avoids speculative whole-snapshot writes and repeated stale retries
    * when multiple buyers/sellers act concurrently. All declared dependencies
    * remain authoritative; only changed rows are written. */
-  async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[], requestId?: string, nextStatus?: PurchaseRequest["status"]): Promise<TradeLifecycleTransaction | null> {
-    return this.beginCanonicalTradeTransaction(tableNames, false, requestId, nextStatus);
+  async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[], requestId?: string, nextStatus?: PurchaseRequest["status"], actorUserId?: string): Promise<TradeLifecycleTransaction | null> {
+    return this.beginCanonicalTradeTransaction(tableNames, false, requestId, nextStatus, actorUserId);
   }
 
   async beginTradeTrustTransaction(tableNames: readonly SnapshotTableName[]): Promise<TradeLifecycleTransaction | null> {
     return this.beginCanonicalTradeTransaction([...tableNames, "seller_profiles", "seller_settings"], true);
   }
 
-  private async beginCanonicalTradeTransaction(tableNames: readonly SnapshotTableName[], trustReconciliation: boolean, requestId?: string, nextStatus?: PurchaseRequest["status"]): Promise<TradeLifecycleTransaction | null> {
+  private async beginCanonicalTradeTransaction(tableNames: readonly SnapshotTableName[], trustReconciliation: boolean, requestId?: string, nextStatus?: PurchaseRequest["status"], actorUserId?: string): Promise<TradeLifecycleTransaction | null> {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) return null;
@@ -2352,6 +2352,7 @@ export class AlphaExchangeRepository {
         evidence: "where purchase_request_id = $1",
       } : {};
       const retryProjection = Boolean(requestId && nextStatus);
+      const scopedRetryUsers = retryProjection && Boolean(actorUserId) && selectedNames.includes("users");
       const requestScope = retryProjection ? `seller_id = (select seller_id from alpha_exchange.purchase_requests where id = $1)
         or buyer_id = (select buyer_id from alpha_exchange.purchase_requests where id = $1)
         or exists (select 1 from alpha_exchange.purchase_requests where coalesce(payload->>'displayNumber', '') !~ '^[1-9][0-9]*$')` : "true";
@@ -2371,6 +2372,10 @@ export class AlphaExchangeRepository {
       const columns = (onlyCommittedRetry = false) => selectedNames.filter(name => !onlyCommittedRetry || retryReadTables.has(name)).map(name => {
         const filter = retryProjection && name === "purchase_requests"
           ? `where id = $1 or (not (select read_only_retry from lifecycle_mode) and (${requestScope}))`
+          : scopedRetryUsers && name === "users"
+            ? `where not (select read_only_retry from lifecycle_mode) or id = $3
+                or id in (select seller_id from alpha_exchange.purchase_requests where id = $1
+                  union select buyer_id from alpha_exchange.purchase_requests where id = $1)`
           : filters[name] ?? "";
         const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
         const projection = trustReconciliation ? `case when (select has_pending_trust from lifecycle_mode) then ${aggregate} else '[]'::json end`
@@ -2379,7 +2384,10 @@ export class AlphaExchangeRepository {
       });
       const scopedNames = selectedNames.filter(name => filters[name]);
       const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
-      const parameters = retryProjection ? [requestId, nextStatus] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
+      // Only a non-writing retry can narrow account data. Keep the canonical
+      // caller (including disabled/role state) and both participants so every
+      // permission guard still runs; mutations retain all authority accounts.
+      const parameters = retryProjection ? [requestId, nextStatus, ...(scopedRetryUsers ? [actorUserId] : [])] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
       type ReadRow = { version: string; read_only_retry?: boolean; has_pending_trust?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>;
       const readSql = (onlyCommittedRetry = false) => {
         const selected = columns(onlyCommittedRetry);

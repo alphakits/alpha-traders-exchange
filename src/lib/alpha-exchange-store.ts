@@ -13694,7 +13694,7 @@ export async function updatePurchaseRequestStatus(input: UpdatePurchaseRequestSt
   const repository = await getAlphaExchangeRepository();
   const terminal = ["completed", "declined", "cancelled"].includes(input.nextStatus);
   const transaction = typeof repository.beginTradeLifecycleTransaction === "function"
-    ? await repository.beginTradeLifecycleTransaction(terminal ? TRADE_STATUS_TERMINAL_READ_TABLES : TRADE_STATUS_FAST_READ_TABLES, input.requestId, input.nextStatus)
+    ? await repository.beginTradeLifecycleTransaction(terminal ? TRADE_STATUS_TERMINAL_READ_TABLES : TRADE_STATUS_FAST_READ_TABLES, input.requestId, input.nextStatus, input.actorUserId)
     : null;
   if (!transaction) return updatePurchaseRequestStatusAttempt(input, 0);
   const transactionReadMs = Date.now() - startedAt;
