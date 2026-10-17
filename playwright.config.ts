@@ -14,7 +14,8 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: E2E_BASE_URL,
-    trace: "on-first-retry",
+    // Keep the original failure, not only the subsequent retry that may pass.
+    trace: "retain-on-failure",
     headless: true,
   },
   webServer: {

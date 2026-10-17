@@ -409,32 +409,54 @@ test.describe("Final hardening audit", () => {
     });
   }
 
-  test("route protection matrix for guest, buyer, seller, owner", async ({ page }) => {
+  test("route protection matrix for guest, buyer, seller, owner", async ({ browser }) => {
     test.setTimeout(120_000);
-    await page.request.post("/api/auth/logout").catch(() => {});
-    await page.goto("/en/dashboard");
-    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Fdashboard/);
+    // This is an authorization matrix, not an account-switching journey.
+    // Replacing cookies underneath an active client can let its pending
+    // navigation/refresh race the next role. Give each identity an independent
+    // cookie jar and page, and finish rendering before asserting absent links.
+    const withRolePage = async (check: (page: Page) => Promise<void>) => {
+      const context = await browser.newContext({ baseURL: E2E_BASE_URL });
+      try {
+        await check(await context.newPage());
+      } finally {
+        await context.close();
+      }
+    };
 
-    await page.goto("/en/trade-room");
-    await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Ftrade-room/);
+    await withRolePage(async (page) => {
+      await page.goto("/en/dashboard");
+      await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Fdashboard/);
+      await page.goto("/en/trade-room");
+      await expect(page).toHaveURL(/\/en\/login\?redirectTo=%2Fen%2Ftrade-room/);
+    });
 
     test.skip(!buyerFixture, "Buyer fixture not available");
-    await login(page.request, buyerFixture!.email, buyerFixture!.password);
-    await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/en\/dashboard$/, { timeout: 20_000 });
-    await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
+    await withRolePage(async (page) => {
+      await login(page.request, buyerFixture!.email, buyerFixture!.password);
+      await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(/\/en\/dashboard$/, { timeout: 20_000 });
+      await expect(page.getByRole("main").getByText("Your workspace", { exact: true }).first()).toBeVisible();
+      await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
+    });
 
     if (SELLER_EMAIL && SELLER_PASSWORD) {
-      await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
-      await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
-      await expect(page).toHaveURL(/\/en\/dashboard\/seller$/, { timeout: 20_000 });
-      await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
+      await withRolePage(async (page) => {
+        await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
+        await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
+        await expect(page).toHaveURL(/\/en\/dashboard\/seller$/, { timeout: 20_000 });
+        await expect(page.getByRole("main").getByText("Your workspace", { exact: true }).first()).toBeVisible();
+        await expect(page.getByRole("link", { name: /Owner Dashboard|Admin Dashboard/i })).toHaveCount(0);
+      });
     }
 
     if (OWNER_EMAIL && OWNER_PASSWORD) {
-      await login(page.request, OWNER_EMAIL, OWNER_PASSWORD);
-      await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
-      await expect(page).toHaveURL(/\/en\/admin\/alpha-exchange$/);
+      await withRolePage(async (page) => {
+        await login(page.request, OWNER_EMAIL, OWNER_PASSWORD);
+        await page.goto("/en/admin/alpha-exchange", { waitUntil: "domcontentloaded" });
+        await expect(page).toHaveURL(/\/en\/admin\/alpha-exchange$/);
+        await expect(page.getByRole("main").getByText("Owner Control Center", { exact: true })).toBeVisible();
+      });
     }
   });
 
