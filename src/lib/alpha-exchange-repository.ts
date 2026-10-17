@@ -558,10 +558,11 @@ export type TradeLifecycleTransaction = {
 };
 
 type IndexedPayload = { payload: { id: string }; sort_index: number };
+type LifecycleSortBounds = { minimum: number | null; maximum: number | null; append?: boolean };
 
 /** Keep existing order without rewriting every historical event on an append.
  * Unusual interior insertions/reorders fall back to a deterministic reindex. */
-function lifecycleRowDelta(before: IndexedPayload[], after: Array<{ id: string }>) {
+function lifecycleRowDelta(before: IndexedPayload[], after: Array<{ id: string }>, bounds?: LifecycleSortBounds) {
   const previous = new Map(before.map(row => [row.payload.id, row]));
   const nextIds = new Set(after.map(row => row.id));
   if (nextIds.size !== after.length || after.some(row => !row.id)) throw new Error("Invalid lifecycle row identity.");
@@ -572,7 +573,7 @@ function lifecycleRowDelta(before: IndexedPayload[], after: Array<{ id: string }
   while (offset < after.length) {
     const existing = previous.get(after[offset].id);
     if (existing) {
-      if (!Number.isSafeInteger(existing.sort_index) || (lastPosition !== undefined && existing.sort_index <= lastPosition)) { reindex = true; break; }
+      if (!Number.isSafeInteger(existing.sort_index) || (lastPosition !== undefined && (existing.sort_index < lastPosition || (!bounds && existing.sort_index === lastPosition)))) { reindex = true; break; }
       positions.set(existing.payload.id, existing.sort_index);
       lastPosition = existing.sort_index;
       offset += 1;
@@ -581,13 +582,18 @@ function lifecycleRowDelta(before: IndexedPayload[], after: Array<{ id: string }
     let end = offset;
     while (end < after.length && !previous.has(after[end].id)) end += 1;
     const nextPosition = end < after.length ? previous.get(after[end].id)!.sort_index : undefined;
-    const start = lastPosition === undefined ? (nextPosition === undefined ? 0 : nextPosition - (end - offset)) : lastPosition + 1;
+    const minimum = bounds?.minimum ?? nextPosition;
+    const start = lastPosition === undefined
+      ? (bounds?.append && nextPosition === undefined ? (bounds.maximum ?? -1) + 1 : minimum === undefined ? 0 : minimum - (end - offset))
+      : end === after.length && bounds?.maximum !== null && bounds?.maximum !== undefined
+        ? Math.max(lastPosition, bounds.maximum) + 1 : lastPosition + 1;
     if (nextPosition !== undefined && start + (end - offset) > nextPosition) { reindex = true; break; }
     for (let i = offset; i < end; i += 1) positions.set(after[i].id, start + i - offset);
     lastPosition = start + (end - offset) - 1;
     offset = end;
   }
   if (reindex || Array.from(positions.values()).some(value => value < -2147483648 || value > 2147483647)) {
+    if (bounds) throw new Error("Cannot reorder a partial lifecycle history.");
     positions.clear();
     after.forEach((row, index) => positions.set(row.id, index));
   }
@@ -2325,7 +2331,7 @@ export class AlphaExchangeRepository {
    * This avoids speculative whole-snapshot writes and repeated stale retries
    * when multiple buyers/sellers act concurrently. All declared dependencies
    * remain authoritative; only changed rows are written. */
-  async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[]): Promise<TradeLifecycleTransaction | null> {
+  async beginTradeLifecycleTransaction(tableNames: readonly SnapshotTableName[], requestId?: string, nextStatus?: PurchaseRequest["status"]): Promise<TradeLifecycleTransaction | null> {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) return null;
@@ -2342,9 +2348,37 @@ export class AlphaExchangeRepository {
     try {
       await client.query("begin");
       await client.query("select pg_advisory_xact_lock(61422917)");
-      const columns = selectedNames.map(name => `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name}), '[]'::json) as "${name}"`);
-      const result = await client.query<{ version: string } & Partial<Record<SnapshotTableName, IndexedPayload[]>>>(`select
-        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${columns.length ? `,\n${columns.join(",\n")}` : ""}`);
+      // These append-only/event collections are consulted only for this trade.
+      // Keep accounts, listings, requests and all commission assignments global:
+      // buyer cross-seller limits and unique payment amounts depend on them.
+      const filters: Partial<Record<SnapshotTableName, string>> = requestId ? {
+        notifications: "where payload->>'relatedRequestId' = $1",
+        audit_logs: "where purchase_request_id = $1",
+        sms_deliveries: "where starts_with(event_key, 'trade:' || $1 || ':')",
+        activity_logs: "where false",
+        evidence: "where purchase_request_id = $1",
+      } : {};
+      const retryProjection = Boolean(requestId && nextStatus);
+      // A terminal retry still goes through every store permission/credential
+      // guard, but cannot write. Its response needs the canonical request,
+      // identities, evidence and disputes, not unrelated financial/history rows.
+      // Keep legacy unnumbered records on the complete read path.
+      const retryModeSql = retryProjection ? `with lifecycle_mode as materialized (select exists (
+        select 1 from alpha_exchange.purchase_requests where id = $1
+          and payload->>'displayNumber' ~ '^[1-9][0-9]*$'
+          and (status = $2 or ($2 = 'completed' and status in ('review_open', 'completed', 'locked')))
+      ) as read_only_retry) ` : "";
+      const retryReadTables = new Set<SnapshotTableName>(["users", "seller_applications", "purchase_requests", "evidence", "disputes"]);
+      const columns = selectedNames.map(name => {
+        const filter = retryProjection && name === "purchase_requests" ? "where not (select read_only_retry from lifecycle_mode) or id = $1" : filters[name] ?? "";
+        const aggregate = `coalesce((select json_agg(json_build_object('payload', payload, 'sort_index', sort_index) order by sort_index asc) from alpha_exchange.${name} ${filter}), '[]'::json)`;
+        return `${retryProjection && !retryReadTables.has(name) ? `case when (select read_only_retry from lifecycle_mode) then '[]'::json else ${aggregate} end` : aggregate} as "${name}"`;
+      });
+      const scopedNames = selectedNames.filter(name => filters[name]);
+      const boundsSql = scopedNames.length ? `, json_build_object(${scopedNames.map(name => `'${name}', (select json_build_object('minimum', min(sort_index), 'maximum', max(sort_index)) from alpha_exchange.${name})`).join(", ")}) as sort_bounds` : "";
+      const parameters = retryProjection ? [requestId, nextStatus] : scopedNames.some(name => filters[name]?.includes("$1")) ? [requestId] : undefined;
+      const result = await client.query<{ version: string; read_only_retry?: boolean; sort_bounds?: Partial<Record<SnapshotTableName, LifecycleSortBounds>> } & Partial<Record<SnapshotTableName, IndexedPayload[]>>>(`${retryModeSql}select
+        (select version::text from alpha_exchange.runtime_meta where singleton = true) as version${retryProjection ? ", (select read_only_retry from lifecycle_mode) as read_only_retry" : ""}${columns.length ? `,\n${columns.join(",\n")}` : ""}${boundsSql}`, parameters);
       const row = result.rows[0];
       const version = Number(row?.version ?? "0");
       const before = new Map(selectedNames.map(name => [name, row?.[name] ?? []]));
@@ -2358,6 +2392,7 @@ export class AlphaExchangeRepository {
         commit: async (next, options) => {
           if (closed) throw new Error("Trade lifecycle transaction is closed.");
           try {
+            if (row?.read_only_retry) throw new Error("A read-only lifecycle retry cannot commit a mutation.");
             const writeTables = Array.from(new Set(options.selectedTables));
             if (writeTables.some(name => !TRADE_LIFECYCLE_WRITE_TABLES.has(name) || !baseline.has(name))) {
               throw new Error("Undeclared or unsupported lifecycle write table.");
@@ -2366,7 +2401,8 @@ export class AlphaExchangeRepository {
             let changed = false;
             for (const name of writeTables) {
               const table = getTable(name);
-              const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as Array<{ id: string }>);
+              const bounds = row?.sort_bounds?.[name];
+              const delta = lifecycleRowDelta(baseline.get(name)!, table.values(next) as Array<{ id: string }>, bounds ? { ...bounds, append: name === "sms_deliveries" } : undefined);
               if (delta.deletedIds.length) {
                 await client.query(`delete from alpha_exchange.${name} where id = any($1::text[])`, [delta.deletedIds]);
                 changed = true;
@@ -3733,6 +3769,19 @@ export class AlphaExchangeRepository {
               : pruneOrphanAuthSessions(mergedSnapshot);
             const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
             options?.validateBeforeCommit?.(persistedSnapshot);
+            // A concurrent reconciliation may already have consumed every
+            // durable intent. Its canonical rebase is then a no-op: do not
+            // rewrite all history/accounts or invalidate more readers.
+            if (options?.rebaseOnLatest && !options.evidenceOverrides?.size && selectedTables.every(name => {
+              const table = getTable(name);
+              return isDeepStrictEqual(JSON.parse(json(table.values(latestSnapshot))), JSON.parse(json(table.values(persistedSnapshot))));
+            })) {
+              await client.query("commit");
+              Object.assign(db, cloneSnapshot(persistedSnapshot));
+              attachVersion(db, currentVersion);
+              if (!options.rebaseTables) syncMemoryFallbackSnapshot(db, currentVersion);
+              return;
+            }
             for (const tableName of selectedTables) {
               await replaceTableContents(client, tableName, persistedSnapshot, {
                 evidenceContentById,

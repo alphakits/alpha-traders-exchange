@@ -120,6 +120,25 @@ beforeEach(() => {
 
 describe("POST /api/auth/login", () => {
   it.each([
+    ["application/json", '{"email":"buyer@example.test", "password": "NeverLogThisSecret"}'],
+    ["application/json", '{"email":"buyer@example.test","password":"NeverLogThisSecret\\\\with\\\"quotes"}'],
+    ["application/x-www-form-urlencoded", "email=buyer%40example.test&password=NeverLogThisSecret"],
+    ["application/json", 'NeverLogThisSecret {"password":'],
+  ])("never logs login content with diagnostics enabled (%s)", async (contentType, body) => {
+    vi.stubEnv("ALPHA_AUTH_DEBUG", "1");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const infoLog = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const response = await POST(new Request("https://example.com/api/auth/login", { method: "POST", headers: { "content-type": contentType }, body }) as unknown as NextRequest);
+      expect([400, 401]).toContain(response.status);
+      expect(JSON.stringify([...errorLog.mock.calls, ...warnLog.mock.calls, ...infoLog.mock.calls])).not.toContain("NeverLogThisSecret");
+    } finally {
+      errorLog.mockRestore(); warnLog.mockRestore(); infoLog.mockRestore(); vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
     { error: { message: "private provider failure", status: 503 }, status: 503 },
     { error: { message: "email rate limit exceeded", status: 429 }, status: 429 },
   ])("distinguishes a provider failure from invalid credentials ($status)", async ({ error, status }) => {

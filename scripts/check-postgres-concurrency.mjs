@@ -310,6 +310,16 @@ try {
     }
   }
   passed("Duplicate completion settles and deducts inventory exactly once", { submissions: 90, trades: 45, commissions: 45 });
+  const forbiddenTerminalRetries = await batch(active.map(request => buyerCommand(request, "completed")));
+  assert(forbiddenTerminalRetries.every(result => !result.ok && result.code === "seller-completion-required"));
+  const forgedTerminalOverrides = await batch(active.slice(0, 15).map(request => ({ operation: "status", input: {
+    ...sellerCommand(request, "completed").input, actorUserId: request.buyerId, actorRole: "owner",
+    completionMode: "admin_override", completionReason: "Synthetic unauthorized retry",
+  } })));
+  assert(forgedTerminalOverrides.every(result => !result.ok));
+  passed("Read-only terminal retries still enforce seller completion and canonical owner authority", {
+    buyerRetriesRejected: forbiddenTerminalRetries.length, forgedOwnerRetriesRejected: forgedTerminalOverrides.length,
+  });
   assert.equal((await pool.query("select count(*)::int as n from alpha_exchange.audit_reference_probe")).rows[0].n, 45);
   passed("Retained trade references survive every lifecycle write and process restart", { references: 45 });
 

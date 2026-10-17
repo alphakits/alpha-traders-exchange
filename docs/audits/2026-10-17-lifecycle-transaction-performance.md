@@ -29,3 +29,19 @@ financial validation, early returns, duplicate cleanup, transaction timeouts
 and rollback failure. The existing multi-process PostgreSQL harness measures
 the same workload again. A successful build or unit result alone is not
 evidence that the latency target has been reached.
+
+The first real PostgreSQL run for `88f0e74` retained all 21 concurrency/recovery
+checks and all three restoration checks. Median action latency fell to 655.84 ms,
+p95 to 2,438.21 ms and maximum to 3,037.91 ms. This remains a performance failure.
+
+The follow-up scopes event history and evidence to the current trade. Accounts,
+all requests/listings, and all historical commission payment assignments remain
+global so cross-seller buyer limits, capacity and issued payment amounts cannot
+be bypassed. Global sort bounds preserve historical ordering when adding events.
+Rebases that discover another process already completed the work now commit
+without rewriting unchanged tables or advancing the runtime version.
+
+An already-applied transition uses a read-only retry projection. Store-level
+actor, dispute and credential checks still execute before acknowledging it.
+The repository rejects any attempted write from that projection. Legacy
+unnumbered records keep the complete read path.

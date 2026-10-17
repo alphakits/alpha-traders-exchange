@@ -12,6 +12,7 @@ function fixture(fail?: (sql: string) => Error | undefined) {
     if (error) throw error;
     if (sql.includes("as version") && sql.includes("json_agg")) return { rows: [{
       version: "12",
+      read_only_retry: false,
       purchase_requests: [
         { payload: request("first"), sort_index: -8 },
         { payload: request("target"), sort_index: 7 },
@@ -19,6 +20,7 @@ function fixture(fail?: (sql: string) => Error | undefined) {
       ],
       audit_logs: [{ payload: { id: "old-audit", action: "purchase_completed", actorUserId: "seller", createdAt: at }, sort_index: -9 }],
       notifications: [],
+      sort_bounds: { audit_logs: { minimum: -50, maximum: 20 }, notifications: { minimum: -30, maximum: 40 } },
     }] };
     return { rows: [] };
   });
@@ -46,7 +48,7 @@ describe("canonical trade lifecycle transaction", () => {
     expect(requestWrite[1]?.[10]).toEqual(["7"]);
     const auditWrite = query.mock.calls.find(call => call[0].startsWith("INSERT INTO alpha_exchange.audit_logs"))!;
     expect(auditWrite[1]?.[0]).toEqual(["new-audit"]);
-    expect(auditWrite[1]?.[7]).toEqual(["-10"]);
+    expect(auditWrite[1]?.[7]).toEqual(["-51"]);
     expect(sql.some(text => text.startsWith("delete"))).toBe(false);
     expect(sql.some(text => text.startsWith("INSERT INTO alpha_exchange.notifications"))).toBe(false);
     expect(sql.at(-1)).toBe("commit");
@@ -61,6 +63,51 @@ describe("canonical trade lifecycle transaction", () => {
     await tx.close();
     expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes historical events to the trade while preserving global business dependencies", async () => {
+    const { repo, query } = fixture();
+    const id = "trade-id-with-'quotes";
+    const tx = (await repo.beginTradeLifecycleTransaction(["purchase_requests", "users", "commissions", "notifications", "audit_logs", "sms_deliveries", "activity_logs", "evidence"], id))!;
+    const read = query.mock.calls.find(([sql]) => sql.includes("json_agg"))!;
+    expect(read[1]).toEqual([id]);
+    expect(read[0]).not.toContain(id);
+    for (const table of ["users", "purchase_requests", "commissions"]) expect(read[0]).toContain(`from alpha_exchange.${table} ),`);
+    expect(read[0]).toContain("payload->>'relatedRequestId' = $1");
+    expect(read[0]).toContain("starts_with(event_key, 'trade:' || $1 || ':')");
+    expect(read[0]).toContain("min(sort_index)");
+    await tx.close();
+  });
+
+  it("does not rewrite canonical tables when another process already finished the reconciliation", async () => {
+    const { repo, query } = fixture();
+    const tx = (await repo.beginTradeLifecycleTransaction(["purchase_requests"]))!;
+    const incoming = tx.snapshot;
+    await tx.close();
+    query.mockClear();
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes("json_agg")) return { rows: [{ version: "13", purchase_requests: [request("first"), request("target"), request("last")] }] } as never;
+      if (sql.includes("select version::text")) return { rows: [{ version: "13" }] } as never;
+      return { rows: [] };
+    });
+    await repo.saveSnapshot(incoming, { selectedTables: ["purchase_requests"], rebaseTables: ["purchase_requests"], rebaseOnLatest: snapshot => snapshot });
+    expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql === "commit")).toBe(true);
+    expect((incoming as unknown as { __runtimeVersion: number }).__runtimeVersion).toBe(13);
+  });
+
+  it("cannot turn a lightweight retry read into a state-changing commit", async () => {
+    const { repo, query } = fixture();
+    const original = query.getMockImplementation()!;
+    query.mockImplementation(async (sql: string, values?: unknown[]) => {
+      const result = await original(sql, values);
+      if (result.rows[0]) Object.assign(result.rows[0], { read_only_retry: true });
+      return result;
+    });
+    const tx = (await repo.beginTradeLifecycleTransaction(["users", "purchase_requests", "notifications"], "target", "completed"))!;
+    await expect(tx.commit(tx.snapshot, { selectedTables: ["purchase_requests"] })).rejects.toThrow("read-only lifecycle retry");
+    expect(query.mock.calls.some(([sql]) => /^(insert|update|delete)\b/i.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql === "rollback")).toBe(true);
   });
 
   it("does not rewrite rows for JSON key order or omitted undefined fields", async () => {
