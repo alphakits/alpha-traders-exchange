@@ -1,3 +1,4 @@
+import { privateAdminResponse } from "@/lib/admin-response";
 import { NextRequest, NextResponse } from "next/server";
 import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { createLesson, readLessons, searchLessons } from "@/lib/admin-store";
@@ -14,9 +15,9 @@ export async function GET(request: NextRequest) {
       status: (url.searchParams.get("status") as LessonStatus | "all" | null) || "all",
       lessonNumber: url.searchParams.get("lessonNumber") ? Number(url.searchParams.get("lessonNumber")) : undefined,
     });
-    return NextResponse.json({ lessons: filtered });
+    return privateAdminResponse(NextResponse.json({ lessons: filtered }));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to read lessons." }, { status: 401 });
+    return privateAdminResponse(NextResponse.json({ error: error instanceof Error ? error.message : "Failed to read lessons." }, { status: 401 }));
   }
 }
 
@@ -25,8 +26,8 @@ export async function POST(request: NextRequest) {
     const identity = await resolveAdminIdentity(request);
     const body = (await request.json()) as { lesson: Record<string, unknown> };
     const lesson = await createLesson((body.lesson || {}) as never, identity.role);
-    return NextResponse.json({ lesson }, { status: 201 });
+    return privateAdminResponse(NextResponse.json({ lesson }, { status: 201 }));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create lesson." }, { status: adminErrorStatus(error) });
+    return privateAdminResponse(NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create lesson." }, { status: adminErrorStatus(error) }));
   }
 }

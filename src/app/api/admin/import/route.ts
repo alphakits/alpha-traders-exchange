@@ -1,3 +1,4 @@
+import { privateAdminResponse } from "@/lib/admin-response";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
@@ -30,13 +31,13 @@ export async function POST(request: NextRequest) {
   try {
     const identity = await resolveAdminIdentity(request);
     const rate = await checkSharedRateLimit({ headers: request.headers, key: "admin:lesson-import", identifier: identity.actor, maxRequests: 5, windowMs: 60 * 60_000 });
-    if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
+    if (!rate.allowed) return privateAdminResponse(createRateLimitResponse(rate.retryAfterSeconds));
     const formData = await request.formData();
     const requestedContentLocale = formData.get("contentLocale");
     const contentLocale: "en" | "ar" = requestedContentLocale === "ar" ? "ar" : "en";
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
     if (!files.length) {
-      return NextResponse.json({ error: "No files provided for import." }, { status: 400 });
+      return privateAdminResponse(NextResponse.json({ error: "No files provided for import." }, { status: 400 }));
     }
 
     const createdLessons: Lesson[] = [];
@@ -89,11 +90,11 @@ export async function POST(request: NextRequest) {
       snapshot: null,
     });
 
-    return NextResponse.json({
+    return privateAdminResponse(NextResponse.json({
       created: createdLessons.length,
       lessons: createdLessons,
-    });
+    }));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to import lessons." }, { status: adminErrorStatus(error) });
+    return privateAdminResponse(NextResponse.json({ error: error instanceof Error ? error.message : "Failed to import lessons." }, { status: adminErrorStatus(error) }));
   }
 }
