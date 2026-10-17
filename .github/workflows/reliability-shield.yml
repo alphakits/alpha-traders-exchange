@@ -284,7 +284,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Verify marketplace, payments and owner flows in WebKit
-        # The focus-race regression also runs three times in isolation below
+        # The focus-race regressions also run three times in isolation below
         # through the same release-blocking browser job.
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json
@@ -294,6 +294,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: webkit-critical-flows-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify profile keyboard focus without retries
+        if: success() && matrix.shard == 3
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-profile-focus-regression.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/profile-workspace.spec.ts --grep="Arabic profile tabs support RTL keyboard navigation" --repeat-each=3 --retries=0 --max-failures=1 --reporter=list,json
+      - name: Preserve focused WebKit profile evidence
+        if: always() && matrix.shard == 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-profile-focus-regression
           path: test-results/
           if-no-files-found: error
           retention-days: 14

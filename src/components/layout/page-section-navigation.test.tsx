@@ -75,6 +75,44 @@ describe("first-click section navigation", () => {
     expect(document.activeElement).toBe(form);
   });
 
+  it.each(["pointerdown", "keydown", "wheel", "touchmove", "focusin"])("keeps newer interaction in control before initial hash restoration runs (%s)", async (event) => {
+    window.history.replaceState({}, "", "/en/profile#notification-preferences");
+    const preferences = section("notification-preferences");
+    render(<><PageSectionNavigation /><button role="tab">Alerts</button></>);
+    const tab = screen.getByRole("tab", { name: "Alerts" });
+    fireEvent(tab, new Event(event, { bubbles: true }));
+    tab.focus();
+    await settle();
+    expect(document.activeElement).toBe(tab);
+    expect(preferences.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("preserves focus chosen before the navigation restorer hydrates", async () => {
+    window.history.replaceState({}, "", "/en/profile#notification-preferences");
+    const preferences = section("notification-preferences");
+    const tab = document.createElement("button");
+    document.body.append(tab);
+    tab.focus();
+    render(<PageSectionNavigation />);
+    await settle();
+    expect(document.activeElement).toBe(tab);
+    expect(preferences.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("still honors explicit history navigation after the user cancels initial restoration", async () => {
+    window.history.replaceState({}, "", "/en/profile#notification-preferences");
+    section("notification-preferences");
+    const contact = section("contact-details");
+    render(<><PageSectionNavigation /><button role="tab">Alerts</button></>);
+    const tab = screen.getByRole("tab", { name: "Alerts" });
+    tab.focus();
+    await settle();
+    expect(document.activeElement).toBe(tab);
+    window.history.replaceState({}, "", "/en/profile#contact-details");
+    fireEvent(window, new PopStateEvent("popstate"));
+    expect(document.activeElement).toBe(contact);
+  });
+
   it("keeps a first workspace action pending while the initial empty-hash restoration settles", async () => {
     render(<PageSectionNavigation />);
     revealPageSection("my-listings-section");

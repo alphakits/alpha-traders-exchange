@@ -11,7 +11,15 @@ export function PageSectionNavigation() {
   const search = searchParams?.toString() ?? "";
 
   useEffect(() => {
+    let frame: number | undefined;
+    const interactionEvents = ["pointerdown", "keydown", "wheel", "touchmove", "focusin"] as const;
+    const cancelInitialRestore = () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      frame = undefined;
+      for (const event of interactionEvents) document.removeEventListener(event, cancelInitialRestore, true);
+    };
     const revealHash = () => {
+      cancelInitialRestore();
       const id = pageSectionId(window.location.hash);
       if (id) revealPageSection(id);
       else cancelPageSectionNavigation();
@@ -19,13 +27,19 @@ export function PageSectionNavigation() {
     // An empty initial hash has nothing to restore. Cancelling here can erase
     // a workspace action while its dynamically loaded target is mounting.
     // Actual hash/history changes still cancel an obsolete pending section.
-    const frame = window.requestAnimationFrame(() => {
+    frame = window.requestAnimationFrame(() => {
+      cancelInitialRestore();
+      // Hydration can finish after the user has already focused a tab or field.
+      // Initial URL restoration must yield; explicit links/history still work.
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== document.documentElement) return;
       if (pageSectionId(window.location.hash)) revealHash();
     });
+    for (const event of interactionEvents) document.addEventListener(event, cancelInitialRestore, { capture: true, passive: true });
     window.addEventListener("hashchange", revealHash);
     window.addEventListener("popstate", revealHash);
     return () => {
-      window.cancelAnimationFrame(frame);
+      cancelInitialRestore();
       window.removeEventListener("hashchange", revealHash);
       window.removeEventListener("popstate", revealHash);
       cancelPageSectionNavigation();
