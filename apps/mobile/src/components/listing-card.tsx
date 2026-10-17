@@ -1,4 +1,4 @@
-import { deriveUserPresence, formatMeasuredResponseTime } from "@alpha-traders/contracts";
+import { deriveUserPresence, formatMeasuredResponseTime, MAX_PRICE_OFFER_VARIANCE_ILS } from "@alpha-traders/contracts";
 import { BrandedText as Text } from "./branded-text";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
@@ -231,7 +231,7 @@ export const ListingCard = memo(function ListingCard({ listing, onBuy, onOffer, 
           {listing.actions.canMakeOffer ? (
             <Pressable accessibilityRole="button" onPress={onOffer} style={({ pressed }) => [styles.offerButton, pressed && styles.pressed]}>
               <Text style={styles.offerLabel}>◇ {t("makeOffer")}</Text>
-              <Text style={styles.offerCaption}>{copy("Up to", "حتى")} {formatUsd(0.35 / usdIlsRate, 4)} {copy("lower", "أقل")}</Text>
+              <Text style={styles.offerCaption}>±{formatUsd(MAX_PRICE_OFFER_VARIANCE_ILS / usdIlsRate, 4)} {copy("from listing price", "من سعر الإعلان")}</Text>
             </Pressable>
           ) : null}
         </View>

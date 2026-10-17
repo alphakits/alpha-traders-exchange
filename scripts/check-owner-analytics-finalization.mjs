@@ -13,7 +13,9 @@ const read = (path) => fs.readFileSync(root + path, "utf8");
 test("owner-only live panel remains mounted once above marketplace controls", () => {
   const page = read("src/app/[locale]/admin/alpha-exchange/page.tsx");
   assert.equal((page.match(/<OwnerLiveAnalyticsPanel\b/g) ?? []).length, 1);
-  assert.match(page, /hasRole\(user, "owner"\) \? <OwnerLiveAnalyticsPanel/);
+  assert.match(page, /const isOwner = hasRole\(user, "owner"\)/);
+  assert.match(page, /if \(!isOwner\) \{/);
+  assert.ok(page.indexOf("if (!isOwner)") < page.indexOf("<OwnerLiveAnalyticsPanel"));
   assert.ok(page.indexOf("<OwnerLiveAnalyticsPanel") < page.indexOf("<AlphaExchangeAdminDashboard"));
 });
 

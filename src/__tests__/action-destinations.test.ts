@@ -108,7 +108,7 @@ describe("canonical action destinations", () => {
   it("resolves active trade actions for the current actor", () => {
     expect(tradeDestination(request("accepted"), "buyer-1")).toContain("action=upload-payment-receipt#evidence");
     expect(tradeDestination(request("payment_sent"), "seller-1")).toContain("action=confirm-money-received#action-required");
-    expect(tradeDestination(request("usdt_sent"), "buyer-1")).toContain("action=confirm-usdt-received#action-required");
+    expect(tradeDestination(request("usdt_sent"), "buyer-1")).toContain("action=open-trade#status-banner");
   });
 
   it("routes cash trades through confirmations and seller-only completion", () => {
@@ -121,7 +121,7 @@ describe("canonical action destinations", () => {
     expect(tradeDestination(cashRequest("payment_sent"), "seller-1")).toContain("action=confirm-money-received#action-required");
     expect(tradeDestination(cashRequest("funds_received"), "seller-1")).toContain("action=confirm-usdt-sent#action-required");
     expect(tradeDestination(cashRequest("usdt_sent"), "seller-1")).toContain("action=complete-cash-trade#action-required");
-    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toContain("action=confirm-usdt-received#action-required");
+    expect(tradeDestination(cashRequest("usdt_sent"), "buyer-1")).toContain("action=open-trade#status-banner");
   });
 
   it("resolves completed trades to history/review context", () => {

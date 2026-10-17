@@ -2,6 +2,7 @@ import type { MarketplaceListing, PurchaseRequest, PurchaseRequestStatus } from 
 
 export const STALE_PRICE_OFFER_MINUTES = 30;
 export const STALLED_TRADE_AFTER_WARNING_MINUTES = 15;
+export const PENDING_TRADE_TRUST_MINUTES = 10;
 
 const ACTIVE_TRADE_STATUSES = new Set<PurchaseRequestStatus>([
   "accepted",
@@ -18,7 +19,8 @@ export type MarketplaceOperationalIncidentKind =
   | "stale_price_offer"
   | "stalled_trade"
   | "orphaned_listing_lock"
-  | "unlinked_active_trade";
+  | "unlinked_active_trade"
+  | "pending_trade_trust";
 
 export type MarketplaceOperationalIncident = {
   id: string;
@@ -75,6 +77,12 @@ export function buildMarketplaceOperationalSnapshot(
   ).length;
 
   for (const request of input.purchaseRequests) {
+    const trustIntent = request.trustReconciliation;
+    if (trustIntent && !trustIntent.reconciledAt && ageMinutes(trustIntent.requestedAt, nowMs) >= PENDING_TRADE_TRUST_MINUTES) {
+      incidents.push({ id: `pending-trade-trust:${request.id}`, kind: "pending_trade_trust", severity: "warning",
+        requestId: request.id, tradeId: request.tradeId, listingId: request.listingId, status: request.status,
+        ageMinutes: ageMinutes(trustIntent.requestedAt, nowMs) });
+    }
     if (request.status === "pending" && request.priceMode === "buyer_offer") {
       const offerAgeMinutes = ageMinutes(request.createdAt, nowMs);
       if (offerAgeMinutes >= STALE_PRICE_OFFER_MINUTES) {

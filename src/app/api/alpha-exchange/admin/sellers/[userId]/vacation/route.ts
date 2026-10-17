@@ -11,7 +11,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { userId } = await context.params;
     const body = await request.json() as { enabled?: boolean };
-    const enabled = Boolean(body.enabled);
+    if (typeof body.enabled !== "boolean") return NextResponse.json({ error: "enabled must be a boolean." }, { status: 400 });
+    const enabled = body.enabled;
 
     await setSellerVacationModeByAdmin({ userId, enabled, actorUserId: user.id });
     return NextResponse.json({ success: true });

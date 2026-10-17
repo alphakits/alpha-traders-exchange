@@ -31,6 +31,7 @@ export type MobileApiErrorCode =
   | "INVALID_CREDENTIALS"
   | "EMAIL_VERIFICATION_REQUIRED"
   | "PHONE_VERIFICATION_REQUIRED"
+  | "AGE_CONFIRMATION_REQUIRED"
   | "ACCOUNT_DISABLED"
   | "BUYER_ROLE_REQUIRED"
   | "SELLER_ROLE_REQUIRED"
@@ -766,7 +767,7 @@ export interface MobileSellerCommissionRecord {
     sellerFeeAmount?: number;
     buyerFeeCollectedAmount?: number;
   commissionId: string;
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issueReason?: string;
   /** Exact USDT amount to transfer; includes the six-decimal verification suffix. */
   amountDue: number;
@@ -925,6 +926,7 @@ export type MobileTradeTimelineEvent =
   | "price_offer_accepted"
   | "payment_sent"
   | "seller_confirmed_funds"
+  | "buyer_confirmed_funds"
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
@@ -1022,6 +1024,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canCancel: boolean;
     canViewBankDetails: boolean;
     canMarkPaymentSent: boolean;
+    canConfirmPreparedCardlessCode?: boolean;
     canUploadPaymentEvidence: boolean;
     canConfirmFunds: boolean;
     canBeginRelease: boolean;

@@ -5,18 +5,20 @@ import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import { createTestSellerApprovalVerification } from "@/test-utils/seller-verification";
 
 const loadSnapshot = vi.fn();
+const saveSnapshot = vi.fn();
 const loadUnpaidCommissionSellerIds = vi.fn(async () => [] as string[]);
 vi.mock("@/lib/alpha-exchange-repository", () => ({
   getAlphaExchangeRepository: vi.fn(async () => ({
     loadSnapshot,
     loadUnpaidCommissionSellerIds,
-    saveSnapshot: vi.fn(),
+    saveSnapshot,
   })),
 }));
 import { consumeEmailVerificationToken, createEmailVerificationTokenForUser, createSellerApplication, findUserById, getMarketplaceListings, getSellerApplicationByUserId, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 beforeEach(() => {
   invalidateAlphaExchangeStoreCache();
   loadSnapshot.mockReset();
+  saveSnapshot.mockReset();
   loadUnpaidCommissionSellerIds.mockClear();
 });
 const base = (user: Record<string, unknown>, applications: unknown[] = []) => ({ users: [user], sellerApplications: applications, marketplaceListings: [], purchaseRequests: [], commissionRecords: [], auditLogs: [], authSessions: [], passwordResetTokens: [], notifications: [], activityLog: [], disputes: [], sellerReports: [], trustSnapshots: [], trustScoreHistory: [], tradeEvidenceFiles: [], privateBetaInvites: [], privateBetaInviteUses: [], betaFeedback: [], betaAnnouncements: [], adminAnnouncementRuns: [], sellerReviews: [] } as unknown as AlphaExchangeDb);
@@ -56,6 +58,9 @@ it("verifies only the matching legacy local account with a single-use store toke
   const localUser = { ...legacy("local-email"), role: "buyer", roles: ["buyer"], sellerStatus: "buyer", emailVerified: false, passwordHash: "legacy-password-hash" };
   const otherUser = { ...legacy("other-email"), role: "buyer", roles: ["buyer"], sellerStatus: "buyer", emailVerified: false };
   loadSnapshot.mockResolvedValue({ ...base(localUser), users: [localUser, otherUser] });
+  // Authentication now re-reads canonical storage instead of treating an
+  // in-process cache as persistence. Keep this fixture's repository stateful.
+  saveSnapshot.mockImplementation(async snapshot => { loadSnapshot.mockResolvedValue(structuredClone(snapshot)); });
 
   const issued = await createEmailVerificationTokenForUser("local-email");
   expect((await consumeEmailVerificationToken(issued.token)).status).toBe("verified");

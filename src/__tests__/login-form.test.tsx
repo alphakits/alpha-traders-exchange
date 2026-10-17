@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { LoginForm } from "@/components/auth/login-form";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { LOCALE_CHOICE_COOKIE } from "@/i18n/locale-preference";
@@ -18,6 +20,28 @@ describe("LoginForm", () => {
 
   afterEach(() => {
     delete window.ReactNativeWebView;
+  });
+
+  it.each(["en", "ar"] as const)("keeps %s credentials and submission disabled until hydration is ready", async (locale) => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<LoginForm locale={locale} />);
+    document.body.append(container);
+    const controls = () => [...container.querySelectorAll<HTMLInputElement | HTMLButtonElement>("form input, form button")];
+    try {
+      expect(controls().length).toBe(5);
+      expect(container.querySelector("form")?.getAttribute("method")).toBe("post");
+      expect(controls().every(control => control.disabled)).toBe(true);
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      try {
+        await act(async () => { root = hydrateRoot(container, <LoginForm locale={locale} />); });
+        expect(container.querySelector("form")?.getAttribute("data-hydrated")).toBe("true");
+        expect(controls().every(control => !control.disabled)).toBe(true);
+      } finally {
+        if (root) await act(async () => root?.unmount());
+      }
+    } finally {
+      container.remove();
+    }
   });
 
   it("keeps the existing website login without the app-only artwork", () => {

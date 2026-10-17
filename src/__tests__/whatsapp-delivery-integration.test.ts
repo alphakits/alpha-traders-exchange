@@ -420,3 +420,27 @@ describe("WhatsApp durable delivery integration", () => {
     }
   }, 15_000);
 });
+
+describe.each(["preferences", "inbound STOP", "delivery claim", "changed phone"])("WhatsApp %s transaction recovery", path => {
+  it.each(["timeout", "rollback", "server"] as const)("handles %s without reusing the connection or sending a message", async failure => {
+    vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_CONSENT_UI_ENABLED", "true");
+    vi.stubEnv("ALPHA_EXCHANGE_WHATSAPP_PHONE_FINGERPRINT_SECRET", "0123456789abcdef0123456789abcdef");
+    const user = { id: "seller-1", verifiedPhone: "+972541234567", phoneVerifiedAt: "2026-09-11T23:59:00.000Z", preferredLocale: "en" } as AlphaExchangeUser;
+    const request = { id: "request-1", buyerId: "buyer-1", sellerId: user.id, status: "payment_sent", updatedAt: "2026-09-12T00:01:00.000Z" } as PurchaseRequest;
+    const pool = new FakeWhatsAppPool(user, request); mocks.pool = pool;
+    await updateWhatsAppSubscription({ userId: user.id, enabled: true, verifiedPhone: user.verifiedPhone, phoneVerifiedAt: user.phoneVerifiedAt, locale: "en", tradeUpdatesEnabled: true, chatMessagesEnabled: true, consentAccepted: true, consentVersion: CURRENT_WHATSAPP_CONSENT_VERSION });
+    const notification = { id: "notification-1", userId: user.id, category: "trade", title: "Payment sent", message: "Synthetic", isRead: false, state: "unread", relatedRequestId: request.id, whatsappEvent: "trade_update", whatsappEventAt: "2026-09-12T00:01:00.000Z", whatsappEventKey: "wae-00000000-0000-4000-8000-000000000011", createdAt: "2026-09-12T00:01:00.000Z" } as AlphaExchangeNotification;
+    pool.notifications.set(notification.id, notification);
+    if (path === "changed phone") user.verifiedPhone = "+972541234568";
+    const original = failure === "timeout" ? new Error("Query read timeout") : Object.assign(new Error("controlled statement failure"), { code: "57014" });
+    const query = vi.fn(async (sql: string) => { if (sql === "begin") throw original; if (sql === "rollback" && failure === "rollback") throw new Error("socket lost"); return { rows: [], rowCount: 0 }; });
+    const release = vi.fn(); vi.spyOn(pool, "connect").mockResolvedValue({ query, release });
+    const action = path === "preferences" ? updateWhatsAppSubscription({ userId: user.id, enabled: false })
+      : path === "inbound STOP" ? revokeWhatsAppConsentByPhone({ phone: user.verifiedPhone!, messageId: "synthetic-stop" }) : deliverWhatsAppNotification(notification);
+    await expect(action).rejects.toBe(original);
+    expect(release).toHaveBeenCalledTimes(1);
+    if (failure === "server") expect(release).not.toHaveBeenCalledWith(true); else expect(release).toHaveBeenCalledWith(true);
+    expect(query.mock.calls.some(([sql]) => sql === "rollback")).toBe(failure !== "timeout");
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+});

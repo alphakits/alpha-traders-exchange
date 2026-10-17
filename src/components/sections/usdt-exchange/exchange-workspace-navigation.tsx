@@ -14,14 +14,15 @@ export type ExchangeWorkspaceAction = {
   tone?: "gold" | "blue" | "green" | "amber";
 };
 
-export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, compact = false }: {
+export function ExchangeWorkspaceNavigation({ cards, isAr, integrated = false, compact = false, ready = true }: {
   cards: ExchangeWorkspaceAction[];
   isAr: boolean;
   integrated?: boolean;
   compact?: boolean;
+  ready?: boolean;
 }) {
   return (
-    <div id="workspace-summary" className={integrated ? "min-w-0 scroll-mt-24" : "mt-5 scroll-mt-24"}>
+    <div id="workspace-summary" inert={!ready} aria-busy={!ready || undefined} className={integrated ? "min-w-0 scroll-mt-24" : "mt-5 scroll-mt-24"}>
       <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
       <div dir={compact ? "ltr" : undefined} className={cn("mt-3 grid gap-2", compact ? "grid-cols-2" : integrated ? "min-[360px]:grid-cols-2 xl:grid-cols-3" : "min-[360px]:grid-cols-2 xl:grid-cols-4")}>
         {cards.filter((card) => !integrated || card.key !== "create-listing").map((card) => {

@@ -75,6 +75,16 @@ describe("first-click section navigation", () => {
     expect(document.activeElement).toBe(form);
   });
 
+  it("keeps a first workspace action pending while the initial empty-hash restoration settles", async () => {
+    render(<PageSectionNavigation />);
+    revealPageSection("my-listings-section");
+    await settle();
+    const listings = section("my-listings-section");
+    await settle();
+    expect(document.activeElement).toBe(listings);
+    expect(listings.scrollIntoView).toHaveBeenCalled();
+  });
+
   it("keeps the selected form visible when content above it changes height", async () => {
     const form = section("create-listing");
     let top = 300;

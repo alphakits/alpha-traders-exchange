@@ -1,6 +1,7 @@
 import { allowsTestOnlyRuntime, isProductionSecurityRuntime } from "@/lib/runtime-safety";
 import { isVerified } from "@/lib/verification-bypass";
 import { phoneVerificationDestinationForPage } from "@/lib/phone-verification-page";
+import { needsAdultConfirmation } from "@/lib/age-eligibility";
 
 function isExplicitlyEnabled(value: string | undefined) {
   return value?.trim().toLowerCase() === "true";
@@ -36,6 +37,7 @@ type MarketplaceVerificationUser = {
   email?: string | null;
   verifiedPhone?: string | null;
   phoneVerifiedAt?: string | null;
+  ageEligibility?: unknown;
 };
 
 export function needsMarketplacePhoneVerification(user: MarketplaceVerificationUser | null | undefined) {
@@ -49,6 +51,6 @@ export function marketplacePhoneVerificationDestination(
   pagePath: string,
   locale: "en" | "ar",
 ) {
-  if (!user || !needsMarketplacePhoneVerification(user)) return null;
+  if (!user || (!needsMarketplacePhoneVerification(user) && !needsAdultConfirmation(user))) return null;
   return phoneVerificationDestinationForPage(user, pagePath, locale);
 }

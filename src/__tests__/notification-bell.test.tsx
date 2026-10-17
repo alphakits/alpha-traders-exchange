@@ -277,4 +277,38 @@ describe("Notification bell conversation navigation", () => {
     fireEvent.click(action);
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/trade-room/purchase-1?action=open-trade#chat"));
   });
+  it.each([
+    ["Bank Transfer", "usdt_sent", "buyer-1", "View trade details", "open-trade", "status-banner"],
+    ["Bank Transfer", "usdt_sent", "seller-1", "Mark trade as completed", "complete-cash-trade", "action-required"],
+    ["Cardless ATM Withdrawal", "usdt_sent", "buyer-1", "View trade details", "open-trade", "status-banner"],
+    ["Cardless ATM Withdrawal", "usdt_sent", "seller-1", "Mark trade as completed", "complete-cash-trade", "action-required"],
+    ["Face-to-Face (Meet in Person)", "accepted", "seller-1", "Confirm payment received", "confirm-money-received", "action-required"],
+    ["Face-to-Face (Meet in Person)", "funds_received", "seller-1", "Mark trade as completed", "complete-cash-trade", "action-required"],
+    ["Face-to-Face (Meet in Person)", "completed", "seller-1", "Leave a trade review", "review-trade", "status-banner"],
+  ] as const)("routes %s %s for %s using the current trade rule", async (paymentMethod, currentStage, userId, label, action, hash) => {
+    const notice = {
+      id: "stage-notice", userId, category: "trade", title: "Trade status updated", message: "Check the current trade state.",
+      relatedRequestId: "purchase-stage", actionLabel: "Confirm USDT received", isRead: false, createdAt: new Date().toISOString(),
+      tradeSnapshot: { requestId: "purchase-stage", currentStage, sellerId: "seller-1", buyerId: "buyer-1", paymentMethod, counterpartyName: "AT-TEST", usdtAmount: "100", fiatAmount: "313.10", currency: "ILS", requiredAction: "Check trade" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ notifications: [notice], unreadCount: 1 }), { status: 200 })));
+    render(<NotificationBell locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(await screen.findByRole("button", { name: label }));
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith(`/trade-room/purchase-stage?action=${action}#${hash}`));
+    expect(screen.queryByRole("button", { name: "Confirm USDT received" })).toBeNull();
+  });
+
+  it("opens a legacy USDT-sent notice without inventing a buyer receipt action", async () => {
+    const notice = {
+      id: "legacy-usdt-sent", userId: "buyer-1", category: "trade", title: "Seller marked USDT sent", message: "Check your wallet.",
+      relatedRequestId: "purchase-legacy", actionLabel: "Open Trade Room", isRead: false, createdAt: new Date().toISOString(),
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ notifications: [notice], unreadCount: 1 }), { status: 200 })));
+    render(<NotificationBell locale="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Trade Room" }));
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/trade-room/purchase-legacy?action=open-trade#status-banner"));
+  });
+
 });

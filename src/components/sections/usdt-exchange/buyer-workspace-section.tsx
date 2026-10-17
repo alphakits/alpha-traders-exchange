@@ -31,7 +31,7 @@ export type BuyerWorkspaceSectionProps = {
   evidenceUploading: Record<string, boolean>;
   filteredBuyerRequests: PurchaseRequest[];
   groupedActivityHistory: Array<{ dayKey: string; label: string; items: AlphaExchangeActivityLogEntry[] }>;
-  handleBuyerTradeStatus: (request: PurchaseRequest, nextStatus: "payment_sent" | "completed" | "cancelled") => Promise<void>;
+  handleBuyerTradeStatus: (request: PurchaseRequest, nextStatus: "payment_sent" | "cancelled") => Promise<void>;
   handleOpenTradeRoom: (requestId: string) => void;
   handlePrefetchTradeRoom: (requestId: string) => void;
   handleSubmitBuyerReview: (request: PurchaseRequest) => Promise<void>;
@@ -173,17 +173,17 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">⏰</span>
                   <div>
-                    <p className="font-semibold text-[#FDE68A]">{currencyText(isAr ? "إجراء مطلوب — تأكيد استلام USDT" : "Action Required — Confirm USDT Receipt")}</p>
+                    <p className="font-semibold text-[#FDE68A]">{currencyText(isAr ? "بانتظار إكمال البائع للصفقة" : "Waiting for Seller Completion")}</p>
                     <p className="mt-0.5 text-sm text-[#E5E7EB]">
                       {currencyText(isAr
-                        ? "لديك صفقة تنتظر تأكيد استلام USDT. يرجى التأكيد لإكمال صفقتك والسماح بعمليات الشراء الجديدة."
-                        : "You have a trade waiting for your USDT receipt confirmation. Please confirm receipt to complete your trade and unblock new purchases.")}
+                        ? "تحقق من وصول USDT إلى محفظتك. يكمل البائع الصفقة، ثم يمكنك إضافة تقييمك وبدء شراء جديد."
+                        : "Check your wallet for USDT. The seller completes the trade, then you can leave feedback and start a new purchase.")}
                     </p>
                   </div>
                 </div>
                 <Link href={`/trade-room/${archivedConfirmationTrade.id}`} className="shrink-0">
                   <Button size="sm" className="w-full sm:w-auto">
-                    {isAr ? "تأكيد الاستلام" : "Confirm Receipt"}
+                    {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
                   </Button>
                 </Link>
               </CardContent>
@@ -323,9 +323,6 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                                   <>
                                     <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
                                       {isAr ? "تحديد الدفعة كمُرسلة" : "Mark Payment Sent"}
-                                    </Button>
-                                    <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
-                                      {isAr ? "تأكيد اكتمال الصفقة" : "Confirm Trade Completed"}
                                     </Button>
                                   </>
                                 ) : null}

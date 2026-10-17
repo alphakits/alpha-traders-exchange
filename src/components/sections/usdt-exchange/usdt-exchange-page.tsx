@@ -1,5 +1,7 @@
 "use client";
 
+import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+
 import { PAGE_SECTION_NAVIGATION_EVENT, navigateToPageSection, pageSectionFromEvent, revealPageSection } from "@/lib/page-section-navigation";
 import { LiveMarketCards } from "@/components/market/live-market-cards";
 import { AccountVerificationBadges } from "@/components/profile/account-verification-badges";
@@ -7,7 +9,7 @@ import { workspaceTradeNextStep } from "@/lib/workspace-next-step";
 import { isListingCommissionRequiredMessage, listingCommissionRequiredMessage } from "@/lib/listing-commission-policy";
 import { MarketplacePriceAlertPanel } from "@/components/sections/usdt-exchange/marketplace-price-alert-panel";
 import { MarketplaceToolPanel } from "@/components/sections/usdt-exchange/marketplace-tool-panel";
-import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice } from "@alpha-traders/contracts";
+import { getInterfaceAccess, marketplaceFeeTerms, sellerFeeResponsibilityNotice, formatCommissionAmount } from "@alpha-traders/contracts";
 import { calculateFiatAmount, calculateTradeBuyerFiatFee, calculateTradePaymentTotal } from "@alpha-traders/contracts";
 
 
@@ -26,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AccountWelcome } from "@/components/ui/account-welcome";
 import { ExchangeWorkspaceNavigation, type ExchangeWorkspaceAction } from "@/components/sections/usdt-exchange/exchange-workspace-navigation";
-import { useDesktopWorkspace } from "@/components/sections/usdt-exchange/use-desktop-workspace";
+import { useWorkspaceViewport } from "@/components/sections/usdt-exchange/use-desktop-workspace";
 import { BuyerRankCard } from "@/components/ui/buyer-rank-card";
 import { SellerRankCard } from "@/components/ui/seller-rank-card";
 import { useSellerRankSummary } from "@/components/sections/usdt-exchange/use-seller-rank-summary";
@@ -302,6 +304,7 @@ export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolea
     request_accepted: "وافق البائع على طلب الصفقة.",
     price_offer_accepted: "وافق البائع على عرض السعر.",
     payment_sent: "أكد المشتري إرسال الدفعة.",
+    buyer_confirmed_funds: "أكد المشتري استلام البائع للنقد.",
     seller_confirmed_funds: "أكد البائع استلام الدفعة.",
     usdt_release_started: "بدأت مرحلة إرسال USDT.",
     usdt_sent: "أكد البائع إرسال USDT.",
@@ -512,10 +515,7 @@ export function formatUsdt(value: number) {
 }
 
 function formatCommissionUsdt(value: number) {
-  return `${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} USDT`;
+  return `${formatCommissionAmount(value)} USDT`;
 }
 
 export function formatExactCommissionUsdt(value: number) {
@@ -699,7 +699,7 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "PRICE_MODE_INVALID") return "نوع السعر المحدد غير صالح.";
   if (code === "PRICE_OFFERS_ILS_ONLY") return "عروض الأسعار متاحة فقط للعروض المسعّرة بالشيكل.";
   if (code === "PRICE_OFFER_INVALID_FORMAT") return "أدخل سعرًا صالحًا بالشيكل، بحد أقصى منزلتين عشريتين.";
-  if (code === "PRICE_OFFER_NOT_LOWER") return "يجب أن يكون عرض السعر أقل من سعر البائع الحالي.";
+  if (code === "PRICE_OFFER_ABOVE_MAXIMUM") return "لا يمكن أن يزيد عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "SELLER_COMMISSION_DUE") return "يجب دفع عمولة البائع المستحقة قبل بدء عملية شراء جديدة.";
   if (code === "LISTING_SELLER_LOCKED") return "هذا العرض غير متاح مؤقتاً لطلبات شراء جديدة. اختر بائعاً آخر.";
@@ -1290,7 +1290,7 @@ export const ListingCard = memo(function ListingCard({ listing, isAr, marketPric
                 {isAr ? "قدّم عرض سعر" : "Make an Offer"}
               </span>
               <span className="text-[11px] font-medium text-[#D1D5DB]">
-                {currencyText(isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower")}
+                {currencyText(isAr ? "±₪0.35 من سعر الإعلان" : "Within ±₪0.35 of listing price")}
               </span>
             </Button>
           ) : null}
@@ -1350,7 +1350,8 @@ export function UsdtExchangePage({
   const isAr = locale === "ar";
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
-  const isDesktopWorkspace = useDesktopWorkspace();
+  const workspaceViewport = useWorkspaceViewport();
+  const isDesktopWorkspace = workspaceViewport === true;
   const router = useRouter();
   const searchParams = useSearchParams();
   const commissionPaymentIntent = searchParams?.get("commission") ?? null;
@@ -3326,7 +3327,6 @@ export function UsdtExchangePage({
       return acc;
     }, {});
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
-    const estimatedCommissionPaid = insightMetrics.revenueGenerated * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
     return {
       activeListings: myListings.filter((listing) => listing.status === "active").length,
@@ -3340,7 +3340,6 @@ export function UsdtExchangePage({
       tradeRequests: sellerRequests.length,
       successRate: insightMetrics.successRate,
       completionRate: insightMetrics.completionRate,
-      estimatedCommissionPaid,
       revenueGenerated: insightMetrics.revenueGenerated,
       repeatBuyers: repeatBuyersCount,
       averageTradeSize: insightMetrics.averageTradeSize,
@@ -4027,47 +4026,13 @@ export function UsdtExchangePage({
   const resolveTradeRoomDestinationFromSnapshot = useCallback((notification: AlphaExchangeNotification) => {
     const snapshot = notification.tradeSnapshot;
     if (!snapshot?.requestId || !snapshot.currentStage || !sessionUser) return null;
-    const isSellerActor = snapshot.sellerId === sessionUser.id;
-    const isBuyerActor = snapshot.buyerId === sessionUser.id;
-    const cashTrade = isCashTradePaymentMethod(snapshot.paymentMethod);
-    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
-    if (snapshot.currentStage === "pending" && isSellerActor) action = "accept-trade";
-    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-    else if (snapshot.currentStage === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
-    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-    else if (snapshot.currentStage === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
-    else if (snapshot.currentStage === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
-    else if ((snapshot.currentStage === "review_open" || snapshot.currentStage === "completed" || snapshot.currentStage === "locked") && isBuyerActor) action = "review-trade";
-    if (action === "open-trade") return null;
-    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
-      ? "evidence"
-      : action === "review-trade"
-        ? "status-banner"
-        : "action-required";
-    return `/trade-room/${snapshot.requestId}?action=${encodeURIComponent(action)}#${hash}`;
+    return buildTradeRoomDestination({ id: snapshot.requestId, status: snapshot.currentStage,
+      sellerId: snapshot.sellerId, buyerId: snapshot.buyerId, paymentMethod: snapshot.paymentMethod }, sessionUser.id);
   }, [sessionUser]);
 
   const buildTradeRoomDestinationFromRequest = useCallback((request: PurchaseRequest) => {
     if (!sessionUser) return `/trade-room/${request.id}`;
-    const isSellerActor = request.sellerId === sessionUser.id;
-    const isBuyerActor = request.buyerId === sessionUser.id;
-    const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-    let action: "accept-trade" | "confirm-cash-payment" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "confirm-usdt-sent" | "complete-cash-trade" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
-    if (request.status === "pending" && isSellerActor) action = "accept-trade";
-    else if (request.status === "accepted" && isBuyerActor) action = cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-    else if (request.status === "payment_sent" && isSellerActor) action = "confirm-money-received";
-    else if (request.status === "funds_received" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "release-usdt";
-    else if (request.status === "usdt_release_pending" && isSellerActor) action = cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-    else if (request.status === "usdt_sent" && cashTrade && isSellerActor) action = "complete-cash-trade";
-    else if (request.status === "usdt_sent" && !cashTrade && isBuyerActor) action = "confirm-usdt-received";
-    else if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor) action = "review-trade";
-    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
-      ? "evidence"
-      : action === "review-trade" || action === "open-trade"
-        ? "status-banner"
-        : "action-required";
-    return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
+    return buildTradeRoomDestination(request, sessionUser.id);
   }, [sessionUser]);
 
   const resolveTradeRoomDestinationFromRequests = useCallback((notification: AlphaExchangeNotification) => {
@@ -5056,7 +5021,7 @@ export function UsdtExchangePage({
   ) : null;
 
   const workspaceNavigation = (
-    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} />
+    <ExchangeWorkspaceNavigation cards={visibleWorkspaceCards} isAr={isAr} integrated={integrateWorkspace} compact={compactBuyerWorkspace} ready={workspaceViewport !== null} />
   );
   const welcomeActions = !isDashboardWorkspace || integrateWorkspace ? (
     <div className="account-welcome__actions">
@@ -5834,6 +5799,7 @@ export function UsdtExchangePage({
           priceMode={purchasePriceMode}
           offeredPrice={buyerOfferedPrice}
           minimumOfferedPrice={selectedOfferBounds?.minimumPrice ?? ""}
+          maximumOfferedPrice={selectedOfferBounds?.maximumPrice ?? ""}
           offerPriceInvalid={Boolean(selectedOfferValidation && !selectedOfferValidation.ok)}
           offeredTradePrice={selectedTradePrice}
           requiresSafetyNotice={selectedListingRequiresSafetyNotice}

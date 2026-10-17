@@ -24,7 +24,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : "Failed to load bank details.";
     const status = message === "Trade not found."
       ? 404
-      : message.includes("not allowed") || message.includes("only after")
+      : message.includes("not allowed") || message.includes("only for") || message.includes("only after")
         ? 403
         : 400;
     return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "private, no-store, max-age=0" } });

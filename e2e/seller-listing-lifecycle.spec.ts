@@ -212,29 +212,6 @@ async function chooseCreatePayoutBankAccountByLast4(page: Page, last4: string) {
   throw new Error(`Could not find payout bank account option with last4 ${last4}. ${diagnostics.join(" ; ")}`);
 }
 
-async function runWithDialogs(
-  page: Page,
-  action: () => Promise<unknown>,
-  steps: Array<{ type: "confirm" | "prompt"; value?: string }>,
-) {
-  let pendingDialog = page.waitForEvent("dialog");
-  const pendingAction = action();
-  for (let index = 0; index < steps.length; index += 1) {
-    const step = steps[index];
-    const dialog = await pendingDialog;
-    expect(dialog.type()).toBe(step.type);
-    if (index < steps.length - 1) {
-      pendingDialog = page.waitForEvent("dialog");
-    }
-    if (step.type === "prompt") {
-      await dialog.accept(step.value ?? "");
-    } else {
-      await dialog.accept();
-    }
-  }
-  await pendingAction;
-}
-
 async function runOwnerActionDialogs(
   page: Page,
   action: () => Promise<unknown>,
@@ -664,7 +641,6 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   }
 
 
-  let capturedSingleBankAccountId: string | undefined;
   const [singleCreateResponse] = await Promise.all([
     seller.page.waitForResponse((response) => {
       if (response.request().method() !== "POST") return false;
@@ -673,7 +649,7 @@ test("bank-transfer listing requires selected seller bank account and preserves 
     seller.page.getByRole("button", { name: "Submit Listing" }).click(),
   ]);
   const singleCreateRequestPayload = singleCreateResponse.request().postDataJSON() as { bankAccountId?: string };
-  capturedSingleBankAccountId = singleCreateRequestPayload.bankAccountId;
+  const capturedSingleBankAccountId = singleCreateRequestPayload.bankAccountId;
   expect(capturedSingleBankAccountId).toBe(selectedSingleAccountId);
   expect([200, 201]).toContain(singleCreateResponse.status());
 
@@ -1011,37 +987,43 @@ test("owner listing notification destination survives login, refresh, and histor
 
   const ownerContext = await browser.newContext();
   const ownerPage = await ownerContext.newPage();
-  await ownerPage.goto(destination);
-  await expect(ownerPage).toHaveURL(/\/en\/login(?:\?|$)/, { timeout: 30_000 });
-  const loginUrl = new URL(ownerPage.url());
-  expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
+  // Playwright's retain-on-failure policy owns tracing for every context.
+  try {
+    await ownerPage.goto(destination);
+    await expect(ownerPage).toHaveURL(/\/en\/login(?:\?|$)/, { timeout: 30_000 });
+    const loginUrl = new URL(ownerPage.url());
+    expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
 
-  await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
-  await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
-  await Promise.all([
-    ownerPage.waitForURL(destination, { timeout: 30_000 }),
-    ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
-  ]);
+    await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
+    await ownerPage.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
+    const [loginResponse] = await Promise.all([
+      ownerPage.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/auth/login"),
+      ownerPage.waitForURL(destination, { timeout: 30_000 }),
+      ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
+    ]);
 
-  const listingRow = ownerPage.locator(`#marketplace-listing-${listingId}`);
-  await expect(listingRow).toBeVisible({ timeout: 30_000 });
-  await expect(listingRow).toBeFocused({ timeout: 30_000 });
-  for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 900 }]) {
-    await ownerPage.setViewportSize(viewport);
-    await expect(listingRow).toBeVisible();
-    await expect(listingRow).toHaveClass(/outline/);
-    const overflow = await ownerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(1);
+    expect(loginResponse.status()).toBe(200);
+
+    const listingRow = ownerPage.locator(`#marketplace-listing-${listingId}`);
+    await expect(listingRow).toBeVisible({ timeout: 30_000 });
+    await expect(listingRow).toBeFocused({ timeout: 30_000 });
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 900 }]) {
+      await ownerPage.setViewportSize(viewport);
+      await expect(listingRow).toBeVisible();
+      await expect(listingRow).toHaveClass(/outline/);
+      const overflow = await ownerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(1);
+    }
+
+    await ownerPage.goto("/en/admin/alpha-exchange?section=overview");
+    await ownerPage.goBack();
+    await expect(ownerPage).toHaveURL(destination);
+    await expect(listingRow).toBeFocused({ timeout: 30_000 });
+    await ownerPage.goForward();
+    await expect(ownerPage).toHaveURL(/section=overview/);
+  } finally {
+    await Promise.all([seller.context.close(), ownerContext.close()]);
   }
-
-  await ownerPage.goto("/en/admin/alpha-exchange?section=overview");
-  await ownerPage.goBack();
-  await expect(ownerPage).toHaveURL(destination);
-  await expect(listingRow).toBeFocused({ timeout: 30_000 });
-  await ownerPage.goForward();
-  await expect(ownerPage).toHaveURL(/section=overview/);
-
-  await Promise.all([seller.context.close(), ownerContext.close()]);
 });
 
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
@@ -1131,7 +1113,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   });
 
   await uploadEvidence(buyer.page, firstRequest.purchase.id, "buyer");
-  let refreshedTrade = await getAdminPrep(owner.page.request);
+  const refreshedTrade = await getAdminPrep(owner.page.request);
   const paymentSentTrade = refreshedTrade.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
   expect(paymentSentTrade?.status).toBe("payment_sent");
   firstTrade = paymentSentTrade as PurchasePayload;
@@ -1160,6 +1142,9 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(firstTrade.sellerEvidence?.fileName).toBe("seller-release-evidence.png");
 
   response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "completed" } });
+  expect(response.ok()).toBe(false);
+  expect(await response.json()).toMatchObject({ code: "seller-completion-required" });
+  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { action: "complete_trade" } });
   expect(response.ok()).toBeTruthy();
   firstTrade = await readPurchaseFromPatchResponse(response);
   expect(firstTrade.status).toBe("review_open");
@@ -1170,8 +1155,8 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   await expect(seller.page).toHaveURL(new RegExp(`/en/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`), { timeout: 20_000 });
   await expect(seller.page.locator("#status-banner")).toContainText("Trade Completed Successfully", { timeout: 20_000 });
 
-  let adminPrep = await getAdminPrep(owner.page.request);
-  let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
+  const adminPrep = await getAdminPrep(owner.page.request);
+  const firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
   expect(firstTradeAdmin?.status).toBe("review_open");
   expect(firstTradeAdmin?.buyerEvidence?.fileName).toBe("buyer-payment-evidence.png");
   expect(firstTradeAdmin?.sellerEvidence?.fileName).toBe("seller-release-evidence.png");

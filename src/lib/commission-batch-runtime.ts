@@ -98,7 +98,7 @@ export async function getCommissionBatchRuntime() {
           const plan = object(data?.plan);
           return { id: entry.id, sellerName: names.get(entry.targetUserId ?? "") ?? entry.targetUserId,
             createdAt: entry.createdAt, expectedMicros: plan?.expectedMicros, receivedMicros: plan?.receivedMicros,
-            waivedMicros: plan?.waivedMicros, excessMicros: plan?.excessMicros };
+            waivedMicros: plan?.waivedMicros, excessMicros: plan?.excessMicros, shortfallPolicy: data?.shortfallPolicy };
         }),
       };
     },

@@ -1,3 +1,4 @@
+import { SHORTFALL_POLICY, recordCommissionShortfall, materializeCommissionShortfalls } from "./commission-shortfall-ledger";
 import { createHash, randomUUID } from "node:crypto";
 import { commissionPaymentDestination } from "./commission-payment-destination";
 import type { AlphaExchangeDb, CommissionRecord, AuditLogEntry } from "@/types/alpha-exchange";
@@ -97,7 +98,7 @@ function assertFrozenAmounts(snapshot: AlphaExchangeDb, batch: ApprovedCommissio
 }
 function batchNote(batch: ApprovedCommissionBatch, receipt: BatchReceipt, waived: number, excess: number) {
   return `Verified combined payment: ${(receipt.amountMicros / 1e6).toFixed(6)} USDT received; `
-    + `${(batch.expectedAmountMicros / 1e6).toFixed(6)} USDT due; ${(waived / 1e6).toFixed(6)} USDT waived; `
+    + `${(batch.expectedAmountMicros / 1e6).toFixed(6)} USDT due; ${(waived / 1e6).toFixed(6)} USDT carried forward to the next commission; `
     + `${(excess / 1e6).toFixed(6)} USDT excess recorded. Receipt ${receipt.signature}.`;
 }
 
@@ -197,10 +198,13 @@ export function createCommissionBatchWorkflow(ports: CommissionBatchPorts) {
                   paymentSignature: canonical.signature, paidAt, updatedAt: paidAt, paymentSubmittedAt: canonical.createdAt,
                   paymentVerificationNotes: note,
                   paymentBatchSettlement: { batchId: canonical.id, ...allocation, signatureKey: plan.signatureKey,
+                    shortfallPolicy: SHORTFALL_POLICY, carriedMicros: allocation.waivedMicros,
                     groupReceivedMicros: plan.receivedMicros, groupDueMicros: plan.expectedMicros,
                     approvedByUserId: canonical.approvedByUserId } };
                 snapshot.commissionRecords[index] = record;
               }
+              const appliedExcessMicros = recordCommissionShortfall(snapshot, { settlementId: canonical.id, sellerId: canonical.sellerId, shortfallMicros: plan.waivedMicros, excessMicros: plan.excessMicros, createdAt: paidAt });
+              materializeCommissionShortfalls(snapshot, paidAt, canonical.sellerId);
               const remaining = snapshot.commissionRecords.filter((record) => record.sellerId === canonical.sellerId && record.paymentStatus !== "paid");
               for (const allocation of plan.allocations) {
                 const record = snapshot.commissionRecords.find((item) => item.id === allocation.commissionId)!;
@@ -210,11 +214,11 @@ export function createCommissionBatchWorkflow(ports: CommissionBatchPorts) {
               }
               append(snapshot, { id: `${canonical.id}:settled`, action: "commission_paid", actorUserId: canonical.approvedByUserId,
                 targetUserId: canonical.sellerId, details: note,
-                newValue: { kind: SETTLED, batchId: canonical.id, receipt, plan }, createdAt: paidAt });
+                newValue: { kind: SETTLED, batchId: canonical.id, receipt, plan, shortfallPolicy: SHORTFALL_POLICY, carriedMicros: plan.waivedMicros, appliedExcessMicros }, createdAt: paidAt });
               const href = remaining.length ? commissionPaymentDestination(remaining[0].id) : "/dashboard/seller#my-listings-section";
               snapshot.notifications.unshift({ id: `${canonical.id}:notification`, userId: canonical.sellerId,
                 category: "trade", title: "Combined commission payment verified", titleAr: "تم تأكيد دفعة العمولات المجمعة",
-                messageAr: `تم استلام ${(receipt.amountMicros / 1e6).toFixed(6)} USDT. تم إعفاء ${(plan.waivedMicros / 1e6).toFixed(6)} USDT وتسجيل زيادة ${(plan.excessMicros / 1e6).toFixed(6)} USDT. ${remaining.length ? "ما زالت هناك عمولات أخرى غير مدفوعة." : "لا توجد عمولات مستحقة. أي قيود أخرى على الحساب تبقى سارية."}`,
+                messageAr: `تم استلام ${(receipt.amountMicros / 1e6).toFixed(6)} USDT. تم ترحيل ${(plan.waivedMicros / 1e6).toFixed(6)} USDT إلى العمولة التالية وتسجيل زيادة ${(plan.excessMicros / 1e6).toFixed(6)} USDT. ${remaining.length ? "ما زالت هناك عمولات أخرى غير مدفوعة." : "لا توجد عمولات مستحقة. أي قيود أخرى على الحساب تبقى سارية."}`,
                 message: `${note} ${remaining.length
                   ? "Other commission dues remain outstanding." : "No commission dues remain. Other account restrictions still apply."}`,
                 isRead: false, reason: remaining.length ? "commission_payment_due" : "commission_payment_verified",

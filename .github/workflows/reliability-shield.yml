@@ -21,6 +21,57 @@ env:
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
 jobs:
+  postgres-concurrency:
+    name: PostgreSQL concurrency and transaction recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: alpha_exchange_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d alpha_exchange_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ALPHA_AUDIT_DATABASE_URL: postgresql://postgres:isolated-ci-only@127.0.0.1:5432/alpha_exchange_ci
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Exercise real database races and process recovery
+        run: node scripts/check-postgres-concurrency.mjs
+      - name: Back up and restore controlled database
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U postgres -d alpha_exchange_ci -Fc > test-results/postgres-concurrency/controlled-backup.dump
+          docker exec "$POSTGRES_CONTAINER" createdb -U postgres alpha_exchange_restore_ci
+          docker exec -i "$POSTGRES_CONTAINER" pg_restore -U postgres -d alpha_exchange_restore_ci --exit-on-error < test-results/postgres-concurrency/controlled-backup.dump
+          node scripts/check-postgres-restoration.mjs
+      - name: Enforce the subsecond database action target
+        run: node scripts/check-postgres-performance.mjs
+      - name: Preserve database verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-concurrency-evidence
+          path: test-results/postgres-concurrency/
+          if-no-files-found: error
+          retention-days: 14
+
   quality-gate:
     name: Unit, lint, and production build
     runs-on: ubuntu-latest
@@ -53,7 +104,6 @@ jobs:
 
   critical-browser-flows:
     name: Mobile and desktop critical flows
-    needs: quality-gate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -100,6 +150,22 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Preserve offer limits and connection recovery screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: platform-audit-screenshots
+          path: |
+            test-results/**/offer-boundary-*.png
+            test-results/**/connection-*.png
+            test-results/**/seller-only-*.png
+            test-results/**/atm-*.png
+            test-results/**/bank-*.png
+            test-results/**/commission-*.png
+            test-results/**/owner-editor-*.png
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Preserve profile phone and desktop visual checks
         if: always()
         uses: actions/upload-artifact@v4
@@ -131,7 +197,6 @@ jobs:
 
   phone-verification-gate:
     name: Mandatory phone gates and owner exceptions
-    needs: quality-gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -150,6 +215,14 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Verify mandatory phone gates and exact owner exceptions
         run: npm run test:e2e:phone-verification
+      - name: Preserve adult confirmation visual checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adult-confirmation-screenshots
+          path: test-results/**/adult-*.png
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Preserve failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -160,3 +233,99 @@ jobs:
             test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  webkit-browser-flows:
+    name: WebKit critical flows (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install WebKit runtime
+        run: npx playwright install --with-deps webkit
+      - name: Verify seller keyboard navigation before the full WebKit group
+        if: matrix.shard == 3
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-navigation-preflight.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/navigation-hardening.spec.ts --grep="seller refresh keeps the approved workspace stable" --max-failures=1 --reporter=list,json
+      - name: Preserve focused WebKit navigation evidence
+        if: always() && matrix.shard == 3
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-navigation-preflight
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify owner login destination before the full WebKit group
+        if: matrix.shard == 4
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-owner-login-preflight.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts e2e/seller-listing-lifecycle.spec.ts --grep="owner listing notification destination survives login, refresh, and history navigation" --repeat-each=3 --max-failures=1 --reporter=list,json
+      - name: Preserve focused WebKit owner login evidence
+        if: always() && matrix.shard == 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-owner-login-preflight
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify marketplace, payments and owner flows in WebKit
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-critical-results.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.config.ts --shard=${{ matrix.shard }}/4 --reporter=list,json
+      - name: Preserve WebKit browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-critical-flows-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify mandatory phone and age gates in WebKit
+        id: webkit_phone_gates
+        if: success() && matrix.shard == 1
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/webkit-phone-results.json
+        run: node ./node_modules/playwright/cli.js test --config=playwright.webkit.phone-verification.config.ts --reporter=list,json
+      - name: Preserve WebKit phone and age evidence
+        if: always() && matrix.shard == 1 && steps.webkit_phone_gates.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-phone-age-gates
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+
+  release-acceptance:
+    name: Release acceptance
+    if: always()
+    needs: [quality-gate, postgres-concurrency, critical-browser-flows, phone-verification-gate, webkit-browser-flows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every independent regression job to pass
+        env:
+          QUALITY_RESULT: ${{ needs.quality-gate.result }}
+          DATABASE_RESULT: ${{ needs.postgres-concurrency.result }}
+          BROWSER_RESULT: ${{ needs.critical-browser-flows.result }}
+          PHONE_RESULT: ${{ needs.phone-verification-gate.result }}
+          WEBKIT_RESULT: ${{ needs.webkit-browser-flows.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$DATABASE_RESULT" = success
+          test "$BROWSER_RESULT" = success
+          test "$PHONE_RESULT" = success
+          test "$WEBKIT_RESULT" = success

@@ -107,6 +107,11 @@ export function isBankTransferPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Bank Transfer";
 }
 
+/** Participants may inspect the linked payment instructions before accepting. */
+export function isBankDetailsDisclosureStage(status: unknown) {
+  return ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(String(status));
+}
+
 export function requiresSellerPayoutBankAccount(rawMethods: unknown, fallbackMethod?: unknown) {
   return resolveListingPaymentMethods(rawMethods, fallbackMethod).some(isBankTransferPaymentMethod);
 }

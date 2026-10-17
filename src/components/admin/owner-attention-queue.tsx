@@ -16,6 +16,7 @@ export function OwnerAttentionQueue({ isAr, operations, disputes = [], commissio
     stalled_trade: isAr ? "صفقة تحتاج إلى متابعة" : "Trade needs follow-up",
     orphaned_listing_lock: isAr ? "قفل عرض يحتاج إلى مراجعة" : "Listing lock needs review",
     unlinked_active_trade: isAr ? "ارتباط صفقة يحتاج إلى مراجعة" : "Trade linkage needs review",
+    pending_trade_trust: isAr ? "تأخر تحديث سمعة الصفقة" : "Trade reputation update is delayed",
   };
   return <section className="rounded-2xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-4 sm:p-5" aria-label={isAr ? "قائمة متابعة المالك" : "Owner attention queue"}>
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{isAr ? "أولويات المتابعة" : "Follow-up priorities"} <span className="text-[#D4AF37]">({queue.length})</span></h2><p className="mt-1 text-sm text-[#9CA3AF]">{isAr ? "صفقات متأخرة، حالات دعم، ودفعات تحتاج إلى مطابقة؛ افتح السجل لاتخاذ الإجراء المتاح." : "Delayed trades, support cases and payments awaiting a match. Open the record to use its available actions."}</p></div><Link href={`/${isAr ? "ar" : "en"}/settings?tab=security`} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#C9A227]/30 px-3 text-sm text-[#D4AF37]"><ShieldCheck className="h-4 w-4" />{isAr ? "أمان حساب المالك" : "Owner account security"}</Link></div>

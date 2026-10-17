@@ -14,9 +14,14 @@ function getSnapshot() {
   return window.matchMedia(DESKTOP_WORKSPACE_QUERY).matches;
 }
 
-const getServerSnapshot = () => false;
+const getServerSnapshot = () => null;
+
+/** Null means the server layout has not been resolved for this browser yet. */
+export function useWorkspaceViewport() {
+  return useSyncExternalStore<boolean | null>(subscribe, getSnapshot, getServerSnapshot);
+}
 
 /** Keep the established phone/tablet experience until a desktop viewport is known. */
 export function useDesktopWorkspace() {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return useWorkspaceViewport() === true;
 }

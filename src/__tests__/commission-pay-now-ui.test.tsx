@@ -335,6 +335,8 @@ describe("seller commission Pay Now", () => {
   it.each([
     { amountDue: 7.89, paymentAmountDue: 7.890001, balance: "7.89 USDT", exact: "7.890001" },
     { amountDue: 0.18, paymentAmountDue: 0.180001, balance: "0.18 USDT", exact: "0.180001" },
+    { amountDue: 0.002, paymentAmountDue: 0.002001, balance: "0.002 USDT", exact: "0.002001" },
+    { amountDue: 8.304056, paymentAmountDue: 8.304057, balance: "8.304056 USDT", exact: "8.304057" },
   ])("preserves the fractional commission balance $balance and exact copy amount", async ({ amountDue, paymentAmountDue, balance, exact }) => {
     commissionRecordsOverride = [{
       commissionId: "fractional-commission",
@@ -403,6 +405,26 @@ describe("seller commission Pay Now", () => {
       expect(commissionStatus.textContent).toContain("12.50 USDT");
       expect(within(commissionStatus).getByRole("button", { name: "Pay Now" })).not.toBeNull();
     });
+  });
+
+  it.each(["en", "ar"] as const)("distinguishes carried and manual obligations and localizes the carried reason in %s", async (locale) => {
+    commissionRecordsOverride = [
+      { commissionId: "carry-1", source: "tolerance_carry_forward", amountDue: 2, paymentAmountDue: 2.000001,
+        dueAt: "2026-09-15T00:00:00.000Z", issueReason: "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee." },
+      { commissionId: "manual-1", source: "admin_manual", amountDue: 9, paymentAmountDue: 9.000001,
+        dueAt: "2026-09-15T00:00:00.000Z", issueReason: "Documented seller adjustment" },
+    ];
+    render(<UsdtExchangePage locale={locale} initialSessionUser={seller} workspaceMode="seller" />);
+    const isAr = locale === "ar";
+    const manual = await screen.findByRole("button", { name: isAr ? /عمولة صادرة عن الإدارة/ : /Admin-issued commission/ });
+    expect(manual.textContent).toContain("9.000001");
+    const carried = screen.getByRole("button", { name: isAr ? /رصيد عمولة مرحّل/ : /Carried commission balance/ });
+    expect(carried.textContent).toContain("2.000001");
+    expect(document.getElementById("commission-status")?.textContent).toContain(isAr
+      ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية."
+      : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.");
+    fireEvent.click(manual);
+    await waitFor(() => expect(document.getElementById("commission-payment")?.textContent).toContain("Documented seller adjustment"));
   });
 
   it("shows a trade-less manual commission as admin-issued and keeps it payable", async () => {

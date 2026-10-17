@@ -25,7 +25,7 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
   }
   return <AcademyStudentHub courses={courses.map((course) => ({
     id: course.id, title: course.title, titleAr: course.titleAr,
-    lessons: getLessonsByCourse(course.id).map(({ id, courseId, slug, title, titleAr, description, descriptionAr, durationMinutes, thumbnail, order }) => ({
+    lessons: getLessonsByCourse(course.id).map(({ id, courseId, slug, title, titleAr, description, descriptionAr, durationMinutes, order }) => ({
       id, courseId, slug, title, titleAr, description, descriptionAr, durationMinutes, thumbnail: lessonNarratives[slug]?.visuals[0]?.src ?? "/images/brand/alpha-traders-logo.webp", order,
     })),
   }))} />;

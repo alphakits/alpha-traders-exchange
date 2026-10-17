@@ -29,7 +29,7 @@ import { useAuthenticatedNotificationStream } from "@/components/notifications/u
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { israelCalendarDayNumber } from "@/lib/israel-calendar";
-import { isCashTradePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getTradeRoomSnapshotAction as buildTradeRoomActionForSnapshot, tradeRoomActionLabel, type TradeRoomActionSnapshot as TradeSnapshotPayload } from "@/lib/trade-room-destination";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -49,22 +49,6 @@ function validNotificationItems(value: unknown, userId: string): value is AlphaE
     && typeof item.category === "string" && typeof item.isRead === "boolean"
     && typeof item.createdAt === "string" && Number.isFinite(Date.parse(item.createdAt)));
 }
-
-type TradeRoomRequestPayload = {
-  id: string;
-  status: string;
-  sellerId: string;
-  buyerId: string;
-  paymentMethod?: string;
-};
-
-type TradeSnapshotPayload = {
-  requestId?: string;
-  currentStage?: string;
-  sellerId?: string;
-  buyerId?: string;
-  paymentMethod?: string;
-};
 
 type NotificationFilter = "all" | "actions" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
@@ -107,50 +91,8 @@ function buildTradeRoomHashForAction(action: string) {
   return "action-required";
 }
 
-function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
-  const isSeller = request.sellerId === actorUserId;
-  const isBuyer = request.buyerId === actorUserId;
-  const cashTrade = isCashTradePaymentMethod(request.paymentMethod);
-  if (request.status === "pending" && isSeller) return "accept-trade";
-  if (request.status === "accepted" && isBuyer) return cashTrade ? "confirm-cash-payment" : "upload-payment-receipt";
-  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
-  if (request.status === "funds_received" && isSeller) return cashTrade ? "confirm-usdt-sent" : "release-usdt";
-  if (request.status === "usdt_release_pending" && isSeller) return cashTrade ? "confirm-usdt-sent" : "upload-seller-evidence";
-  if (request.status === "usdt_sent" && cashTrade && isSeller) return "complete-cash-trade";
-  if (request.status === "usdt_sent" && !cashTrade && isBuyer) return "confirm-usdt-received";
-  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
-  return "open-trade";
-}
-
-function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null | undefined, actorUserId: string) {
-  const requestId = String(snapshot?.requestId ?? "").trim();
-  const status = String(snapshot?.currentStage ?? "").trim();
-  const sellerId = String(snapshot?.sellerId ?? "").trim();
-  const buyerId = String(snapshot?.buyerId ?? "").trim();
-  if (!requestId || !status || !sellerId || !buyerId) return null;
-  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId, paymentMethod: snapshot?.paymentMethod }, actorUserId);
-}
-
 function notificationNeedsUserAction(notification: AlphaExchangeNotification) {
-  if (isNotificationActionRequired(notification)) return true;
-  if (notification.category !== "trade") return false;
-  const tradeAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
-  return Boolean(tradeAction && tradeAction !== "open-trade");
-}
-
-function tradeRoomActionLabel(action: string, locale: AppLocale) {
-  const isAr = locale === "ar";
-  if (action === "accept-trade") return isAr ? "مراجعة طلب الصفقة" : "Review trade request";
-  if (action === "confirm-cash-payment") return isAr ? "تأكيد تسليم النقد أو الرمز" : "Confirm cash or code sent";
-  if (action === "upload-payment-receipt") return isAr ? "رفع إيصال الدفع" : "Upload payment receipt";
-  if (action === "confirm-money-received") return isAr ? "تأكيد استلام الدفعة" : "Confirm payment received";
-  if (action === "release-usdt") return isAr ? "بدء إرسال USDT" : "Begin USDT release";
-  if (action === "upload-seller-evidence") return isAr ? "رفع الإثبات وإرسال USDT" : "Upload proof and send USDT";
-  if (action === "confirm-usdt-sent") return isAr ? "تأكيد إرسال USDT" : "Confirm USDT sent";
-  if (action === "complete-cash-trade" || action === "send-usdt-complete") return isAr ? "تحديد الصفقة كمكتملة" : "Mark trade as completed";
-  if (action === "confirm-usdt-received") return isAr ? "تأكيد استلام USDT" : "Confirm USDT received";
-  if (action === "review-trade") return isAr ? "إضافة تقييم للصفقة" : "Leave a trade review";
-  return isAr ? "عرض تفاصيل الصفقة" : "View trade details";
+  return isNotificationActionRequired(notification);
 }
 
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
@@ -485,7 +427,7 @@ function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
         return isAr ? "فتح رسالة الصفقة" : "Open trade message";
       }
       const tradeAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
-      if (tradeAction && tradeAction !== "open-trade") return tradeRoomActionLabel(tradeAction, locale);
+      if (tradeAction) return tradeRoomActionLabel(tradeAction, locale);
       if (notification.actionLabel?.trim()) {
         return localizeNotificationActionLabel(notification.actionLabel, locale, notification);
       }

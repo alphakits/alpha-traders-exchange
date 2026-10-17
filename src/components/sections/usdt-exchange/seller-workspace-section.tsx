@@ -100,7 +100,6 @@ type SellerOverviewStats = {
   tradeRequests: number;
   successRate: number;
   completionRate: number;
-  estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;
   averageTradeSize: number;
@@ -395,10 +394,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     || (commissionWorkspaceAction.kind === "pay-one" ? commissionWorkspaceAction.commissionId.trim() : "");
   const selectedCommissionPayment = (sellerCommissionStatus?.payableRecords as PayableCommissionWithVerification[] | undefined)
     ?.find((record) => record.commissionId.trim() === selectedCommissionId);
+  const selectedCommissionIsCarried = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "tolerance_carry_forward";
   const selectedCommissionIsAdminIssued = (selectedCommissionPayment?.source ?? sellerCommissionStatus?.source) === "admin_manual";
-  const selectedCommissionIssueReason = selectedCommissionPayment?.issueReason?.trim()
-    || sellerCommissionStatus?.issueReason?.trim()
-    || "";
+  const selectedCommissionIssueReason = selectedCommissionIsCarried
+    ? (isAr ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية." : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.")
+    : selectedCommissionPayment?.issueReason?.trim() || sellerCommissionStatus?.issueReason?.trim() || "";
   const selectedCommissionSubmittedAt = selectedCommissionPayment?.paymentSubmittedAt
     ? new Date(selectedCommissionPayment.paymentSubmittedAt)
     : null;
@@ -515,9 +515,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <AttentionSiren className="mt-0.5 text-xl" />
                     <div className="flex-1 space-y-2">
                       <p className="commission-notice font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
-                      {selectedCommissionIsAdminIssued ? (
+                      {selectedCommissionIsAdminIssued || selectedCommissionIsCarried ? (
                         <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
-                          <p className="commission-notice font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                          <p className="commission-notice font-semibold">{selectedCommissionIsCarried ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</p>
                           {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{currencyText(selectedCommissionIssueReason)}</p> : null}
                         </div>
                       ) : null}
@@ -594,6 +594,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <span className="commission-notice">
                           {currencyText(record.relatedTradeDisplayNumber
                             ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}`
+                            : record.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance")
                             : record.source === "admin_manual"
                               ? (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")
                               : (isAr ? "سجل العمولة" : "Commission record"))}
@@ -628,9 +629,9 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                {selectedCommissionIsAdminIssued ? (
+                {selectedCommissionIsAdminIssued || selectedCommissionIsCarried ? (
                   <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
-                    <p className="commission-notice font-semibold">{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</p>
+                    <p className="commission-notice font-semibold">{selectedCommissionIsCarried ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</p>
                     {selectedCommissionIssueReason ? <p className="mt-1 whitespace-pre-wrap break-words">{currencyText(selectedCommissionIssueReason)}</p> : null}
                   </div>
                 ) : null}

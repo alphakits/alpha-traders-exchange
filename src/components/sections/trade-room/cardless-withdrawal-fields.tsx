@@ -51,7 +51,7 @@ export function CardlessWithdrawalFields(props: Props) {
           {isAr ? "اكتب يوم/شهر/سنة، مثال: 25/08/1995" : "Type day/month/year, for example: 25/08/1995"}
         </p> : null}
       </div>
-      <p className="text-xs text-[#D1D5DB]">{props.phase === "request" ? (isAr ? "أنشئ الرمز لدى بنكك أولًا. تظهر التفاصيل بعد القبول، ثم يُقفل الإلغاء." : "Create the code with your bank first. Details unlock after acceptance; cancellation then closes.") : isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
+      <p className="text-xs text-[#D1D5DB]">{props.phase === "request" ? (isAr ? "أنشئ الرمز لدى بنكك أولًا. تبقى التفاصيل خاصة حتى تؤكد إرسالها بعد قبول البائع، ثم يُقفل الإلغاء." : "Create the code with your bank first. Details stay private until you confirm sending them after seller acceptance; cancellation then closes.") : isAr ? "راجع البيانات قبل الإرسال. بعد إرسالها يبدأ سحب النقد ولا يعود الإلغاء العادي متاحاً." : "Check both details before sending. Cash collection starts after submission and normal cancellation is no longer available."}</p>
     </fieldset>
   );
 }

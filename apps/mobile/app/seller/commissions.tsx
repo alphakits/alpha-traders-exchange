@@ -15,6 +15,7 @@ import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
 import { formatCount, formatUsdt } from "../../src/finance/financial-display";
+import { formatCommissionAmount } from "@alpha-traders/contracts";
 import {
   BINANCE_USDT_TRC20_COMMISSION_ADDRESS,
   formatExactTrc20CommissionAmount,
@@ -36,6 +37,7 @@ export default function SellerCommissionsScreen() {
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
   const isAr = locale === "ar";
+  const carriedReason = isAr ? "رصيد غير مدفوع من دفعة عمولة سابقة تم التحقق منها. هذه ليست رسوم تداول إضافية." : "Unpaid balance from an earlier verified commission payment. This is not an additional trading fee.";
   const canSell = canUseSellerTools(user) || user?.sellerStatus === "suspended";
   const queryKey = ["mobile-seller-commissions", user?.id ?? "anonymous", locale] as const;
   const query = useQuery({
@@ -259,10 +261,10 @@ export default function SellerCommissionsScreen() {
                 style={[styles.option, commissionId === record.commissionId && styles.optionSelected]}
               >
                 <Text style={[styles.optionTitle, isRTL && styles.rtlText]}>{commissionId === record.commissionId ? "✓ " : ""}{formatExactTrc20CommissionAmount(record.paymentAmountDue ?? record.amountDue)}</Text>
-                {recordContext.isAdminIssued ? (
+                {recordContext.isAdminIssued || record.source === "tolerance_carry_forward" ? (
                   <View style={styles.adminIssuedCard}>
-                    <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</Text>
-                    {recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{recordContext.issueReason}</Text> : null}
+                    <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{record.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</Text>
+                    {record.source === "tolerance_carry_forward" || recordContext.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{record.source === "tolerance_carry_forward" ? carriedReason : recordContext.issueReason}</Text> : null}
                   </View>
                 ) : recordContext.tradeReference ? (
                   <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الصفقة" : "Trade"}: #{recordContext.tradeReference}</Text>
@@ -290,10 +292,10 @@ export default function SellerCommissionsScreen() {
               : (isAr ? "دفع العمولة عبر USDT" : "Pay commission by USDT")}
           </Text>
 
-          {selectedRecord.source === "admin_manual" ? (
+          {selectedRecord.source === "admin_manual" || selectedRecord.source === "tolerance_carry_forward" ? (
             <View style={styles.adminIssuedCard}>
-              <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission"}</Text>
-              {selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.issueReason}</Text> : null}
+              <Text style={[styles.adminIssuedTitle, isRTL && styles.rtlText]}>{selectedRecord.source === "tolerance_carry_forward" ? (isAr ? "رصيد عمولة مرحّل" : "Carried commission balance") : (isAr ? "عمولة صادرة عن الإدارة" : "Admin-issued commission")}</Text>
+              {selectedRecord.source === "tolerance_carry_forward" || selectedRecord.issueReason ? <Text style={[styles.body, isRTL && styles.rtlText]}>{selectedRecord.source === "tolerance_carry_forward" ? carriedReason : selectedRecord.issueReason}</Text> : null}
             </View>
           ) : null}
 
@@ -341,8 +343,8 @@ export default function SellerCommissionsScreen() {
           </View>
 
           {selectedRecord?.feePolicyVersion === "buyer_seller_1pct_v1" ? <View style={styles.instructionsCard}>
-            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {selectedRecord.sellerFeeAmount?.toFixed(2)} USDT</Text>
-            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {selectedRecord.buyerFeeCollectedAmount?.toFixed(2)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "عمولتك كبائع (1%)" : "Your seller fee (1%)"}: {formatCommissionAmount(selectedRecord.sellerFeeAmount ?? 0)} USDT</Text>
+            <Text style={[styles.body, styles.commissionNotice]}>{isAr ? "حصة المشتري المستحقة لألفا (1%)" : "Buyer share payable to Alpha (1%)"}: {formatCommissionAmount(selectedRecord.buyerFeeCollectedAmount ?? 0)} USDT</Text>
             <Text style={[styles.body, styles.commissionNotice, isRTL && styles.rtlText]}>{sellerFeeResponsibilityNotice(isAr ? "ar" : "en")}</Text>
           </View> : null}
           <View style={styles.instructionsCard}>

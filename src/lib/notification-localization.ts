@@ -3,6 +3,7 @@ import { isNewListingBroadcastNotification } from "@/lib/listing-notification";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification } from "@/types/alpha-exchange";
 
 const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
+  "buyer confirmed cash received": "أكد المشتري استلام البائع للنقد",
   "trade ready to complete": "الصفقة جاهزة للإكمال",
   "listing expired": "انتهت صلاحية العرض",
   "congratulations on your new seller rank": "تهانينا على رتبة البائع الجديدة",
@@ -153,6 +154,8 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
 };
 
 const ARABIC_MESSAGE_BY_ENGLISH: Record<string, string> = {
+  "buyer confirmed handing the full cash total to you. verify the cash, send usdt to the revealed wallet, then complete the trade.": "أكد المشتري تسليم كامل النقد لك. تحقق من النقد، ثم أرسل USDT إلى المحفظة الظاهرة وأكمل الصفقة.",
+  "seller marked usdt as sent and will complete the trade. check your receiving wallet.": "أكد البائع إرسال USDT وسيكمل الصفقة. تحقق من محفظة الاستلام.",
   "seller marked usdt as sent. the seller can now complete the trade without waiting for buyer confirmation.": "أكد البائع إرسال USDT. يمكنه الآن إكمال الصفقة دون انتظار تأكيد المشتري.",
   "seller confirmed trade completed": "أكد البائع اكتمال الصفقة",
   "seller confirmed usdt delivery and completed the trade. the trade has moved to history and review, and the seller commission is due.": "أكد البائع تسليم USDT وأكمل الصفقة. انتقلت الصفقة إلى السجل والتقييم وأصبحت عمولة البائع مستحقة.",

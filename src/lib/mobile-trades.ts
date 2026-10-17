@@ -13,6 +13,7 @@ import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 import {
   isBankTransferPaymentMethod,
+  isBankDetailsDisclosureStage,
   isFaceToFacePaymentMethod,
   isCashTradeCompletionAvailable,
   isSellerTradeCompletionAvailable,
@@ -103,10 +104,13 @@ export function toMobileTradeActions(
     canViewBankDetails: isBuyer
       && Boolean(request.sellerBankAccountId)
       && isBankTransferPaymentMethod(request.paymentMethod)
-      && !["pending", "declined", "cancelled"].includes(request.status),
+      && isBankDetailsDisclosureStage(request.status),
     canMarkPaymentSent: isBuyer
       && isCashTrade
-      && request.status === "accepted",
+      && (request.status === "accepted" || (isFaceToFacePaymentMethod(request.paymentMethod) && request.status === "payment_sent")),
+    canConfirmPreparedCardlessCode: isBuyer && request.paymentMethod === "Cardless ATM Withdrawal"
+      && request.status === "accepted" && request.cardlessCodeAwaitingBuyerConfirmation === true
+      && Boolean(request.messages?.some(message => message.credentialKind === "cardless_code")),
     canUploadPaymentEvidence: isBuyer
       && request.status === "accepted"
       && !isCashTrade,
@@ -122,8 +126,9 @@ export function toMobileTradeActions(
     canUploadReleaseEvidence: isSeller
       && request.status === "usdt_release_pending"
       && !isCashTrade,
-    canConfirmReceived: isBuyer
-      && request.status === "usdt_sent",
+    // Retain the wire field for installed clients; receipt confirmation must
+    // never grant buyers the seller's settlement action.
+    canConfirmReceived: false,
     canCompleteTrade: isSeller && isSellerTradeCompletionAvailable(request.paymentMethod, request.status),
     canCompleteFaceToFace: isSeller
       && isCashTradeCompletionAvailable(request.paymentMethod, request.status),
@@ -213,7 +218,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
       return "LISTING_UNAVAILABLE";
     }
     if (code === "safety-acknowledgment-required") return "SAFETY_ACKNOWLEDGEMENT_REQUIRED";
-    if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_NOT_LOWER" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
+    if (code === "PRICE_OFFER_INVALID_FORMAT" || code === "PRICE_OFFER_ABOVE_MAXIMUM" || code === "PRICE_OFFER_BELOW_MINIMUM" || code === "PRICE_OFFERS_ILS_ONLY") {
       return "PRICE_OFFER_INVALID";
     }
     if (code === "purchase-request-not-found") return "TRADE_NOT_FOUND";
@@ -249,7 +254,7 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
   if (message.includes("review already submitted") || message.includes("response already submitted") || message.includes("cannot reply")) {
     return "TRADE_ACTION_NOT_ALLOWED";
   }
-  if (message.includes("not allowed") || message.includes("only after") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
+  if (message.includes("not allowed") || message.includes("only after") || message.includes("bank details are available only") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
   return null;
 }
 

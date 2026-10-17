@@ -27,6 +27,10 @@ const APP_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,49}$/;
 const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = {
+  AGE_CONFIRMATION_REQUIRED: {
+    en: "Confirm that you are 18 or older at alphatraders.co.il before using Alpha Exchange.",
+    ar: "أكد أن عمرك 18 عامًا أو أكثر على alphatraders.co.il قبل استخدام Alpha Exchange.",
+  },
   PHONE_VERIFICATION_REQUIRED: {
     en: "Verify your phone by SMS before using your buyer or seller account.",
     ar: "أكد رقم هاتفك برسالة نصية قبل استخدام حساب المشتري أو البائع.",
@@ -141,8 +145,8 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     en: "Complete feedback for your previous trade before starting a new one.",
   },
   AWAITING_BUYER_CONFIRMATION: {
-    ar: "أكد استلام USDT في صفقتك السابقة قبل بدء صفقة جديدة.",
-    en: "Confirm receipt of USDT in your previous trade before starting a new one.",
+    ar: "صفقتك السابقة بانتظار إكمال البائع. افتح غرفة الصفقة للتواصل معه قبل بدء صفقة جديدة.",
+    en: "Your previous trade is waiting for the seller to complete it. Open the Trade Room to contact the seller before starting a new one.",
   },
   COMMISSION_DUE: {
     ar: "لديك عمولة معلقة. قم بتسويتها قبل قبول صفقة جديدة.",

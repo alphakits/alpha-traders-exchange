@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 import { DEFAULT_SETTINGS, type JournalTrade, type JournalReview, type JournalSettings } from "./model";
 
 export class JournalConflict extends Error {}
@@ -13,6 +14,7 @@ export async function withJournalUser<T>(userId: string, operation: (db: PoolCli
   const pool = getRuntimePostgresPool();
   if (!pool) throw new Error("Journal database unavailable");
   const db = await pool.connect();
+  let destroy = false;
   try {
     await db.query(readSnapshot ? "begin isolation level repeatable read read only" : "begin");
     await db.query("set local role alpha_journal_runtime");
@@ -21,9 +23,9 @@ export async function withJournalUser<T>(userId: string, operation: (db: PoolCli
     await db.query("commit");
     return result;
   } catch (error) {
-    await db.query("rollback");
+    destroy = await rollbackFailedTransaction(db, error);
     throw error;
-  } finally { db.release(); }
+  } finally { db.release(destroy); }
 }
 type TradeRow = { id: string; version: number; payload: JournalTrade; created_at: Date; updated_at: Date };
 function tradeFromRow(row: TradeRow): JournalTrade {

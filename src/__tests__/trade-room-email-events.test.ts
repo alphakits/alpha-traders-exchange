@@ -185,6 +185,20 @@ describe("Trade Room email events", () => {
     }));
   });
 
+  it("emails the seller when the face-to-face buyer confirms cash receipt", async () => {
+    const request = { ...createRequest("funds_received"), paymentMethod: "Face-to-Face (Meet in Person)" };
+    request.timeline = [{ id: "cash-confirmation", type: "buyer_confirmed_funds", actorUserId: request.buyerId, actorRole: "buyer", message: "Buyer confirmed the seller received the cash", createdAt: request.updatedAt }];
+    const deliver = await prepareTradeEventEmails({ event: "seller_funds_received", request });
+    await deliver();
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: "seller-1@example.test",
+      title: { ar: "أكد المشتري استلام البائع للنقد", en: "Buyer Confirmed Cash Receipt" },
+      message: expect.objectContaining({ en: expect.stringContaining("Verify the cash, send USDT") }),
+      idempotencyKey: "trade-lifecycle:purchase-1:seller_funds_received:seller-1",
+    }));
+  });
+
   it("emails the Buyer for both seller-side middle transitions", async () => {
     const fundsReceived = await prepareTradeEventEmails({
       event: "seller_funds_received",

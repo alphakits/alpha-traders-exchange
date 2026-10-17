@@ -6,6 +6,11 @@ import { hasSellerOperationalAccess } from "@/lib/seller-approval-verification";
 import { logEvent } from "@/lib/structured-logging";
 import { needsMarketplacePhoneVerification } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
+import { needsAdultConfirmation } from "@/lib/age-eligibility";
+
+// Authorization failures depend on the current session and can change after
+// sign-in, verification or a role change. Never store or share those responses.
+const AUTH_FAILURE_HEADERS = { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" };
 
 export async function requireApiUser() {
   let user: Awaited<ReturnType<typeof getCurrentSessionUserForAuthorization>>;
@@ -25,7 +30,7 @@ export async function requireApiUser() {
       user: null,
       unauthorized: NextResponse.json({ error: "Account temporarily unavailable. Please try again.", code: "SESSION_TEMPORARILY_UNAVAILABLE" }, {
         status: 503,
-        headers: { "Cache-Control": "no-store, max-age=0", "Retry-After": "3" },
+        headers: { ...AUTH_FAILURE_HEADERS, "Retry-After": "3" },
       }),
     };
   }
@@ -46,7 +51,7 @@ export async function requireApiUser() {
       accountDisabled
         ? { error: "This account is disabled.", code: "ACCOUNT_DISABLED" }
         : { error: "Unauthorized" },
-      { status: accountDisabled ? 403 : 401 },
+      { status: accountDisabled ? 403 : 401, headers: AUTH_FAILURE_HEADERS },
     );
     if (token) {
       unauthorized.cookies.delete(AUTH_COOKIE_NAME);
@@ -86,7 +91,7 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
       error: "Email verification is required before marketplace actions.",
       code: "EMAIL_VERIFICATION_REQUIRED",
     },
-    { status: 403 },
+    { status: 403, headers: AUTH_FAILURE_HEADERS },
   );
 }
 
@@ -94,7 +99,10 @@ export function requireEmailVerificationForTrading(user: { id: string; role: str
  * Production actions require a verified phone or an exact owner-authorized account.
  * Local fixture switches cannot disable this boundary on a deployed host.
  */
-export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
+export function requirePhoneVerificationForTrading(user: { id: string; role: string; roles?: string[]; email?: string; verifiedPhone?: string; phoneVerifiedAt?: string; ageEligibility?: unknown }) {
+  if (needsAdultConfirmation(user)) return NextResponse.json({
+    code: "AGE_CONFIRMATION_REQUIRED", error: "Confirm that you are 18 or older before using Alpha Exchange.",
+  }, { status: 403, headers: AUTH_FAILURE_HEADERS });
   if (!needsMarketplacePhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",
@@ -108,13 +116,14 @@ export function requirePhoneVerificationForTrading(user: { id: string; role: str
       error: "Phone verification is required before marketplace actions.",
       code: "PHONE_VERIFICATION_REQUIRED",
     },
-    { status: 403 },
+    { status: 403, headers: AUTH_FAILURE_HEADERS },
   );
 }
 
 export function requireMarketplaceVerificationForTrading(user: {
   id: string; role: string; roles?: string[]; email?: string;
   emailVerified?: boolean; verifiedPhone?: string; phoneVerifiedAt?: string;
+  ageEligibility?: unknown;
 }) {
   return requireEmailVerificationForTrading(user) ?? requirePhoneVerificationForTrading(user);
 }
@@ -134,7 +143,7 @@ export async function requireApiAdmin() {
     });
     return {
       user: null,
-      unauthorized: NextResponse.json({ error: "Admin access required." }, { status: 403 }),
+      unauthorized: NextResponse.json({ error: "Admin access required." }, { status: 403, headers: AUTH_FAILURE_HEADERS }),
     };
   }
   const phoneVerification = requirePhoneVerificationForTrading(user);
@@ -155,7 +164,7 @@ export async function requireApiOwner() {
     });
     return {
       user: null,
-      unauthorized: NextResponse.json({ error: "Owner access required." }, { status: 403 }),
+      unauthorized: NextResponse.json({ error: "Owner access required." }, { status: 403, headers: AUTH_FAILURE_HEADERS }),
     };
   }
   const phoneVerification = requirePhoneVerificationForTrading(user);
@@ -176,7 +185,7 @@ export async function requireApiBuyer() {
     });
     return {
       user: null,
-      unauthorized: NextResponse.json({ error: "Buyer verification required." }, { status: 403 }),
+      unauthorized: NextResponse.json({ error: "Buyer verification required." }, { status: 403, headers: AUTH_FAILURE_HEADERS }),
     };
   }
   const verification = requirePhoneVerificationForTrading(user);
@@ -197,7 +206,7 @@ export async function requireApiStudent() {
     });
     return {
       user: null,
-      unauthorized: NextResponse.json({ error: "Student access required." }, { status: 403 }),
+      unauthorized: NextResponse.json({ error: "Student access required." }, { status: 403, headers: AUTH_FAILURE_HEADERS }),
     };
   }
   return { user, unauthorized: null };
@@ -216,7 +225,7 @@ export async function requireApiSeller() {
     });
     return {
       user: null,
-      unauthorized: NextResponse.json({ error: "Approved seller access required." }, { status: 403 }),
+      unauthorized: NextResponse.json({ error: "Approved seller access required." }, { status: 403, headers: AUTH_FAILURE_HEADERS }),
     };
   }
   const verification = requirePhoneVerificationForTrading(user);
@@ -247,7 +256,7 @@ export async function requireApiSellerWorkspaceActor() {
     });
     return {
       user: null,
-      unauthorized: NextResponse.json({ error: "Seller account required." }, { status: 403 }),
+      unauthorized: NextResponse.json({ error: "Seller account required." }, { status: 403, headers: AUTH_FAILURE_HEADERS }),
     };
   }
 

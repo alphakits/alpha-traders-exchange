@@ -27,5 +27,7 @@ export function withMeasuredSellerActivity(snapshot: SellerReputationSnapshot, r
   const badges: SellerReputationSnapshot["badges"] = snapshot.badges.filter(badge => badge !== "top_rated" && badge !== "fast_responder");
   if (facts.totalReviews > 0 && facts.rating >= 4.9) badges.push("top_rated");
   if (facts.responseSampleCount > 0 && facts.responseTimeMinutes <= 2) badges.push("fast_responder");
-  return { ...snapshot, rating: facts.rating, responseTimeMinutes: facts.responseTimeMinutes, completedTrades: facts.completedTrades, badges };
+  return { ...snapshot, rating: facts.rating, responseTimeMinutes: facts.responseTimeMinutes, completedTrades: facts.completedTrades, badges,
+    customerSatisfaction: facts.totalReviews ? facts.rating / 5 * 100 : undefined,
+    disputesLost: undefined, profileViews: undefined, listingViews: undefined, monthlyGrowthPercent: undefined };
 }

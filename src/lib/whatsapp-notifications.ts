@@ -1,4 +1,5 @@
 import "server-only";
+import { rollbackFailedTransaction } from "@/lib/postgres-transaction";
 
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { after } from "next/server";
@@ -212,10 +213,6 @@ async function ensureWhatsAppSchema(pool: Pool) {
     });
   }
   await schemaPromise;
-}
-
-function rollbackQuietly(client: PoolClient) {
-  return client.query("rollback").catch(() => undefined);
 }
 
 function subscriptionFromRow(row: PersistedSubscriptionRow): WhatsAppSubscription {
@@ -437,6 +434,7 @@ export async function updateWhatsAppSubscription(input: {
   const pool = requireWhatsAppPool();
   await ensureWhatsAppSchema(pool);
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const userResult = await client.query<{ payload: unknown }>(
@@ -567,10 +565,10 @@ export async function updateWhatsAppSubscription(input: {
     }
     await client.query("commit");
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
   return getWhatsAppChannelStatus(userId);
 }
@@ -739,6 +737,7 @@ async function claimDelivery(
     recipientUserId: context.notification.userId,
   });
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     if (event === "trade_room_message") {
@@ -826,10 +825,10 @@ async function claimDelivery(
     const claimed = result.rows[0];
     return claimed ? { id: claimed.id, leaseToken, attemptCount: claimed.attempt_count } : null;
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -949,6 +948,7 @@ async function suppressExistingDelivery(
 
 async function deactivateChangedPhoneConsent(pool: Pool, userId: string, observedPhoneFingerprint: string) {
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     await client.query("select id from alpha_exchange.users where id = $1 for update", [userId]);
@@ -986,10 +986,10 @@ async function deactivateChangedPhoneConsent(pool: Pool, userId: string, observe
     });
     await client.query("commit");
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 
@@ -1425,6 +1425,7 @@ export async function revokeWhatsAppConsentByPhone(input: {
   if (!pool) return 0;
   await ensureWhatsAppSchema(pool);
   const client = await pool.connect();
+  let destroy = false;
   try {
     await client.query("begin");
     const occurredAt = toIso(input.occurredAt) ?? new Date().toISOString();
@@ -1478,10 +1479,10 @@ export async function revokeWhatsAppConsentByPhone(input: {
     await client.query("commit");
     return result.rows.length;
   } catch (error) {
-    await rollbackQuietly(client);
+    destroy = await rollbackFailedTransaction(client, error);
     throw error;
   } finally {
-    client.release();
+    client.release(destroy);
   }
 }
 

@@ -16,8 +16,12 @@ export function PageSectionNavigation() {
       if (id) revealPageSection(id);
       else cancelPageSectionNavigation();
     };
-    // Next commits its URL and its rendered page in the same navigation turn.
-    const frame = window.requestAnimationFrame(revealHash);
+    // An empty initial hash has nothing to restore. Cancelling here can erase
+    // a workspace action while its dynamically loaded target is mounting.
+    // Actual hash/history changes still cancel an obsolete pending section.
+    const frame = window.requestAnimationFrame(() => {
+      if (pageSectionId(window.location.hash)) revealHash();
+    });
     window.addEventListener("hashchange", revealHash);
     window.addEventListener("popstate", revealHash);
     return () => {

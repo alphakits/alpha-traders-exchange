@@ -55,14 +55,14 @@ describe("trade room bank details route", () => {
   });
 
   it("maps not-allowed errors to 403", async () => {
-    mocks.getTradeRoomBankDetails.mockRejectedValue(new Error("Bank details are available only after the seller accepts the trade."));
+    mocks.getTradeRoomBankDetails.mockRejectedValue(new Error("Bank details are available only for an active Bank Transfer request."));
 
     const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details", { method: "POST" });
     const response = await POST(request, { params: Promise.resolve({ requestId: "req-1" }) });
     const payload = await response.json() as { error?: string };
 
     expect(response.status).toBe(403);
-    expect(payload.error).toMatch(/only after/i);
+    expect(payload.error).toMatch(/only for/i);
   });
 
   it("maps missing trade errors to 404", async () => {

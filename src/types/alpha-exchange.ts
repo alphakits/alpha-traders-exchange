@@ -147,6 +147,8 @@ export interface AlphaExchangeUser {
   registeredViaInviteCodeId?: string;
   verifiedPhone?: string;
   phoneVerifiedAt?: string;
+  /** Private server-recorded adult confirmation; never inferred from roles or provider metadata. */
+  ageEligibility?: import("@/lib/age-eligibility").AdultEligibility;
   phoneOtpHash?: string;
   phoneOtpSalt?: string;
   phoneOtpExpiresAt?: string;
@@ -406,18 +408,20 @@ export interface SellerReputationSnapshot {
   cancellationRate: number;
   completionRate: number;
   responseTimeMinutes: number;
-  customerSatisfaction: number;
+  customerSatisfaction?: number;
   recentActivityScore: number;
   accountAgeDays: number;
   profileCompletion: number;
   verificationScore: number;
-  disputesLost: number;
+  /** Unavailable until a dispute records an adjudicated losing party. */
+  disputesLost?: number;
+  accountSuspended?: boolean;
   marketplaceViolations: number;
   listingQualityScore: number;
-  profileViews: number;
-  listingViews: number;
+  profileViews?: number;
+  listingViews?: number;
   tradeRequests: number;
-  monthlyGrowthPercent: number;
+  monthlyGrowthPercent?: number;
   estimatedCommissionPaid: number;
   revenueGenerated: number;
   repeatBuyers: number;
@@ -498,6 +502,7 @@ export type TradeTimelineEventType =
   | "price_offer_accepted"
   | "payment_sent"
   | "seller_confirmed_funds"
+  | "buyer_confirmed_funds"
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
@@ -850,8 +855,12 @@ export interface AdminAnnouncementRun {
 
 export interface PurchaseRequest {
   feePolicyVersion?: "buyer_seller_1pct_v1";
+  /** Set by the server when submitted; legacy requests retain their existing rounding. */
+  commissionCalculationVersion?: "usdt_6dp_v2";
   /** Server-owned count of submitted financial proposals; never refunded. */
   amountAdjustmentCount?: number;
+  /** Durable, server-owned follow-up committed with a terminal trade transition. */
+  trustReconciliation?: { requestedAt: string; requestedByUserId: string; reconciledAt?: string };
   termsProposal?: import("@alpha-traders/contracts").TradeTermsProposal;
   id: string;
   tradeId?: string;
@@ -897,6 +906,8 @@ export interface PurchaseRequest {
   /** First sensitive payment-detail disclosure, retained for audit and redaction decisions. */
   sensitivePaymentSharedAt?: string;
   sensitivePaymentKind?: "bank_details" | "cardless_code";
+  /** Prepared credentials remain private after acceptance until the buyer confirms sending. */
+  cardlessCodeAwaitingBuyerConfirmation?: boolean;
   fundsReceivedAt?: string;
   usdtReleaseStartedAt?: string;
   usdtReleaseDeadlineAt?: string;
@@ -929,6 +940,8 @@ export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 
 export interface CommissionRecord {
   id: string;
+  /** Immutable calculation boundary copied from the originating request. */
+  commissionCalculationVersion?: "usdt_6dp_v2";
   /**
    * Trade-backed commissions keep these linkage fields. Manual commissions
    * deliberately omit them instead of inventing marketplace entity IDs.
@@ -939,8 +952,11 @@ export interface CommissionRecord {
   listingId?: string;
   sellerId: string;
   buyerId?: string;
-  source?: "trade" | "admin_manual";
+  source?: "trade" | "admin_manual" | "tolerance_carry_forward";
   issuedByUserId?: string;
+  /** Immutable identity/fingerprint for safe manual-assignment retries. */
+  issueOperationId?: string;
+  issueRequestHash?: string;
   /** Seller-visible explanation supplied by the admin who issued it. */
   issueReason?: string;
   rate: number;

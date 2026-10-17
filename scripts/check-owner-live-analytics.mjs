@@ -6,7 +6,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
 import vm from "node:vm";
-import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -301,11 +300,47 @@ test("closed panel does not render private metric data", () => {
   const text = flatten(renderPanel("en", { ...model.initialLiveAnalyticsState(), snapshot: snapshot() }, false));
   assert.doesNotMatch(text, /5,000/); assert.match(text, /Open/);
 });
-test("owner page preserves original guards and destination code byte-for-byte", () => {
-  let page = read("src/app/[locale]/admin/alpha-exchange/page.tsx");
-  page = page.replace('import { OwnerLiveAnalyticsPanel } from "@/components/admin/owner-live-analytics-panel";\n', "");
-  page = page.replace(/  return <>\n    \{hasRole\(user, "owner"\) \? <OwnerLiveAnalyticsPanel[^\n]+\n    (<AlphaExchangeAdminDashboard[^\n]+)\n  <\/>;/,
-    (_, original) => `  return ${original};`);
-  const bytes = Buffer.from(page); const sha = crypto.createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-  assert.equal(sha, "7be5ff1e1b06bc66a5c16aa5c7eec0019a867ccd");
+function renderExchangePage(user, locale = "en", query = {}) {
+  const page = load("src/app/[locale]/admin/alpha-exchange/page.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "fragment" },
+    "next/link": { default: "profile-link" },
+    "next/navigation": { redirect: destination => { throw new Error(`redirect:${destination}`); } },
+    "@/lib/seo": { buildPageMetadata: () => ({}) },
+    "@/lib/auth": { getCurrentSessionUser: async () => user },
+    "@/lib/roles": { hasRole: (account, role) => account.role === role || account.roles?.includes(role) },
+    "@/components/admin/alpha-exchange-admin-dashboard": { AlphaExchangeAdminDashboard: "exchange-dashboard" },
+    "@/components/admin/owner-live-analytics-panel": { OwnerLiveAnalyticsPanel: "owner-live-analytics" },
+  });
+  return page.default({ params: Promise.resolve({ locale }), searchParams: Promise.resolve(query) });
+}
+function pageNodes(value) {
+  if (Array.isArray(value)) return value.flatMap(pageNodes);
+  if (!value || typeof value !== "object") return [];
+  return [value, ...pageNodes(value.props?.children)];
+}
+test("anonymous exchange page preserves only supported destination parameters", async () => {
+  const destination = "/ar/admin/alpha-exchange?section=commissions&commissionId=commission-1";
+  await assert.rejects(renderExchangePage(null, "ar", { section: "commissions", commissionId: "commission-1", external: "https://invalid.example" }),
+    error => error.message === `redirect:/ar/login?redirectTo=${encodeURIComponent(destination)}`);
+});
+test("buyer cannot mount the exchange administration page", async () => {
+  await assert.rejects(renderExchangePage({ role: "buyer", roles: ["buyer"] }), /redirect:\/en\/usdt-exchange/);
+});
+test("ordinary admins receive a stable localized page without private polling components", async () => {
+  for (const locale of ["en", "ar"]) {
+    const page = await renderExchangePage({ role: "admin", roles: ["admin"] }, locale);
+    const nodes = pageNodes(page);
+    assert.equal(nodes.filter(node => node.type === "exchange-dashboard" || node.type === "owner-live-analytics").length, 0);
+    assert.match(flatten(page), locale === "ar" ? /مالك المنصة فقط/ : /platform owner only/);
+    assert.ok(nodes.some(node => node.props?.href === `/${locale}/profile`));
+  }
+});
+test("owner roles mount live analytics once above the private exchange dashboard", async () => {
+  for (const roles of [["owner"], ["owner", "admin"]]) {
+    const nodes = pageNodes(await renderExchangePage({ role: "owner", roles }, "ar"));
+    const panels = nodes.filter(node => node.type === "owner-live-analytics" || node.type === "exchange-dashboard");
+    assert.deepEqual(panels.map(node => node.type), ["owner-live-analytics", "exchange-dashboard"]);
+    assert.ok(panels.every(node => node.props.locale === "ar"));
+    assert.equal(panels[1].props.isOwner, true);
+  }
 });

@@ -7,6 +7,7 @@ import {
   releaseTradeRoomMutation,
 } from "@/lib/trade-room-actions";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
+import { areTradeAmountsLocked } from "@/lib/trade-amount-lock";
 
 const request = {
   id: "request-1",
@@ -45,6 +46,19 @@ describe("Trade Room secondary actions", () => {
     expect(canSellerDeclineTrade(request, "seller-1")).toBe(true);
     expect(canSellerDeclineTrade({ ...request, status: "accepted" }, "seller-1")).toBe(false);
     expect(canSellerDeclineTrade(request, "buyer-1")).toBe(false);
+  });
+
+  it.each([
+    ["buyer-1", false], ["", false], ["seller-1", true], ["owner-1", true], ["admin-1", true],
+  ] as const)("uses the disclosure recipient %s for cancellation and initial amount locks", (actorUserId, mayCancel) => {
+    const viewed = { ...request, timeline: [{
+      id: "view-1", type: "bank_details_revealed", actorUserId, actorRole: "buyer",
+      message: "Trade bank details viewed", createdAt: "2026-10-16T12:00:00Z",
+    }] } as PurchaseRequest;
+    expect(canBuyerCancelTrade(viewed, "buyer-1")).toBe(mayCancel);
+    expect(areTradeAmountsLocked(viewed)).toBe(!mayCancel);
+    expect(areTradeAmountsLocked({ ...viewed, status: "accepted" })).toBe(true);
+    expect(canBuyerCancelTrade({ ...viewed, sensitivePaymentKind: "bank_details", sensitivePaymentSharedAt: "2026-10-16T12:01:00Z" }, "buyer-1")).toBe(false);
   });
 
   it.each(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"])("allows seller cancellation before payment for %s", (paymentMethod) => {
